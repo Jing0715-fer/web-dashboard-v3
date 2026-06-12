@@ -15,7 +15,8 @@ import {
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap,
   Keyboard,
   Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate,
-  TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, User, Clipboard
+  TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, User, Clipboard,
+  SearchX
 } from 'lucide-react'
 
 import {
@@ -850,7 +851,7 @@ function SortableProjectCard({
           onClick={() => onSelect(project)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
         >
-          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1 opacity-30 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()} title="Drag to reorder">
+          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-muted/60 transition-colors" onClick={(e) => e.stopPropagation()} title="Drag to reorder">
             <GripVertical className="h-4 w-4 text-muted-foreground" />
           </div>
           {batchMode && (
@@ -870,9 +871,10 @@ function SortableProjectCard({
             <div className="flex items-center gap-2">
               <span className="font-medium truncate">{highlightText(project.name, searchQuery)}</span>
               {isRemote && (
-                <Badge variant="outline" className={`text-[9px] px-1.5 py-0 shrink-0 ${deviceOnline ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400'}`}>
-                  {deviceOnline ? '🟢' : '🔴'} {project.deviceName}
-                </Badge>
+                <span className={`shrink-0 inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0 rounded-full font-medium ${deviceOnline ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 ring-1 ring-emerald-300/50 dark:ring-emerald-700/50' : 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400 ring-1 ring-red-300/50 dark:ring-red-700/50'}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${deviceOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                  {project.deviceName}
+                </span>
               )}
               <Badge variant={status === 'running' ? 'default' : 'secondary'} className={`text-xs font-medium shrink-0 ${status === 'running' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 animate-pulse' : 'text-foreground dark:text-zinc-200'}`}>
                 <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : 'bg-red-400'} mr-1`} />
@@ -889,7 +891,7 @@ function SortableProjectCard({
           {/* List view: per-environment controls */}
           <div className="hidden md:flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
             {(project.environments || []).slice(0, 3).map((env) => (
-              <div key={env.id} className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted/30 transition-colors ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5 animate-pulse-glow-emerald' : 'bg-muted/20'}`}
+              <div key={env.id} className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted/30 transition-colors ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5 animate-pulse-glow-emerald border-l-2 border-l-emerald-400 dark:border-l-emerald-500' : 'bg-muted/20 border-l-2 border-l-red-300 dark:border-l-red-400'}`}
                 title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
               >
                 <AnimatedStatusDot status={env.status} />
@@ -927,7 +929,9 @@ function SortableProjectCard({
             )}
           </div>
           <div className="flex items-center gap-0.5">
-            <HealthScoreHoverCard score={health} size={32} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
+            <div onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }} className={`cursor-pointer rounded-full transition-all hover:ring-2 hover:ring-emerald-300 dark:hover:ring-emerald-600 ${health < 50 ? 'animate-pulse' : ''}`}>
+              <HealthScoreHoverCard score={health} size={32} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
+            </div>
             <HealthTrendIcon trend={healthTrend} />
           </div>
           <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -1024,17 +1028,12 @@ function SortableProjectCard({
         onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = '' }}
       >
 
-        <div className="absolute top-5 left-2 z-10 flex gap-1 items-start" onClick={(e) => e.stopPropagation()}>
-          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1 rounded bg-muted/80 hover:bg-muted" title="Drag to reorder">
-            <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
+        <div className="absolute top-2 left-2 z-10 flex gap-1 items-start" onClick={(e) => e.stopPropagation()}>
+          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1.5 rounded-md bg-muted/80 hover:bg-muted border border-transparent hover:border-dashed hover:border-muted-foreground/30 transition-all duration-150" title="Drag to reorder">
+            <GripVertical className="h-4 w-4 text-muted-foreground" />
           </div>
           {batchMode && (
             <Checkbox checked={selected} onCheckedChange={() => onToggleSelect(project.id)} className="bg-muted/80 rounded" />
-          )}
-          {isRemote && (
-            <Badge variant="outline" className={`text-[9px] px-1.5 py-0 h-5 ${deviceOnline ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50/80 dark:bg-emerald-900/30' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50/80 dark:bg-red-900/30'}`}>
-              {deviceOnline ? '🟢' : '🔴'} {project.deviceName}
-            </Badge>
           )}
         </div>
 
@@ -1047,7 +1046,15 @@ function SortableProjectCard({
                 <IconComp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               </div>
               <div className="min-w-0 flex-1">
-                <CardTitle className="text-[15px] font-extrabold truncate tracking-tight dark:text-zinc-100 leading-tight">{highlightText(project.name, searchQuery)}</CardTitle>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <CardTitle className="text-[15px] font-extrabold truncate tracking-tight dark:text-zinc-100 leading-tight">{highlightText(project.name, searchQuery)}</CardTitle>
+                  {isRemote && (
+                    <span className={`shrink-0 inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0 rounded-full font-medium ${deviceOnline ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 ring-1 ring-emerald-300/50 dark:ring-emerald-700/50' : 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400 ring-1 ring-red-300/50 dark:ring-red-700/50'}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${deviceOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                      {project.deviceName}
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
                   <button type="button" className="text-xs text-muted-foreground dark:text-gray-400 truncate min-w-0 text-left cursor-pointer hover:text-foreground dark:hover:text-gray-200 transition-colors hover:underline decoration-dotted underline-offset-2" title={`${project.path} — Click to copy`} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(project.path); addToast({ title: 'Path copied', description: project.path, variant: 'success' }) }}>
                     {highlightText(project.path, searchQuery)}
@@ -1062,7 +1069,9 @@ function SortableProjectCard({
             </div>
             <div className="flex items-center shrink-0">
               <div className="flex items-center gap-0.5">
-                <HealthScoreHoverCard score={health} size={28} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
+                <div onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }} className={`cursor-pointer rounded-full transition-all hover:ring-2 hover:ring-emerald-300 dark:hover:ring-emerald-600 ${health < 50 ? 'animate-pulse' : ''}`}>
+                  <HealthScoreHoverCard score={health} size={28} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
+                </div>
                 <HealthTrendIcon trend={healthTrend} />
               </div>
               <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`cursor-pointer transition-all duration-200 hover:scale-110 active:scale-90 ml-0.5 ${starred ? 'text-rose-500' : 'text-muted-foreground hover:text-rose-400'}`}>
@@ -1083,8 +1092,8 @@ function SortableProjectCard({
             ))}
           </div>
           <div className="space-y-2">
-            {(expanded ? (project.environments || []) : (project.environments || []).slice(0, 3)).map((env, envIdx) => (
-              <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-muted/30 dark:hover:bg-white/5 transition-all duration-150 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5 animate-pulse-glow-emerald' : 'bg-muted/20'} ${envIdx < (expanded ? (project.environments || []).length - 1 : Math.min((project.environments || []).length, 3) - 1) ? 'border-b border-border/20 dark:border-zinc-700/20 pb-2 sm:pb-3' : ''}`}
+            {(project.environments || []).slice(0, 3).map((env, envIdx) => (
+              <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-muted/30 dark:hover:bg-white/5 transition-all duration-150 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5 animate-pulse-glow-emerald border-l-2 border-l-emerald-400 dark:border-l-emerald-500' : 'bg-muted/20 border-l-2 border-l-red-300 dark:border-l-red-400'} ${envIdx < Math.min((project.environments || []).length, 3) - 1 ? 'border-b border-border/20 dark:border-zinc-700/20 pb-2 sm:pb-3' : ''}`}
                 title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
               >
                 <div className="flex items-center gap-1.5 min-w-0 shrink">
@@ -1127,6 +1136,51 @@ function SortableProjectCard({
                 </div>
               </div>
             ))}
+            <AnimatePresence>
+              {expanded && (project.environments || []).length > 3 && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeInOut' }}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <div className="space-y-2">
+                    {(project.environments || []).slice(3).map((env, envIdx) => (
+                      <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-muted/30 dark:hover:bg-white/5 transition-all duration-150 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5 animate-pulse-glow-emerald border-l-2 border-l-emerald-400 dark:border-l-emerald-500' : 'bg-muted/20 border-l-2 border-l-red-300 dark:border-l-red-400'} ${envIdx < (project.environments || []).length - 3 - 1 ? 'border-b border-border/20 dark:border-zinc-700/20 pb-2 sm:pb-3' : ''}`}
+                        title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 shrink">
+                          <AnimatedStatusDot status={env.status} />
+                          {env.name === 'development' ? <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300 font-semibold ring-1 ring-cyan-300/60 dark:ring-cyan-700/50">dev</span> : env.name === 'production' ? <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold ring-1 ring-amber-300/60 dark:ring-amber-700/50">prod</span> : <span className="text-muted-foreground dark:text-gray-300 truncate max-w-[60px] text-[10px]">{envLabel(env.name)}</span>}
+                          {env.name === 'development' && env.status === 'running' && <span className="shrink-0 text-[8px] px-1 py-0 rounded bg-emerald-100/60 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 font-medium tracking-wide" title="Hot Module Replacement — auto-reloads on file changes">HMR</span>}
+                          {env.name === 'production' && <span className="shrink-0 text-[8px] px-1 py-0 rounded bg-amber-100/60 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 font-medium tracking-wide" title="Production build — requires rebuild to apply changes">Build</span>}
+                        </div>
+                        <div className="flex items-center gap-1 sm:gap-1 shrink-0">
+                          <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="text-muted-foreground dark:text-zinc-400 font-mono text-[11px] px-1.5 py-0.5 rounded-md bg-muted/40 dark:bg-white/5 hover:bg-muted/60 dark:hover:bg-white/10 cursor-pointer transition-colors ring-1 ring-border/20 dark:ring-white/10 min-w-[30px] text-center" />} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(env.port)); addToast({ title: 'Port copied', description: `Port ${env.port}`, variant: 'success' }) }} title="Click to copy port">:{env.port}</TooltipTrigger><TooltipContent>Click to copy port</TooltipContent></Tooltip></TooltipProvider>
+                          {env.status === 'running' && (
+                            <a href={getOpenUrl(env.port)} target="_blank" rel="noopener noreferrer" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-emerald-500 dark:text-emerald-400 transition-colors" onClick={(e) => e.stopPropagation()} title={`Open ${envLabel(env.name)} (${env.port})`}>
+                              <ExternalLink className="h-2.5 w-2.5" />
+                            </a>
+                          )}
+                          {env.status === 'running' && (
+                            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer text-amber-500 dark:text-amber-400 transition-all active:scale-90 shrink-0" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'restart') }} title={`Restart ${envLabel(env.name)}`}><RotateCw className="h-2.5 w-2.5" /></TooltipTrigger><TooltipContent>Restart {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                          )}
+                          {env.name !== 'development' && (
+                            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 hover:bg-teal-50 dark:hover:bg-teal-900/20 cursor-pointer text-teal-500 dark:text-teal-400 transition-all active:scale-90 shrink-0" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'rebuild') }} title={`Rebuild ${envLabel(env.name)}`}><Hammer className="h-2.5 w-2.5" /></TooltipTrigger><TooltipContent>Rebuild {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                          )}
+                          {env.status === 'running' ? (
+                            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 cursor-pointer text-red-500 dark:text-red-400 transition-all active:scale-90 shrink-0 ring-1 ring-red-200 dark:ring-red-800/30" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                          ) : (
+                            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 cursor-pointer text-emerald-500 dark:text-emerald-400 transition-all active:scale-90 shrink-0 ring-1 ring-emerald-200 dark:ring-emerald-800/30" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
             {!expanded && (project.environments || []).length > 3 && (
               <p className="text-[10px] text-muted-foreground">+{(project.environments || []).length - 3} more</p>
             )}
@@ -3731,6 +3785,27 @@ function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor,
   // Reset timer when projects change (i.e., when data refreshes)
   React.useEffect(() => { setLastRefreshAgo(0) }, [projects])
 
+  // Current time display — updates every 60 seconds
+  const [currentTime, setCurrentTime] = React.useState(new Date())
+  React.useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 60000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Network status — assume connected, detect offline
+  const [isOnline, setIsOnline] = React.useState(true)
+  React.useEffect(() => {
+    setIsOnline(navigator.onLine)
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
   return (
     <motion.footer
       initial={{ y: 20 }}
@@ -3769,6 +3844,16 @@ function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor,
           <span className="hidden sm:inline text-[11px] text-muted-foreground dark:text-zinc-400">Last updated: {lastRefreshAgo}s ago</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Network status indicator */}
+          <span className={`hidden md:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full ${isOnline ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400' : 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'}`}>
+            <Wifi className="h-2.5 w-2.5" />
+            {isOnline ? 'Connected' : 'Offline'}
+          </span>
+          {/* Current time */}
+          <span className="hidden md:inline-flex items-center gap-1 text-[10px] text-muted-foreground dark:text-zinc-400 tabular-nums">
+            <Clock className="h-2.5 w-2.5" />
+            {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
           {/* Keyboard shortcut hints */}
           <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-muted-foreground dark:text-zinc-500">
             <kbd className="px-1 py-0.5 rounded bg-muted/60 dark:bg-zinc-800/60 border border-border/30 dark:border-zinc-700/30 font-mono">⌘K</kbd>
@@ -5743,24 +5828,24 @@ export default function DashboardPage() {
       </header>
 
       {/* ======================== FILTER / STATUS BAR ======================== */}
-      <div className="border-b bg-muted/30 dark:bg-zinc-900/80 dark:border-b dark:border-zinc-800/50 backdrop-blur-lg bg-white/60 dark:bg-zinc-900/70">
+      <div className="border-b bg-muted/30 dark:bg-zinc-900/90 dark:border-b dark:border-zinc-700/50 backdrop-blur-lg bg-white/60 dark:bg-zinc-900/80">
         <div className="max-w-7xl mx-auto px-4 py-2 space-y-2">
           {/* Row 1: Stats + Updated timestamp */}
           <div className="flex items-center gap-2 text-xs dark:text-gray-300">
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-border/50 shadow-sm cursor-default">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-zinc-300 dark:border-zinc-600 shadow-sm cursor-default hover:scale-105 transition-transform duration-150 hover:bg-muted/80 dark:hover:bg-white/10">
               <Folder className="h-3 w-3 text-emerald-600" />
               {loading && <Loader2 className="h-3 w-3 animate-spin text-emerald-500" />}
               <AnimatedCounter target={stats.total} /> projects
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-border/50 shadow-sm cursor-default">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-zinc-300 dark:border-zinc-600 shadow-sm cursor-default hover:scale-105 transition-transform duration-150 hover:bg-muted/80 dark:hover:bg-white/10">
               <Play className="h-3 w-3 text-emerald-500" />
               <AnimatedCounter target={stats.running} /> running
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-border/50 shadow-sm cursor-default hidden sm:inline-flex">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-zinc-300 dark:border-zinc-600 shadow-sm cursor-default hover:scale-105 transition-transform duration-150 hover:bg-muted/80 dark:hover:bg-white/10 hidden sm:inline-flex">
               <Square className="h-3 w-3 text-red-400" />
               <AnimatedCounter target={stats.stopped} /> stopped
             </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-border/50 shadow-sm cursor-default hidden md:inline-flex">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-zinc-300 dark:border-zinc-600 shadow-sm cursor-default hover:scale-105 transition-transform duration-150 hover:bg-muted/80 dark:hover:bg-white/10 hidden md:inline-flex">
               <Layers className="h-3 w-3 text-teal-500" />
               <AnimatedCounter target={stats.environments} /> envs
             </span>
@@ -5774,9 +5859,12 @@ export default function DashboardPage() {
             {/* Filter controls — wrap naturally, no horizontal scroll */}
             <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
               <DropdownMenu>
-                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-zinc-300 dark:border-zinc-600 bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors shadow-sm" />}>
-                  <Filter className="h-3 w-3 mr-1" />
-                  {filterStatus === 'all' ? 'Status' : filterStatus}
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className={`inline-flex items-center gap-1 rounded-lg border-2 ${filterStatus !== 'all' ? 'border-emerald-400 dark:border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300' : 'border-zinc-300 dark:border-zinc-600 bg-gradient-to-b from-white to-zinc-50 dark:from-zinc-800 dark:to-zinc-850 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-750'} h-7 px-2.5 text-xs font-semibold cursor-pointer transition-all duration-150 shadow-sm hover:shadow-md`}>
+                    <Filter className="h-3 w-3" />
+                    {filterStatus === 'all' ? 'Status' : filterStatus}
+                    <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
+                  </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuRadioGroup value={filterStatus} onValueChange={(v) => setFilterStatus(v as FilterStatus)}>
@@ -5788,9 +5876,12 @@ export default function DashboardPage() {
               </DropdownMenu>
 
               <DropdownMenu>
-                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-zinc-300 dark:border-zinc-600 bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors shadow-sm" />}>
-                  <Tag className="h-3 w-3 mr-1" />
-                  Tags {filterTags.length > 0 && `(${filterTags.length})`}
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className={`inline-flex items-center gap-1 rounded-lg border-2 ${filterTags.length > 0 ? 'border-teal-400 dark:border-teal-500 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-300' : 'border-zinc-300 dark:border-zinc-600 bg-gradient-to-b from-white to-zinc-50 dark:from-zinc-800 dark:to-zinc-850 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-750'} h-7 px-2.5 text-xs font-semibold cursor-pointer transition-all duration-150 shadow-sm hover:shadow-md`}>
+                    <Tag className="h-3 w-3" />
+                    Tags{filterTags.length > 0 && ` (${filterTags.length})`}
+                    <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
+                  </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   {TAG_OPTIONS.map((tag) => (
@@ -5808,9 +5899,12 @@ export default function DashboardPage() {
               </DropdownMenu>
 
               <DropdownMenu>
-                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-zinc-300 dark:border-zinc-600 bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors shadow-sm" />}>
-                  <ArrowUpDown className="h-3 w-3 mr-1" />
-                  {sortBy === 'newest' ? 'Newest' : sortBy === 'name' ? 'Name' : 'Status'}
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className={`inline-flex items-center gap-1 rounded-lg border-2 ${sortBy !== 'newest' ? 'border-amber-400 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300' : 'border-zinc-300 dark:border-zinc-600 bg-gradient-to-b from-white to-zinc-50 dark:from-zinc-800 dark:to-zinc-850 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-750'} h-7 px-2.5 text-xs font-semibold cursor-pointer transition-all duration-150 shadow-sm hover:shadow-md`}>
+                    <ArrowUpDown className="h-3 w-3" />
+                    {sortBy === 'newest' ? 'Newest' : sortBy === 'name' ? 'Name' : 'Status'}
+                    <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
+                  </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
@@ -5822,9 +5916,12 @@ export default function DashboardPage() {
               </DropdownMenu>
 
               <DropdownMenu>
-                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-zinc-300 dark:border-zinc-600 bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors shadow-sm" />}>
-                  <Layers className="h-3 w-3 mr-1" />
-                  Group: {groupBy === 'device' ? 'Device' : groupBy === 'tags' ? 'Tags' : 'None'}
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className={`inline-flex items-center gap-1 rounded-lg border-2 ${groupBy !== 'none' ? 'border-purple-400 dark:border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300' : 'border-zinc-300 dark:border-zinc-600 bg-gradient-to-b from-white to-zinc-50 dark:from-zinc-800 dark:to-zinc-850 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-750'} h-7 px-2.5 text-xs font-semibold cursor-pointer transition-all duration-150 shadow-sm hover:shadow-md`}>
+                    <Layers className="h-3 w-3" />
+                    Group: {groupBy === 'device' ? 'Device' : groupBy === 'tags' ? 'Tags' : 'None'}
+                    <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
+                  </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuRadioGroup value={groupBy} onValueChange={(v) => setGroupBy(v as GroupBy)}>
@@ -6250,16 +6347,21 @@ export default function DashboardPage() {
           projects.length === 0 ? (
             <EmptyState onAdd={handleAddProject} />
           ) : (
-            <div className="flex flex-col items-center justify-center py-20 text-center">
-              <div className="p-6 rounded-2xl bg-gradient-to-br from-muted/50 to-muted/30 ring-1 ring-border/30 shadow-inner mb-5">
-                <Folder className="h-16 w-16 text-muted-foreground/60" />
-              </div>
-              <h3 className="text-lg font-semibold mb-1 text-foreground">No projects found</h3>
-              <p className="text-sm text-muted-foreground dark:text-gray-400 mb-4">Try adjusting your search or filters</p>
-              <Button variant="outline" onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterTags([]) }}>
-                <X className="h-4 w-4 mr-1" />Clear Filters
-              </Button>
+            <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+            className="flex flex-col items-center justify-center py-20 text-center"
+          >
+            <div className="p-6 rounded-2xl bg-gradient-to-br from-muted/50 to-muted/30 ring-1 ring-border/30 shadow-inner mb-5">
+              <SearchX className="h-16 w-16 text-muted-foreground/60" />
             </div>
+            <h3 className="text-lg font-semibold mb-1 text-foreground">No projects found</h3>
+            <p className="text-sm text-muted-foreground dark:text-gray-400 mb-4 max-w-xs">Your current filters didn't match any projects. Try adjusting your search or clearing the filters.</p>
+            <Button variant="outline" onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterTags([]) }} className="gap-1.5">
+              <X className="h-4 w-4" />Clear Filters
+            </Button>
+          </motion.div>
           )
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -6445,7 +6547,7 @@ export default function DashboardPage() {
                 </div>
               )}
               {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div key={`grid-${filterStatus}-${filterTags.join(',')}-${searchQuery}-${groupBy}`} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {groupBy === 'tags' ? (
                     <>
                       {tagGroupedProjects.map((group) => (
@@ -6618,7 +6720,7 @@ export default function DashboardPage() {
                   )}
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div key={`list-${filterStatus}-${filterTags.join(',')}-${searchQuery}-${groupBy}`} className="space-y-2">
                   {groupBy === 'tags' ? (
                     <>
                       {tagGroupedProjects.map((group) => (
