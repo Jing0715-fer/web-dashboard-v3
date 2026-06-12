@@ -1,5 +1,127 @@
 # Web Dashboard Multi-Device Interconnection - Worklog
 
+## Session 13: QA + 5 New Features + Enhanced Interactions (2026-06-13)
+
+### Project Current Status
+- Dashboard fully functional with 9 projects (6 local + 3 remote), all rendering correctly
+- All previous features working + 5 new features from this session
+- 0 lint errors, 0 warnings
+- Dev server running stable (200 OK)
+- 0 JS console errors during QA testing
+- File size: 6654 lines (page.tsx)
+
+### QA Results (Pre-Implementation)
+- ✅ 9 projects displayed correctly (6 local + 3 remote)
+- ✅ Quick Launch Bar showing running environments (4 shortcuts)
+- ✅ Activity Feed widget showing 8 recent events
+- ✅ Settings dropdown: Health Alerts, Customize Dashboard visible
+- ✅ Health Alerts dialog with threshold slider working
+- ✅ Project detail sheet opens with all tabs
+- ✅ Dark mode toggle works
+- ✅ Log viewer with terminal-style dark background
+- ✅ 0 JS console errors captured
+- ✅ 0 lint errors
+
+### Completed Work This Session
+
+#### Feature 1: Quick Launch Bar ✅
+- Horizontal bar below header with one-click access to running services
+- Shows running environments as emerald-colored clickable pills
+- Each pill: project name · env name :port with external link icon
+- Animated pulse dot indicator on each pill
+- Hover scale effect (1.05x) and active press effect (0.95x)
+- Dismissible with X button, can be re-enabled from Customize Dashboard
+- "Quick Launch" button in Customize Dashboard Quick Actions
+- State persisted in localStorage
+
+#### Feature 2: Project Notes/Annotations ✅
+- Collapsible "Notes" section in DetailSheet Overview tab (between Tags and Environments)
+- Amber-themed styling consistent with annotations
+- Character count badge when notes exist
+- Expandable textarea editor with Cancel/Save buttons
+- Preview mode shows first 3 lines with line-clamp
+- Empty state shows "No notes yet. Click to add." italic hint
+- Notes saved to localStorage per project (`project-notes-{id}`)
+- AnimatePresence for smooth expand/collapse
+
+#### Feature 3: Animated Status Transitions ✅
+- When project status changes (running→stopped, etc.), card briefly shows:
+  - Amber ring glow (`ring-2 ring-amber-400/50`)
+  - Pulse animation for 1.5 seconds
+- Uses useRef to track previous status
+- Applied to both list view and grid view cards
+- Subtle but noticeable visual feedback for status changes
+
+#### Feature 4: Dashboard Activity Feed Widget ✅
+- Compact horizontal feed showing 8 most recent activity events
+- Violet-themed header with Activity icon
+- Each event shows: icon (colored by type) + message + time ago
+- Horizontally scrollable with custom scrollbar
+- Fetches activity from all projects via `/api/projects/{id}/activity`
+- Staggered entrance animation (0.05s delay per item)
+- Dismissible with X button, can be re-enabled from Customize Dashboard
+- "Activity Feed" button in Customize Dashboard Quick Actions
+- State persisted in localStorage
+
+#### Feature 5: Active Filter Chips Enhancement ✅
+- Visual filter chips appear when any filter is active
+- Search query: emerald-colored Badge with "Search: {query}"
+- Status filter: cyan-colored Badge with "Status: {status}"
+- Tag filters: use existing getTagColor() for consistent colors
+- Each chip has X button to remove that specific filter
+- "Clear all" link to reset all filters at once
+- Chips positioned between Batch checkbox and Refresh button
+
+### Style Polish
+- CSS animations added to globals.css:
+  - `quicklaunch-glow`: Subtle emerald glow animation for Quick Launch pills
+  - `activity-slide`: Slide-in animation for Activity Feed items
+- Quick Actions grid changed from 2-column to 3-column in Customize Dashboard
+- Consistent color theming: Quick Launch = emerald, Activity Feed = violet, Notes = amber, Filter Chips = per-type colors
+
+### New State Variables
+- `quickLaunchBarVisible`: Boolean (persisted in localStorage)
+- `runningEnvsForQuickLaunch`: Computed array of running environments
+- `projectNotes`: String per project (persisted in localStorage per project)
+- `editingNotes`, `notesDraft`, `savingNotes`: Notes editing state
+- `statusChanged`: Boolean in SortableProjectCard for status transition animation
+- `globalActivity`: ActivityEvent[] (fetched from all projects)
+- `activityFeedVisible`: Boolean (persisted in localStorage)
+
+### Files Modified
+- `src/app/page.tsx` — All 5 features + style polish (6408→6654 lines)
+- `src/app/globals.css` — Added `quicklaunch-glow` and `activity-slide` CSS animations
+
+### Post-Implementation QA Verification
+- ✅ 9 projects displayed correctly
+- ✅ Quick Launch Bar shows 4 running environment shortcuts
+- ✅ Activity Feed shows 8 recent events
+- ✅ Filter chips appear when search active ("Search: API" + "Clear all")
+- ✅ Project Notes section visible in DetailSheet
+- ✅ 0 lint errors, 0 warnings
+- ✅ 0 JS console errors
+- ✅ Server returns 200 OK
+
+### Known Issues / Risks
+1. **Activity Feed API calls**: Fetches activity from all projects individually. Could be slow with many projects. Should be replaced with a single aggregated endpoint.
+2. **Project Notes localStorage**: Notes are stored in localStorage, not in the database. Will be lost if browser data is cleared. Should migrate to Prisma model.
+3. **Component size**: The file is now ~6654 lines. Component refactoring would improve maintainability.
+4. **Quick Launch URL**: Uses `http://{currentHost}:{port}` which may not work through all proxy configurations.
+
+### Recommended Next Steps
+1. **Component refactoring**: Split the 6654-line DashboardPage into smaller components (ProjectCard, StatsPanel, FilterBar, ActivityFeed, QuickLaunch, etc.)
+2. **Project Notes database migration**: Add Notes field to Prisma Project model
+3. **Aggregated Activity API**: Create `/api/activity` endpoint that returns combined activity
+4. **WebSocket real-time updates**: Replace polling with WebSocket for live status
+5. **mDNS device discovery**: Auto-discover agents on LAN
+6. **Project deployment history**: Track deployment versions and rollbacks
+7. **User authentication**: Add login/auth with NextAuth.js
+8. **LLM-powered analysis**: Use LLM skill for project analysis
+9. **Custom dashboard widgets**: Drag-and-drop configurable dashboard layout
+10. **Quick Launch proxy support**: Make Quick Launch URLs work through Caddy proxy
+
+---
+
 ## Session 12: QA + 6 New Features + Enhanced Style Polish (2026-06-13)
 
 ### Project Current Status

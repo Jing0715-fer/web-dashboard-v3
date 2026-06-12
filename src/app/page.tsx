@@ -601,6 +601,16 @@ function SortableProjectCard({
   }
 
   const status = getProjectStatus(project)
+  const prevStatusRef = React.useRef(status)
+  const [statusChanged, setStatusChanged] = React.useState(false)
+  React.useEffect(() => {
+    if (prevStatusRef.current !== status) {
+      setStatusChanged(true)
+      const timer = setTimeout(() => setStatusChanged(false), 1500)
+      prevStatusRef.current = status
+      return () => clearTimeout(timer)
+    }
+  }, [status])
   const health = calculateHealthScore(project)
   const tags = parseTags(project.tags)
   const runningEnvs = (project.environments || []).filter((e) => e.status === 'running').length
@@ -638,7 +648,7 @@ function SortableProjectCard({
           transition={{ delay: index * 0.05 }}
           whileHover={{ y: -1, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}
           tabIndex={0}
-          className={`group flex items-center ${densityListClass} rounded-lg border bg-card dark:bg-zinc-900/80 shadow-sm dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] hover:bg-accent/50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} ${focused ? 'ring-2 ring-emerald-500/50 shadow-md' : ''}`}
+          className={`group flex items-center ${densityListClass} rounded-lg border bg-card dark:bg-zinc-900/80 shadow-sm dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] hover:bg-accent/50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} ${focused ? 'ring-2 ring-emerald-500/50 shadow-md' : ''} ${statusChanged ? 'ring-2 ring-amber-400/50 animate-pulse' : ''}`}
           onClick={() => onSelect(project)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
         >
@@ -802,7 +812,7 @@ function SortableProjectCard({
         whileHover={{ y: -1 }}
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
-        className={`group relative flex flex-col ${densityClass} rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer ${focused ? 'ring-2 ring-emerald-500/50 shadow-xl' : ''}`}
+        className={`group relative flex flex-col ${densityClass} rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer ${focused ? 'ring-2 ring-emerald-500/50 shadow-xl' : ''} ${statusChanged ? 'ring-2 ring-amber-400/50 animate-pulse' : ''}`}
         onMouseEnter={(e) => {
           const tagColors: Record<string, string> = { Frontend: 'rgba(16,185,129,0.25)', Backend: 'rgba(20,184,166,0.25)', Fullstack: 'rgba(6,182,212,0.25)', DevOps: 'rgba(245,158,11,0.25)', Mobile: 'rgba(244,63,94,0.25)', API: 'rgba(139,92,246,0.25)', Database: 'rgba(249,115,22,0.25)', 'ML/AI': 'rgba(236,72,153,0.25)', Automation: 'rgba(100,116,139,0.25)' }
           const primaryTag = tags[0]
@@ -2009,6 +2019,13 @@ function DetailSheet({
   const [deviceCollapsed, setDeviceCollapsed] = React.useState(false)
   const [tagsCollapsed, setTagsCollapsed] = React.useState(() => parseTags(project?.tags || '').length === 0)
   const [envSummaryCollapsed, setEnvSummaryCollapsed] = React.useState(false)
+  // Project Notes state (Session 13)
+  const [projectNotes, setProjectNotes] = React.useState<string>(() => {
+    try { return project ? (localStorage.getItem(`project-notes-${project.id}`) || '') : '' } catch { return '' }
+  })
+  const [editingNotes, setEditingNotes] = React.useState(false)
+  const [notesDraft, setNotesDraft] = React.useState(projectNotes)
+  const [savingNotes, setSavingNotes] = React.useState(false)
   const { toast } = useToast()
 
   // Fetch network info for local device display
@@ -2092,6 +2109,20 @@ function DetailSheet({
       setSavingDesc(false)
     }
   }
+
+  const handleSaveNotes = React.useCallback(async () => {
+    if (!project) return
+    setSavingNotes(true)
+    try {
+      localStorage.setItem(`project-notes-${project.id}`, notesDraft)
+      setProjectNotes(notesDraft)
+      setEditingNotes(false)
+      addToast({ title: 'Notes saved', variant: 'success' })
+    } catch {
+      addToast({ title: 'Failed to save notes', variant: 'destructive' })
+    }
+    setSavingNotes(false)
+  }, [notesDraft, project])
 
   React.useEffect(() => {
     if (project && activeTab === 'activity' && open) {
@@ -2515,6 +2546,69 @@ function DetailSheet({
                   </motion.div>
                 )}
               </AnimatePresence>
+            </div>
+            {/* Project Notes (Session 13) */}
+            <div className="rounded-lg border bg-muted/20 overflow-hidden">
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex items-center justify-between w-full p-3 hover:bg-accent/50 transition-colors"
+                onClick={() => setEditingNotes(!editingNotes)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditingNotes(!editingNotes) } }}
+              >
+                <div className="flex items-center gap-2">
+                  <Edit3 className="h-3.5 w-3.5 text-amber-500" />
+                  <h4 className="text-sm font-semibold">Notes</h4>
+                </div>
+                <div className="flex items-center gap-2">
+                  {projectNotes && (
+                    <Badge variant="secondary" className="text-[9px] bg-amber-100/60 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                      {projectNotes.length} chars
+                    </Badge>
+                  )}
+                  {editingNotes ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </div>
+              </div>
+              <AnimatePresence>
+                {editingNotes && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="p-3 pt-0 space-y-2">
+                      <Textarea
+                        value={notesDraft}
+                        onChange={(e) => setNotesDraft(e.target.value)}
+                        placeholder="Add notes, annotations, or reminders for this project..."
+                        className="min-h-[80px] text-xs resize-y"
+                      />
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-muted-foreground">{notesDraft.length} characters</span>
+                        <div className="flex gap-1.5">
+                          <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => { setNotesDraft(projectNotes); setEditingNotes(false) }}>Cancel</Button>
+                          <Button size="sm" className="h-6 text-[10px] bg-amber-600 hover:bg-amber-700 text-white" onClick={handleSaveNotes} disabled={savingNotes}>
+                            {savingNotes && <Loader2 className="h-2.5 w-2.5 mr-1 animate-spin" />}
+                            Save Notes
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              {!editingNotes && projectNotes && (
+                <div className="px-3 pb-3 pt-0">
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">{projectNotes}</p>
+                </div>
+              )}
+              {!editingNotes && !projectNotes && (
+                <div className="px-3 pb-3 pt-0">
+                  <p className="text-[10px] text-muted-foreground/60 italic">No notes yet. Click to add.</p>
+                </div>
+              )}
             </div>
             <div>
               <div
@@ -3659,6 +3753,14 @@ export default function DashboardPage() {
   const [compareProjectA, setCompareProjectA] = React.useState<Project | null>(null)
   const [compareProjectB, setCompareProjectB] = React.useState<Project | null>(null)
   const [focusedProjectIndex, setFocusedProjectIndex] = React.useState(-1)
+  // Session 13 states
+  const [quickLaunchBarVisible, setQuickLaunchBarVisible] = React.useState<boolean>(() => {
+    try { return localStorage.getItem('dashboard-quicklaunch-visible') !== 'false' } catch { return true }
+  })
+  const [globalActivity, setGlobalActivity] = React.useState<ActivityEvent[]>([])
+  const [activityFeedVisible, setActivityFeedVisible] = React.useState<boolean>(() => {
+    try { return localStorage.getItem('dashboard-activity-feed-visible') !== 'false' } catch { return true }
+  })
 
   const toggleStar = React.useCallback((id: string) => {
     setStarredIds((prev) => {
@@ -3679,6 +3781,8 @@ export default function DashboardPage() {
   React.useEffect(() => { localStorage.setItem('dashboard-health-alert-enabled', String(healthAlertEnabled)) }, [healthAlertEnabled])
   React.useEffect(() => { localStorage.setItem('dashboard-card-density', cardDensity) }, [cardDensity])
   React.useEffect(() => { localStorage.setItem('dashboard-visible-stats', JSON.stringify([...visibleStats])) }, [visibleStats])
+  React.useEffect(() => { localStorage.setItem('dashboard-quicklaunch-visible', String(quickLaunchBarVisible)) }, [quickLaunchBarVisible])
+  React.useEffect(() => { localStorage.setItem('dashboard-activity-feed-visible', String(activityFeedVisible)) }, [activityFeedVisible])
 
   const { toast } = useToast()
 
@@ -3711,6 +3815,22 @@ export default function DashboardPage() {
       if (res.ok) setNotifications(await res.json())
     } catch { /* ignore */ }
   }, [])
+
+  const fetchGlobalActivity = React.useCallback(async () => {
+    try {
+      const results = await Promise.allSettled(
+        projects.map((p) =>
+          fetch(`/api/projects/${p.id}/activity`).then((r) => r.ok ? r.json() : [])
+        )
+      )
+      const allEvents = results
+        .filter((r): r is PromiseFulfilledResult<ActivityEvent[]> => r.status === 'fulfilled')
+        .flatMap((r) => r.value)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, 8)
+      setGlobalActivity(allEvents)
+    } catch { /* ignore */ }
+  }, [projects])
 
   const fetchDevices = React.useCallback(async () => {
     try {
@@ -3792,8 +3912,9 @@ export default function DashboardPage() {
   const loadData = React.useCallback(async () => {
     setLoading(true)
     await Promise.all([fetchProjects(), fetchNotifications(), fetchDevices()])
+    fetchGlobalActivity()
     setLoading(false)
-  }, [fetchProjects, fetchNotifications, fetchDevices])
+  }, [fetchProjects, fetchNotifications, fetchDevices, fetchGlobalActivity])
 
   // Initial load
   React.useEffect(() => {
@@ -4147,6 +4268,16 @@ export default function DashboardPage() {
     const healthScore = totalEnvs > 0 ? Math.round((runningEnvs / totalEnvs) * 100) : 0
     return { totalProjects: filteredProjects.length, runningEnvs, totalEnvs, onlineDevices, totalDevices, healthScore }
   }, [filteredProjects, devices])
+
+  const runningEnvsForQuickLaunch = React.useMemo(() => {
+    const envs: Array<{ projectName: string; envName: string; port: number; projectId: string; envId: string }> = []
+    filteredProjects.forEach((p) => {
+      (p.environments || []).filter((e) => e.status === 'running').forEach((e) => {
+        envs.push({ projectName: p.name, envName: e.name, port: e.port, projectId: p.id, envId: e.id })
+      })
+    })
+    return envs
+  }, [filteredProjects])
 
   // Health score history for sparkline
   const [healthScoreHistory, setHealthScoreHistory] = React.useState<number[]>(() => {
@@ -5195,6 +5326,32 @@ export default function DashboardPage() {
               {batchMode ? 'Cancel' : 'Batch'}
             </button>
           </div>
+          {/* Active Filter Chips (Session 13) */}
+          {(filterStatus !== 'all' || filterTags.length > 0 || searchQuery) && (
+            <div className="flex items-center gap-1 flex-wrap mt-1.5">
+              {searchQuery && (
+                <Badge variant="secondary" className="text-[10px] gap-1 pr-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 ring-1 ring-emerald-200/50 dark:ring-emerald-800/30">
+                  Search: {searchQuery}
+                  <button type="button" onClick={() => setSearchQuery('')} className="ml-0.5 p-0.5 rounded hover:bg-emerald-200/50 dark:hover:bg-emerald-800/30"><X className="h-2.5 w-2.5" /></button>
+                </Badge>
+              )}
+              {filterStatus !== 'all' && (
+                <Badge variant="secondary" className="text-[10px] gap-1 pr-1 bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300 ring-1 ring-cyan-200/50 dark:ring-cyan-800/30">
+                  Status: {filterStatus}
+                  <button type="button" onClick={() => setFilterStatus('all')} className="ml-0.5 p-0.5 rounded hover:bg-cyan-200/50 dark:hover:bg-cyan-800/30"><X className="h-2.5 w-2.5" /></button>
+                </Badge>
+              )}
+              {filterTags.map((tag) => (
+                <Badge key={tag} variant="secondary" className={`text-[10px] gap-1 pr-1 ${getTagColor(tag)}`}>
+                  {tag}
+                  <button type="button" onClick={() => setFilterTags((prev) => prev.filter((t) => t !== tag))} className="ml-0.5 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10"><X className="h-2.5 w-2.5" /></button>
+                </Badge>
+              ))}
+              <button type="button" onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterTags([]) }} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+                Clear all
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -5244,6 +5401,90 @@ export default function DashboardPage() {
       {/* ======================== MAIN CONTENT ======================== */}
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-4 pb-20">
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+        {/* Quick Launch Bar (Session 13) */}
+        {!loading && quickLaunchBarVisible && runningEnvsForQuickLaunch.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+            className="mb-4 flex items-center gap-2 flex-wrap"
+          >
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              <Zap className="h-3 w-3 text-emerald-500" />
+              Quick Launch
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {runningEnvsForQuickLaunch.map((env) => {
+                const host = currentHost || 'localhost'
+                const url = `http://${host}:${env.port}`
+                return (
+                  <a
+                    key={env.envId}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/15 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-200/50 dark:ring-emerald-800/30 hover:from-emerald-100 hover:to-teal-100 dark:hover:from-emerald-900/30 dark:hover:to-teal-900/20 hover:shadow-sm transition-all duration-150 hover:scale-105 active:scale-95"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="max-w-[80px] truncate">{env.projectName}</span>
+                    <span className="text-emerald-500/60">·</span>
+                    <span className="truncate max-w-[50px]">{env.envName}</span>
+                    <span className="text-[9px] font-mono text-emerald-500/70">:{env.port}</span>
+                    <ExternalLink className="h-2.5 w-2.5 text-emerald-500/50" />
+                  </a>
+                )
+              })}
+            </div>
+            <button type="button" onClick={() => setQuickLaunchBarVisible(false)} className="ml-auto p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+              <X className="h-3 w-3" />
+            </button>
+          </motion.div>
+        )}
+        {/* Activity Feed Widget (Session 13) */}
+        {!loading && activityFeedVisible && globalActivity.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.3 }}
+            className="mb-5 rounded-xl border bg-card dark:bg-zinc-900/80 shadow-sm border-border/60 dark:border-zinc-700/50 overflow-hidden"
+          >
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30 dark:border-zinc-700/30">
+              <div className="flex items-center gap-2">
+                <div className="p-1 rounded-md bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/15 ring-1 ring-violet-200/50 dark:ring-violet-800/30">
+                  <Activity className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                </div>
+                <span className="text-xs font-semibold text-foreground dark:text-zinc-200">Recent Activity</span>
+                <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{globalActivity.length}</Badge>
+              </div>
+              <button type="button" onClick={() => setActivityFeedVisible(false)} className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+            <div className="px-4 py-2 flex items-center gap-3 overflow-x-auto custom-scrollbar">
+              {globalActivity.map((event, idx) => {
+                const IconComp = ACTIVITY_ICONS[event.type] || Activity
+                const colorClass = ACTIVITY_COLORS[event.type] || 'text-gray-500 bg-gray-100'
+                return (
+                  <motion.div
+                    key={event.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: idx * 0.05 }}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/30 dark:bg-zinc-800/40 shrink-0 hover:bg-muted/50 transition-colors cursor-default"
+                  >
+                    <div className={`p-1 rounded ${colorClass}`}>
+                      <IconComp className="h-3 w-3" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium truncate max-w-[200px]">{event.message}</p>
+                      <p className="text-[9px] text-muted-foreground">{formatTimeAgo(event.timestamp)}</p>
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
         {loading ? (
           <LoadingSkeleton viewMode={viewMode} />
         ) : filteredProjects.length === 0 ? (
@@ -6287,11 +6528,17 @@ export default function DashboardPage() {
             {/* Quick Actions */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">Quick Actions</Label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setWelcomeDismissed(false); localStorage.removeItem('dashboard-welcome-dismissed') }}>
                   <Zap className="h-3 w-3 mr-1" />Show Welcome
                 </Button>
-                <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setCardDensity('comfortable'); setVisibleStats(new Set(['totalProjects', 'environments', 'devices', 'healthScore'])) }}>
+                <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setQuickLaunchBarVisible(true) }}>
+                  <Zap className="h-3 w-3 mr-1" />Quick Launch
+                </Button>
+                <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setActivityFeedVisible(true) }}>
+                  <Activity className="h-3 w-3 mr-1" />Activity Feed
+                </Button>
+                <Button variant="outline" size="sm" className="text-xs h-8 col-span-3" onClick={() => { setCardDensity('comfortable'); setVisibleStats(new Set(['totalProjects', 'environments', 'devices', 'healthScore'])) }}>
                   <RefreshCw className="h-3 w-3 mr-1" />Reset Defaults
                 </Button>
               </div>

@@ -331,3 +331,15 @@
 .scroll-top-fab {
   animation: fab-appear 0.3s ease-out forwards;
 }
+
+/* Quick launch bar pill hover glow */
+@keyframes quicklaunch-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(16,185,129,0.1); }
+  50% { box-shadow: 0 0 8px rgba(16,185,129,0.2); }
+}
+
+/* Activity feed slide in */
+@keyframes activity-slide {
+  0% { transform: translateX(-8px); opacity: 0; }
+  100% { transform: translateX(0); opacity: 1; }
+}
