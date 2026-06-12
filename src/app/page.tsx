@@ -349,7 +349,8 @@ function HealthScoreCircle({ score, size = 40 }: { score: number; size?: number 
   const strokeWidth = 3
   const radius = (size - strokeWidth) / 2
   const circumference = radius * 2 * Math.PI
-  const offset = circumference - (score / 100) * circumference
+  const safeScore = typeof score === 'number' && !isNaN(score) ? score : 0
+  const offset = circumference - (safeScore / 100) * circumference
   const [animatedOffset, setAnimatedOffset] = React.useState(offset)
   const prevOffset = React.useRef(offset)
 
@@ -395,12 +396,14 @@ function HealthScoreHoverCard({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={<div className="cursor-pointer" />}
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-      >
-        <HealthScoreCircle score={score} size={size} />
+      <PopoverTrigger asChild>
+        <div
+          className="cursor-pointer"
+          onMouseEnter={() => setOpen(true)}
+          onMouseLeave={() => setOpen(false)}
+        >
+          <HealthScoreCircle score={score} size={size} />
+        </div>
       </PopoverTrigger>
       <PopoverContent
         side="right"
@@ -562,7 +565,7 @@ function SortableProjectCard({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
   const [expanded, setExpanded] = React.useState(false)
-  const needsExpand = project.environments.length > 3 || (project.description && project.description.length > 120)
+  const needsExpand = (project.environments || []).length > 3 || (project.description && project.description.length > 120)
   const style = {
     transform: isDragging
       ? `${CSS.Transform.toString(transform)} rotate(2deg) scale(0.98)`
@@ -574,8 +577,8 @@ function SortableProjectCard({
   const status = getProjectStatus(project)
   const health = calculateHealthScore(project)
   const tags = parseTags(project.tags)
-  const runningEnvs = project.environments.filter((e) => e.status === 'running').length
-  const totalEnvs = project.environments.length
+  const runningEnvs = (project.environments || []).filter((e) => e.status === 'running').length
+  const totalEnvs = (project.environments || []).length
   const IconComp = ICON_MAP[project.icon] || Folder
   const statusBorderAccent = status === 'running' ? 'border-l-2 border-l-emerald-500 dark:border-l-emerald-400' : status === 'mixed' ? 'border-l-2 border-l-amber-500 dark:border-l-amber-400' : 'border-l-2 border-l-red-400 dark:border-l-red-500'
   const isRemote = !!(project.deviceId && project.deviceName)
@@ -643,7 +646,7 @@ function SortableProjectCard({
           </div>
           {/* List view: per-environment controls */}
           <div className="hidden md:flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-            {project.environments.slice(0, 3).map((env) => (
+            {(project.environments || []).slice(0, 3).map((env) => (
               <div key={env.id} className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : 'bg-muted/20'}`}
                 title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
               >
@@ -677,15 +680,15 @@ function SortableProjectCard({
                 )}
               </div>
             ))}
-            {project.environments.length > 3 && (
-              <span className="text-[9px] text-muted-foreground">+{project.environments.length - 3}</span>
+            {(project.environments || []).length > 3 && (
+              <span className="text-[9px] text-muted-foreground">+{(project.environments || []).length - 3}</span>
             )}
           </div>
           <HealthScoreHoverCard score={health} size={32} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
           <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-            {project.environments.some((e) => e.status === 'running') && (
+            {(project.environments || []).some((e) => e.status === 'running') && (
               <TooltipProvider><Tooltip><TooltipTrigger render={<a
-                href={getOpenUrl(project.environments.find((e) => e.status === 'running')?.port || project.environments[0]?.port || 3000)}
+                href={getOpenUrl((project.environments || []).find((e) => e.status === 'running')?.port || (project.environments || [])[0]?.port || 3000)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center rounded-md h-7 px-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer gap-1 text-emerald-600 dark:text-emerald-400 transition-all hover:scale-105 active:scale-95"
@@ -696,13 +699,13 @@ function SortableProjectCard({
             )}
 
             {/* Start All / Stop All - prominent rightmost button */}
-            {project.environments.some((e) => e.status === 'running') ? (
-              <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 border border-red-200 dark:border-red-800/50 bg-white dark:bg-zinc-800 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer gap-1.5 text-red-600 dark:text-red-400 transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" />} onClick={() => { project.environments.filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}>
+            {(project.environments || []).some((e) => e.status === 'running') ? (
+              <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 border border-red-200 dark:border-red-800/50 bg-white dark:bg-zinc-800 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer gap-1.5 text-red-600 dark:text-red-400 transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" />} onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}>
                 <Square className="h-3 w-3 fill-current" />
                 <span className="text-[11px] hidden sm:inline whitespace-nowrap">Stop All</span>
               </TooltipTrigger><TooltipContent>Stop all running environments</TooltipContent></Tooltip></TooltipProvider>
             ) : (
-              <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 cursor-pointer gap-1.5 text-white transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" />} onClick={() => { project.environments.filter((e) => e.status !== 'running').forEach((env) => onEnvAction(project.id, env.id, 'start')) }}>
+              <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 cursor-pointer gap-1.5 text-white transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" />} onClick={() => { (project.environments || []).filter((e) => e.status !== 'running').forEach((env) => onEnvAction(project.id, env.id, 'start')) }}>
                 <Play className="h-3 w-3 fill-current" />
                 <span className="text-[11px] hidden sm:inline whitespace-nowrap">Start All</span>
               </TooltipTrigger><TooltipContent>Start all stopped environments</TooltipContent></Tooltip></TooltipProvider>
@@ -713,10 +716,10 @@ function SortableProjectCard({
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                {project.environments.some((e) => e.status === 'running') && (
-                  <DropdownMenuItem onClick={() => { const port = project.environments.find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />Copy Proxy URL</DropdownMenuItem>
+                {(project.environments || []).some((e) => e.status === 'running') && (
+                  <DropdownMenuItem onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />Copy Proxy URL</DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => { project.environments.forEach((env) => onEnvAction(project.id, env.id, 'restart')) }} className="px-2.5 py-2 text-sm rounded-md"><RotateCw className="h-3.5 w-3.5 mr-2.5" />Restart All</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'restart')) }} className="px-2.5 py-2 text-sm rounded-md"><RotateCw className="h-3.5 w-3.5 mr-2.5" />Restart All</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onRebuildConfirm(project)} className="px-2.5 py-2 text-sm rounded-md"><Hammer className="h-3.5 w-3.5 mr-2.5" />Rebuild All</DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-destructive px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</DropdownMenuItem>
@@ -793,8 +796,8 @@ function SortableProjectCard({
             ))}
           </div>
           <div className="space-y-2">
-            {(expanded ? project.environments : project.environments.slice(0, 3)).map((env, envIdx) => (
-              <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-accent/40 dark:hover:bg-white/5 transition-all duration-150 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : 'bg-muted/20'} ${envIdx < (expanded ? project.environments.length - 1 : Math.min(project.environments.length, 3) - 1) ? 'border-b border-border/20 dark:border-zinc-700/20 pb-2 sm:pb-3' : ''}`}
+            {(expanded ? (project.environments || []) : (project.environments || []).slice(0, 3)).map((env, envIdx) => (
+              <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-accent/40 dark:hover:bg-white/5 transition-all duration-150 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : 'bg-muted/20'} ${envIdx < (expanded ? (project.environments || []).length - 1 : Math.min((project.environments || []).length, 3) - 1) ? 'border-b border-border/20 dark:border-zinc-700/20 pb-2 sm:pb-3' : ''}`}
                 title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
               >
                 <div className="flex items-center gap-1.5 min-w-0 shrink">
@@ -837,8 +840,8 @@ function SortableProjectCard({
                 </div>
               </div>
             ))}
-            {!expanded && project.environments.length > 3 && (
-              <p className="text-[10px] text-muted-foreground">+{project.environments.length - 3} more</p>
+            {!expanded && (project.environments || []).length > 3 && (
+              <p className="text-[10px] text-muted-foreground">+{(project.environments || []).length - 3} more</p>
             )}
           </div>
 
@@ -865,9 +868,9 @@ function SortableProjectCard({
             <span className="text-[10px] text-muted-foreground dark:text-gray-400 hidden sm:inline" title={new Date(project.createdAt).toLocaleString()}>{formatTimeAgo(project.createdAt)}</span>
           </div>
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            {project.environments.some((e) => e.status === 'running') && (
+            {(project.environments || []).some((e) => e.status === 'running') && (
               <TooltipProvider><Tooltip><TooltipTrigger render={<a
-                href={getOpenUrl(project.environments.find((e) => e.status === 'running')?.port || project.environments[0]?.port || 3000)}
+                href={getOpenUrl((project.environments || []).find((e) => e.status === 'running')?.port || (project.environments || [])[0]?.port || 3000)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center rounded-md h-7 px-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer gap-1 text-emerald-600 dark:text-emerald-400 transition-all hover:scale-105 active:scale-95"
@@ -878,13 +881,13 @@ function SortableProjectCard({
             )}
 
             {/* Start All / Stop All - prominent rightmost button */}
-            {project.environments.some((e) => e.status === 'running') ? (
-              <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 border border-red-200 dark:border-red-800/50 bg-white dark:bg-zinc-800 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer gap-1.5 text-red-600 dark:text-red-400 transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" />} onClick={() => { project.environments.filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}>
+            {(project.environments || []).some((e) => e.status === 'running') ? (
+              <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 border border-red-200 dark:border-red-800/50 bg-white dark:bg-zinc-800 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer gap-1.5 text-red-600 dark:text-red-400 transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" />} onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}>
                 <Square className="h-3 w-3 fill-current" />
                 <span className="text-[11px] hidden sm:inline whitespace-nowrap">Stop All</span>
               </TooltipTrigger><TooltipContent>Stop all running environments</TooltipContent></Tooltip></TooltipProvider>
             ) : (
-              <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 cursor-pointer gap-1.5 text-white transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" />} onClick={() => { project.environments.filter((e) => e.status !== 'running').forEach((env) => onEnvAction(project.id, env.id, 'start')) }}>
+              <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 cursor-pointer gap-1.5 text-white transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" />} onClick={() => { (project.environments || []).filter((e) => e.status !== 'running').forEach((env) => onEnvAction(project.id, env.id, 'start')) }}>
                 <Play className="h-3 w-3 fill-current" />
                 <span className="text-[11px] hidden sm:inline whitespace-nowrap">Start All</span>
               </TooltipTrigger><TooltipContent>Start all stopped environments</TooltipContent></Tooltip></TooltipProvider>
@@ -895,10 +898,10 @@ function SortableProjectCard({
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                {project.environments.some((e) => e.status === 'running') && (
-                  <DropdownMenuItem onClick={() => { const port = project.environments.find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />Copy Proxy URL</DropdownMenuItem>
+                {(project.environments || []).some((e) => e.status === 'running') && (
+                  <DropdownMenuItem onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />Copy Proxy URL</DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => { project.environments.forEach((env) => onEnvAction(project.id, env.id, 'restart')) }} className="px-2.5 py-2 text-sm rounded-md"><RotateCw className="h-3.5 w-3.5 mr-2.5" />Restart All</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'restart')) }} className="px-2.5 py-2 text-sm rounded-md"><RotateCw className="h-3.5 w-3.5 mr-2.5" />Restart All</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onRebuildConfirm(project)} className="px-2.5 py-2 text-sm rounded-md"><Hammer className="h-3.5 w-3.5 mr-2.5" />Rebuild All</DropdownMenuItem>
                 <DropdownMenuItem className="text-destructive px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</DropdownMenuItem>
               </DropdownMenuContent>
@@ -1541,7 +1544,7 @@ function DetailSheet({
 
   const runHealthCheck = React.useCallback(async () => {
     if (!project) return
-    const ports = project.environments.map((e) => e.port).join(',')
+    const ports = (project.environments || []).map((e) => e.port).join(',')
     if (!ports) return
     try {
       const res = await fetch(`/api/health-check?ports=${ports}`)
@@ -1660,7 +1663,7 @@ function DetailSheet({
             <div>
               <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Environments Summary</h4></div>
               <div className="space-y-1">
-                {project.environments.map((env) => (
+                {envs.map((env) => (
                   <div key={env.id} className="flex items-center justify-between p-2 rounded border text-sm">
                     <div className="flex items-center gap-2">
                       <span className={`h-2 w-2 rounded-full ${env.status === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
@@ -1688,15 +1691,15 @@ function DetailSheet({
                     </div>
                   </div>
                 ))}
-                {project.environments.length === 0 && <span className="text-xs text-muted-foreground">No environments</span>}
+                {envs.length === 0 && <span className="text-xs text-muted-foreground">No environments</span>}
               </div>
             </div>
             {/* Access URLs Section */}
-            {project.environments.some((e) => e.status === 'running') && (
+            {envs.some((e) => e.status === 'running') && (
               <div>
                 <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Access URLs</h4></div>
                 <div className="space-y-1.5">
-                  {project.environments.filter((e) => e.status === 'running').map((env) => {
+                  {envs.filter((e) => e.status === 'running').map((env) => {
                     const envName = env.name === 'development' ? 'dev' : env.name === 'production' ? 'prod' : env.name
                     return (
                       <div key={env.id} className="p-2.5 rounded-lg border bg-muted/30 space-y-1.5">
@@ -1764,7 +1767,7 @@ function DetailSheet({
           </TabsContent>
 
           <TabsContent value="environments" className="p-4 space-y-3 mt-0 overflow-y-auto flex-1 min-h-0">
-            {project.environments.map((env) => {
+            {envs.map((env) => {
               const envVars = parseEnvVars(env.envVars)
               const isExpanded = expandedEnv === env.id
               return (
@@ -1884,7 +1887,7 @@ function DetailSheet({
                 </div>
               )
             })}
-            {project.environments.length === 0 && (
+            {envs.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <Layers className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">No environments yet</p>
@@ -2877,12 +2880,12 @@ export default function DashboardPage() {
 
   const handleRebuildProject = React.useCallback(async (projectId: string) => {
     const project = projects.find((p) => p.id === projectId)
-    if (!project || project.environments.length === 0) return
+    if (!project || envs.length === 0) return
     setRebuildingProjectIds((prev) => new Set(prev).add(projectId))
     try {
       let successCount = 0
       // Skip dev environments — they use HMR and don't need rebuild
-      const rebuildEnvs = project.environments.filter((e) => e.name !== 'development')
+      const rebuildEnvs = envs.filter((e) => e.name !== 'development')
       if (rebuildEnvs.length === 0) {
         toast({ title: 'No rebuildable environments', description: 'Dev environments use hot-reload and do not need rebuild', variant: 'info' })
         return
@@ -3181,7 +3184,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-1 ml-auto">
             {/* Notifications */}
             <Popover>
-              <PopoverTrigger nativeButton render={<button type="button" className="inline-flex items-center justify-center rounded-md h-8 w-8 hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground cursor-pointer relative transition-all duration-150 active:scale-95" />}>
+              <PopoverTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-8 w-8 hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground cursor-pointer relative transition-all duration-150 active:scale-95" />}>
                   <Bell className="h-4 w-4" />
                   {unreadNotifs > 0 && (
                     <motion.span key={unreadNotifs} initial={{ scale: 0.5 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 500, damping: 25 }} className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center font-bold">{unreadNotifs}</motion.span>
@@ -3397,15 +3400,31 @@ export default function DashboardPage() {
             </div>
 
             {/* Batch mode toggle — always right-aligned */}
-            <Button
-              variant={batchMode ? 'secondary' : 'outline'}
-              className="h-7 px-2.5 text-xs font-medium gap-1.5 shrink-0 hover:text-foreground transition-colors"
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={batchMode}
               onClick={() => { setBatchMode(!batchMode); if (batchMode) setSelectedIds(new Set()) }}
               title="Batch select"
+              className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-xs font-medium gap-1.5 shrink-0 h-7 px-2.5 transition-colors cursor-pointer border ${
+                batchMode
+                  ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80 border-secondary'
+                  : 'border-input bg-background hover:bg-accent hover:text-accent-foreground'
+              }`}
             >
-              <Checkbox checked={batchMode} className="h-3 w-3" />
+              <span className={`flex h-3 w-3 shrink-0 items-center justify-center rounded-[4px] border ${
+                batchMode
+                  ? 'bg-primary border-primary text-primary-foreground'
+                  : 'border-input'
+              }`}>
+                {batchMode && (
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" className="h-2.5 w-2.5">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                )}
+              </span>
               {batchMode ? 'Cancel' : 'Batch'}
-            </Button>
+            </button>
           </div>
         </div>
       </div>

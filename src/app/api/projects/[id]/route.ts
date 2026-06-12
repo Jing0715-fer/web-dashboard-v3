@@ -19,14 +19,27 @@ export async function GET(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Remote project → proxy to agent
+    // Remote project → try proxy to agent, fallback to local data
     if (isRemoteProject(project)) {
       const result = await proxyProjectAction(
         project.deviceId!,
         `/projects/${id}`,
         'GET'
       );
-      return NextResponse.json(result.data, { status: result.status });
+      if (result.ok) {
+        return NextResponse.json(result.data, { status: result.status });
+      }
+      // Agent unreachable → return local cached data with device info
+      const enriched = {
+        ...project,
+        deviceName: project.device?.name || 'Unknown Device',
+        deviceStatus: project.device?.status || 'offline',
+        environments: (project.environments || []).map((env) => ({
+          ...env,
+          status: env.status || 'stopped',
+        })),
+      };
+      return NextResponse.json({ project: enriched });
     }
 
     // Local project → existing logic

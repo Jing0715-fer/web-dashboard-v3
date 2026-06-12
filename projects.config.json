@@ -1,0 +1,126 @@
+{
+  "version": "1.0",
+  "description": "Demo projects for multi-device dashboard",
+  "projects": [
+    {
+      "name": "Web Dashboard",
+      "path": "/home/z/projects/web-dashboard",
+      "description": "Main dashboard application for managing web projects",
+      "icon": "layout-dashboard",
+      "tags": ["frontend", "nextjs", "production"],
+      "environments": [
+        {
+          "name": "dev",
+          "cmd": "npm run dev",
+          "port": 3001,
+          "envVars": { "NODE_ENV": "development" }
+        },
+        {
+          "name": "prod",
+          "cmd": "npm run start",
+          "port": 4001,
+          "envVars": { "NODE_ENV": "production", "PORT": "4001" }
+        }
+      ]
+    },
+    {
+      "name": "API Gateway",
+      "path": "/home/z/projects/api-gateway",
+      "description": "Microservice API gateway with rate limiting and auth",
+      "icon": "network",
+      "tags": ["backend", "node", "production"],
+      "environments": [
+        {
+          "name": "dev",
+          "cmd": "npm run dev",
+          "port": 5001,
+          "envVars": { "NODE_ENV": "development", "LOG_LEVEL": "debug" }
+        },
+        {
+          "name": "staging",
+          "cmd": "npm run start:staging",
+          "port": 5002,
+          "envVars": { "NODE_ENV": "staging", "LOG_LEVEL": "info" }
+        }
+      ]
+    },
+    {
+      "name": "ML Pipeline",
+      "path": "/home/z/projects/ml-pipeline",
+      "description": "Machine learning data processing pipeline",
+      "icon": "brain",
+      "tags": ["python", "ml", "data"],
+      "environments": [
+        {
+          "name": "training",
+          "cmd": "python train.py",
+          "port": 8001,
+          "envVars": { "PYTHON_ENV": "training", "GPU": "0" }
+        },
+        {
+          "name": "serving",
+          "cmd": "python serve.py",
+          "port": 8002,
+          "envVars": { "PYTHON_ENV": "production" }
+        }
+      ]
+    },
+    {
+      "name": "Mobile App Server",
+      "path": "/home/z/projects/mobile-server",
+      "description": "Backend server for the mobile application",
+      "icon": "smartphone",
+      "tags": ["backend", "mobile", "api"],
+      "environments": [
+        {
+          "name": "dev",
+          "cmd": "npm run dev",
+          "port": 6001,
+          "envVars": { "NODE_ENV": "development" }
+        }
+      ]
+    },
+    {
+      "name": "Analytics Dashboard",
+      "path": "/home/z/projects/analytics",
+      "description": "Real-time analytics and reporting dashboard",
+      "icon": "bar-chart-3",
+      "tags": ["frontend", "analytics", "react"],
+      "environments": [
+        {
+          "name": "dev",
+          "cmd": "npm run dev",
+          "port": 7001,
+          "envVars": { "NODE_ENV": "development" }
+        },
+        {
+          "name": "prod",
+          "cmd": "npm run start",
+          "port": 7002,
+          "envVars": { "NODE_ENV": "production" }
+        }
+      ]
+    },
+    {
+      "name": "Auth Service",
+      "path": "/home/z/projects/auth-service",
+      "description": "OAuth2 authentication microservice",
+      "icon": "shield",
+      "tags": ["backend", "auth", "security"],
+      "environments": [
+        {
+          "name": "dev",
+          "cmd": "npm run dev",
+          "port": 9001,
+          "envVars": { "NODE_ENV": "development" }
+        },
+        {
+          "name": "prod",
+          "cmd": "npm run start",
+          "port": 9002,
+          "envVars": { "NODE_ENV": "production" }
+        }
+      ]
+    }
+  ]
+}
