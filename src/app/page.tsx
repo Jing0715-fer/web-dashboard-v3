@@ -11,7 +11,7 @@ import {
   ChevronUp, MoreVertical, Eye, Filter, Tag, Layers,
   Monitor, Database, Smartphone, Cpu as CpuIcon, GitBranch,
   CheckCircle2, XCircle, Loader2,
-  Bot, ArrowUpDown,
+  Bot, ArrowUpDown, ArrowRightLeft,
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap,
   Wifi, Gauge, MemoryStick, BarChart3, Upload
 } from 'lucide-react'
@@ -542,7 +542,7 @@ function SortableProjectCard({
   project, viewMode, searchQuery, onSelect, onEdit, onDelete,
   onEnvAction, onRebuildConfirm, selected, onToggleSelect, rebuilding,
   starred, onToggleStar, lanIp, currentHost, index = 0,
-  batchMode = false
+  batchMode = false, onDuplicate, onMoveToDevice, devices
 }: {
   project: Project
   viewMode: ViewMode
@@ -561,6 +561,9 @@ function SortableProjectCard({
   currentHost: string
   index?: number
   batchMode?: boolean
+  onDuplicate?: (id: string) => void
+  onMoveToDevice?: (project: Project) => void
+  devices?: Device[]
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
   const [expanded, setExpanded] = React.useState(false)
@@ -600,7 +603,7 @@ function SortableProjectCard({
     return (
       <div ref={setNodeRef} style={style}>
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ delay: index * 0.05 }}
@@ -646,7 +649,7 @@ function SortableProjectCard({
           {/* List view: per-environment controls */}
           <div className="hidden md:flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
             {(project.environments || []).slice(0, 3).map((env) => (
-              <div key={env.id} className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : 'bg-muted/20'}`}
+              <div key={env.id} className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted/30 transition-colors ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : 'bg-muted/20'}`}
                 title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
               >
                 <AnimatedStatusDot status={env.status} />
@@ -714,6 +717,10 @@ function SortableProjectCard({
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDuplicate(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
+                {!project.deviceId && onMoveToDevice && (
+                  <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Move to Device</DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 {(project.environments || []).some((e) => e.status === 'running') && (
                   <DropdownMenuItem onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />Copy Proxy URL</DropdownMenuItem>
@@ -733,7 +740,7 @@ function SortableProjectCard({
   return (
     <div ref={setNodeRef} style={style} onClick={() => onSelect(project)}>
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ delay: index * 0.05 }}
@@ -796,7 +803,7 @@ function SortableProjectCard({
           </div>
           <div className="space-y-2">
             {(expanded ? (project.environments || []) : (project.environments || []).slice(0, 3)).map((env, envIdx) => (
-              <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-accent/40 dark:hover:bg-white/5 transition-all duration-150 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : 'bg-muted/20'} ${envIdx < (expanded ? (project.environments || []).length - 1 : Math.min((project.environments || []).length, 3) - 1) ? 'border-b border-border/20 dark:border-zinc-700/20 pb-2 sm:pb-3' : ''}`}
+              <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-muted/30 dark:hover:bg-white/5 transition-all duration-150 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : 'bg-muted/20'} ${envIdx < (expanded ? (project.environments || []).length - 1 : Math.min((project.environments || []).length, 3) - 1) ? 'border-b border-border/20 dark:border-zinc-700/20 pb-2 sm:pb-3' : ''}`}
                 title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
               >
                 <div className="flex items-center gap-1.5 min-w-0 shrink">
@@ -896,12 +903,17 @@ function SortableProjectCard({
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDuplicate(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
+                {!project.deviceId && onMoveToDevice && (
+                  <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Move to Device</DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 {(project.environments || []).some((e) => e.status === 'running') && (
                   <DropdownMenuItem onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />Copy Proxy URL</DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'restart')) }} className="px-2.5 py-2 text-sm rounded-md"><RotateCw className="h-3.5 w-3.5 mr-2.5" />Restart All</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onRebuildConfirm(project)} className="px-2.5 py-2 text-sm rounded-md"><Hammer className="h-3.5 w-3.5 mr-2.5" />Rebuild All</DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-destructive px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1124,7 +1136,7 @@ function ToastContainer() {
     return 'border-border bg-card'
   }
   return (
-    <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+    <div className="fixed bottom-16 right-4 z-[100] flex flex-col gap-2 max-w-sm">
       <AnimatePresence>
         {toasts.map((toast) => (
           <motion.div
@@ -2291,7 +2303,22 @@ function DetailSheet({
               )}
             </div>
             <div>
-              <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Environments Summary</h4></div>
+              <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Environments Summary</h4>
+                <div className="flex items-center gap-1 ml-auto">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => { const ports = envs.map((e) => String(e.port)).join(', '); navigator.clipboard.writeText(ports); toast({ title: 'Ports copied', description: ports, variant: 'success' }) }}
+                    title="Copy all ports"
+                  ><Copy className="h-2.5 w-2.5" />Copy All Ports</button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => { envs.filter((e) => e.status === 'running').forEach((env) => { let url: string; if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) { url = `/api/proxy/${env.port}/` } else { const host = currentHost || 'localhost'; url = `http://${host}:${env.port}` } window.open(url, '_blank') }) }}
+                    title="Open all running URLs"
+                  ><ExternalLink className="h-2.5 w-2.5" />Open All Running</button>
+                </div>
+              </div>
               <div className="space-y-1">
                 {envs.map((env) => (
                   <div key={env.id} className="flex items-center justify-between p-2 rounded border text-sm">
@@ -3165,8 +3192,12 @@ export default function DashboardPage() {
   const [notifications, setNotifications] = React.useState<Notification[]>([])
   const [loading, setLoading] = React.useState(true)
   const [searchQuery, setSearchQuery] = React.useState('')
-  const [viewMode, setViewMode] = React.useState<ViewMode>('grid')
-  const [sortBy, setSortBy] = React.useState<SortOption>('newest')
+  const [viewMode, setViewMode] = React.useState<ViewMode>(() => {
+    try { const v = localStorage.getItem('dashboard-viewMode'); return v === 'grid' || v === 'list' ? v : 'grid' } catch { return 'grid' }
+  })
+  const [sortBy, setSortBy] = React.useState<SortOption>(() => {
+    try { const v = localStorage.getItem('dashboard-sortBy'); return v === 'newest' || v === 'name' || v === 'status' ? v : 'newest' } catch { return 'newest' }
+  })
   const [filterStatus, setFilterStatus] = React.useState<FilterStatus>('all')
   const [filterTags, setFilterTags] = React.useState<string[]>([])
   const [selectedProject, setSelectedProject] = React.useState<Project | null>(null)
@@ -3199,10 +3230,13 @@ export default function DashboardPage() {
   const [lanIp, setLanIp] = React.useState<string>('')
   const [currentHost, setCurrentHost] = React.useState<string>('')
   const [devices, setDevices] = React.useState<Device[]>([])
-  const [selectedDeviceId, setSelectedDeviceId] = React.useState<string | null>(null) // null = all, 'local' = this machine
+  const [selectedDeviceId, setSelectedDeviceId] = React.useState<string | null>(() => {
+    try { const v = localStorage.getItem('dashboard-selectedDeviceId'); return v === null || v === 'null' ? null : v } catch { return null }
+  }) // null = all, 'local' = this machine
   const [deviceManagementOpen, setDeviceManagementOpen] = React.useState(false)
   const [addDeviceFormOpen, setAddDeviceFormOpen] = React.useState(false)
   const [editingDevice, setEditingDevice] = React.useState<Device | null>(null)
+  const [moveProjectDialog, setMoveProjectDialog] = React.useState<Project | null>(null)
 
   const toggleStar = React.useCallback((id: string) => {
     setStarredIds((prev) => {
@@ -3213,6 +3247,11 @@ export default function DashboardPage() {
       return next
     })
   }, [])
+
+  // Persist dashboard preferences to localStorage
+  React.useEffect(() => { localStorage.setItem('dashboard-viewMode', viewMode) }, [viewMode])
+  React.useEffect(() => { localStorage.setItem('dashboard-sortBy', sortBy) }, [sortBy])
+  React.useEffect(() => { localStorage.setItem('dashboard-selectedDeviceId', selectedDeviceId ?? 'null') }, [selectedDeviceId])
 
   const { toast } = useToast()
 
@@ -3612,6 +3651,23 @@ export default function DashboardPage() {
     return { totalProjects: filteredProjects.length, runningEnvs, totalEnvs, onlineDevices, totalDevices, healthScore }
   }, [filteredProjects, devices])
 
+  // Health score history for sparkline
+  const [healthScoreHistory, setHealthScoreHistory] = React.useState<number[]>(() => {
+    try { return JSON.parse(localStorage.getItem('health-score-history') || '[]') } catch { return [] }
+  })
+  React.useEffect(() => {
+    const pushScore = () => {
+      setHealthScoreHistory((prev) => {
+        const next = [...prev, dashboardStats.healthScore].slice(-20)
+        localStorage.setItem('health-score-history', JSON.stringify(next))
+        return next
+      })
+    }
+    pushScore()
+    const id = setInterval(pushScore, 30000)
+    return () => clearInterval(id)
+  }, [dashboardStats.healthScore])
+
   const unreadNotifs = React.useMemo(() => notifications.filter((n) => !n.read).length, [notifications])
 
   const handleEditProject = React.useCallback((p: Project) => {
@@ -3671,6 +3727,41 @@ export default function DashboardPage() {
       toast({ title: 'Failed to delete', variant: 'destructive' })
     }
   }, [toast, fetchProjects, selectedProject])
+
+  const handleDuplicateProject = React.useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/projects/${id}/duplicate`, { method: 'POST' })
+      if (res.ok) {
+        toast({ title: 'Project duplicated', variant: 'success' })
+        fetchProjects()
+      } else {
+        const err = await res.json()
+        toast({ title: 'Failed to duplicate project', description: err.error || 'Server error', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Failed to duplicate project', variant: 'destructive' })
+    }
+  }, [toast, fetchProjects])
+
+  const handleMoveProject = React.useCallback(async (projectId: string, targetDeviceId: string | null) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetDeviceId }),
+      })
+      if (res.ok) {
+        toast({ title: 'Project moved', variant: 'success' })
+        fetchProjects()
+        setMoveProjectDialog(null)
+      } else {
+        const err = await res.json()
+        toast({ title: 'Failed to move project', description: err.error || 'Server error', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Failed to move project', variant: 'destructive' })
+    }
+  }, [toast, fetchProjects])
 
   const handleSelectProject = React.useCallback((p: Project) => {
     // Fetch fresh data for the detail view
@@ -4542,12 +4633,12 @@ export default function DashboardPage() {
             <SortableContext items={filteredProjects.map((p) => p.id)} strategy={viewMode === 'list' ? verticalListSortingStrategy : verticalListSortingStrategy}>
               {/* Dashboard Overview Stats Cards */}
               {filteredProjects.length > 0 && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5 relative">
                   {[
-                    { label: 'Total Projects', value: dashboardStats.totalProjects, icon: Folder, iconColor: 'text-emerald-600 dark:text-emerald-400', gradient: 'from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20', ring: 'ring-emerald-200/50 dark:ring-emerald-800/30', sub: `${dashboardStats.runningEnvs} of ${dashboardStats.totalEnvs} envs running`, subIcon: Activity, miniChart: true, miniRunning: dashboardStats.runningEnvs, miniTotal: dashboardStats.totalEnvs },
-                    { label: 'Environments', value: dashboardStats.runningEnvs, icon: Play, iconColor: 'text-cyan-600 dark:text-cyan-400', gradient: 'from-cyan-50 to-sky-50 dark:from-cyan-950/30 dark:to-sky-950/20', ring: 'ring-cyan-200/50 dark:ring-cyan-800/30', sub: `${dashboardStats.runningEnvs} / ${dashboardStats.totalEnvs} running`, trend: dashboardStats.totalEnvs > 0 ? `${Math.round((dashboardStats.runningEnvs / dashboardStats.totalEnvs) * 100)}%` : '0%' },
-                    { label: 'Devices', value: dashboardStats.onlineDevices, icon: Server, iconColor: 'text-teal-600 dark:text-teal-400', gradient: 'from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/20', ring: 'ring-teal-200/50 dark:ring-teal-800/30', sub: `${dashboardStats.onlineDevices} / ${dashboardStats.totalDevices} online` },
-                    { label: 'Health Score', value: dashboardStats.healthScore, icon: Activity, iconColor: healthColor(dashboardStats.healthScore), gradient: dashboardStats.healthScore >= 80 ? 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/20' : dashboardStats.healthScore >= 50 ? 'from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/20' : 'from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/20', ring: dashboardStats.healthScore >= 80 ? 'ring-emerald-200/50 dark:ring-emerald-800/30' : dashboardStats.healthScore >= 50 ? 'ring-amber-200/50 dark:ring-amber-800/30' : 'ring-red-200/50 dark:ring-red-800/30', sub: dashboardStats.healthScore >= 80 ? 'Healthy' : dashboardStats.healthScore >= 50 ? 'Warning' : 'Critical', isPercent: true },
+                    { label: 'Total Projects', value: dashboardStats.totalProjects, icon: Folder, iconColor: 'text-emerald-600 dark:text-emerald-400', gradient: 'from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20', ring: 'ring-emerald-200/50 dark:ring-emerald-800/30', sub: `${dashboardStats.runningEnvs} of ${dashboardStats.totalEnvs} envs running`, subIcon: Activity, miniChart: true, miniRunning: dashboardStats.runningEnvs, miniTotal: dashboardStats.totalEnvs, glowColor: 'rgba(16,185,129,0.3)' },
+                    { label: 'Environments', value: dashboardStats.runningEnvs, icon: Play, iconColor: 'text-cyan-600 dark:text-cyan-400', gradient: 'from-cyan-50 to-sky-50 dark:from-cyan-950/30 dark:to-sky-950/20', ring: 'ring-cyan-200/50 dark:ring-cyan-800/30', sub: `${dashboardStats.runningEnvs} / ${dashboardStats.totalEnvs} running`, trend: dashboardStats.totalEnvs > 0 ? `${Math.round((dashboardStats.runningEnvs / dashboardStats.totalEnvs) * 100)}%` : '0%', glowColor: 'rgba(6,182,212,0.3)' },
+                    { label: 'Devices', value: dashboardStats.onlineDevices, icon: Server, iconColor: 'text-teal-600 dark:text-teal-400', gradient: 'from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/20', ring: 'ring-teal-200/50 dark:ring-teal-800/30', sub: `${dashboardStats.onlineDevices} / ${dashboardStats.totalDevices} online`, glowColor: 'rgba(20,184,166,0.3)' },
+                    { label: 'Health Score', value: dashboardStats.healthScore, icon: Activity, iconColor: healthColor(dashboardStats.healthScore), gradient: dashboardStats.healthScore >= 80 ? 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/20' : dashboardStats.healthScore >= 50 ? 'from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/20' : 'from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/20', ring: dashboardStats.healthScore >= 80 ? 'ring-emerald-200/50 dark:ring-emerald-800/30' : dashboardStats.healthScore >= 50 ? 'ring-amber-200/50 dark:ring-amber-800/30' : 'ring-red-200/50 dark:ring-red-800/30', sub: dashboardStats.healthScore >= 80 ? 'Healthy' : dashboardStats.healthScore >= 50 ? 'Warning' : 'Critical', isPercent: true, sparkline: healthScoreHistory, glowColor: dashboardStats.healthScore >= 80 ? 'rgba(16,185,129,0.3)' : dashboardStats.healthScore >= 50 ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)' },
                   ].map((card, i) => (
                     <motion.div
                       key={card.label}
@@ -4555,7 +4646,10 @@ export default function DashboardPage() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.1, duration: 0.4, ease: 'easeOut' }}
                       whileHover={{ scale: 1.02, y: -2 }}
-                      className={`relative p-4 rounded-xl bg-gradient-to-br ${card.gradient} ring-1 ${card.ring} shadow-sm hover:shadow-md transition-shadow cursor-default overflow-hidden`}
+                      className={`relative p-4 rounded-xl bg-gradient-to-br ${card.gradient} ring-1 ${card.ring} shadow-sm transition-shadow cursor-default overflow-hidden`}
+                      style={{ '--glow-color': card.glowColor } as React.CSSProperties}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 20px ${card.glowColor}` }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = '' }}
                     >
                       <div className="flex items-center gap-2 mb-2">
                         <div className="p-1.5 rounded-lg bg-white/60 dark:bg-white/10 shadow-sm">
@@ -4576,6 +4670,22 @@ export default function DashboardPage() {
                             <circle cx={14} cy={14} r={11} fill="none" stroke="#10b981" strokeWidth={3} strokeDasharray={`${(card.miniRunning / card.miniTotal) * 69.1} 69.1`} strokeLinecap="round" className="transform -rotate-90 origin-center" />
                           </svg>
                         )}
+                        {card.sparkline && card.sparkline.length > 1 && (
+                          <svg width={48} height={24} className="shrink-0" viewBox="0 0 48 24" preserveAspectRatio="none">
+                            <polyline
+                              fill="none"
+                              stroke={healthStroke(card.value)}
+                              strokeWidth={1.5}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              points={card.sparkline.map((v: number, si: number) => {
+                                const x = (si / (card.sparkline.length - 1)) * 46 + 1
+                                const y = 22 - (v / 100) * 20
+                                return `${x},${y}`
+                              }).join(' ')}
+                            />
+                          </svg>
+                        )}
                       </div>
                       <div className="mt-1 flex items-center gap-1">
                         <span className="text-[10px] text-muted-foreground dark:text-zinc-500">{card.sub}</span>
@@ -4585,6 +4695,15 @@ export default function DashboardPage() {
                       </div>
                     </motion.div>
                   ))}
+                  {/* Quick Refresh Button */}
+                  <button
+                    type="button"
+                    className="absolute -right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-card border shadow-sm hover:bg-accent hover:shadow-md transition-all ring-1 ring-border/30 text-muted-foreground hover:text-foreground"
+                    onClick={() => fetchProjects()}
+                    title="Refresh data"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+                  </button>
                 </div>
               )}
               {viewMode === 'grid' ? (
@@ -4623,6 +4742,9 @@ export default function DashboardPage() {
                               currentHost={currentHost}
                               index={idx}
                               batchMode={batchMode}
+                              onDuplicate={handleDuplicateProject}
+                              onMoveToDevice={setMoveProjectDialog}
+                              devices={devices}
                             />
                           ))}
                         </>
@@ -4665,6 +4787,9 @@ export default function DashboardPage() {
                               currentHost={currentHost}
                               index={idx}
                               batchMode={batchMode}
+                              onDuplicate={handleDuplicateProject}
+                              onMoveToDevice={setMoveProjectDialog}
+                              devices={devices}
                             />
                           ))}
                         </React.Fragment>
@@ -4691,6 +4816,9 @@ export default function DashboardPage() {
                         currentHost={currentHost}
                         index={idx}
                         batchMode={batchMode}
+                        onDuplicate={handleDuplicateProject}
+                        onMoveToDevice={setMoveProjectDialog}
+                        devices={devices}
                       />
                     ))
                   )}
@@ -4729,6 +4857,9 @@ export default function DashboardPage() {
                               currentHost={currentHost}
                               index={idx}
                               batchMode={batchMode}
+                              onDuplicate={handleDuplicateProject}
+                              onMoveToDevice={setMoveProjectDialog}
+                              devices={devices}
                             />
                           ))}
                         </>
@@ -4769,6 +4900,9 @@ export default function DashboardPage() {
                               currentHost={currentHost}
                               index={idx}
                               batchMode={batchMode}
+                              onDuplicate={handleDuplicateProject}
+                              onMoveToDevice={setMoveProjectDialog}
+                              devices={devices}
                             />
                           ))}
                         </React.Fragment>
@@ -4795,6 +4929,9 @@ export default function DashboardPage() {
                         currentHost={currentHost}
                         index={idx}
                         batchMode={batchMode}
+                        onDuplicate={handleDuplicateProject}
+                        onMoveToDevice={setMoveProjectDialog}
+                        devices={devices}
                       />
                     ))
                   )}
@@ -4845,6 +4982,47 @@ export default function DashboardPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Move to Device dialog */}
+      <Dialog open={!!moveProjectDialog} onOpenChange={(v) => !v && setMoveProjectDialog(null)}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="h-4 w-4 text-emerald-600" />
+              Move &quot;{moveProjectDialog?.name}&quot; to Device
+            </DialogTitle>
+            <DialogDescription>Select a target device to move this project to.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+            <button
+              type="button"
+              className="w-full flex items-center gap-2.5 p-3 rounded-lg border hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors text-left"
+              onClick={() => moveProjectDialog && handleMoveProject(moveProjectDialog.id, null)}
+            >
+              <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <div>
+                <div className="text-sm font-medium">This Machine (Local)</div>
+                <div className="text-[10px] text-muted-foreground">Move back to this machine</div>
+              </div>
+            </button>
+            {devices.map((device) => (
+              <button
+                key={device.id}
+                type="button"
+                className="w-full flex items-center gap-2.5 p-3 rounded-lg border hover:bg-accent/50 transition-colors text-left"
+                onClick={() => moveProjectDialog && handleMoveProject(moveProjectDialog.id, device.id)}
+              >
+                <Server className={`h-4 w-4 shrink-0 ${device.status === 'online' ? 'text-emerald-500' : 'text-red-400'}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate">{device.name}</div>
+                  <div className="text-[10px] text-muted-foreground font-mono">{device.ip}:{device.port}</div>
+                </div>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${device.status === 'online' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>{device.status === 'online' ? 'Online' : 'Offline'}</span>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Project form - key resets state when dialog opens */}
       <ProjectFormDialog

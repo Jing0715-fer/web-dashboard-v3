@@ -1,5 +1,134 @@
 # Web Dashboard Multi-Device Interconnection - Worklog
 
+## Session 8: QA + 7 New Features + Style Polish (2026-06-12)
+
+### Project Current Status
+- Dashboard fully functional with 9 projects (6 local + 3 remote)
+- All previous features working: device management, notifications, batch operations, env vars editing, tags editing, description editing, system monitor, activity timeline, enhanced search, config import/export, icon picker, command palette
+- 0 lint errors, 0 warnings
+- Dev server running stable
+- No JS console errors
+
+### QA Results (Pre-Implementation)
+- ✅ 9 projects displayed correctly (6 local + 3 remote)
+- ✅ Device selector and filtering works
+- ✅ DetailSheet opens with all tabs (Overview, Environments, Activity, Logs)
+- ✅ Device management panel works (add/edit/delete/health check)
+- ✅ Dark mode toggle works
+- ✅ Mobile responsive layout works
+- ✅ Notification center works (6 notifications)
+- ✅ Batch mode with floating action bar
+- ✅ System Resource Monitor dialog
+- ✅ Stats cards with animated counters
+- ✅ 0 lint errors, 0 JS console errors
+- No bugs found — application is stable
+
+### Completed Work This Session
+
+#### Feature 1: Project Duplication ✅
+- **Backend**: Created `POST /api/projects/[id]/duplicate` API route
+  - Duplicates the project with name suffix "(Copy)" and path suffix "-copy"
+  - Copies all environments with status reset to "stopped"
+  - Handles remote projects via proxy
+  - Returns 409 if duplicated project already exists
+- **Frontend**: Added "Duplicate" menu item with Copy icon in project card DropdownMenu
+  - Calls the duplicate API and refreshes project list
+  - Toast feedback on success/failure
+  - Available in both grid and list views
+
+#### Feature 2: Dashboard Preferences Persistence ✅
+- Save/restore from localStorage:
+  - `dashboard-viewMode` — grid/list preference
+  - `dashboard-sortBy` — newest/name/status preference
+  - `dashboard-selectedDeviceId` — device filter selection
+- Uses same pattern as existing `starredIds` localStorage usage
+- 3 useEffect hooks to persist on change
+- State initializers read from localStorage with fallback defaults
+
+#### Feature 3: Health Score Trend Sparkline ✅
+- Added `healthScoreHistory` state (max 20 entries) initialized from localStorage
+- useEffect pushes current health score every 30 seconds
+- SVG polyline sparkline rendered next to Health Score stat card number
+- Sparkline color matches health status:
+  - Emerald (#10b981) for score >= 80
+  - Amber (#f59e0b) for score >= 50
+  - Red (#ef4444) for score < 50
+- Persisted to localStorage key `health-score-history`
+- Stat cards also include `glowColor` for hover glow effect
+
+#### Feature 4: Copy All Ports & Open All Running ✅
+- Added two inline buttons next to "Environments Summary" heading in DetailSheet Overview tab:
+  1. **"Copy All Ports"** — copies all environment ports as comma-separated string (e.g., "9001, 9002")
+  2. **"Open All Running"** — opens all running environment URLs in new browser tabs
+- Uses Copy and ExternalLink icons from lucide-react
+- Toast feedback on copy success ("Ports copied to clipboard")
+- Both buttons are compact and inline with the section heading
+
+#### Feature 5: Project Move Between Devices ✅
+- **Backend**: Created `POST /api/projects/[id]/move` API route
+  - Accepts `{ targetDeviceId }` (null = local, string = device ID)
+  - Only allows moving local projects (not remote)
+  - Stops all running environments before moving
+  - Resets environment statuses to "stopped" after move
+  - Validates target device exists
+- **Frontend**: Added "Move to Device" option in project card DropdownMenu
+  - Only shown for local projects (deviceId is null)
+  - Opens a Dialog with device list including "This Machine (Local)" option
+  - Uses ArrowRightLeft icon from lucide-react
+  - Toast feedback on success/failure
+  - Refreshes project list after move
+
+#### Feature 6: Style Polish - Micro-interactions ✅
+1. **Card entrance animation**: Updated motion.div initial/animate in project cards with `y: 8` offset for subtle slide-up
+2. **Stat card hover glow**: Added onMouseEnter/onMouseLeave handlers with colored box-shadow glow matching gradient color
+3. **Environment row hover highlight**: Added `hover:bg-muted/30` class for subtle background highlight on environment rows
+4. **Toast container z-index**: Moved toast position from `bottom-4` to `bottom-16` to appear above the fixed footer
+
+#### Feature 7: Quick Refresh Button in Stats ✅
+- Added small "Refresh data" button at the right side of the stats cards row
+- Uses RefreshCw icon with spinning animation while loading
+- Calls `fetchProjects()` on click
+- Tooltip showing "Refresh data"
+
+### New Files Created
+- `src/app/api/projects/[id]/duplicate/route.ts` — Project duplication API
+- `src/app/api/projects/[id]/move/route.ts` — Project move between devices API
+
+### Files Modified
+- `src/app/page.tsx` — All 7 features implemented (imports, state, handlers, UI)
+
+### Verification Results
+- ✅ 9 projects displayed correctly (6 local + 3 remote)
+- ✅ Stats cards show with sparkline on Health Score card
+- ✅ "Refresh data" button works in stats area
+- ✅ DetailSheet "Copy All Ports" button works with toast
+- ✅ DetailSheet "Open All Running" button visible
+- ✅ "Duplicate" option in project card dropdown menu
+- ✅ "Move to Device" option in project card dropdown menu (local projects only)
+- ✅ Dashboard preferences persist across page reloads
+- ✅ Health score sparkline updates every 30 seconds
+- ✅ Dark mode works with all new elements
+- ✅ 0 lint errors, 0 warnings
+- ✅ 0 JS console errors
+
+### Known Issues / Risks
+1. **Agent process stability**: The agent mini-service still dies after a few seconds in sandbox (background process limitation)
+2. **Page errors count**: agent-browser reports ~8-14 page errors but these are network-related (CORS/timeout for health polling), not JS errors
+3. **DropdownMenu testing**: Radix UI dropdown menus don't respond well to agent-browser click commands; verified via code review instead
+
+### Recommended Next Steps
+1. **WebSocket real-time updates**: Replace 5s/8s polling with WebSocket for live status
+2. **mDNS device discovery**: Auto-discover agents on LAN using `bonjour` library
+3. **Project deployment history**: Track deployment versions and rollbacks
+4. **User authentication**: Add login/auth with NextAuth.js
+5. **LLM-powered analysis**: Use LLM skill for project analysis and recommendations
+6. **Dashboard customization**: Allow users to customize card layout and visible stats
+7. **Project templates**: Create project from pre-defined templates
+8. **Bulk edit**: Edit tags/description for multiple projects at once
+9. **Enhanced log viewer**: Real-time log streaming with filtering and search
+
+---
+
 ## Session 3: Comprehensive QA + Bug Fixes + Major Feature Enhancements (2026-06-12)
 
 ### Project Current Status
