@@ -440,3 +440,90 @@
   width: 2px;
   background: linear-gradient(to bottom, rgba(16, 185, 129, 0.3), rgba(16, 185, 129, 0.05));
 }
+
+/* ======================== Session 15: Enhanced Animations ======================== */
+
+/* Skeleton shimmer block - pulsing with shimmer overlay */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.8; }
+}
+
+.skeleton-shimmer-block {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-shimmer-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.15) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.dark .skeleton-shimmer-block::after {
+  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.06) 50%, transparent 75%);
+  background-size: 200% 100%;
+}
+
+/* Skeleton card entrance */
+@keyframes skeleton-entrance {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.skeleton-card {
+  animation: skeleton-entrance 0.4s ease-out forwards;
+}
+
+/* Environment running badge - subtle pulse instead of aggressive animate-pulse */
+@keyframes env-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+.env-running-badge {
+  animation: env-badge-pulse 2s ease-in-out infinite;
+}
+
+/* Health score circle smooth transition */
+@keyframes health-score-transition {
+  0% { stroke-dashoffset: var(--circumference); }
+}
+
+/* Card entrance stagger animation */
+@keyframes card-entrance {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.card-entrance {
+  animation: card-entrance 0.4s ease-out forwards;
+}
+
+/* Quick actions toolbar gradient animation */
+@keyframes toolbar-gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Health trend arrow pop */
+@keyframes trend-pop {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.health-trend-icon {
+  animation: trend-pop 0.3s ease-out forwards;
+}
+
+/* Tag hover micro-animation scale */
+@keyframes tag-hover-scale {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.05); }
+}

@@ -301,6 +301,34 @@ function healthColor(score: number): string {
   return 'text-red-500'
 }
 
+// Health trend: compare current health with previous value stored in localStorage
+type HealthTrend = 'up' | 'down' | 'stable'
+
+function getHealthTrend(projectId: string, currentScore: number): HealthTrend {
+  try {
+    const key = `health-prev-${projectId}`
+    const prev = localStorage.getItem(key)
+    if (prev === null) {
+      // First time — store current and return stable
+      localStorage.setItem(key, String(currentScore))
+      return 'stable'
+    }
+    const prevScore = parseInt(prev, 10)
+    localStorage.setItem(key, String(currentScore))
+    if (currentScore > prevScore) return 'up'
+    if (currentScore < prevScore) return 'down'
+    return 'stable'
+  } catch {
+    return 'stable'
+  }
+}
+
+function HealthTrendIcon({ trend }: { trend: HealthTrend }) {
+  if (trend === 'up') return <span className="health-trend-icon inline-flex items-center text-emerald-500 text-xs font-bold leading-none ml-0.5" title="Health improving">▲</span>
+  if (trend === 'down') return <span className="health-trend-icon inline-flex items-center text-red-500 text-xs font-bold leading-none ml-0.5" title="Health declining">▼</span>
+  return <span className="health-trend-icon inline-flex items-center text-muted-foreground/60 text-xs leading-none ml-0.5" title="Health stable">◆</span>
+}
+
 function healthStroke(score: number): string {
   if (score >= 80) return '#10b981'
   if (score >= 50) return '#f59e0b'
@@ -439,8 +467,8 @@ function HealthScoreCircle({ score, size = 40 }: { score: number; size?: number 
         strokeDasharray={circumference}
         strokeDashoffset={circumference}
         strokeLinecap="round"
-        animate={{ strokeDashoffset: offset }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
+        animate={{ strokeDashoffset: offset, stroke: healthStroke(safeScore) }}
+        transition={{ duration: 0.8, ease: 'easeOut' }}
       />
       <text x={size / 2} y={size / 2} textAnchor="middle" dominantBaseline="central" className={`text-[10px] font-semibold ${healthColor(safeScore)}`} transform={`rotate(90, ${size / 2}, ${size / 2})`}>{safeScore}</text>
     </svg>
@@ -686,6 +714,7 @@ function SortableProjectCard({
     }
   }, [status])
   const health = calculateHealthScore(project)
+  const healthTrend = getHealthTrend(project.id, health)
   const tags = parseTags(project.tags)
   const runningEnvs = (project.environments || []).filter((e) => e.status === 'running').length
   const totalEnvs = (project.environments || []).length
@@ -716,13 +745,13 @@ function SortableProjectCard({
         <ContextMenu>
           <ContextMenuTrigger asChild>
         <motion.div
-          initial={{ opacity: 0, y: 8 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
-          transition={{ delay: index * 0.05 }}
-          whileHover={{ y: -1, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}
+          transition={{ delay: index * 0.05, duration: 0.35, ease: 'easeOut' }}
+          whileHover={{ y: -2, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}
           tabIndex={0}
-          className={`group flex items-center ${densityListClass} rounded-lg border bg-card dark:bg-zinc-900/80 shadow-sm dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] hover:bg-accent/50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} ${focused ? 'ring-2 ring-emerald-500/50 shadow-md' : ''} ${statusChanged ? 'ring-2 ring-amber-400/50 animate-pulse' : ''}`}
+          className={`group flex items-center ${densityListClass} rounded-lg border bg-card dark:bg-zinc-900/80 shadow-sm dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] hover:bg-accent/50 dark:hover:bg-zinc-800/50 transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} ${focused ? 'ring-2 ring-emerald-500/50 shadow-md' : ''} ${statusChanged ? 'ring-2 ring-amber-400/50 animate-pulse' : ''} ${status === 'running' ? 'hover:border-emerald-300 dark:hover:border-emerald-700' : status === 'mixed' ? 'hover:border-amber-300 dark:hover:border-amber-700' : 'hover:border-red-300 dark:hover:border-red-700'}`}
           onClick={() => onSelect(project)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
         >
@@ -759,13 +788,13 @@ function SortableProjectCard({
           </div>
           <div className="hidden sm:flex items-center gap-1 flex-wrap justify-end max-w-[200px]">
             {tags.slice(0, 3).map((tag) => (
-              <Badge key={tag} variant="secondary" className={`text-[10px] px-1.5 cursor-default ${getTagColor(tag)}`}>{tag}</Badge>
+              <Badge key={tag} variant="secondary" className={`text-[10px] px-1.5 cursor-default transition-transform duration-150 hover:scale-105 ${getTagColor(tag)}`}>{tag}</Badge>
             ))}
           </div>
           {/* List view: per-environment controls */}
           <div className="hidden md:flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
             {(project.environments || []).slice(0, 3).map((env) => (
-              <div key={env.id} className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted/30 transition-colors ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : 'bg-muted/20'}`}
+              <div key={env.id} className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-muted/30 transition-colors ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5 animate-pulse-glow-emerald' : 'bg-muted/20'}`}
                 title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
               >
                 <AnimatedStatusDot status={env.status} />
@@ -802,7 +831,10 @@ function SortableProjectCard({
               <span className="text-[9px] text-muted-foreground">+{(project.environments || []).length - 3}</span>
             )}
           </div>
-          <HealthScoreHoverCard score={health} size={32} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
+          <div className="flex items-center gap-0.5">
+            <HealthScoreHoverCard score={health} size={32} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
+            <HealthTrendIcon trend={healthTrend} />
+          </div>
           <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
             {(project.environments || []).some((e) => e.status === 'running') && (
               <TooltipProvider><Tooltip><TooltipTrigger render={<a
@@ -879,14 +911,14 @@ function SortableProjectCard({
       <ContextMenu>
         <ContextMenuTrigger asChild>
       <motion.div
-        initial={{ opacity: 0, y: 8 }}
+        initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
-        transition={{ delay: index * 0.05 }}
-        whileHover={{ y: -1 }}
+        transition={{ delay: index * 0.05, duration: 0.4, ease: 'easeOut' }}
+        whileHover={{ y: -2 }}
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
-        className={`group relative flex flex-col ${densityClass} rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer ${focused ? 'ring-2 ring-emerald-500/50 shadow-xl' : ''} ${statusChanged ? 'ring-2 ring-amber-400/50 animate-pulse' : ''}`}
+        className={`group relative flex flex-col ${densityClass} rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer ${focused ? 'ring-2 ring-emerald-500/50 shadow-xl' : ''} ${statusChanged ? 'ring-2 ring-amber-400/50 animate-pulse' : ''} ${status === 'running' ? 'hover:border-emerald-300 dark:hover:border-emerald-700' : status === 'mixed' ? 'hover:border-amber-300 dark:hover:border-amber-700' : 'hover:border-red-300 dark:hover:border-red-700'}`}
         onMouseEnter={(e) => {
           const tagColors: Record<string, string> = { Frontend: 'rgba(16,185,129,0.25)', Backend: 'rgba(20,184,166,0.25)', Fullstack: 'rgba(6,182,212,0.25)', DevOps: 'rgba(245,158,11,0.25)', Mobile: 'rgba(244,63,94,0.25)', API: 'rgba(139,92,246,0.25)', Database: 'rgba(249,115,22,0.25)', 'ML/AI': 'rgba(236,72,153,0.25)', Automation: 'rgba(100,116,139,0.25)' }
           const primaryTag = tags[0]
@@ -933,7 +965,10 @@ function SortableProjectCard({
               </div>
             </div>
             <div className="flex items-center shrink-0">
-              <HealthScoreHoverCard score={health} size={28} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
+              <div className="flex items-center gap-0.5">
+                <HealthScoreHoverCard score={health} size={28} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
+                <HealthTrendIcon trend={healthTrend} />
+              </div>
               <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`cursor-pointer transition-all duration-200 hover:scale-110 active:scale-90 ml-0.5 ${starred ? 'text-rose-500' : 'text-muted-foreground hover:text-rose-400'}`}>
                 {starred ? <Pin className="h-3 w-3 fill-rose-500" /> : <Star className="h-3 w-3" />}
               </button>
@@ -948,12 +983,12 @@ function SortableProjectCard({
           )}
           <div className="flex flex-wrap gap-1.5 mb-3">
             {tags.map((tag) => (
-              <Badge key={tag} variant="secondary" className={`text-[10px] px-2 py-0.5 rounded-md cursor-default ${getTagColor(tag)}`}>{tag}</Badge>
+              <Badge key={tag} variant="secondary" className={`text-[10px] px-2 py-0.5 rounded-md cursor-default transition-transform duration-150 hover:scale-105 ${getTagColor(tag)}`}>{tag}</Badge>
             ))}
           </div>
           <div className="space-y-2">
             {(expanded ? (project.environments || []) : (project.environments || []).slice(0, 3)).map((env, envIdx) => (
-              <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-muted/30 dark:hover:bg-white/5 transition-all duration-150 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5' : 'bg-muted/20'} ${envIdx < (expanded ? (project.environments || []).length - 1 : Math.min((project.environments || []).length, 3) - 1) ? 'border-b border-border/20 dark:border-zinc-700/20 pb-2 sm:pb-3' : ''}`}
+              <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-muted/30 dark:hover:bg-white/5 transition-all duration-150 ${env.status === 'running' ? 'bg-emerald-50/30 dark:bg-emerald-900/5 animate-pulse-glow-emerald' : 'bg-muted/20'} ${envIdx < (expanded ? (project.environments || []).length - 1 : Math.min((project.environments || []).length, 3) - 1) ? 'border-b border-border/20 dark:border-zinc-700/20 pb-2 sm:pb-3' : ''}`}
                 title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
               >
                 <div className="flex items-center gap-1.5 min-w-0 shrink">
@@ -1017,7 +1052,7 @@ function SortableProjectCard({
         <div className="border-t border-border/30 dark:border-zinc-700/30" />
         <div className="px-4 sm:px-5 pb-3 pt-2 flex items-center justify-between min-w-0 rounded-b-xl">
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className={`text-[11px] px-2.5 py-0.5 ${status === 'running' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-900/10' : status === 'mixed' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-900/10'} ${runningEnvs > 0 ? 'animate-pulse' : ''}`}>
+            <Badge variant="outline" className={`text-[11px] px-2.5 py-0.5 ${status === 'running' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-900/10' : status === 'mixed' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-900/10'} ${runningEnvs > 0 ? 'env-running-badge' : ''}`}>
               <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-red-400'} mr-1`} />
               {runningEnvs}/{totalEnvs} running
             </Badge>
@@ -1076,11 +1111,11 @@ function SortableProjectCard({
           : status === 'mixed' ? 'bg-gradient-to-t from-amber-500/[0.06] via-transparent to-amber-500/[0.02] dark:from-amber-500/[0.08] dark:via-transparent dark:to-amber-500/[0.03]'
           : 'bg-gradient-to-t from-red-500/[0.06] via-transparent to-red-500/[0.02] dark:from-red-500/[0.08] dark:via-transparent dark:to-red-500/[0.03]'
         }`} />
-        {/* Subtle border glow on hover */}
-        <div className={`absolute inset-0 rounded-xl border-2 border-transparent group-hover:border-emerald-200/30 dark:group-hover:border-emerald-700/20 transition-colors duration-300 pointer-events-none ${
-          status === 'running' ? 'group-hover:border-emerald-200/40 dark:group-hover:border-emerald-600/30'
-          : status === 'mixed' ? 'group-hover:border-amber-200/40 dark:group-hover:border-amber-600/30'
-          : 'group-hover:border-red-200/40 dark:group-hover:border-red-600/30'
+        {/* Subtle border glow on hover with accent color */}
+        <div className={`absolute inset-0 rounded-xl border-2 border-transparent transition-all duration-300 pointer-events-none ${
+          status === 'running' ? 'group-hover:border-emerald-300/50 dark:group-hover:border-emerald-500/30 group-hover:shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+          : status === 'mixed' ? 'group-hover:border-amber-300/50 dark:group-hover:border-amber-500/30 group-hover:shadow-[0_0_12px_rgba(245,158,11,0.15)]'
+          : 'group-hover:border-red-300/50 dark:group-hover:border-red-500/30 group-hover:shadow-[0_0_12px_rgba(239,68,68,0.15)]'
         }`} />
       </motion.div>
         </ContextMenuTrigger>
@@ -3761,47 +3796,47 @@ function DeviceFormDialog({
 
 function ProjectCardSkeleton() {
   return (
-    <div className="rounded-xl border bg-card dark:bg-zinc-900/80 overflow-hidden border-border/60 dark:border-zinc-700/50 border-l-2 border-l-zinc-300 dark:border-l-zinc-600 relative">
-      <div className="absolute inset-0 animate-shimmer pointer-events-none" />
+    <div className="rounded-xl border bg-card dark:bg-zinc-900/80 overflow-hidden border-border/60 dark:border-zinc-700/50 border-l-2 border-l-zinc-300 dark:border-l-zinc-600 relative skeleton-card">
+      <div className="absolute inset-0 animate-shimmer pointer-events-none rounded-xl" />
       <div className="p-5 space-y-3">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-muted animate-pulse" />
+          <div className="h-8 w-8 rounded-lg bg-muted/70 skeleton-shimmer-block" />
           <div className="flex-1 space-y-1.5">
-            <div className="h-4 w-28 rounded bg-muted animate-pulse" />
-            <div className="h-3 w-40 rounded bg-muted animate-pulse" style={{ animationDelay: '100ms' }} />
+            <div className="h-4 w-28 rounded bg-muted/70 skeleton-shimmer-block" />
+            <div className="h-3 w-40 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '100ms' }} />
           </div>
-          <div className="h-7 w-7 rounded-full bg-muted animate-pulse" style={{ animationDelay: '100ms' }} />
+          <div className="h-7 w-7 rounded-full bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '100ms' }} />
         </div>
         <div className="space-y-1.5">
-          <div className="h-3 w-full rounded bg-muted animate-pulse" style={{ animationDelay: '150ms' }} />
-          <div className="h-3 w-2/3 rounded bg-muted animate-pulse" style={{ animationDelay: '200ms' }} />
+          <div className="h-3 w-full rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '150ms' }} />
+          <div className="h-3 w-2/3 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '200ms' }} />
         </div>
         <div className="flex gap-1.5">
-          <div className="h-5 w-14 rounded-md bg-muted animate-pulse" style={{ animationDelay: '150ms' }} />
-          <div className="h-5 w-14 rounded-md bg-muted animate-pulse" style={{ animationDelay: '200ms' }} />
-          <div className="h-5 w-10 rounded-md bg-muted animate-pulse" style={{ animationDelay: '250ms' }} />
+          <div className="h-5 w-14 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '150ms' }} />
+          <div className="h-5 w-14 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '200ms' }} />
+          <div className="h-5 w-10 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '250ms' }} />
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between px-2 py-2 rounded-lg">
             <div className="flex items-center gap-1.5">
-              <div className="h-2 w-2 rounded-full bg-muted animate-pulse" />
-              <div className="h-4 w-8 rounded bg-muted animate-pulse" style={{ animationDelay: '200ms' }} />
-              <div className="h-3 w-6 rounded bg-muted animate-pulse" style={{ animationDelay: '250ms' }} />
+              <div className="h-2 w-2 rounded-full bg-muted/70 skeleton-shimmer-block" />
+              <div className="h-4 w-8 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '200ms' }} />
+              <div className="h-3 w-6 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '250ms' }} />
             </div>
             <div className="flex items-center gap-1">
-              <div className="h-4 w-8 rounded bg-muted animate-pulse" style={{ animationDelay: '250ms' }} />
-              <div className="h-5 w-5 rounded bg-muted animate-pulse" style={{ animationDelay: '300ms' }} />
+              <div className="h-4 w-8 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '250ms' }} />
+              <div className="h-5 w-5 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '300ms' }} />
             </div>
           </div>
           <div className="flex items-center justify-between px-2 py-2 rounded-lg">
             <div className="flex items-center gap-1.5">
-              <div className="h-2 w-2 rounded-full bg-muted animate-pulse" style={{ animationDelay: '200ms' }} />
-              <div className="h-4 w-8 rounded bg-muted animate-pulse" style={{ animationDelay: '250ms' }} />
-              <div className="h-3 w-6 rounded bg-muted animate-pulse" style={{ animationDelay: '300ms' }} />
+              <div className="h-2 w-2 rounded-full bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '200ms' }} />
+              <div className="h-4 w-8 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '250ms' }} />
+              <div className="h-3 w-6 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '300ms' }} />
             </div>
             <div className="flex items-center gap-1">
-              <div className="h-4 w-8 rounded bg-muted animate-pulse" style={{ animationDelay: '300ms' }} />
-              <div className="h-5 w-5 rounded bg-muted animate-pulse" style={{ animationDelay: '350ms' }} />
+              <div className="h-4 w-8 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '300ms' }} />
+              <div className="h-5 w-5 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '350ms' }} />
             </div>
           </div>
         </div>
@@ -3809,12 +3844,12 @@ function ProjectCardSkeleton() {
       <div className="h-px bg-border/30 dark:bg-zinc-700/30" />
       <div className="px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="h-5 w-20 rounded-md bg-muted animate-pulse" style={{ animationDelay: '300ms' }} />
-          <div className="h-3 w-10 rounded bg-muted animate-pulse" style={{ animationDelay: '350ms' }} />
+          <div className="h-5 w-20 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '300ms' }} />
+          <div className="h-3 w-10 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '350ms' }} />
         </div>
         <div className="flex gap-1">
-          <div className="h-7 w-14 rounded-md bg-muted animate-pulse" style={{ animationDelay: '350ms' }} />
-          <div className="h-7 w-7 rounded-md bg-muted animate-pulse" style={{ animationDelay: '400ms' }} />
+          <div className="h-7 w-14 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '350ms' }} />
+          <div className="h-7 w-7 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '400ms' }} />
         </div>
       </div>
     </div>
@@ -3826,14 +3861,15 @@ function LoadingSkeleton({ viewMode }: { viewMode: ViewMode }) {
     return (
       <div className="space-y-2">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 p-3.5 rounded-lg border bg-card dark:bg-zinc-900/80">
-            <div className="h-4 w-4 rounded bg-muted animate-pulse" />
-            <div className="h-5 w-5 rounded bg-muted animate-pulse" />
+          <div key={i} className="flex items-center gap-3 p-3.5 rounded-lg border bg-card dark:bg-zinc-900/80 relative overflow-hidden">
+            <div className="absolute inset-0 animate-shimmer pointer-events-none" />
+            <div className="h-4 w-4 rounded bg-muted/70 skeleton-shimmer-block" />
+            <div className="h-5 w-5 rounded bg-muted/70 skeleton-shimmer-block" />
             <div className="flex-1 space-y-1">
-              <div className="h-4 w-32 rounded bg-muted animate-pulse" style={{ animationDelay: `${i * 100}ms` }} />
-              <div className="h-3 w-48 rounded bg-muted animate-pulse" style={{ animationDelay: `${i * 100 + 50}ms` }} />
+              <div className="h-4 w-32 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: `${i * 100}ms` }} />
+              <div className="h-3 w-48 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: `${i * 100 + 50}ms` }} />
             </div>
-            <div className="h-8 w-8 rounded-full bg-muted animate-pulse" style={{ animationDelay: `${i * 100 + 100}ms` }} />
+            <div className="h-8 w-8 rounded-full bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: `${i * 100 + 100}ms` }} />
           </div>
         ))}
       </div>
@@ -4035,21 +4071,19 @@ export default function DashboardPage() {
     } catch { /* ignore */ }
   }, [])
 
-  const fetchGlobalActivity = React.useCallback(async () => {
+  // Ref to hold latest projects for use in fetchGlobalActivity without dependency
+  const projectsRef = React.useRef<Project[]>([])
+  projectsRef.current = projects
+
+  const fetchGlobalActivity = React.useCallback(async (_projectList?: Project[]) => {
     try {
-      const results = await Promise.allSettled(
-        projects.map((p) =>
-          fetch(`/api/projects/${p.id}/activity`).then((r) => r.ok ? r.json() : [])
-        )
-      )
-      const allEvents = results
-        .filter((r): r is PromiseFulfilledResult<ActivityEvent[]> => r.status === 'fulfilled')
-        .flatMap((r) => r.value)
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-        .slice(0, 8)
-      setGlobalActivity(allEvents)
+      const res = await fetch('/api/activity')
+      if (res.ok) {
+        const events: ActivityEvent[] = await res.json()
+        setGlobalActivity(events.slice(0, 8))
+      }
     } catch { /* ignore */ }
-  }, [projects])
+  }, [])
 
   const fetchDevices = React.useCallback(async () => {
     try {
@@ -4131,15 +4165,22 @@ export default function DashboardPage() {
   const loadData = React.useCallback(async () => {
     setLoading(true)
     await Promise.all([fetchProjects(), fetchNotifications(), fetchDevices()])
-    fetchGlobalActivity()
+    // fetchGlobalActivity will be triggered by the projects-changed effect below
     setLoading(false)
-  }, [fetchProjects, fetchNotifications, fetchDevices, fetchGlobalActivity])
+  }, [fetchProjects, fetchNotifications, fetchDevices])
 
   // Initial load
   React.useEffect(() => {
     const id = requestAnimationFrame(() => { loadData() })
     return () => cancelAnimationFrame(id)
-  }, [loadData])
+  }, []) // Initial load only
+
+  // Fetch global activity when projects change (but not on initial empty state)
+  React.useEffect(() => {
+    if (projects.length > 0) {
+      fetchGlobalActivity()
+    }
+  }, [projects, fetchGlobalActivity])
 
   // Auto-refresh every 5 seconds to keep status up-to-date
   React.useEffect(() => {
@@ -5607,6 +5648,56 @@ export default function DashboardPage() {
                 <AlertDialog>
                   <AlertDialogTrigger render={<Button size="sm" variant="outline" className="h-7 text-xs text-destructive" />}>
                     <Trash2 className="h-3 w-3 mr-1" />Delete All
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete {selectedIds.size} projects?</AlertDialogTitle>
+                      <AlertDialogDescription>This action cannot be undone. All environments and data will be permanently removed.</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handleBatchAction('delete')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ======================== QUICK ACTIONS TOOLBAR (sticky top, batch mode) ======================== */}
+      <AnimatePresence>
+        {batchMode && selectedIds.size > 0 && (
+          <motion.div
+            initial={{ y: -20, opacity: 0, height: 0 }}
+            animate={{ y: 0, opacity: 1, height: 'auto' }}
+            exit={{ y: -20, opacity: 0, height: 0 }}
+            transition={{ type: 'spring', damping: 22, stiffness: 280 }}
+            className="sticky top-0 z-30 border-b border-emerald-200 dark:border-emerald-800/40 bg-gradient-to-r from-emerald-50 via-emerald-50/90 to-teal-50 dark:from-emerald-950/60 dark:via-emerald-950/50 dark:to-teal-950/40 backdrop-blur-xl shadow-sm"
+          >
+            <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="flex items-center justify-center h-6 w-6 rounded-full bg-emerald-500 text-white text-xs font-bold shadow-sm">
+                  {selectedIds.size}
+                </div>
+                <span className="text-sm font-semibold text-emerald-900 dark:text-emerald-100">selected</span>
+                <Button variant="ghost" size="sm" className="h-6 text-[10px] text-emerald-700 dark:text-emerald-300 hover:text-emerald-900 dark:hover:text-emerald-100 hover:bg-emerald-100/50 dark:hover:bg-emerald-800/30" onClick={toggleSelectAll}>
+                  {selectedIds.size === filteredProjects.length && filteredProjects.length > 0 ? 'Deselect All' : 'Select All'}
+                </Button>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm" onClick={() => handleBatchAction('start')}><Play className="h-3 w-3 mr-1" />Start All</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1" />Stop All</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30" onClick={openBatchTagEditor}><Tags className="h-3 w-3 mr-1" />Add Tags</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30" onClick={() => {
+                  // Move first selected project to device dialog
+                  const firstSelected = projects.find(p => selectedIds.has(p.id))
+                  if (firstSelected) setMoveProjectDialog(firstSelected)
+                }}><ArrowRightLeft className="h-3 w-3 mr-1" />Move to Device</Button>
+                <AlertDialog>
+                  <AlertDialogTrigger render={<Button size="sm" variant="outline" className="h-7 text-xs border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20" />}>
+                    <Trash2 className="h-3 w-3 mr-1" />Delete Selected
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
