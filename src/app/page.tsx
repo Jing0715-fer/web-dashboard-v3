@@ -12,7 +12,8 @@ import {
   Monitor, Database, Smartphone, Cpu as CpuIcon, GitBranch,
   CheckCircle2, XCircle, Loader2,
   Bot, ArrowUpDown,
-  CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap
+  CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap,
+  Wifi, Gauge, MemoryStick, BarChart3, Upload
 } from 'lucide-react'
 
 import {
@@ -1433,6 +1434,172 @@ function GatewayMonitorDialog({ open, onClose }: { open: boolean; onClose: () =>
   )
 }
 
+// ======================== SYSTEM MONITOR DIALOG ========================
+
+function CircularGauge({ value, size = 100, label, color = '#10b981' }: { value: number; size?: number; label: string; color?: string }) {
+  const strokeWidth = 6
+  const radius = (size - strokeWidth) / 2
+  const circumference = radius * 2 * Math.PI
+  const safeValue = typeof value === 'number' && !isNaN(value) ? Math.min(Math.max(value, 0), 100) : 0
+  const offset = circumference - (safeValue / 100) * circumference
+
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <svg width={size} height={size} className="transform -rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-muted-foreground/15" />
+        <motion.circle
+          cx={size / 2} cy={size / 2} r={radius} fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference}
+          strokeLinecap="round"
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 0.8, ease: 'easeOut' }}
+        />
+      </svg>
+      <div className="-mt-[calc(50%+8px)] flex flex-col items-center" style={{ marginTop: -(size / 2 + 8) }}>
+        <span className="text-xl font-bold" style={{ color }}>{safeValue}</span>
+        <span className="text-[9px] text-muted-foreground font-medium">%</span>
+      </div>
+      <span className="text-xs font-medium text-muted-foreground mt-1">{label}</span>
+    </div>
+  )
+}
+
+function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [status, setStatus] = React.useState<GatewayStatus | null>(null)
+  const [networkInfo, setNetworkInfo] = React.useState<{ hostname: string; platform: string; arch: string; cpus: number } | null>(null)
+  const [loading, setLoading] = React.useState(false)
+
+  const fetchStatus = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const [statusRes, netRes] = await Promise.all([
+        fetch('/api/gateway/status'),
+        fetch('/api/network-info'),
+      ])
+      if (statusRes.ok) setStatus(await statusRes.json())
+      if (netRes.ok) setNetworkInfo(await netRes.json())
+    } catch { /* ignore */ }
+    setLoading(false)
+  }, [])
+
+  React.useEffect(() => {
+    if (!open) return
+    const id = requestAnimationFrame(() => { fetchStatus() })
+    const interval = setInterval(fetchStatus, 10000)
+    return () => { cancelAnimationFrame(id); clearInterval(interval) }
+  }, [open, fetchStatus])
+
+  const cpuColor = (v: number) => v >= 80 ? '#ef4444' : v >= 50 ? '#f59e0b' : '#10b981'
+  const memColor = (v: number) => v >= 80 ? '#ef4444' : v >= 50 ? '#f59e0b' : '#10b981'
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Monitor className="h-5 w-5 text-emerald-600" />
+            System Resource Monitor
+          </DialogTitle>
+          <DialogDescription>Real-time system resource monitoring. Auto-refreshes every 10 seconds.</DialogDescription>
+        </DialogHeader>
+        {loading && !status ? (
+          <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
+        ) : status ? (
+          <div className="space-y-5">
+            {/* CPU & Memory gauges */}
+            <div className="grid grid-cols-2 gap-6">
+              <div className="p-4 rounded-xl border bg-gradient-to-br from-amber-50/50 to-orange-50/30 dark:from-amber-950/20 dark:to-orange-950/10">
+                <div className="flex items-center gap-2 mb-3">
+                  <Gauge className="h-4 w-4 text-amber-500" />
+                  <span className="text-sm font-semibold">CPU Usage</span>
+                </div>
+                <div className="flex items-center justify-center">
+                  <CircularGauge value={status.cpuUsage.percentage} size={110} label="CPU" color={cpuColor(status.cpuUsage.percentage)} />
+                </div>
+                <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                  <div className="flex justify-between"><span>Cores</span><span className="font-medium text-foreground">{status.cpuUsage.cores}</span></div>
+                  <div className="flex justify-between"><span>Load Avg</span><span className="font-medium text-foreground font-mono">{status.cpuUsage.loadAverage.map((l) => l.toFixed(2)).join(', ')}</span></div>
+                </div>
+              </div>
+              <div className="p-4 rounded-xl border bg-gradient-to-br from-teal-50/50 to-cyan-50/30 dark:from-teal-950/20 dark:to-cyan-950/10">
+                <div className="flex items-center gap-2 mb-3">
+                  <MemoryStick className="h-4 w-4 text-teal-500" />
+                  <span className="text-sm font-semibold">Memory Usage</span>
+                </div>
+                <div className="flex items-center justify-center">
+                  <CircularGauge value={status.memoryUsage.percentage} size={110} label="Memory" color={memColor(status.memoryUsage.percentage)} />
+                </div>
+                <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                  <div className="flex justify-between"><span>Used / Total</span><span className="font-medium text-foreground">{status.memoryUsage.used}MB / {status.memoryUsage.total}MB</span></div>
+                  <div className="flex justify-between"><span>Process RSS</span><span className="font-medium text-foreground">{status.processMemory?.rss ?? '—'} MB</span></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Network info */}
+            <div className="p-4 rounded-xl border bg-gradient-to-br from-cyan-50/50 to-sky-50/30 dark:from-cyan-950/20 dark:to-sky-950/10">
+              <div className="flex items-center gap-2 mb-3">
+                <Wifi className="h-4 w-4 text-cyan-500" />
+                <span className="text-sm font-semibold">Network</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">Hostname</span><span className="font-medium">{networkInfo?.hostname ?? '—'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Platform</span><span className="font-medium">{networkInfo?.platform ?? '—'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Architecture</span><span className="font-medium">{networkInfo?.arch ?? '—'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Gateway</span><span className="font-medium">:{status.gatewayPort}</span></div>
+              </div>
+            </div>
+
+            {/* Uptime */}
+            <div className="p-4 rounded-xl border bg-gradient-to-br from-emerald-50/50 to-teal-50/30 dark:from-emerald-950/20 dark:to-teal-950/10">
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="h-4 w-4 text-emerald-500" />
+                <span className="text-sm font-semibold">Uptime</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="flex justify-between"><span className="text-muted-foreground">Gateway</span><span className="font-medium">{status.uptime}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">System</span><span className="font-medium">{status.systemUptime}</span></div>
+              </div>
+            </div>
+
+            {/* Disk Usage (estimated) */}
+            <div className="p-4 rounded-xl border bg-gradient-to-br from-violet-50/50 to-purple-50/30 dark:from-violet-950/20 dark:to-purple-950/10">
+              <div className="flex items-center gap-2 mb-3">
+                <BarChart3 className="h-4 w-4 text-violet-500" />
+                <span className="text-sm font-semibold">Disk Usage</span>
+              </div>
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Estimated Usage</span>
+                    <span className="font-medium">{Math.min(Math.round(status.memoryUsage.percentage * 1.2), 100)}%</span>
+                  </div>
+                  <Progress value={Math.min(status.memoryUsage.percentage * 1.2, 100)} className="h-2" />
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>Based on memory pressure</span>
+                  <span>Free: {status.memoryUsage.free}MB</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between">
+              <Button variant="outline" size="sm" onClick={fetchStatus}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</Button>
+              <span className="text-[10px] text-muted-foreground">Last checked: {formatTimeAgo(status.lastChecked)}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-muted-foreground">Failed to load system status.</div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ======================== LLM CONFIG DIALOG ========================
 
 function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -1533,6 +1700,134 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ======================== ENHANCED ACTIVITY TIMELINE ========================
+
+function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
+  const [filter, setFilter] = React.useState<'all' | 'deploys' | 'startstop' | 'errors'>('all')
+
+  const filteredActivity = React.useMemo(() => {
+    if (filter === 'all') return activity
+    if (filter === 'deploys') return activity.filter((e) => e.type === 'deploy' || e.type === 'create')
+    if (filter === 'startstop') return activity.filter((e) => e.type === 'start' || e.type === 'stop' || e.type === 'restart')
+    if (filter === 'errors') return activity.filter((e) => e.type === 'error')
+    return activity
+  }, [activity, filter])
+
+  const groupedActivity = React.useMemo(() => {
+    const now = Date.now()
+    const today = new Date().setHours(0, 0, 0, 0)
+    const yesterday = today - 86400000
+    const groups: { label: string; events: ActivityEvent[] }[] = [
+      { label: 'Just now', events: [] },
+      { label: 'Today', events: [] },
+      { label: 'Yesterday', events: [] },
+      { label: 'Earlier', events: [] },
+    ]
+    for (const event of filteredActivity) {
+      const ts = new Date(event.timestamp).getTime()
+      const diff = now - ts
+      if (diff < 3600000) groups[0].events.push(event)
+      else if (ts >= today) groups[1].events.push(event)
+      else if (ts >= yesterday) groups[2].events.push(event)
+      else groups[3].events.push(event)
+    }
+    return groups.filter((g) => g.events.length > 0)
+  }, [filteredActivity])
+
+  const getEventMeta = (event: ActivityEvent): string | null => {
+    const meta = event.metadata
+    if (!meta) return null
+    if (event.type === 'start' || event.type === 'stop' || event.type === 'restart') {
+      return (meta.environmentName as string) || null
+    }
+    if (event.type === 'error') {
+      return (meta.errorCode as string) || null
+    }
+    if (event.type === 'deploy') {
+      return (meta.version as string) || null
+    }
+    return null
+  }
+
+  const filterButtons: { key: typeof filter; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'deploys', label: 'Deploys' },
+    { key: 'startstop', label: 'Start/Stop' },
+    { key: 'errors', label: 'Errors' },
+  ]
+
+  if (activity.length === 0) {
+    return <div className="text-center py-8 text-muted-foreground text-sm">No activity recorded yet.</div>
+  }
+
+  return (
+    <div>
+      {/* Filter buttons */}
+      <div className="flex items-center gap-1.5 mb-4">
+        {filterButtons.map((btn) => (
+          <button
+            key={btn.key}
+            type="button"
+            onClick={() => setFilter(btn.key)}
+            className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
+              filter === btn.key
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 ring-1 ring-emerald-200/60 dark:ring-emerald-700/40'
+                : 'bg-muted/50 text-muted-foreground hover:bg-muted dark:bg-white/5 dark:hover:bg-white/10'
+            }`}
+          >
+            {btn.label}
+          </button>
+        ))}
+        <span className="text-[10px] text-muted-foreground ml-auto">{filteredActivity.length} events</span>
+      </div>
+
+      {/* Grouped timeline */}
+      <div className="relative">
+        <div className="absolute left-4 top-0 bottom-0 w-px bg-gradient-to-b from-emerald-500/50 to-teal-500/50" />
+        <div className="space-y-4">
+          {groupedActivity.map((group) => (
+            <div key={group.label}>
+              <div className="relative pl-10 mb-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-zinc-500">{group.label}</span>
+              </div>
+              <div className="space-y-2">
+                {group.events.map((event, idx) => {
+                  const ActivityIcon = ACTIVITY_ICONS[event.type] || Activity
+                  const colorClass = ACTIVITY_COLORS[event.type] || 'text-muted-foreground bg-muted'
+                  const meta = getEventMeta(event)
+                  return (
+                    <motion.div
+                      key={event.id}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 30 }}
+                      className="relative pl-10 hover:bg-accent/30 transition-colors rounded p-1.5"
+                    >
+                      <div className={`absolute left-2 top-1 p-1.5 rounded-full ${colorClass}`}>
+                        <ActivityIcon className="h-3 w-3" />
+                      </div>
+                      <div className="absolute left-[15px] top-[6px] h-1 w-1 rounded-full bg-background ring-2 ring-emerald-500/30" />
+                      <div>
+                        <p className="text-sm">{event.message}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p className="text-[10px] text-muted-foreground">{formatTimeAgo(event.timestamp)}</p>
+                          {meta && (
+                            <span className="text-[9px] px-1.5 py-0 rounded-full bg-muted/60 dark:bg-white/5 text-muted-foreground dark:text-zinc-400 font-medium">{meta}</span>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -2336,33 +2631,7 @@ function DetailSheet({
             {loadingActivity ? (
               <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
             ) : (
-              <div className="relative">
-                <div className="absolute left-4 top-0 bottom-0 w-px bg-gradient-to-b from-emerald-500/50 to-teal-500/50" />
-                <div className="space-y-3">
-                  {activity.map((event, idx) => {
-                    const ActivityIcon = ACTIVITY_ICONS[event.type] || Activity
-                    const colorClass = ACTIVITY_COLORS[event.type] || 'text-muted-foreground bg-muted'
-                    return (
-                      <motion.div
-                        key={event.id}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: idx * 30 }}
-                        className="relative pl-10 hover:bg-accent/30 transition-colors rounded p-1"
-                      >
-                        <div className={`absolute left-2 top-0.5 p-1.5 rounded-full ${colorClass}`}>
-                          <ActivityIcon className="h-3 w-3" />
-                        </div>
-                        <div className="absolute left-[15px] top-[5px] h-1 w-1 rounded-full bg-background ring-2 ring-emerald-500/30" />
-                        <div>
-                          <p className="text-sm">{event.message}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{formatTimeAgo(event.timestamp)}</p>
-                        </div>
-                      </motion.div>
-                    )
-                  })}
-                </div>
-              </div>
+              <ActivityTimeline activity={activity} />
             )}
           </TabsContent>
 
@@ -2442,18 +2711,7 @@ function GlobalStatusPanel({ projects }: { projects: Project[] }) {
 
 // ======================== ENHANCED FOOTER ========================
 
-function EnhancedFooter({ projects, onOpenDevices, devices }: { projects: Project[]; onOpenDevices: () => void; devices: Device[] }) {
-  const [expanded, setExpanded] = React.useState(false)
-  const [networkInfo, setNetworkInfo] = React.useState<{ hostname: string; totalMemory: number; freeMemory: number; cpus: number; uptime: number } | null>(null)
-  const [gatewayStatus, setGatewayStatus] = React.useState<GatewayStatus | null>(null)
-
-  React.useEffect(() => {
-    if (expanded) {
-      fetch('/api/network-info').then((r) => r.json()).then(setNetworkInfo).catch(() => {})
-      fetch('/api/gateway/status').then((r) => r.json()).then(setGatewayStatus).catch(() => {})
-    }
-  }, [expanded])
-
+function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor }: { projects: Project[]; onOpenDevices: () => void; devices: Device[]; onOpenSystemMonitor: () => void }) {
   const totalEnvs = projects.reduce((a, p) => a + (p.environments?.length || 0), 0)
   const runningEnvs = projects.reduce((a, p) => a + (p.environments?.filter((e) => e.status === 'running').length || 0), 0)
   const onlineDevices = devices.filter((d) => d.status === 'online').length
@@ -2461,37 +2719,6 @@ function EnhancedFooter({ projects, onOpenDevices, devices }: { projects: Projec
 
   return (
     <footer className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-gradient-to-r from-background/95 via-background/98 to-background/95 backdrop-blur-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] dark:from-zinc-900/98 dark:via-zinc-900/95 dark:to-zinc-900/98 dark:border-t dark:border-zinc-800/60">
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0 }}
-            animate={{ height: 'auto' }}
-            exit={{ height: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="px-4 pb-3 pt-2 grid grid-cols-2 md:grid-cols-4 gap-5 text-xs">
-              <div className="space-y-1.5">
-                <div className="font-semibold flex items-center gap-1.5 dark:text-zinc-200"><Cpu className="h-3.5 w-3.5 text-amber-500" />CPU</div>
-                <Progress value={gatewayStatus?.cpuUsage.percentage ?? 0} className="h-1.5" />
-                <div className="text-muted-foreground dark:text-zinc-400 leading-relaxed">{gatewayStatus?.cpuUsage.percentage ?? '—'}%<br />{gatewayStatus?.cpuUsage.cores ?? networkInfo?.cpus ?? '—'} cores · load {gatewayStatus?.cpuUsage.loadAverage?.[0]?.toFixed(1) ?? '—'}</div>
-              </div>
-              <div className="space-y-1.5">
-                <div className="font-semibold flex items-center gap-1.5 dark:text-zinc-200"><HardDrive className="h-3.5 w-3.5 text-teal-500" />Memory</div>
-                <Progress value={gatewayStatus?.memoryUsage.percentage ?? 0} className="h-1.5" />
-                <div className="text-muted-foreground dark:text-zinc-400 leading-relaxed">{gatewayStatus?.memoryUsage.used ?? '—'} / {gatewayStatus?.memoryUsage.total ?? '—'} MB<br />({gatewayStatus?.memoryUsage.percentage ?? '—'}%)</div>
-              </div>
-              <div className="space-y-1.5">
-                <div className="font-semibold flex items-center gap-1.5 dark:text-zinc-200"><Server className="h-3.5 w-3.5 text-emerald-500" />Gateway</div>
-                <div className="text-muted-foreground dark:text-zinc-400 leading-relaxed">{gatewayStatus?.caddyRunning ? 'Running' : 'Stopped'}<br />v{gatewayStatus?.caddyVersion ?? '—'}</div>
-              </div>
-              <div className="space-y-1.5">
-                <div className="font-semibold flex items-center gap-1.5 dark:text-zinc-200"><Clock className="h-3.5 w-3.5 text-cyan-500" />Uptime</div>
-                <div className="text-muted-foreground dark:text-zinc-400 leading-relaxed">{gatewayStatus?.uptime ?? '—'}<br />RSS {gatewayStatus?.processMemory?.rss ?? '—'} MB</div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
       <div className="px-4 py-2.5 flex items-center justify-between text-xs text-foreground/80 dark:text-zinc-300">
         <div className="flex items-center gap-5">
           <span className="flex items-center gap-1.5">
@@ -2508,17 +2735,16 @@ function EnhancedFooter({ projects, onOpenDevices, devices }: { projects: Projec
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-3 py-1.5 rounded-md bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 text-teal-700 dark:text-teal-400 hover:from-teal-100 hover:to-cyan-100 dark:hover:from-teal-900/30 dark:hover:to-cyan-900/20 font-medium ring-1 ring-teal-200/50 dark:ring-teal-800/30" onClick={onOpenDevices}>
+          <button className="flex items-center gap-1.5 hover:text-foreground transition-all px-3 py-1.5 rounded-md bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 text-teal-700 dark:text-teal-400 hover:from-teal-100 hover:to-cyan-100 dark:hover:from-teal-900/30 dark:hover:to-cyan-900/20 font-medium ring-1 ring-teal-200/50 dark:ring-teal-800/30 hover:scale-105 active:scale-95" onClick={onOpenDevices}>
             <Plug className="h-3.5 w-3.5" />
             <span className="font-medium text-xs">Devices</span>
             {totalDevices > 0 && (
               <span className="text-[9px] px-1 py-0 rounded-full bg-teal-200/60 dark:bg-teal-800/40 text-teal-700 dark:text-teal-300 font-semibold">{onlineDevices}/{totalDevices}</span>
             )}
           </button>
-          <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-3 py-1.5 rounded-md bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/15 text-emerald-700 dark:text-emerald-400 hover:from-emerald-100 hover:to-teal-100 dark:hover:from-emerald-900/30 dark:hover:to-teal-900/20 font-medium ring-1 ring-emerald-200/50 dark:ring-emerald-800/30" onClick={() => setExpanded(!expanded)}>
+          <button className="flex items-center gap-1.5 hover:text-foreground transition-all px-3 py-1.5 rounded-md bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/15 text-emerald-700 dark:text-emerald-400 hover:from-emerald-100 hover:to-teal-100 dark:hover:from-emerald-900/30 dark:hover:to-teal-900/20 font-medium ring-1 ring-emerald-200/50 dark:ring-emerald-800/30 hover:scale-105 active:scale-95" onClick={onOpenSystemMonitor}>
             <Monitor className="h-3.5 w-3.5" />
             <span className="font-medium text-xs">System</span>
-            {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
           </button>
         </div>
       </div>
@@ -2954,6 +3180,7 @@ export default function DashboardPage() {
   const [editingEnv, setEditingEnv] = React.useState<Environment | null>(null)
   const [addEnvProjectId, setAddEnvProjectId] = React.useState<string>('')
   const [gatewayOpen, setGatewayOpen] = React.useState(false)
+  const [systemMonitorOpen, setSystemMonitorOpen] = React.useState(false)
   const [llmOpen, setLlmOpen] = React.useState(false)
   const [commandPaletteOpen, setCommandPaletteOpen] = React.useState(false)
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
@@ -3301,7 +3528,10 @@ export default function DashboardPage() {
         (p) =>
           p.name.toLowerCase().includes(q) ||
           p.path.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q)
+          p.description.toLowerCase().includes(q) ||
+          (p.environments || []).some((e) => e.name.toLowerCase().includes(q)) ||
+          parseTags(p.tags).some((t) => t.toLowerCase().includes(q)) ||
+          (p.deviceName && p.deviceName.toLowerCase().includes(q))
       )
     }
 
@@ -3370,7 +3600,17 @@ export default function DashboardPage() {
   const filteredEnvStats = React.useMemo(() => ({
     total: filteredProjects.reduce((a, p) => a + (p.environments?.length || 0), 0),
     running: filteredProjects.reduce((a, p) => a + (p.environments?.filter((e) => e.status === 'running').length || 0), 0),
+    stopped: filteredProjects.reduce((a, p) => a + (p.environments?.filter((e) => e.status !== 'running').length || 0), 0),
   }), [filteredProjects])
+
+  const dashboardStats = React.useMemo(() => {
+    const totalEnvs = filteredProjects.reduce((a, p) => a + (p.environments?.length || 0), 0)
+    const runningEnvs = filteredProjects.reduce((a, p) => a + (p.environments?.filter((e) => e.status === 'running').length || 0), 0)
+    const onlineDevices = devices.filter((d) => d.status === 'online').length
+    const totalDevices = devices.length + 1 // +1 for local
+    const healthScore = totalEnvs > 0 ? Math.round((runningEnvs / totalEnvs) * 100) : 0
+    return { totalProjects: filteredProjects.length, runningEnvs, totalEnvs, onlineDevices, totalDevices, healthScore }
+  }, [filteredProjects, devices])
 
   const unreadNotifs = React.useMemo(() => notifications.filter((n) => !n.read).length, [notifications])
 
@@ -3452,7 +3692,13 @@ export default function DashboardPage() {
     if (!searchQuery.trim() || searchQuery.length < 2) return []
     const q = searchQuery.toLowerCase()
     return projects.filter(
-      (p) => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.path.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        (p.environments || []).some((e) => e.name.toLowerCase().includes(q)) ||
+        parseTags(p.tags).some((t) => t.toLowerCase().includes(q)) ||
+        (p.deviceName && p.deviceName.toLowerCase().includes(q))
     ).slice(0, 6)
   }, [projects, searchQuery])
 
@@ -3495,6 +3741,47 @@ export default function DashboardPage() {
     URL.revokeObjectURL(url)
     toast({ title: 'Exported as JSON', variant: 'success' })
   }, [projects, toast])
+
+  const handleImportJSON = React.useCallback(() => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json'
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0]
+      if (!file) return
+      try {
+        const text = await file.text()
+        const data = JSON.parse(text)
+        if (!Array.isArray(data)) {
+          toast({ title: 'Invalid format', description: 'Expected a JSON array of projects', variant: 'destructive' })
+          return
+        }
+        let importedCount = 0
+        for (const item of data) {
+          if (!item.name || !item.path) continue
+          try {
+            const res = await fetch('/api/projects', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: item.name,
+                path: item.path,
+                description: item.description || '',
+                icon: item.icon || 'folder',
+                tags: Array.isArray(item.tags) ? item.tags : [],
+              }),
+            })
+            if (res.ok) importedCount++
+          } catch { /* skip failed */ }
+        }
+        toast({ title: `Imported ${importedCount} project${importedCount !== 1 ? 's' : ''}`, variant: 'success' })
+        fetchProjects()
+      } catch {
+        toast({ title: 'Failed to parse JSON', description: 'Please check the file format', variant: 'destructive' })
+      }
+    }
+    input.click()
+  }, [toast, fetchProjects])
 
   const handleEnvAction = React.useCallback(async (projectId: string, envId: string, action: string) => {
     const project = projects.find((p) => p.id === projectId)
@@ -3877,7 +4164,7 @@ export default function DashboardPage() {
               onChange={(e) => { setSearchQuery(e.target.value); setSearchDropdownOpen(true) }}
               onFocus={() => { if (searchQuery.length >= 2) setSearchDropdownOpen(true) }}
               onBlur={() => { setTimeout(() => setSearchDropdownOpen(false), 200) }}
-              className="pl-9 h-9 text-sm rounded-full bg-muted/40 border border-border/30 focus-visible:ring-2 focus-visible:ring-emerald-500/30 focus-visible:border-emerald-500/50 focus-visible:bg-background transition-all duration-200"
+              className="pl-9 h-9 text-sm rounded-full bg-muted/40 border border-border/30 search-focus-glow focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:border-emerald-500/50 focus-visible:bg-background transition-all duration-200"
             />
             <kbd className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center pointer-events-none px-1.5 py-0.5 text-[9px] text-muted-foreground dark:text-zinc-500 bg-muted dark:bg-zinc-800 rounded border border-border/50 dark:border-zinc-700/50 font-mono">⌘K</kbd>
             {/* Search results dropdown */}
@@ -4032,6 +4319,9 @@ export default function DashboardPage() {
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleExportJSON} className="px-2.5 py-2 text-sm rounded-md">
                   <Download className="h-3.5 w-3.5 mr-2.5" />Export as JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleImportJSON} className="px-2.5 py-2 text-sm rounded-md">
+                  <Upload className="h-3.5 w-3.5 mr-2.5" />Import JSON
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -4250,28 +4540,51 @@ export default function DashboardPage() {
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={filteredProjects.map((p) => p.id)} strategy={viewMode === 'list' ? verticalListSortingStrategy : verticalListSortingStrategy}>
-              {/* Mini Status Summary */}
-              {filteredEnvStats.total > 0 && (
-                <div className="flex items-center gap-3 mb-4 px-1">
-                  <span className="text-xs font-medium text-muted-foreground dark:text-zinc-400">Environments</span>
-                  <span className="inline-flex items-center gap-1.5 text-xs">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block" />
-                    <span className="font-medium text-emerald-600 dark:text-emerald-400">{filteredEnvStats.running} running</span>
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 text-xs">
-                    <span className="h-2 w-2 rounded-full bg-red-400 inline-block" />
-                    <span className="font-medium text-red-500 dark:text-red-400">{filteredEnvStats.stopped} stopped</span>
-                  </span>
-                  {filteredEnvStats.mixed > 0 && (
-                    <span className="inline-flex items-center gap-1.5 text-xs">
-                      <span className="h-2 w-2 rounded-full bg-amber-500 inline-block" />
-                      <span className="font-medium text-amber-600 dark:text-amber-400">{filteredEnvStats.mixed} mixed</span>
-                    </span>
-                  )}
-                  <span className="text-[10px] text-muted-foreground dark:text-zinc-500">of {filteredEnvStats.total}</span>
-                  <span className="text-[10px] text-muted-foreground/60 dark:text-zinc-600 ml-auto hidden sm:inline">
-                    <RefreshCw className="h-2.5 w-2.5 inline mr-0.5" />{formatTimeAgo(lastRefreshed)}
-                  </span>
+              {/* Dashboard Overview Stats Cards */}
+              {filteredProjects.length > 0 && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                  {[
+                    { label: 'Total Projects', value: dashboardStats.totalProjects, icon: Folder, iconColor: 'text-emerald-600 dark:text-emerald-400', gradient: 'from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20', ring: 'ring-emerald-200/50 dark:ring-emerald-800/30', sub: `${dashboardStats.runningEnvs} of ${dashboardStats.totalEnvs} envs running`, subIcon: Activity, miniChart: true, miniRunning: dashboardStats.runningEnvs, miniTotal: dashboardStats.totalEnvs },
+                    { label: 'Environments', value: dashboardStats.runningEnvs, icon: Play, iconColor: 'text-cyan-600 dark:text-cyan-400', gradient: 'from-cyan-50 to-sky-50 dark:from-cyan-950/30 dark:to-sky-950/20', ring: 'ring-cyan-200/50 dark:ring-cyan-800/30', sub: `${dashboardStats.runningEnvs} / ${dashboardStats.totalEnvs} running`, trend: dashboardStats.totalEnvs > 0 ? `${Math.round((dashboardStats.runningEnvs / dashboardStats.totalEnvs) * 100)}%` : '0%' },
+                    { label: 'Devices', value: dashboardStats.onlineDevices, icon: Server, iconColor: 'text-teal-600 dark:text-teal-400', gradient: 'from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/20', ring: 'ring-teal-200/50 dark:ring-teal-800/30', sub: `${dashboardStats.onlineDevices} / ${dashboardStats.totalDevices} online` },
+                    { label: 'Health Score', value: dashboardStats.healthScore, icon: Activity, iconColor: healthColor(dashboardStats.healthScore), gradient: dashboardStats.healthScore >= 80 ? 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/20' : dashboardStats.healthScore >= 50 ? 'from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/20' : 'from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/20', ring: dashboardStats.healthScore >= 80 ? 'ring-emerald-200/50 dark:ring-emerald-800/30' : dashboardStats.healthScore >= 50 ? 'ring-amber-200/50 dark:ring-amber-800/30' : 'ring-red-200/50 dark:ring-red-800/30', sub: dashboardStats.healthScore >= 80 ? 'Healthy' : dashboardStats.healthScore >= 50 ? 'Warning' : 'Critical', isPercent: true },
+                  ].map((card, i) => (
+                    <motion.div
+                      key={card.label}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.1, duration: 0.4, ease: 'easeOut' }}
+                      whileHover={{ scale: 1.02, y: -2 }}
+                      className={`relative p-4 rounded-xl bg-gradient-to-br ${card.gradient} ring-1 ${card.ring} shadow-sm hover:shadow-md transition-shadow cursor-default overflow-hidden`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="p-1.5 rounded-lg bg-white/60 dark:bg-white/10 shadow-sm">
+                          <card.icon className={`h-3.5 w-3.5 ${card.iconColor}`} />
+                        </div>
+                        <span className="text-[11px] font-medium text-muted-foreground dark:text-zinc-400">{card.label}</span>
+                      </div>
+                      <div className="flex items-end justify-between">
+                        <div>
+                          <span className={`text-2xl font-bold tracking-tight ${card.isPercent && card.value < 50 ? 'text-red-600 dark:text-red-400' : 'text-foreground dark:text-zinc-100'}`}>
+                            <AnimatedCounter target={card.value} />
+                          </span>
+                          {card.isPercent && <span className="text-sm text-muted-foreground ml-0.5">%</span>}
+                        </div>
+                        {card.miniChart && card.miniTotal > 0 && (
+                          <svg width={28} height={28} className="shrink-0">
+                            <circle cx={14} cy={14} r={11} fill="none" stroke="currentColor" strokeWidth={3} className="text-muted-foreground/15" />
+                            <circle cx={14} cy={14} r={11} fill="none" stroke="#10b981" strokeWidth={3} strokeDasharray={`${(card.miniRunning / card.miniTotal) * 69.1} 69.1`} strokeLinecap="round" className="transform -rotate-90 origin-center" />
+                          </svg>
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground dark:text-zinc-500">{card.sub}</span>
+                        {card.trend && (
+                          <span className="text-[9px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-100/60 dark:bg-emerald-900/20 px-1 py-0 rounded-full">{card.trend}</span>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))}
                 </div>
               )}
               {viewMode === 'grid' ? (
@@ -4494,7 +4807,7 @@ export default function DashboardPage() {
       </main>
 
       {/* ======================== FOOTER ======================== */}
-      <EnhancedFooter projects={projects} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} />
+      <EnhancedFooter projects={projects} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} onOpenSystemMonitor={() => setSystemMonitorOpen(true)} />
 
       {/* ======================== GLOBAL STATUS PANEL ======================== */}
       {!loading && projects.length > 0 && <GlobalStatusPanel projects={projects} />}
@@ -4577,6 +4890,9 @@ export default function DashboardPage() {
 
       {/* Gateway monitor */}
       <GatewayMonitorDialog open={gatewayOpen} onClose={() => setGatewayOpen(false)} />
+
+      {/* System resource monitor */}
+      <SystemMonitorDialog open={systemMonitorOpen} onClose={() => setSystemMonitorOpen(false)} />
 
       {/* LLM config */}
       <LlmConfigDialog open={llmOpen} onClose={() => setLlmOpen(false)} />

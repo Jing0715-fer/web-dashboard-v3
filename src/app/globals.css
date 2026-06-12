@@ -202,3 +202,46 @@
   box-shadow: 0 4px 12px rgba(0,0,0,0.08) !important;
   border-radius: 0.5rem !important;
 }
+
+/* Progress bar shimmer animation */
+@keyframes progress-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+[data-slot="progress-indicator"] {
+  position: relative;
+  overflow: hidden;
+}
+
+[data-slot="progress-indicator"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  animation: progress-shimmer 2s ease-in-out infinite;
+}
+
+/* Card ripple effect */
+@keyframes ripple {
+  0% { transform: scale(0); opacity: 0.3; }
+  100% { transform: scale(4); opacity: 0; }
+}
+
+.card-ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.15);
+  pointer-events: none;
+  animation: ripple 0.6s ease-out forwards;
+}
+
+/* Search input focus glow pulse */
+@keyframes search-glow {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(16,185,129,0.15), 0 0 12px rgba(16,185,129,0.1); }
+  50% { box-shadow: 0 0 0 3px rgba(16,185,129,0.25), 0 0 16px rgba(16,185,129,0.15); }
+}
+
+.search-focus-glow:focus-visible {
+  animation: search-glow 2s ease-in-out infinite;
+}
