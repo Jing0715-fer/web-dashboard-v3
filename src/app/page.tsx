@@ -13,7 +13,8 @@ import {
   CheckCircle2, XCircle, Loader2,
   Bot, ArrowUpDown, ArrowRightLeft,
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap,
-  Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate
+  Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate,
+  TrendingUp, TrendingDown
 } from 'lucide-react'
 
 import {
@@ -37,6 +38,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuCheckboxItem, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger, ContextMenuSeparator } from '@/components/ui/context-menu'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -178,6 +180,7 @@ interface HealthCheckResult {
 type ViewMode = 'grid' | 'list'
 type SortOption = 'newest' | 'name' | 'status'
 type FilterStatus = 'all' | 'running' | 'stopped'
+type GroupBy = 'device' | 'tags' | 'none'
 
 const TAG_OPTIONS = [
   { name: 'Frontend', color: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-300 ring-1 ring-emerald-200/40 dark:ring-emerald-700/30' },
@@ -558,7 +561,7 @@ function SortableProjectCard({
   project, viewMode, searchQuery, onSelect, onEdit, onDelete,
   onEnvAction, onRebuildConfirm, selected, onToggleSelect, rebuilding,
   starred, onToggleStar, lanIp, currentHost, index = 0,
-  batchMode = false, onDuplicate, onMoveToDevice, devices
+  batchMode = false, onDuplicate, onMoveToDevice, devices, onHover
 }: {
   project: Project
   viewMode: ViewMode
@@ -580,16 +583,17 @@ function SortableProjectCard({
   onDuplicate?: (id: string) => void
   onMoveToDevice?: (project: Project) => void
   devices?: Device[]
+  onHover?: (id: string | null) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
   const [expanded, setExpanded] = React.useState(false)
   const needsExpand = (project.environments || []).length > 3 || (project.description && project.description.length > 120)
   const style = {
     transform: isDragging
-      ? `${CSS.Transform.toString(transform)} rotate(2deg) scale(0.98)`
+      ? `${CSS.Transform.toString(transform)} rotate(2deg) scale(1.02)`
       : CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.85 : 1,
   }
 
   const status = getProjectStatus(project)
@@ -617,13 +621,15 @@ function SortableProjectCard({
 
   if (viewMode === 'list') {
     return (
-      <div ref={setNodeRef} style={style}>
+      <div ref={setNodeRef} style={style} className={isDragging ? 'z-50 shadow-xl' : ''} onMouseEnter={() => onHover?.(project.id)} onMouseLeave={() => onHover?.(null)}>
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -10 }}
           transition={{ delay: index * 0.05 }}
-          whileHover={{ y: -1, boxShadow: '0 6px 16px rgba(0,0,0,0.1)' }}
+          whileHover={{ y: -1, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}
           className={`group flex items-center gap-3 p-3.5 rounded-lg border bg-card dark:bg-zinc-900/80 shadow-sm dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] hover:bg-accent/50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent}`}
           onClick={() => onSelect(project)}
         >
@@ -650,7 +656,7 @@ function SortableProjectCard({
                   {deviceOnline ? '🟢' : '🔴'} {project.deviceName}
                 </Badge>
               )}
-              <Badge variant={status === 'running' ? 'default' : 'secondary'} className={`text-xs shrink-0 ${status === 'running' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' : ''}`}>
+              <Badge variant={status === 'running' ? 'default' : 'secondary'} className={`text-xs shrink-0 ${status === 'running' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 animate-pulse' : ''}`}>
                 <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : 'bg-red-400'} mr-1`} />
                 {runningEnvs}/{totalEnvs} running
               </Badge>
@@ -749,17 +755,38 @@ function SortableProjectCard({
             </DropdownMenu>
           </div>
         </motion.div>
+          </ContextMenuTrigger>
+          <ContextMenuContent className="min-w-[180px] p-1.5 text-sm">
+            {(project.environments || []).some((e) => e.status === 'running') && (
+              <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />Open in Browser</ContextMenuItem>
+            )}
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</ContextMenuItem>
+            {(project.environments || []).every((e) => e.status !== 'running') && (
+              <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />Start All Environments</ContextMenuItem>
+            )}
+            {(project.environments || []).some((e) => e.status === 'running') && (
+              <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />Stop All Environments</ContextMenuItem>
+            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
     )
   }
 
   return (
-    <div ref={setNodeRef} style={style} onClick={() => onSelect(project)}>
+    <div ref={setNodeRef} style={style} onClick={() => onSelect(project)} className={isDragging ? 'z-50 shadow-xl' : ''} onMouseEnter={() => onHover?.(project.id)} onMouseLeave={() => onHover?.(null)}>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ delay: index * 0.05 }}
+        whileHover={{ y: -1, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}
         className={`group relative flex flex-col rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer`}
       >
 
@@ -883,7 +910,7 @@ function SortableProjectCard({
         <div className="border-t border-border/30 dark:border-zinc-700/30" />
         <div className="px-4 sm:px-5 pb-3 pt-2 flex items-center justify-between min-w-0 rounded-b-xl">
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className={`text-[11px] px-2.5 py-0.5 ${status === 'running' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-900/10' : status === 'mixed' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-900/10'}`}>
+            <Badge variant="outline" className={`text-[11px] px-2.5 py-0.5 ${status === 'running' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-900/10' : status === 'mixed' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-900/10'} ${runningEnvs > 0 ? 'animate-pulse' : ''}`}>
               <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-red-400'} mr-1`} />
               {runningEnvs}/{totalEnvs} running
             </Badge>
@@ -949,6 +976,24 @@ function SortableProjectCard({
           : 'group-hover:border-red-200/40 dark:group-hover:border-red-600/30'
         }`} />
       </motion.div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="min-w-[180px] p-1.5 text-sm">
+          {(project.environments || []).some((e) => e.status === 'running') && (
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />Open in Browser</ContextMenuItem>
+          )}
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</ContextMenuItem>
+          {(project.environments || []).every((e) => e.status !== 'running') && (
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />Start All Environments</ContextMenuItem>
+          )}
+          {(project.environments || []).some((e) => e.status === 'running') && (
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />Stop All Environments</ContextMenuItem>
+          )}
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   )
 }
@@ -1073,11 +1118,17 @@ function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: ()
   const shortcuts = [
     { keys: '⌘/Ctrl + K', description: 'Focus search' },
     { keys: '⌘/Ctrl + N', description: 'Add new project' },
+    { keys: '⌘/Ctrl + Shift + A', description: 'Add new project (global)' },
     { keys: '⌘/Ctrl + Shift + R', description: 'Refresh data' },
     { keys: '⌘/Ctrl + P', description: 'Command palette' },
     { keys: '⌘/Ctrl + D', description: 'Device management' },
     { keys: 'G then G', description: 'Grid view' },
     { keys: 'G then L', description: 'List view' },
+    { keys: 'Enter', description: 'Open project details (on hover)' },
+    { keys: 'e', description: 'Edit project (on hover)' },
+    { keys: 's', description: 'Start all envs (on hover)' },
+    { keys: 'x', description: 'Stop all envs (on hover)' },
+    { keys: 'Delete', description: 'Delete project (on hover)' },
     { keys: 'Escape', description: 'Close dialog / sheet' },
     { keys: '?', description: 'Show shortcuts' },
   ]
@@ -2196,10 +2247,12 @@ function DetailSheet({
             >
             {/* Description - collapsible */}
             <div>
-              <button
-                type="button"
-                className="flex items-center gap-2 w-full text-left group/section"
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex items-center gap-2 w-full text-left group/section cursor-pointer rounded-md hover:bg-muted/30 transition-colors px-1 -mx-1"
                 onClick={() => setDescCollapsed(!descCollapsed)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDescCollapsed(!descCollapsed) } }}
               >
                 <div className="h-1 w-3 rounded-full bg-emerald-500" />
                 <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1">Description</h4>
@@ -2212,7 +2265,7 @@ function DetailSheet({
                 <span className="text-muted-foreground">
                   {descCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </span>
-              </button>
+              </div>
               <AnimatePresence initial={false}>
                 {!descCollapsed && (
                   <motion.div
@@ -2252,10 +2305,12 @@ function DetailSheet({
             </div>
             {/* Device - collapsible */}
             <div>
-              <button
-                type="button"
-                className="flex items-center gap-2 w-full text-left"
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md hover:bg-muted/30 transition-colors px-1 -mx-1"
                 onClick={() => setDeviceCollapsed(!deviceCollapsed)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDeviceCollapsed(!deviceCollapsed) } }}
               >
                 <div className="h-1 w-3 rounded-full bg-emerald-500" />
                 <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Device</h4>
@@ -2263,7 +2318,7 @@ function DetailSheet({
                 <span className="text-muted-foreground">
                   {deviceCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </span>
-              </button>
+              </div>
               <AnimatePresence initial={false}>
                 {!deviceCollapsed && (
                   <motion.div
@@ -2341,10 +2396,12 @@ function DetailSheet({
               </div>
             </div>
             <div>
-              <button
-                type="button"
-                className="flex items-center gap-2 w-full text-left"
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md hover:bg-muted/30 transition-colors px-1 -mx-1"
                 onClick={() => setTagsCollapsed(!tagsCollapsed)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTagsCollapsed(!tagsCollapsed) } }}
               >
                 <div className="h-1 w-3 rounded-full bg-emerald-500" />
                 <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">
@@ -2359,7 +2416,7 @@ function DetailSheet({
                 <span className="text-muted-foreground">
                   {tagsCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </span>
-              </button>
+              </div>
               <AnimatePresence initial={false}>
                 {!tagsCollapsed && (
                   <motion.div
@@ -2434,10 +2491,12 @@ function DetailSheet({
               </AnimatePresence>
             </div>
             <div>
-              <button
-                type="button"
-                className="flex items-center gap-2 w-full text-left"
+              <div
+                role="button"
+                tabIndex={0}
+                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md hover:bg-muted/30 transition-colors px-1 -mx-1"
                 onClick={() => setEnvSummaryCollapsed(!envSummaryCollapsed)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEnvSummaryCollapsed(!envSummaryCollapsed) } }}
               >
                 <div className="h-1 w-3 rounded-full bg-emerald-500" />
                 <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">
@@ -2463,7 +2522,7 @@ function DetailSheet({
                 <span className="text-muted-foreground">
                   {envSummaryCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                 </span>
-              </button>
+              </div>
               <AnimatePresence initial={false}>
                 {!envSummaryCollapsed && (
                   <motion.div
@@ -3478,6 +3537,9 @@ export default function DashboardPage() {
   })
   const [filterStatus, setFilterStatus] = React.useState<FilterStatus>('all')
   const [filterTags, setFilterTags] = React.useState<string[]>([])
+  const [groupBy, setGroupBy] = React.useState<GroupBy>(() => {
+    try { const v = localStorage.getItem('dashboard-groupBy'); return v === 'device' || v === 'tags' || v === 'none' ? v : 'device' } catch { return 'device' }
+  })
   const [selectedProject, setSelectedProject] = React.useState<Project | null>(null)
   const [detailOpen, setDetailOpen] = React.useState(false)
   const [projectFormOpen, setProjectFormOpen] = React.useState(false)
@@ -3530,6 +3592,7 @@ export default function DashboardPage() {
   React.useEffect(() => { localStorage.setItem('dashboard-viewMode', viewMode) }, [viewMode])
   React.useEffect(() => { localStorage.setItem('dashboard-sortBy', sortBy) }, [sortBy])
   React.useEffect(() => { localStorage.setItem('dashboard-selectedDeviceId', selectedDeviceId ?? 'null') }, [selectedDeviceId])
+  React.useEffect(() => { localStorage.setItem('dashboard-groupBy', groupBy) }, [groupBy])
 
   const { toast } = useToast()
 
@@ -3780,6 +3843,9 @@ export default function DashboardPage() {
   }, [])
 
   // Keyboard shortcuts - defined after handleAddProject to avoid before-declaration error
+  const [hoveredProjectId, setHoveredProjectId] = React.useState<string | null>(null)
+  const projectActionsRef = React.useRef<{ selectProject: (p: Project) => void; editProject: (p: Project) => void; envAction: (projectId: string, envId: string, action: string) => void }>({ selectProject: () => {}, editProject: () => {}, envAction: () => {} })
+
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement
@@ -3791,12 +3857,26 @@ export default function DashboardPage() {
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'k') { e.preventDefault(); document.getElementById('search-input')?.focus() }
         if (e.key === 'n') { e.preventDefault(); handleAddProject() }
+        if (e.shiftKey && (e.key === 'A' || e.key === 'a')) { e.preventDefault(); handleAddProject() }
         if (e.shiftKey && (e.key === 'R' || e.key === 'r')) { e.preventDefault(); loadData() }
         if (e.key === 'p') { e.preventDefault(); setCommandPaletteOpen(true) }
         if (e.key === 'd') { e.preventDefault(); setDeviceManagementOpen(true) }
+        return
       }
 
       if (e.key === '?' && !e.ctrlKey && !e.metaKey) { setShortcutsOpen(true) }
+
+      // Project-specific shortcuts when a project is hovered
+      if (hoveredProjectId) {
+        const hoveredProject = projects.find((p) => p.id === hoveredProjectId)
+        if (hoveredProject) {
+          if (e.key === 'Enter') { e.preventDefault(); projectActionsRef.current.selectProject(hoveredProject) }
+          if (e.key === 'e') { e.preventDefault(); projectActionsRef.current.editProject(hoveredProject) }
+          if (e.key === 's') { e.preventDefault(); (hoveredProject.environments || []).filter((env) => env.status !== 'running').forEach((env) => projectActionsRef.current.envAction(hoveredProject.id, env.id, 'start')) }
+          if (e.key === 'x') { e.preventDefault(); (hoveredProject.environments || []).filter((env) => env.status === 'running').forEach((env) => projectActionsRef.current.envAction(hoveredProject.id, env.id, 'stop')) }
+          if (e.key === 'Delete') { e.preventDefault(); setDeleteProject(hoveredProject) }
+        }
+      }
 
       // G sequence
       if (e.key === 'g' && !e.ctrlKey && !e.metaKey) {
@@ -3816,7 +3896,7 @@ export default function DashboardPage() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [gSequence, handleAddProject, loadData])
+  }, [gSequence, handleAddProject, loadData, hoveredProjectId, projects])
 
   // G sequence timeout
   React.useEffect(() => {
@@ -3905,6 +3985,29 @@ export default function DashboardPage() {
     const remoteGroups = Array.from(remoteMap.values()).sort((a, b) => (a.device?.name ?? '').localeCompare(b.device?.name ?? ''))
     return { localProjects, remoteGroups }
   }, [filteredProjects, selectedDeviceId, devices])
+
+  // Tag-grouped projects
+  const tagGroupedProjects = React.useMemo(() => {
+    const groups: Array<{ tagName: string; tagColor: string; projects: Project[] }> = []
+    const assigned = new Set<string>()
+    // Add groups in TAG_OPTIONS order
+    for (const tagOption of TAG_OPTIONS) {
+      const matching = filteredProjects.filter((p) => {
+        const tags = parseTags(p.tags)
+        return tags.includes(tagOption.name)
+      })
+      if (matching.length > 0) {
+        groups.push({ tagName: tagOption.name, tagColor: tagOption.color, projects: matching })
+        matching.forEach((p) => assigned.add(p.id))
+      }
+    }
+    // Untagged projects
+    const untagged = filteredProjects.filter((p) => !assigned.has(p.id))
+    if (untagged.length > 0) {
+      groups.push({ tagName: 'Untagged', tagColor: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400', projects: untagged })
+    }
+    return groups
+  }, [filteredProjects])
 
   const stats = React.useMemo(() => ({
     total: projects.length,
@@ -4055,6 +4158,11 @@ export default function DashboardPage() {
         setDetailOpen(true)
       })
   }, [])
+
+  // Update project actions ref for keyboard shortcuts (moved after all handler definitions)
+  // This will be set up after handleEnvAction is defined
+  // placeholder - actual implementation is further down
+  const _projectActionsUpdateRef = React.useRef<(() => void) | null>(null)
 
   // Search results for dropdown
   const searchResults = React.useMemo(() => {
@@ -4219,6 +4327,13 @@ export default function DashboardPage() {
       toast({ title: `Failed to ${action} ${envLabel}`, variant: 'destructive' })
     }
   }, [toast, fetchProjects, selectedProject, projects])
+
+  // Update project actions ref for keyboard shortcuts (after all handler definitions)
+  React.useEffect(() => {
+    projectActionsRef.current.selectProject = handleSelectProject
+    projectActionsRef.current.editProject = handleEditProject
+    projectActionsRef.current.envAction = handleEnvAction
+  }, [handleSelectProject, handleEditProject, handleEnvAction])
 
   const handleSyncFromConfig = React.useCallback(async () => {
     if (!confirm('This will REPLACE all projects and environments with the contents of projects.config.json. Any unsaved changes will be lost. Continue?')) {
@@ -4786,27 +4901,49 @@ export default function DashboardPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-border bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors" />}>
+                  <Layers className="h-3 w-3 mr-1" />
+                  Group: {groupBy === 'device' ? 'Device' : groupBy === 'tags' ? 'Tags' : 'None'}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuRadioGroup value={groupBy} onValueChange={(v) => setGroupBy(v as GroupBy)}>
+                    <DropdownMenuRadioItem value="device">By Device</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="tags">By Tags</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="none">None (Flat)</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               {/* Filter indicator pills */}
+              <AnimatePresence>
               {filterStatus !== 'all' && (
-                <button type="button" onClick={() => setFilterStatus('all')} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 transition-colors">
+                <motion.button key="filter-status" type="button" onClick={() => setFilterStatus('all')} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 transition-colors"
+                  initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
                   {filterStatus} <X className="h-2.5 w-2.5" />
-                </button>
+                </motion.button>
               )}
               {filterTags.length > 0 && filterTags.map(tag => (
-                <button key={tag} type="button" onClick={() => setFilterTags(prev => prev.filter(t => t !== tag))} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 hover:bg-teal-200 dark:hover:bg-teal-900/60 transition-colors">
+                <motion.button key={`tag-${tag}`} type="button" onClick={() => setFilterTags(prev => prev.filter(t => t !== tag))} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 hover:bg-teal-200 dark:hover:bg-teal-900/60 transition-colors"
+                  initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
                   {tag} <X className="h-2.5 w-2.5" />
-                </button>
+                </motion.button>
               ))}
+              </AnimatePresence>
 
               {/* Active filters breadcrumb — inline on same row */}
               {activeFilters.length > 0 && (
                 <div className="flex items-center gap-1 flex-wrap">
+                  <AnimatePresence>
                   {activeFilters.map((f, i) => (
-                    <Badge key={i} variant="secondary" className="text-[10px] gap-1 pr-0.5">
+                    <motion.div key={f.label} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
+                    <Badge variant="secondary" className="text-[10px] gap-1 pr-0.5">
                       {f.label}
                       <button onClick={f.onRemove} className="p-0.5 hover:bg-muted rounded"><X className="h-2.5 w-2.5" /></button>
                     </Badge>
+                    </motion.div>
                   ))}
+                  </AnimatePresence>
                   <Button variant="ghost" size="sm" className="h-5 text-[10px] text-muted-foreground" onClick={() => { setFilterStatus('all'); setFilterTags([]); setSearchQuery('') }}>
                     Clear
                   </Button>
@@ -4913,10 +5050,10 @@ export default function DashboardPage() {
               {filteredProjects.length > 0 && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5 relative">
                   {[
-                    { label: 'Total Projects', value: dashboardStats.totalProjects, icon: Folder, iconColor: 'text-emerald-600 dark:text-emerald-400', gradient: 'from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20', ring: 'ring-emerald-200/50 dark:ring-emerald-800/30', sub: `${dashboardStats.runningEnvs} of ${dashboardStats.totalEnvs} envs running`, subIcon: Activity, miniChart: true, miniRunning: dashboardStats.runningEnvs, miniTotal: dashboardStats.totalEnvs, glowColor: 'rgba(16,185,129,0.3)' },
-                    { label: 'Environments', value: dashboardStats.runningEnvs, icon: Play, iconColor: 'text-cyan-600 dark:text-cyan-400', gradient: 'from-cyan-50 to-sky-50 dark:from-cyan-950/30 dark:to-sky-950/20', ring: 'ring-cyan-200/50 dark:ring-cyan-800/30', sub: `${dashboardStats.runningEnvs} / ${dashboardStats.totalEnvs} running`, trend: dashboardStats.totalEnvs > 0 ? `${Math.round((dashboardStats.runningEnvs / dashboardStats.totalEnvs) * 100)}%` : '0%', glowColor: 'rgba(6,182,212,0.3)' },
-                    { label: 'Devices', value: dashboardStats.onlineDevices, icon: Server, iconColor: 'text-teal-600 dark:text-teal-400', gradient: 'from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/20', ring: 'ring-teal-200/50 dark:ring-teal-800/30', sub: `${dashboardStats.onlineDevices} / ${dashboardStats.totalDevices} online`, glowColor: 'rgba(20,184,166,0.3)' },
-                    { label: 'Health Score', value: dashboardStats.healthScore, icon: Activity, iconColor: healthColor(dashboardStats.healthScore), gradient: dashboardStats.healthScore >= 80 ? 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/20' : dashboardStats.healthScore >= 50 ? 'from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/20' : 'from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/20', ring: dashboardStats.healthScore >= 80 ? 'ring-emerald-200/50 dark:ring-emerald-800/30' : dashboardStats.healthScore >= 50 ? 'ring-amber-200/50 dark:ring-amber-800/30' : 'ring-red-200/50 dark:ring-red-800/30', sub: dashboardStats.healthScore >= 80 ? 'Healthy' : dashboardStats.healthScore >= 50 ? 'Warning' : 'Critical', isPercent: true, sparkline: healthScoreHistory, glowColor: dashboardStats.healthScore >= 80 ? 'rgba(16,185,129,0.3)' : dashboardStats.healthScore >= 50 ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)' },
+                    { label: 'Total Projects', value: dashboardStats.totalProjects, icon: Folder, iconColor: 'text-emerald-600 dark:text-emerald-400', gradient: 'from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20', ring: 'ring-emerald-200/50 dark:ring-emerald-800/30', sub: `${dashboardStats.runningEnvs} of ${dashboardStats.totalEnvs} envs running`, subIcon: Activity, miniChart: true, miniRunning: dashboardStats.runningEnvs, miniTotal: dashboardStats.totalEnvs, glowColor: 'rgba(16,185,129,0.3)', statusBars: true, runningCount: stats.running, mixedCount: stats.mixed, stoppedCount: stats.stopped },
+                    { label: 'Environments', value: dashboardStats.runningEnvs, icon: Play, iconColor: 'text-cyan-600 dark:text-cyan-400', gradient: 'from-cyan-50 to-sky-50 dark:from-cyan-950/30 dark:to-sky-950/20', ring: 'ring-cyan-200/50 dark:ring-cyan-800/30', sub: `${dashboardStats.runningEnvs} / ${dashboardStats.totalEnvs} running`, trend: dashboardStats.totalEnvs > 0 ? `${Math.round((dashboardStats.runningEnvs / dashboardStats.totalEnvs) * 100)}%` : '0%', glowColor: 'rgba(6,182,212,0.3)', envRing: true, envRunning: dashboardStats.runningEnvs, envTotal: dashboardStats.totalEnvs },
+                    { label: 'Devices', value: dashboardStats.onlineDevices, icon: Server, iconColor: 'text-teal-600 dark:text-teal-400', gradient: 'from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/20', ring: 'ring-teal-200/50 dark:ring-teal-800/30', sub: `${dashboardStats.onlineDevices} / ${dashboardStats.totalDevices} online`, glowColor: 'rgba(20,184,166,0.3)', deviceDots: true },
+                    { label: 'Health Score', value: dashboardStats.healthScore, icon: Activity, iconColor: healthColor(dashboardStats.healthScore), gradient: dashboardStats.healthScore >= 80 ? 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/20' : dashboardStats.healthScore >= 50 ? 'from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/20' : 'from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/20', ring: dashboardStats.healthScore >= 80 ? 'ring-emerald-200/50 dark:ring-emerald-800/30' : dashboardStats.healthScore >= 50 ? 'ring-amber-200/50 dark:ring-amber-800/30' : 'ring-red-200/50 dark:ring-red-800/30', sub: dashboardStats.healthScore >= 80 ? 'Healthy' : dashboardStats.healthScore >= 50 ? 'Warning' : 'Critical', isPercent: true, sparkline: healthScoreHistory, glowColor: dashboardStats.healthScore >= 80 ? 'rgba(16,185,129,0.3)' : dashboardStats.healthScore >= 50 ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)', trendArrow: true },
                   ].map((card, i) => (
                     <motion.div
                       key={card.label}
@@ -4936,13 +5073,52 @@ export default function DashboardPage() {
                         <span className="text-[11px] font-medium text-muted-foreground dark:text-zinc-400">{card.label}</span>
                       </div>
                       <div className="flex items-end justify-between">
-                        <div>
+                        <div className="flex items-center gap-1">
                           <span className={`text-2xl font-bold tracking-tight ${card.isPercent && card.value < 50 ? 'text-red-600 dark:text-red-400' : 'text-foreground dark:text-zinc-100'}`}>
                             <AnimatedCounter target={card.value} />
                           </span>
                           {card.isPercent && <span className="text-sm text-muted-foreground ml-0.5">%</span>}
+                          {card.trendArrow && healthScoreHistory.length >= 2 && (() => {
+                            const prev = healthScoreHistory[healthScoreHistory.length - 2]
+                            const curr = card.value
+                            if (curr > prev) return <TrendingUp className="h-4 w-4 text-emerald-500" />
+                            if (curr < prev) return <TrendingDown className="h-4 w-4 text-red-500" />
+                            return null
+                          })()}
                         </div>
-                        {card.miniChart && card.miniTotal > 0 && (
+                        {card.statusBars && (card.runningCount + card.mixedCount + card.stoppedCount > 0) && (() => {
+                          const total = card.runningCount + card.mixedCount + card.stoppedCount
+                          return (
+                            <div className="flex gap-0.5 items-end h-6 shrink-0">
+                              <div className="w-2 rounded-t-sm bg-emerald-400 transition-all" style={{ height: `${Math.max((card.runningCount / total) * 24, 2)}px` }} title={`${card.runningCount} running`} />
+                              <div className="w-2 rounded-t-sm bg-amber-400 transition-all" style={{ height: `${Math.max((card.mixedCount / total) * 24, 2)}px` }} title={`${card.mixedCount} mixed`} />
+                              <div className="w-2 rounded-t-sm bg-red-400 transition-all" style={{ height: `${Math.max((card.stoppedCount / total) * 24, 2)}px` }} title={`${card.stoppedCount} stopped`} />
+                            </div>
+                          )
+                        })()}
+                        {card.envRing && card.envTotal > 0 && (() => {
+                          const pct = (card.envRunning / card.envTotal) * 100
+                          const r = 11
+                          const circ = r * 2 * Math.PI
+                          return (
+                            <svg width={28} height={28} className="shrink-0 transform -rotate-90">
+                              <circle cx={14} cy={14} r={r} fill="none" stroke="currentColor" strokeWidth={3} className="text-muted-foreground/15" />
+                              <circle cx={14} cy={14} r={r} fill="none" stroke="#10b981" strokeWidth={3} strokeDasharray={`${(pct / 100) * circ} ${circ}`} strokeLinecap="round" />
+                            </svg>
+                          )
+                        })()}
+                        {card.deviceDots && (() => {
+                          const allDevices = [{ status: 'online' }, ...devices]
+                          return (
+                            <div className="flex flex-wrap gap-0.5 max-w-[48px] shrink-0">
+                              {allDevices.slice(0, 12).map((d, di) => (
+                                <span key={di} className={`h-2 w-2 rounded-full ${d.status === 'online' ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                              ))}
+                              {allDevices.length > 12 && <span className="text-[8px] text-muted-foreground">+{allDevices.length - 12}</span>}
+                            </div>
+                          )
+                        })()}
+                        {card.miniChart && card.miniTotal > 0 && !card.statusBars && (
                           <svg width={28} height={28} className="shrink-0">
                             <circle cx={14} cy={14} r={11} fill="none" stroke="currentColor" strokeWidth={3} className="text-muted-foreground/15" />
                             <circle cx={14} cy={14} r={11} fill="none" stroke="#10b981" strokeWidth={3} strokeDasharray={`${(card.miniRunning / card.miniTotal) * 69.1} 69.1`} strokeLinecap="round" className="transform -rotate-90 origin-center" />
@@ -4986,7 +5162,46 @@ export default function DashboardPage() {
               )}
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {selectedDeviceId === null && deviceGroupedProjects ? (
+                  {groupBy === 'tags' ? (
+                    <>
+                      {tagGroupedProjects.map((group) => (
+                        <React.Fragment key={group.tagName}>
+                          <div className="col-span-full">
+                            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-gradient-to-r from-muted/60 via-muted/30 to-transparent dark:from-white/5 dark:via-white/3 dark:to-transparent border border-border/40 dark:border-zinc-700/30">
+                              <Badge variant="secondary" className={`text-xs px-2.5 py-0.5 ${group.tagColor}`}>{group.tagName}</Badge>
+                              <Badge variant="secondary" className="text-[10px] bg-muted/60">{group.projects.length}</Badge>
+                            </div>
+                          </div>
+                          {group.projects.map((project, idx) => (
+                            <SortableProjectCard
+                              key={project.id}
+                              project={project}
+                              viewMode={viewMode}
+                              searchQuery={searchQuery}
+                              onSelect={handleSelectProject}
+                              onEdit={handleEditProject}
+                              onDelete={setDeleteProject}
+                              onEnvAction={handleEnvAction}
+                              onRebuildConfirm={setRebuildConfirmProject}
+                              selected={selectedIds.has(project.id)}
+                              onToggleSelect={toggleSelect}
+                              rebuilding={rebuildingProjectIds.has(project.id)}
+                              starred={starredIds.has(project.id)}
+                              onToggleStar={toggleStar}
+                              lanIp={lanIp}
+                              currentHost={currentHost}
+                              index={idx}
+                              batchMode={batchMode}
+                              onDuplicate={handleDuplicateProject}
+                              onMoveToDevice={setMoveProjectDialog}
+                              devices={devices}
+                              onHover={setHoveredProjectId}
+                            />
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </>
+                  ) : groupBy === 'device' && selectedDeviceId === null && deviceGroupedProjects ? (
                     <>
                       {/* Local projects group */}
                       {deviceGroupedProjects.localProjects.length > 0 && (
@@ -5023,6 +5238,7 @@ export default function DashboardPage() {
                               onDuplicate={handleDuplicateProject}
                               onMoveToDevice={setMoveProjectDialog}
                               devices={devices}
+                              onHover={setHoveredProjectId}
                             />
                           ))}
                         </>
@@ -5103,7 +5319,44 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {selectedDeviceId === null && deviceGroupedProjects ? (
+                  {groupBy === 'tags' ? (
+                    <>
+                      {tagGroupedProjects.map((group) => (
+                        <React.Fragment key={group.tagName}>
+                          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-gradient-to-r from-muted/60 via-muted/30 to-transparent dark:from-white/5 dark:via-white/3 dark:to-transparent border border-border/40 dark:border-zinc-700/30">
+                            <Badge variant="secondary" className={`text-xs px-2.5 py-0.5 ${group.tagColor}`}>{group.tagName}</Badge>
+                            <Badge variant="secondary" className="text-[10px] bg-muted/60">{group.projects.length}</Badge>
+                          </div>
+                          {group.projects.map((project, idx) => (
+                            <SortableProjectCard
+                              key={project.id}
+                              project={project}
+                              viewMode={viewMode}
+                              searchQuery={searchQuery}
+                              onSelect={handleSelectProject}
+                              onEdit={handleEditProject}
+                              onDelete={setDeleteProject}
+                              onEnvAction={handleEnvAction}
+                              onRebuildConfirm={setRebuildConfirmProject}
+                              selected={selectedIds.has(project.id)}
+                              onToggleSelect={toggleSelect}
+                              rebuilding={rebuildingProjectIds.has(project.id)}
+                              starred={starredIds.has(project.id)}
+                              onToggleStar={toggleStar}
+                              lanIp={lanIp}
+                              currentHost={currentHost}
+                              index={idx}
+                              batchMode={batchMode}
+                              onDuplicate={handleDuplicateProject}
+                              onMoveToDevice={setMoveProjectDialog}
+                              devices={devices}
+                              onHover={setHoveredProjectId}
+                            />
+                          ))}
+                        </React.Fragment>
+                      ))}
+                    </>
+                  ) : groupBy === 'device' && selectedDeviceId === null && deviceGroupedProjects ? (
                     <>
                       {/* Local projects group */}
                       {deviceGroupedProjects.localProjects.length > 0 && (
@@ -5138,6 +5391,7 @@ export default function DashboardPage() {
                               onDuplicate={handleDuplicateProject}
                               onMoveToDevice={setMoveProjectDialog}
                               devices={devices}
+                              onHover={setHoveredProjectId}
                             />
                           ))}
                         </>
@@ -5181,6 +5435,7 @@ export default function DashboardPage() {
                               onDuplicate={handleDuplicateProject}
                               onMoveToDevice={setMoveProjectDialog}
                               devices={devices}
+                              onHover={setHoveredProjectId}
                             />
                           ))}
                         </React.Fragment>
@@ -5210,6 +5465,7 @@ export default function DashboardPage() {
                         onDuplicate={handleDuplicateProject}
                         onMoveToDevice={setMoveProjectDialog}
                         devices={devices}
+                        onHover={setHoveredProjectId}
                       />
                     ))
                   )}
