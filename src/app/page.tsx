@@ -21,7 +21,7 @@ import {
 
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
-  useSensor, useSensors, DragEndEvent
+  useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay
 } from '@dnd-kit/core'
 import {
   arrayMove, SortableContext, sortableKeyboardCoordinates,
@@ -56,24 +56,30 @@ import { useToast, addToast } from '@/hooks/use-toast'
 // A PointerSensor that only activates when the pointerdown target is a
 // [data-dnd-drag-handle] element.  This prevents the sensor from
 // intercepting clicks on the rest of the card.
-const DragHandleSensor = class PointerSensor {
-  static activators = [
-    {
-      eventName: 'onPointerDown' as const,
-      handler: ({ nativeEvent }: { nativeEvent: PointerEvent }, { onActivation }: { onActivation?: (args: { event: PointerEvent }) => void }) => {
-        if (!(nativeEvent as PointerEvent).isPrimary || (nativeEvent as PointerEvent).button !== 0) {
-          return false
-        }
-        const target = (nativeEvent as PointerEvent).target as HTMLElement | null
-        if (!target || !target.closest('[data-dnd-drag-handle]')) {
-          return false
-        }
-        onActivation?.({ event: nativeEvent as PointerEvent })
-        return true
+//
+// We create a proper subclass of PointerSensor that overrides the activators
+// to check for the drag handle element before starting a drag.
+function createDragHandleSensor(): typeof PointerSensor {
+  return class DragHandleSensor extends PointerSensor {
+    static activators = [
+      {
+        eventName: 'onPointerDown' as const,
+        handler: ({ nativeEvent }: { nativeEvent: PointerEvent }) => {
+          if (!nativeEvent.isPrimary || nativeEvent.button !== 0) {
+            return false
+          }
+          const target = nativeEvent.target as HTMLElement | null
+          if (!target || !target.closest('[data-dnd-drag-handle]')) {
+            return false
+          }
+          return true
+        },
       },
-    },
-  ]
+    ]
+  }
 }
+
+const DragHandleSensor = createDragHandleSensor()
 
 // ======================== TYPES ========================
 
@@ -648,7 +654,7 @@ function ProjectQuickPreview({
 // ======================== DASHBOARD CLOCK WIDGET ========================
 
 function DashboardClockWidget() {
-  const [time, setTime] = React.useState('')
+  const [time, setTime] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     const update = () => {
@@ -660,9 +666,11 @@ function DashboardClockWidget() {
     return () => clearInterval(id)
   }, [])
 
-  if (!time) return <span className="text-[10px] text-muted-foreground font-mono">--:--:--</span>
+  // Render empty placeholder on SSR to avoid hydration mismatch
   return (
-    <span className="text-[10px] text-muted-foreground dark:text-gray-400 font-mono tabular-nums">{time}</span>
+    <span className="text-[10px] text-muted-foreground dark:text-gray-400 font-mono tabular-nums">
+      {time ?? '--:--:--'}
+    </span>
   )
 }
 
@@ -851,7 +859,7 @@ function SortableProjectCard({
           onClick={() => onSelect(project)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
         >
-          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-muted/60 transition-colors" onClick={(e) => e.stopPropagation()} title="Drag to reorder">
+          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-muted/60 transition-colors group-hover:animate-pulse group-hover:shadow-sm" onClick={(e) => e.stopPropagation()} title="Drag to reorder">
             <GripVertical className="h-4 w-4 text-muted-foreground" />
           </div>
           {batchMode && (
@@ -918,9 +926,9 @@ function SortableProjectCard({
                 )}
                 {/* Start/Stop at rightmost position */}
                 {env.status === 'running' ? (
-                  <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 cursor-pointer text-red-500 dark:text-red-400 transition-all active:scale-90 shrink-0 ring-1 ring-red-200 dark:ring-red-800/30 ml-0.5" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                  <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-all active:scale-90 shrink-0 ml-0.5" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
                 ) : (
-                  <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 cursor-pointer text-emerald-500 dark:text-emerald-400 transition-all active:scale-90 shrink-0 ring-1 ring-emerald-200 dark:ring-emerald-800/30 ml-0.5" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                  <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer transition-all active:scale-90 shrink-0 ml-0.5" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
                 )}
               </div>
             ))}
@@ -929,7 +937,7 @@ function SortableProjectCard({
             )}
           </div>
           <div className="flex items-center gap-0.5">
-            <div onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }} className={`cursor-pointer rounded-full transition-all hover:ring-2 hover:ring-emerald-300 dark:hover:ring-emerald-600 ${health < 50 ? 'animate-pulse' : ''}`}>
+            <div onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }} className={`cursor-pointer rounded-full transition-all hover:ring-2 hover:ring-emerald-300 dark:hover:ring-emerald-600 ${health < 50 ? 'animate-pulse ring-2 ring-red-400/50' : ''}`}>
               <HealthScoreHoverCard score={health} size={32} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
             </div>
             <HealthTrendIcon trend={healthTrend} />
@@ -1029,7 +1037,7 @@ function SortableProjectCard({
       >
 
         <div className="absolute top-2 left-2 z-10 flex gap-1 items-start" onClick={(e) => e.stopPropagation()}>
-          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1.5 rounded-md bg-muted/80 hover:bg-muted border border-transparent hover:border-dashed hover:border-muted-foreground/30 transition-all duration-150" title="Drag to reorder">
+          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1.5 rounded-md bg-muted/80 hover:bg-muted border border-transparent hover:border-dashed hover:border-muted-foreground/30 transition-all duration-150 group-hover:animate-pulse group-hover:shadow-sm" title="Drag to reorder">
             <GripVertical className="h-4 w-4 text-muted-foreground" />
           </div>
           {batchMode && (
@@ -1069,7 +1077,7 @@ function SortableProjectCard({
             </div>
             <div className="flex items-center shrink-0">
               <div className="flex items-center gap-0.5">
-                <div onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }} className={`cursor-pointer rounded-full transition-all hover:ring-2 hover:ring-emerald-300 dark:hover:ring-emerald-600 ${health < 50 ? 'animate-pulse' : ''}`}>
+                <div onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }} className={`cursor-pointer rounded-full transition-all hover:ring-2 hover:ring-emerald-300 dark:hover:ring-emerald-600 ${health < 50 ? 'animate-pulse ring-2 ring-red-400/50' : ''}`}>
                   <HealthScoreHoverCard score={health} size={28} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
                 </div>
                 <HealthTrendIcon trend={healthTrend} />
@@ -1129,9 +1137,9 @@ function SortableProjectCard({
 
                   {/* Start/Stop at rightmost position */}
                   {env.status === 'running' ? (
-                    <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 cursor-pointer text-red-500 dark:text-red-400 transition-all active:scale-90 shrink-0 ring-1 ring-red-200 dark:ring-red-800/30" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                    <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-all active:scale-90 shrink-0" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
                   ) : (
-                    <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 cursor-pointer text-emerald-500 dark:text-emerald-400 transition-all active:scale-90 shrink-0 ring-1 ring-emerald-200 dark:ring-emerald-800/30" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                    <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer transition-all active:scale-90 shrink-0" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
                   )}
                 </div>
               </div>
@@ -1170,9 +1178,9 @@ function SortableProjectCard({
                             <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 hover:bg-teal-50 dark:hover:bg-teal-900/20 cursor-pointer text-teal-500 dark:text-teal-400 transition-all active:scale-90 shrink-0" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'rebuild') }} title={`Rebuild ${envLabel(env.name)}`}><Hammer className="h-2.5 w-2.5" /></TooltipTrigger><TooltipContent>Rebuild {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
                           )}
                           {env.status === 'running' ? (
-                            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 cursor-pointer text-red-500 dark:text-red-400 transition-all active:scale-90 shrink-0 ring-1 ring-red-200 dark:ring-red-800/30" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-all active:scale-90 shrink-0" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
                           ) : (
-                            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 cursor-pointer text-emerald-500 dark:text-emerald-400 transition-all active:scale-90 shrink-0 ring-1 ring-emerald-200 dark:ring-emerald-800/30" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer transition-all active:scale-90 shrink-0" />} onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
                           )}
                         </div>
                       </div>
@@ -3769,7 +3777,7 @@ function GlobalStatusPanel({ projects }: { projects: Project[] }) {
 
 // ======================== ENHANCED FOOTER ========================
 
-function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor, onRefresh, onAddProject }: { projects: Project[]; onOpenDevices: () => void; devices: Device[]; onOpenSystemMonitor: () => void; onRefresh?: () => void; onAddProject?: () => void }) {
+function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpenSystemMonitor, onRefresh, onAddProject }: { projects: Project[]; filteredCount: number; onOpenDevices: () => void; devices: Device[]; onOpenSystemMonitor: () => void; onRefresh?: () => void; onAddProject?: () => void }) {
   const totalEnvs = projects.reduce((a, p) => a + (p.environments?.length || 0), 0)
   const runningEnvs = projects.reduce((a, p) => a + (p.environments?.filter((e) => e.status === 'running').length || 0), 0)
   const onlineDevices = devices.filter((d) => d.status === 'online').length
@@ -3785,10 +3793,12 @@ function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor,
   // Reset timer when projects change (i.e., when data refreshes)
   React.useEffect(() => { setLastRefreshAgo(0) }, [projects])
 
-  // Current time display — updates every 60 seconds
-  const [currentTime, setCurrentTime] = React.useState(new Date())
+  // Current time display — updates every 60 seconds (null on SSR to avoid hydration mismatch)
+  const [currentTime, setCurrentTime] = React.useState<string | null>(null)
   React.useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(new Date()), 60000)
+    const update = () => setCurrentTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+    update()
+    const interval = setInterval(update, 60000)
     return () => clearInterval(interval)
   }, [])
 
@@ -3835,6 +3845,9 @@ function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor,
           </div>
           <span className="text-muted-foreground dark:text-zinc-500 hidden sm:inline">·</span>
           <span className="dark:text-zinc-300 font-medium">{projects.length} projects</span>
+          {filteredCount !== projects.length && (
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Showing {filteredCount}/{projects.length}</span>
+          )}
           <span className="text-muted-foreground dark:text-zinc-500 hidden sm:inline">·</span>
           <span className="hidden sm:inline-flex items-center gap-1 text-muted-foreground dark:text-zinc-400">
             <span className={`h-2 w-2 rounded-full ${totalDevices === 0 ? 'bg-zinc-400' : onlineDevices > 0 ? 'bg-emerald-500' : 'bg-red-400'}`} />
@@ -3852,7 +3865,7 @@ function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor,
           {/* Current time */}
           <span className="hidden md:inline-flex items-center gap-1 text-[10px] text-muted-foreground dark:text-zinc-400 tabular-nums">
             <Clock className="h-2.5 w-2.5" />
-            {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {currentTime ?? '--:--'}
           </span>
           {/* Keyboard shortcut hints */}
           <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-muted-foreground dark:text-zinc-500">
@@ -5466,12 +5479,19 @@ export default function DashboardPage() {
 
   const sensors = useSensors(
     useSensor(DragHandleSensor, {
-      activationConstraint: { distance: 8 },
+      activationConstraint: { distance: 5 },
     }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
+  const [activeDragId, setActiveDragId] = React.useState<string | null>(null)
+
+  const handleDragStart = React.useCallback((event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id))
+  }, [])
+
   const handleDragEnd = React.useCallback((event: DragEndEvent) => {
+    setActiveDragId(null)
     const { active, over } = event
     if (!over || active.id === over.id) return
 
@@ -5676,7 +5696,8 @@ export default function DashboardPage() {
           <div className="flex items-center gap-1 ml-auto">
             {/* Notifications */}
             <Popover>
-              <PopoverTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-8 w-8 hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground cursor-pointer relative transition-all duration-150 active:scale-95" />}>
+              <PopoverTrigger asChild>
+                <button type="button" className="inline-flex items-center justify-center rounded-md h-8 w-8 hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground cursor-pointer relative transition-all duration-150 active:scale-95">
                   <Bell className={`h-4 w-4 ${unreadNotifs > 0 ? 'bell-shake' : ''}`} />
                   {unreadNotifs > 0 && (
                     <motion.span
@@ -5689,7 +5710,8 @@ export default function DashboardPage() {
                       {unreadNotifs > 99 ? '99+' : unreadNotifs}
                     </motion.span>
                   )}
-                </PopoverTrigger>
+                </button>
+              </PopoverTrigger>
               <PopoverContent align="end" className="w-80 p-0">
                 <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
                   <span className="text-sm font-semibold">Notifications</span>
@@ -5829,33 +5851,14 @@ export default function DashboardPage() {
 
       {/* ======================== FILTER / STATUS BAR ======================== */}
       <div className="border-b bg-muted/30 dark:bg-zinc-900/90 dark:border-b dark:border-zinc-700/50 backdrop-blur-lg bg-white/60 dark:bg-zinc-900/80">
-        <div className="max-w-7xl mx-auto px-4 py-2 space-y-2">
-          {/* Row 1: Stats + Updated timestamp */}
-          <div className="flex items-center gap-2 text-xs dark:text-gray-300">
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-zinc-300 dark:border-zinc-600 shadow-sm cursor-default hover:scale-105 transition-transform duration-150 hover:bg-muted/80 dark:hover:bg-white/10">
-              <Folder className="h-3 w-3 text-emerald-600" />
+        <div className="max-w-7xl mx-auto px-4 py-2">
+          {/* Filters + Batch select */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Updated timestamp */}
+            <span className="text-[9px] text-muted-foreground dark:text-zinc-500 tabular-nums hidden sm:inline-flex items-center gap-1 shrink-0">
               {loading && <Loader2 className="h-3 w-3 animate-spin text-emerald-500" />}
-              <AnimatedCounter target={stats.total} /> projects
-            </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-zinc-300 dark:border-zinc-600 shadow-sm cursor-default hover:scale-105 transition-transform duration-150 hover:bg-muted/80 dark:hover:bg-white/10">
-              <Play className="h-3 w-3 text-emerald-500" />
-              <AnimatedCounter target={stats.running} /> running
-            </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-zinc-300 dark:border-zinc-600 shadow-sm cursor-default hover:scale-105 transition-transform duration-150 hover:bg-muted/80 dark:hover:bg-white/10 hidden sm:inline-flex">
-              <Square className="h-3 w-3 text-red-400" />
-              <AnimatedCounter target={stats.stopped} /> stopped
-            </span>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted/60 dark:bg-white/5 border border-zinc-300 dark:border-zinc-600 shadow-sm cursor-default hover:scale-105 transition-transform duration-150 hover:bg-muted/80 dark:hover:bg-white/10 hidden md:inline-flex">
-              <Layers className="h-3 w-3 text-teal-500" />
-              <AnimatedCounter target={stats.environments} /> envs
-            </span>
-            <span className="text-[9px] text-muted-foreground dark:text-zinc-500 tabular-nums ml-auto hidden sm:inline">
               Updated {formatTimeAgo(lastRefreshed)}
             </span>
-          </div>
-
-          {/* Row 2: Filters + Batch select (right-aligned) */}
-          <div className="flex items-center gap-2 flex-wrap">
             {/* Filter controls — wrap naturally, no horizontal scroll */}
             <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
               <DropdownMenu>
@@ -5968,19 +5971,18 @@ export default function DashboardPage() {
               )}
             </div>
 
+            {/* Active filter count badge */}
+            {(() => {
+              const count = (filterStatus !== 'all' ? 1 : 0) + filterTags.length + (sortBy !== 'newest' ? 1 : 0) + (groupBy !== 'none' ? 1 : 0)
+              return count > 0 ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-bold">{count} active</span> : null
+            })()}
             {/* Batch mode toggle — always right-aligned */}
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={batchMode}
-              onClick={() => { setBatchMode(!batchMode); if (batchMode) setSelectedIds(new Set()) }}
-              title="Batch select"
-              className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-xs font-medium gap-1.5 shrink-0 h-7 px-2.5 transition-colors cursor-pointer border ${
-                batchMode
-                  ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80 border-secondary'
-                  : 'border-input bg-background hover:bg-accent hover:text-accent-foreground'
-              }`}
-            >
+            <label className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-xs font-medium gap-1.5 shrink-0 h-7 px-2.5 transition-colors cursor-pointer border ${
+              batchMode
+                ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80 border-secondary'
+                : 'border-input bg-background hover:bg-accent hover:text-accent-foreground'
+            }`}>
+              <input type="checkbox" className="sr-only" checked={batchMode} onChange={() => { setBatchMode(!batchMode); if (batchMode) setSelectedIds(new Set()) }} />
               <span className={`flex h-3 w-3 shrink-0 items-center justify-center rounded-[4px] border ${
                 batchMode
                   ? 'bg-primary border-primary text-primary-foreground'
@@ -5992,8 +5994,8 @@ export default function DashboardPage() {
                   </svg>
                 )}
               </span>
-              {batchMode ? 'Cancel' : 'Batch'}
-            </button>
+              <span className="text-[10px] text-muted-foreground">{batchMode ? 'Cancel' : 'Batch'}</span>
+            </label>
           </div>
           {/* Active Filter Chips (Session 13) */}
           {(filterStatus !== 'all' || filterTags.length > 0 || searchQuery) && (
@@ -6309,7 +6311,7 @@ export default function DashboardPage() {
                     key={period}
                     type="button"
                     onClick={() => setAnalyticsPeriod(period)}
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${analyticsPeriod === period ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300 ring-1 ring-rose-200/60 dark:ring-rose-700/40' : 'bg-muted/50 text-muted-foreground hover:bg-muted dark:bg-white/5'}`}
+                    className={`px-2 py-0.5 rounded-md text-[10px] transition-colors ${analyticsPeriod === period ? 'font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 ring-1 ring-emerald-300/50 dark:ring-emerald-700/50' : 'font-medium bg-muted/40 text-muted-foreground hover:bg-muted/60'}`}
                   >
                     {period}
                   </button>
@@ -6364,7 +6366,7 @@ export default function DashboardPage() {
           </motion.div>
           )
         ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <SortableContext items={filteredProjects.map((p) => p.id)} strategy={viewMode === 'list' ? verticalListSortingStrategy : rectSortingStrategy}>
               {/* ======================== WELCOME WIDGET (Session 11) ======================== */}
               {filteredProjects.length > 0 && !welcomeDismissed && projects.length > 0 && (
@@ -6896,7 +6898,7 @@ export default function DashboardPage() {
       </main>
 
       {/* ======================== FOOTER ======================== */}
-      <EnhancedFooter projects={projects} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} onOpenSystemMonitor={() => setSystemMonitorOpen(true)} onRefresh={() => fetchProjects()} onAddProject={() => { setEditingProject(null); setProjectFormMode('add'); setProjectFormOpen(true) }} />
+      <EnhancedFooter projects={projects} filteredCount={filteredProjects.length} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} onOpenSystemMonitor={() => setSystemMonitorOpen(true)} onRefresh={() => fetchProjects()} onAddProject={() => { setEditingProject(null); setProjectFormMode('add'); setProjectFormOpen(true) }} />
 
       {/* ======================== GLOBAL STATUS PANEL ======================== */}
       {!loading && projects.length > 0 && <GlobalStatusPanel projects={projects} />}

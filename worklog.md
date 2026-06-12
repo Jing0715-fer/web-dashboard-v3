@@ -1,5 +1,147 @@
 # Web Dashboard Multi-Device Interconnection - Worklog
 
+## Session 18: Critical Bug Fixes + 7 Polish Items (2026-06-15)
+
+### Project Current Status
+- Dashboard fully functional with 9 projects (6 local + 3 remote)
+- **4 critical bugs fixed** (hydration mismatch, redundant stat pills, notification badge, drag-drop)
+- **7 UI polish items** completed
+- 0 lint errors, 0 warnings, 0 hydration errors
+- Dev server running stable (200 OK)
+- File size: 7553 lines (page.tsx)
+- VLM QA rating: 8/10
+
+### Critical Bug Fixes
+
+#### Bug 1: Hydration Mismatch (Clock Component) ✅
+- **Issue**: `DashboardClockWidget` and footer `currentTime.toLocaleTimeString()` rendered different time formats on server vs client (server: "03:31 PM", client: "23:31") due to locale differences
+- **Root Cause**: Time formatting ran during SSR, producing different output than client-side rendering
+- **Fix**:
+  1. Changed `DashboardClockWidget` state from `useState('')` to `useState<string | null>(null)` — renders `--:--:--` placeholder on SSR
+  2. Changed footer `currentTime` from `useState(new Date())` to `useState<string | null>(null)` — renders `--:--` placeholder on SSR
+  3. Both now format time only in `useEffect` (client-only), avoiding hydration mismatch
+
+#### Bug 2: Redundant Stat Pills in Filter Bar ✅
+- **Issue**: Filter bar had a row of stat pills ("9 projects", "0 running", "6 stopped", "15 envs") above the filter buttons, which duplicated information already shown in the analytics section below
+- **Fix**: Removed the entire Row 1 stat pills section, keeping only the filter buttons and updated timestamp. The filter bar is now more compact and less cluttered.
+
+#### Bug 3: Notification Badge Position ✅
+- **Issue**: The red notification count badge appeared at the top-right corner of the entire page instead of on the bell icon
+- **Root Cause**: `PopoverTrigger` used `render={<button />}` prop, which doesn't properly scope `absolute` positioning of child elements. The badge's `absolute -top-1 -right-1` was relative to the nearest positioned ancestor (the page), not the button.
+- **Fix**: Changed from `render={<button />}` to `asChild` pattern with proper child button element. The button now has `relative` positioning, so the badge's `absolute` positioning is correctly scoped to the button.
+
+#### Bug 4: Card Drag-and-Drop ✅
+- **Issue**: Drag-and-drop for reordering cards still didn't work
+- **Root Cause**: The custom `DragHandleSensor` used `class PointerSensor {}` syntax which doesn't properly inherit from dnd-kit's `PointerSensor` class
+- **Fix**:
+  1. Rewrote `DragHandleSensor` using a factory function `createDragHandleSensor()` that properly extends `PointerSensor`
+  2. Added `DragStartEvent` handler for visual feedback during drag
+  3. Added `activeDragId` state tracking
+  4. Reduced `activationConstraint` distance from 8 to 5 for easier drag initiation
+  5. Note: Drag-and-drop requires real user pointer interaction (cannot be fully verified via agent-browser)
+
+### UI Polish (7 items)
+
+1. **Analytics Time Filter Active State**: Active button now uses bold emerald green with ring, providing clear visual distinction from analytics section header
+2. **Batch Checkbox Label**: Changed to `<label>` wrapper with visible text ("Batch"/"Cancel") for better accessibility
+3. **Drag Handle Hover Enhancement**: Added `group-hover:animate-pulse group-hover:shadow-sm` for visual hint when card is hovered
+4. **Health Score Critical Red Glow**: Added `ring-2 ring-red-400/50` when health < 50 for urgent visual indicator
+5. **Active Filter Count Badge**: Shows amber "N active" badge when any non-default filter is active
+6. **Environment Action Button Styling**: Stop buttons now red-themed, Start buttons now green-themed with hover effects
+7. **Footer Project Stats**: Shows "Showing X/Y" when filters reduce visible project count
+
+### QA Verification
+- ✅ 0 lint errors, 0 warnings
+- ✅ 0 hydration errors
+- ✅ 0 browser console errors
+- ✅ Stat pills removed from filter bar (no redundancy)
+- ✅ Notification badge on bell icon (not page corner)
+- ✅ Filter buttons properly styled
+- ✅ Active filter count badge visible
+- ✅ VLM rating: 8/10
+
+### Known Issues / Risks
+1. **Drag-and-drop requires real user testing**: agent-browser cannot fully simulate dnd-kit pointer events. The code structure is correct (proper DragHandleSensor, SortableContext, rectSortingStrategy).
+2. **File size at 7553 lines**: Component refactoring still recommended.
+3. **Timeline data is still simulated**: Not connected to real status change events.
+
+### Recommended Next Steps
+1. **Manual drag-and-drop testing**: User should verify drag works with real mouse interaction
+2. **Component refactoring**: Split the 7553-line page.tsx into smaller components
+3. **WebSocket real-time updates**: Replace polling with WebSocket for live status
+4. **Real timeline events**: Connect status timeline to actual API events
+5. **User authentication**: Add login/auth with NextAuth.js
+6. **Data export**: Export project data as CSV/JSON
+
+---
+
+## Session 18 (Sub-task): 7 UI Polish Items from VLM QA
+
+### Task ID: 6 (Features + Polish)
+
+### Summary
+Applied 7 targeted UI polish items identified by VLM QA review. All changes go in `/home/z/my-project/src/app/page.tsx`. Zero lint errors, dev server stable.
+
+### Changes Made
+
+#### 1. Analytics Time Filter Active State (Line ~6312)
+- **Before**: Active time filter button used `bg-rose-100 text-rose-700` — not distinct enough from analytics section header (also rose-themed)
+- **After**: Active button now uses `font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 ring-1 ring-emerald-300/50 dark:ring-emerald-700/50`
+- Non-selected buttons use `font-medium bg-muted/40 text-muted-foreground hover:bg-muted/60`
+- Green emerald active state provides strong visual contrast against the rose analytics header
+
+#### 2. Batch Checkbox Label Improvement (Lines ~5971-5995)
+- **Before**: Bare `<button>` with role="checkbox" and no visible label text
+- **After**: Changed to `<label>` wrapper with `<input type="checkbox" className="sr-only">` for accessibility
+- Added `<span className="text-[10px] text-muted-foreground">` label next to the checkbox visual indicator
+- Shows "Batch" when inactive, "Cancel" when active — same text but now properly labeled
+
+#### 3. Card Drag Handle Hover Enhancement (Lines ~862, ~1040)
+- **Before**: Drag handles had only basic hover style (dashed border on grid, muted bg on list)
+- **After**: Added `group-hover:animate-pulse group-hover:shadow-sm` to both list and grid drag handles
+- List handle: `cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-muted/60 transition-colors group-hover:animate-pulse group-hover:shadow-sm`
+- Grid handle: Same base + `group-hover:animate-pulse group-hover:shadow-sm`
+- Provides subtle visual hint that handle is interactive when card is hovered
+
+#### 4. Health Score Critical State Red Glow (Lines ~940, ~1080)
+- **Before**: `health < 50` only applied `animate-pulse`
+- **After**: `health < 50 ? 'animate-pulse ring-2 ring-red-400/50' : ''`
+- Added red ring glow to health score container in both list and grid views
+- The `ring-2 ring-red-400/50` creates a visible red glow around the health score circle
+
+#### 5. Active Filter Count Badge (Lines ~5971-5975)
+- Added IIFE before Batch toggle that computes active filter count:
+  ```tsx
+  {(() => {
+    const count = (filterStatus !== 'all' ? 1 : 0) + filterTags.length + (sortBy !== 'newest' ? 1 : 0) + (groupBy !== 'none' ? 1 : 0)
+    return count > 0 ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-bold">{count} active</span> : null
+  })()}
+  ```
+- Shows amber badge with count when any non-default filter is active
+
+#### 6. Environment Action Button Color Styling (Lines ~929-931, ~1140-1142, ~1180-1183)
+- **Before**: Stop buttons used `bg-red-50 text-red-500 ring-1 ring-red-200`; Start buttons used `bg-emerald-50 text-emerald-500 ring-1 ring-emerald-200`
+- **After**:
+  - Stop (running env): `text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20`
+  - Start (stopped env): `text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20`
+- Removed `ring-1` border ring for cleaner look; darker text colors for better prominence
+- Applied to all 3 sets of env action buttons (list view, grid view, grid expanded view)
+
+#### 7. Footer Compact Project Stats (Lines ~3780, ~3847-3850, ~6898)
+- Added `filteredCount` prop to `EnhancedFooter` component
+- Shows "Showing X/Y" amber text when filtered count differs from total project count
+- `filteredCount` passed from main component via `filteredProjects.length`
+
+### Files Modified
+- `/home/z/my-project/src/app/page.tsx` — All 7 polish items
+
+### Verification
+- ✅ `bun run lint` — 0 errors, 0 warnings
+- ✅ Dev server running stable (200 OK responses)
+- ✅ No DragHandleSensor or dnd-kit changes
+- ✅ No filter button styling changes
+- ✅ No notification badge changes
+
 ## Session 17: Critical UI Bug Fixes + 7 New Features + Extensive Polish (2026-06-15)
 
 ### Project Current Status
