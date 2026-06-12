@@ -14,7 +14,7 @@ import {
   Bot, ArrowUpDown, ArrowRightLeft,
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap,
   Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate,
-  TrendingUp, TrendingDown
+  TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags
 } from 'lucide-react'
 
 import {
@@ -647,6 +647,7 @@ function SortableProjectCard({
           <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`shrink-0 cursor-pointer transition-colors hover:scale-110 active:scale-90 transition-transform duration-150 ${starred ? 'text-amber-400' : 'text-muted-foreground hover:text-amber-400'}`}>
             <Star className={`h-4 w-4 ${starred ? 'fill-amber-400' : ''}`} />
           </button>
+          {starred && <span className="text-[8px] px-1 py-0 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold tracking-wide shrink-0">PINNED</span>}
           <IconComp className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -763,6 +764,7 @@ function SortableProjectCard({
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</ContextMenuItem>
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</ContextMenuItem>
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />Unpin</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />Pin to Top</>}</ContextMenuItem>
             {(project.environments || []).every((e) => e.status !== 'running') && (
               <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />Start All Environments</ContextMenuItem>
             )}
@@ -786,8 +788,15 @@ function SortableProjectCard({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ delay: index * 0.05 }}
-        whileHover={{ y: -1, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}
+        whileHover={{ y: -1 }}
         className={`group relative flex flex-col rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer`}
+        onMouseEnter={(e) => {
+          const tagColors: Record<string, string> = { Frontend: 'rgba(16,185,129,0.25)', Backend: 'rgba(20,184,166,0.25)', Fullstack: 'rgba(6,182,212,0.25)', DevOps: 'rgba(245,158,11,0.25)', Mobile: 'rgba(244,63,94,0.25)', API: 'rgba(139,92,246,0.25)', Database: 'rgba(249,115,22,0.25)', 'ML/AI': 'rgba(236,72,153,0.25)', Automation: 'rgba(100,116,139,0.25)' }
+          const primaryTag = tags[0]
+          const glowColor = primaryTag ? (tagColors[primaryTag] || 'rgba(16,185,129,0.2)') : 'rgba(16,185,129,0.2)'
+          ;(e.currentTarget as HTMLElement).style.boxShadow = `0 8px 24px ${glowColor}`
+        }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = '' }}
       >
 
         <div className="absolute top-5 left-2 z-10 flex gap-1 items-start" onClick={(e) => e.stopPropagation()}>
@@ -831,6 +840,7 @@ function SortableProjectCard({
               <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`cursor-pointer transition-all duration-200 hover:scale-110 active:scale-90 ml-0.5 ${starred ? 'text-amber-400' : 'text-muted-foreground hover:text-amber-400'}`}>
                 <Star className={`h-3 w-3 ${starred ? 'fill-amber-400' : ''}`} />
               </button>
+              {starred && <span className="text-[7px] px-1 py-0 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-bold tracking-wider shrink-0">PIN</span>}
             </div>
           </div>
         </CardHeader>
@@ -984,6 +994,7 @@ function SortableProjectCard({
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</ContextMenuItem>
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</ContextMenuItem>
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />Unpin</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />Pin to Top</>}</ContextMenuItem>
           {(project.environments || []).every((e) => e.status !== 'running') && (
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />Start All Environments</ContextMenuItem>
           )}
@@ -2213,7 +2224,7 @@ function DetailSheet({
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-xl overflow-hidden p-0 flex flex-col dark:bg-zinc-900/98 dark:border-l dark:border-zinc-800/60">
-        <SheetHeader className="px-4 pt-4 pb-2 border-b shrink-0">
+        <SheetHeader className="px-4 pt-4 pb-2 border-b shrink-0 bg-gradient-to-r from-emerald-50/50 via-teal-50/30 to-transparent dark:from-emerald-950/30 dark:via-teal-950/20 dark:to-transparent">
           <div className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
               <IconComp className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
@@ -2647,6 +2658,31 @@ function DetailSheet({
               transition={{ duration: 0.2, ease: 'easeOut' }}
               className="space-y-3"
             >
+            {/* ======================== ENVIRONMENT QUICK ACTIONS BAR (Session 11) ======================== */}
+            {envs.length > 0 && (
+              <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-3 px-4 pt-3 pb-2 bg-background/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-border/30 dark:border-zinc-700/30">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {envs.filter((e) => e.status !== 'running').length > 0 && (
+                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { envs.filter((e) => e.status !== 'running').forEach((e) => onEnvAction(project.id, e.id, 'start')) }}>
+                      <Play className="h-3 w-3 mr-1 text-emerald-500" />Start All Stopped ({envs.filter((e) => e.status !== 'running').length})
+                    </Button>
+                  )}
+                  {envs.filter((e) => e.status === 'running').length > 0 && (
+                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { envs.filter((e) => e.status === 'running').forEach((e) => onEnvAction(project.id, e.id, 'stop')) }}>
+                      <Square className="h-3 w-3 mr-1 text-red-500" />Stop All Running ({envs.filter((e) => e.status === 'running').length})
+                    </Button>
+                  )}
+                  {envs.some((e) => e.status === 'running') && (
+                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { envs.forEach((e) => { if (e.status === 'running') onEnvAction(project.id, e.id, 'restart') }) }}>
+                      <RotateCw className="h-3 w-3 mr-1 text-amber-500" />Restart All ({envs.filter((e) => e.status === 'running').length})
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { const ports = envs.map((e) => `:${e.port}`).join(', '); navigator.clipboard.writeText(ports); toast({ title: 'Ports copied', description: ports, variant: 'success' }) }}>
+                    <Copy className="h-3 w-3 mr-1 text-teal-500" />Copy All Ports
+                  </Button>
+                </div>
+              </div>
+            )}
             {envs.map((env) => {
               const envVars = parseEnvVars(env.envVars)
               const isExpanded = expandedEnv === env.id
@@ -3059,7 +3095,7 @@ function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor,
       initial={{ y: 20 }}
       animate={{ y: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-gradient-to-r from-background/95 via-background/98 to-background/95 backdrop-blur-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] dark:from-zinc-900/98 dark:via-zinc-900/95 dark:to-zinc-900/98 dark:border-t dark:border-zinc-800/60"
+      className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-gradient-to-r from-background/95 via-background/98 to-background/95 backdrop-blur-2xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] dark:from-zinc-900/98 dark:via-zinc-900/95 dark:to-zinc-900/98 dark:border-t dark:border-zinc-800/60"
     >
       <div className="px-4 py-2.5 flex items-center justify-between text-xs text-foreground/80 dark:text-zinc-300">
         <div className="flex items-center gap-5">
@@ -3577,6 +3613,16 @@ export default function DashboardPage() {
   const [addDeviceFormOpen, setAddDeviceFormOpen] = React.useState(false)
   const [editingDevice, setEditingDevice] = React.useState<Device | null>(null)
   const [moveProjectDialog, setMoveProjectDialog] = React.useState<Project | null>(null)
+  // Session 11 states
+  const [welcomeDismissed, setWelcomeDismissed] = React.useState<boolean>(() => {
+    try { return localStorage.getItem('dashboard-welcome-dismissed') === 'true' } catch { return false }
+  })
+  const [depGraphOpen, setDepGraphOpen] = React.useState(false)
+  const [batchTagEditorOpen, setBatchTagEditorOpen] = React.useState(false)
+  const [batchTagMode, setBatchTagMode] = React.useState<'add' | 'replace'>('add')
+  const [batchTagDraft, setBatchTagDraft] = React.useState<string[]>([])
+  const [batchTagApplying, setBatchTagApplying] = React.useState(false)
+  const [scrollTopVisible, setScrollTopVisible] = React.useState(false)
 
   const toggleStar = React.useCallback((id: string) => {
     setStarredIds((prev) => {
@@ -4566,6 +4612,68 @@ export default function DashboardPage() {
     }
   }, [])
 
+  // Session 11: Welcome widget dismiss handler
+  const dismissWelcome = React.useCallback(() => {
+    setWelcomeDismissed(true)
+    try { localStorage.setItem('dashboard-welcome-dismissed', 'true') } catch { /* ignore */ }
+  }, [])
+
+  // Session 11: Batch tag editor handler
+  const handleBatchTagApply = React.useCallback(async () => {
+    if (batchTagDraft.length === 0 && batchTagMode === 'replace') return
+    setBatchTagApplying(true)
+    let successCount = 0
+    const ids = Array.from(selectedIds)
+    for (const projectId of ids) {
+      try {
+        const project = projects.find((p) => p.id === projectId)
+        if (!project) continue
+        let newTags: string[]
+        if (batchTagMode === 'replace') {
+          newTags = batchTagDraft
+        } else {
+          const existingTags = parseTags(project.tags)
+          newTags = [...new Set([...existingTags, ...batchTagDraft])]
+        }
+        const res = await fetch(`/api/projects/${projectId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tags: JSON.stringify(newTags) }),
+        })
+        if (res.ok) successCount++
+      } catch { /* skip */ }
+    }
+    toast({ title: `Tags updated for ${successCount} project${successCount !== 1 ? 's' : ''}`, variant: 'success' })
+    setBatchTagEditorOpen(false)
+    setBatchTagDraft([])
+    setBatchTagApplying(false)
+    fetchProjects()
+  }, [batchTagDraft, batchTagMode, selectedIds, projects, toast, fetchProjects])
+
+  // Session 11: Open batch tag editor
+  const openBatchTagEditor = React.useCallback(() => {
+    setBatchTagDraft([])
+    setBatchTagMode('add')
+    setBatchTagEditorOpen(true)
+  }, [])
+
+  // Session 11: Scroll-to-top FAB visibility
+  React.useEffect(() => {
+    const handleScroll = () => {
+      setScrollTopVisible(window.scrollY > 400)
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // Session 11: Greeting based on time of day
+  const greeting = React.useMemo(() => {
+    const hour = new Date().getHours()
+    if (hour < 12) return 'Good morning'
+    if (hour < 17) return 'Good afternoon'
+    return 'Good evening'
+  }, [])
+
   // Active filters for breadcrumb bar
   const activeFilters = React.useMemo(() => {
     const filters: Array<{ label: string; onRemove: () => void }> = []
@@ -4681,7 +4789,7 @@ export default function DashboardPage() {
             {/* Notifications */}
             <Popover>
               <PopoverTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-8 w-8 hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground cursor-pointer relative transition-all duration-150 active:scale-95" />}>
-                  <Bell className="h-4 w-4" />
+                  <Bell className={`h-4 w-4 ${unreadNotifs > 0 ? 'bell-shake' : ''}`} />
                   {unreadNotifs > 0 && (
                     <motion.span
                       key={unreadNotifs}
@@ -4793,6 +4901,9 @@ export default function DashboardPage() {
                 <DropdownMenuItem onClick={() => setLlmOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
                   <Bot className="h-3.5 w-3.5 mr-2.5" />LLM Configuration
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDepGraphOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
+                  <GitFork className="h-3.5 w-3.5 mr-2.5" />Dependency Map
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSyncFromConfig} className="px-2.5 py-2 text-sm rounded-md">
                   <RefreshCw className="h-3.5 w-3.5 mr-2.5" />Sync from config
@@ -4823,7 +4934,7 @@ export default function DashboardPage() {
       </header>
 
       {/* ======================== FILTER / STATUS BAR ======================== */}
-      <div className="border-b bg-muted/30 dark:bg-zinc-900/80 dark:border-b dark:border-zinc-800/50">
+      <div className="border-b bg-muted/30 dark:bg-zinc-900/80 dark:border-b dark:border-zinc-800/50 backdrop-blur-lg bg-white/60 dark:bg-zinc-900/70">
         <div className="max-w-7xl mx-auto px-4 py-2 space-y-2">
           {/* Row 1: Stats + Updated timestamp */}
           <div className="flex items-center gap-2 text-xs dark:text-gray-300">
@@ -5002,6 +5113,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-1.5">
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('start')}><Play className="h-3 w-3 mr-1 text-emerald-500" />Start All</Button>
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1 text-red-500" />Stop All</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openBatchTagEditor}><Tags className="h-3 w-3 mr-1 text-amber-500" />Edit Tags</Button>
                 <AlertDialog>
                   <AlertDialogTrigger render={<Button size="sm" variant="outline" className="h-7 text-xs text-destructive" />}>
                     <Trash2 className="h-3 w-3 mr-1" />Delete All
@@ -5046,6 +5158,60 @@ export default function DashboardPage() {
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={filteredProjects.map((p) => p.id)} strategy={viewMode === 'list' ? verticalListSortingStrategy : verticalListSortingStrategy}>
+              {/* ======================== WELCOME WIDGET (Session 11) ======================== */}
+              {filteredProjects.length > 0 && !welcomeDismissed && projects.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, ease: 'easeOut' }}
+                  className="mb-5 relative overflow-hidden rounded-xl welcome-gradient-animate bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 dark:from-emerald-950/40 dark:via-teal-950/30 dark:to-cyan-950/40 ring-1 ring-emerald-200/50 dark:ring-emerald-800/30 shadow-sm"
+                >
+                  <div className="relative z-10 p-4 flex items-start gap-3">
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
+                      className="p-2 rounded-lg bg-white/60 dark:bg-white/10 shadow-sm ring-1 ring-emerald-200/40 dark:ring-emerald-700/30 shrink-0"
+                    >
+                      <Zap className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                    </motion.div>
+                    <div className="flex-1 min-w-0">
+                      <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 }}>
+                        <h3 className="text-sm font-bold text-emerald-900 dark:text-emerald-200">{greeting} 👋</h3>
+                      </motion.div>
+                      <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 }}>
+                        <p className="text-xs text-emerald-700/80 dark:text-emerald-300/70 mt-0.5">
+                          {stats.running === stats.total && stats.total > 0
+                            ? `🎉 All ${stats.total} projects running, ${stats.environments} environments active!`
+                            : `${stats.running} of ${stats.total} projects running, ${stats.environments} environments active`
+                          }
+                        </p>
+                      </motion.div>
+                      {stats.stopped > 0 && (
+                        <motion.p initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.35 }} className="text-[10px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          {stats.stopped} project{stats.stopped !== 1 ? 's' : ''} need attention
+                        </motion.p>
+                      )}
+                      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="text-[10px] text-emerald-600/60 dark:text-emerald-400/50 mt-1">
+                        Last refreshed: {formatTimeAgo(lastRefreshed)}
+                      </motion.p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={dismissWelcome}
+                      className="p-1 rounded-md hover:bg-emerald-100/60 dark:hover:bg-emerald-900/30 text-emerald-600/60 dark:text-emerald-400/50 hover:text-emerald-800 dark:hover:text-emerald-200 transition-colors shrink-0"
+                      title="Dismiss"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {/* Decorative background circles */}
+                  <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-emerald-200/20 dark:bg-emerald-800/10" />
+                  <div className="absolute -bottom-4 -left-4 w-16 h-16 rounded-full bg-teal-200/20 dark:bg-teal-800/10" />
+                </motion.div>
+              )}
+
               {/* Dashboard Overview Stats Cards */}
               {filteredProjects.length > 0 && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5 relative">
@@ -5061,7 +5227,7 @@ export default function DashboardPage() {
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: i * 0.1, duration: 0.4, ease: 'easeOut' }}
                       whileHover={{ scale: 1.02, y: -2 }}
-                      className={`relative p-4 rounded-xl bg-gradient-to-br ${card.gradient} ring-1 ${card.ring} shadow-sm transition-shadow cursor-default overflow-hidden`}
+                      className={`relative p-4 rounded-xl bg-gradient-to-br ${card.gradient} ring-1 ${card.ring} shadow-sm transition-shadow cursor-default overflow-hidden backdrop-blur-md`}
                       style={{ '--glow-color': card.glowColor } as React.CSSProperties}
                       onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 20px ${card.glowColor}` }}
                       onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.boxShadow = '' }}
@@ -5158,6 +5324,18 @@ export default function DashboardPage() {
                   >
                     <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
                   </button>
+                </div>
+              )}
+              {/* ======================== PINNED PROJECTS SECTION (Session 11) ======================== */}
+              {starredIds.size > 0 && filteredProjects.some((p) => starredIds.has(p.id)) && groupBy === 'none' && (
+                <div className="mb-4">
+                  <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-gradient-to-r from-amber-50/60 via-amber-50/30 to-transparent dark:from-amber-900/20 dark:via-amber-900/10 dark:to-transparent border border-amber-200/50 dark:border-amber-800/30">
+                    <span className="text-amber-500 text-sm">★</span>
+                    <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">Pinned</span>
+                    <Badge variant="secondary" className="text-[10px] bg-amber-100/60 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                      {filteredProjects.filter((p) => starredIds.has(p.id)).length}
+                    </Badge>
+                  </div>
                 </div>
               )}
               {viewMode === 'grid' ? (
@@ -5660,6 +5838,176 @@ export default function DashboardPage() {
         device={editingDevice}
         mode={editingDevice ? 'edit' : 'add'}
       />
+
+      {/* ======================== SCROLL-TO-TOP FAB (Session 11) ======================== */}
+      <AnimatePresence>
+        {scrollTopVisible && (
+          <motion.button
+            type="button"
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="fixed bottom-16 right-4 z-40 h-10 w-10 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-all active:scale-90 flex items-center justify-center"
+            title="Scroll to top"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* ======================== DEPENDENCY GRAPH DIALOG (Session 11) ======================== */}
+      <Dialog open={depGraphOpen} onOpenChange={setDepGraphOpen}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitFork className="h-5 w-5 text-emerald-600" />
+              Project Dependency Map
+            </DialogTitle>
+            <DialogDescription>Projects connected by shared tags. Lines represent shared tag relationships.</DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 overflow-auto">
+            {projects.length < 2 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <GitFork className="h-12 w-12 text-muted-foreground/30 mb-3" />
+                <p className="text-sm text-muted-foreground">Need at least 2 projects to show dependencies</p>
+              </div>
+            ) : (() => {
+              // Build nodes and edges
+              const nodes = projects.map((p, i) => ({
+                id: p.id,
+                name: p.name,
+                icon: ICON_MAP[p.icon] || Folder,
+                status: getProjectStatus(p),
+                tags: parseTags(p.tags),
+                angle: (2 * Math.PI * i) / projects.length - Math.PI / 2,
+              }))
+              const edges: Array<{ from: number; to: number; tag: string }> = []
+              for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                  const shared = nodes[i].tags.filter((t) => nodes[j].tags.includes(t))
+                  shared.forEach((tag) => edges.push({ from: i, to: j, tag }))
+                }
+              }
+              const cx = 250, cy = 200, r = 150
+              const statusColor = (s: string) => s === 'running' ? '#10b981' : s === 'mixed' ? '#f59e0b' : '#ef4444'
+              return (
+                <div className="space-y-3">
+                  <svg viewBox="0 0 500 400" className="w-full h-auto" style={{ maxHeight: 400 }}>
+                    {/* Edges */}
+                    {edges.map((edge, ei) => {
+                      const from = nodes[edge.from]
+                      const to = nodes[edge.to]
+                      const x1 = cx + r * Math.cos(from.angle)
+                      const y1 = cy + r * Math.sin(from.angle)
+                      const x2 = cx + r * Math.cos(to.angle)
+                      const y2 = cy + r * Math.sin(to.angle)
+                      const mx = (x1 + x2) / 2
+                      const my = (y1 + y2) / 2
+                      return (
+                        <g key={ei}>
+                          <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" className="text-muted-foreground/30" strokeWidth={1.5} strokeDasharray="4 4" />
+                          <text x={mx} y={my - 4} textAnchor="middle" className="fill-muted-foreground text-[9px]">{edge.tag}</text>
+                        </g>
+                      )
+                    })}
+                    {/* Nodes */}
+                    {nodes.map((node, ni) => {
+                      const x = cx + r * Math.cos(node.angle)
+                      const y = cy + r * Math.sin(node.angle)
+                      return (
+                        <g key={ni}>
+                          <circle cx={x} cy={y} r={22} fill={statusColor(node.status)} fillOpacity={0.15} stroke={statusColor(node.status)} strokeWidth={2} />
+                          <text x={x} y={y + 1} textAnchor="middle" dominantBaseline="central" className="fill-foreground text-[9px] font-semibold" style={{ pointerEvents: 'none' }}>
+                            {node.name.length > 8 ? node.name.slice(0, 7) + '…' : node.name}
+                          </text>
+                        </g>
+                      )
+                    })}
+                  </svg>
+                  {/* Legend */}
+                  <div className="flex items-center gap-4 justify-center text-[10px] text-muted-foreground pb-2">
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Running</span>
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Mixed</span>
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Stopped</span>
+                    <span className="flex items-center gap-1"><span className="h-4 border-t border-dashed border-muted-foreground/40 w-6" /> Shared Tag</span>
+                  </div>
+                  {edges.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center pb-2">No shared tags found between projects</p>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ======================== BATCH TAG EDITOR DIALOG (Session 11) ======================== */}
+      <Dialog open={batchTagEditorOpen} onOpenChange={setBatchTagEditorOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Tags className="h-5 w-5 text-amber-500" />
+              Batch Edit Tags
+            </DialogTitle>
+            <DialogDescription>Modify tags for {selectedIds.size} selected project{selectedIds.size !== 1 ? 's' : ''}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Selected projects */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2 block">Selected Projects</Label>
+              <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                {Array.from(selectedIds).map((id) => {
+                  const p = projects.find((proj) => proj.id === id)
+                  return p ? (
+                    <Badge key={id} variant="secondary" className="text-[10px]">{p.name}</Badge>
+                  ) : null
+                })}
+              </div>
+            </div>
+            {/* Mode toggle */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2 block">Mode</Label>
+              <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant={batchTagMode === 'add' ? 'default' : 'outline'} className={batchTagMode === 'add' ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : ''} onClick={() => setBatchTagMode('add')}>Add Tags</Button>
+                <Button type="button" size="sm" variant={batchTagMode === 'replace' ? 'default' : 'outline'} className={batchTagMode === 'replace' ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''} onClick={() => setBatchTagMode('replace')}>Replace Tags</Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {batchTagMode === 'add' ? 'Appends selected tags to existing tags' : 'Replaces all existing tags with selected tags'}
+              </p>
+            </div>
+            {/* Tag checkboxes */}
+            <div>
+              <Label className="text-xs text-muted-foreground mb-2 block">Tags</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {TAG_OPTIONS.map((tag) => {
+                  const checked = batchTagDraft.includes(tag.name)
+                  return (
+                    <label key={tag.name} className="flex items-center gap-2 cursor-pointer p-2 rounded-md border hover:bg-accent/50 transition-colors">
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(v) => {
+                          if (v) setBatchTagDraft((prev) => [...prev, tag.name])
+                          else setBatchTagDraft((prev) => prev.filter((t) => t !== tag.name))
+                        }}
+                      />
+                      <Badge variant="secondary" className={`text-[10px] ${tag.color}`}>{tag.name}</Badge>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchTagEditorOpen(false)} disabled={batchTagApplying}>Cancel</Button>
+            <Button onClick={handleBatchTagApply} disabled={batchTagApplying || (batchTagMode === 'replace' && batchTagDraft.length === 0)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              {batchTagApplying && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+              Apply Tags
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Toast container */}
       <ToastContainer />

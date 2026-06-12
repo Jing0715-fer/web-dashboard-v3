@@ -293,3 +293,41 @@
 .notif-badge-pulse {
   animation: notif-badge-pulse 1.5s ease-in-out infinite;
 }
+
+/* Bell shake animation for unread notifications */
+@keyframes bell-shake {
+  0%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(10deg); }
+  20% { transform: rotate(-8deg); }
+  30% { transform: rotate(6deg); }
+  40% { transform: rotate(-4deg); }
+  50% { transform: rotate(2deg); }
+  60% { transform: rotate(0deg); }
+}
+
+.bell-shake {
+  animation: bell-shake 2s ease-in-out infinite;
+  transform-origin: top center;
+}
+
+/* Welcome widget gradient animation */
+@keyframes welcome-gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.welcome-gradient-animate {
+  background-size: 200% 200%;
+  animation: welcome-gradient 6s ease infinite;
+}
+
+/* Scroll-to-top FAB */
+@keyframes fab-appear {
+  0% { transform: scale(0) translateY(20px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+.scroll-top-fab {
+  animation: fab-appear 0.3s ease-out forwards;
+}
