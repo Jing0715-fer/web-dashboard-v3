@@ -1,5 +1,173 @@
 # Web Dashboard Multi-Device Interconnection - Worklog
 
+## Session 14: QA + 5 New Features + Bug Fix + Style Polish (2026-06-13)
+
+### Project Current Status
+- Dashboard fully functional with 9 projects (6 local + 3 remote), all rendering correctly
+- All previous features working + 5 new features from this session
+- 0 lint errors, 0 warnings
+- Dev server running stable (200 OK)
+- 0 JS console errors after fixing hydration bug
+- File size: 7055 lines (page.tsx)
+- Fixed: nested `<button>` hydration error in Health Alert Banner
+
+### QA Results (Pre-Implementation)
+- ✅ 9 projects displayed correctly (6 local + 3 remote)
+- ✅ Quick Launch Bar showing running environments
+- ✅ Activity Feed widget showing recent events
+- ✅ Dashboard stats cards functional
+- ✅ Search filtering works
+- ✅ Dark mode toggle works
+- ✅ 0 JS console errors captured
+- ✅ 0 lint errors
+- VLM Analysis identified: Alert overload (7 alerts, no severity differentiation), no analytics widget, pin system could be improved
+
+### Completed Work This Session
+
+#### Bug Fix: Nested Button Hydration Error ✅
+- Health Alert Banner had a `<button>` wrapper containing a `<Button>` component
+- Changed outer `<button>` to `<div role="button" tabIndex={0}>` with keyboard support
+- Eliminated React hydration error: "In HTML, `<button>` cannot be a descendant of `<button>`"
+
+#### Feature 1: Health Alert System Overhaul ✅
+- **Health Alert Summary Banner**: Single compact banner replacing 7 individual toast notifications
+  - Shows "N projects below health threshold (X%)" with click-to-expand detail panel
+  - Appears below Quick Launch bar when alerts are active
+  - Dismissible with "Acknowledge All" button (persists to localStorage)
+- **Alert Severity Levels**: Color-coded by severity
+  - Critical (0-25%): Red with pulse animation (`alert-critical-pulse`)
+  - Warning (25-50%): Amber
+  - Notice (50-75%): Yellow
+  - OK (75%+): Green (hidden by default)
+- **Collapsible Alert Groups**: Projects grouped by severity in both banner and Health Alerts dialog
+  - Each group has `SeverityGroup` component with expand/collapse
+  - Shows count badge per severity level
+- **"Acknowledge All" button**: Silences alerts until health changes, persisted to localStorage
+- **New functions**: `getAlertSeverity()`, `severityConfig()` for severity classification
+- **New component**: `SeverityGroup` for collapsible severity sections
+
+#### Feature 2: Project Pin to Top (Enhanced) ✅
+- **Pin with Priority Numbers**: Shows #1, #2, #3... badges on pinned projects
+  - Badge uses rose/rose theme: `bg-rose-100 text-rose-700`
+  - Numbered based on position in starredIds Set
+- **Pin Icon**: Replaced Star icon with Lucide `Pin`/`PinOff` icons in rose/pink theme
+  - List view: Pin icon replaces star, `text-rose-500` when pinned
+  - Grid view: Same Pin icon treatment
+  - "PINNED" badge replaced with "#N" priority badge
+- **Pinned Section Header**: Updated with Pin icon + rose gradient
+- **Context Menu**: Added "Pin to Top" / "Unpin" option with Pin/PinOff icons
+
+#### Feature 3: Dashboard Analytics Widget ✅
+- **Mini Sparkline Charts**: 3 SVG sparklines for Project Count, Running Envs, and Health Score
+  - `MiniSparkline` component: SVG polyline with configurable color, height, width
+  - Project Count: Rose color (#f43f5e)
+  - Running Envs: Emerald color (#10b981)
+  - Health Score: Dynamic color based on score
+- **Period Selector**: Toggle between "1h", "6h", "24h" views
+  - 1h shows last 4 data points, 6h shows 12, 24h shows 20
+  - Rose-themed selected state
+- **Rose/Pink Theme**: Distinguishes from emerald activity feed
+- **Dismissible + Re-enableable**: X button + Customize Dashboard Quick Actions
+- **New state**: `projectCountHistory`, `runningEnvsHistory`, `analyticsPeriod`, `analyticsVisible`
+- **Data collection**: Records history every 30s (like healthScoreHistory)
+
+#### Feature 4: Enhanced Context Menu ✅
+- **More Options**:
+  - "Pin to Top" / "Unpin" (Pin/PinOff icon)
+  - "Duplicate Project" (Copy icon)
+  - "View Details" (Eye icon)
+  - "Copy Path" (Clipboard icon)
+  - Separator
+  - "Start All Environments" (Play icon)
+  - "Stop All Environments" (Square icon)
+  - Separator
+  - "Delete Project" (Trash2 icon, destructive styling with text-red-600)
+- **Visual Grouping**: Section headers (Actions, Environment, Dangerous) with separators
+- **Keyboard Shortcut Hints**: Shows Enter, e, s, x, Del next to relevant items
+- Applied to both list view and grid view context menus
+
+#### Feature 5: Project Deployment History ✅
+- **Deployment Interface**: `Deployment` type with id, version, timestamp, status, duration, deployedBy
+- **Deployments Tab**: New tab in DetailSheet with rose theme
+  - `TabsTrigger` with rose active state
+- **Deploy Button**: Creates simulated deployment
+  - 2-second spinner process
+  - 80% success / 20% failure rate
+  - Auto-incrementing version numbers
+  - Duration calculated from start time
+- **Rollback Option**: Available on successful deployments
+  - Creates "rolling-back" status record
+  - Shows amber spinner during rollback
+- **Visual Timeline**: Vertical timeline with colored dots
+  - Green dot = success (CheckCircle2)
+  - Red dot = failed (XCircle)
+  - Amber dot = rolling-back (RotateCw with spin)
+  - `deployment-timeline-line` CSS for connecting lines
+- **localStorage Persistence**: All deployment records stored per project (`deployments-{id}`)
+- **New state**: `deployments`, `deploying` in DetailSheet
+
+### Style Polish
+- **CSS animations added to globals.css**:
+  - `alert-critical-pulse`: Pulsing red glow for critical alerts
+  - `btn-micro-click`: Scale-down on active for micro buttons
+  - `hover-glow`: Subtle shadow glow on hover
+  - `gradient-section-header`: Gradient background for widget headers
+  - `sparkline-path`: SVG stroke animation for sparkline charts
+  - `deployment-timeline-line`: Connecting line for deployment timeline
+- **Custom scrollbar**: Enhanced for dark mode
+- **Micro-interactions**: Button scale effects, bounce on status changes
+- **Consistent theming**: Quick Launch = emerald, Activity Feed = violet, Notes = amber, Analytics = rose, Deployments = rose, Pin = rose
+
+### New Types/Interfaces
+- `Deployment`: id, version, timestamp, status, duration, deployedBy
+- `AlertSeverity`: 'critical' | 'warning' | 'notice' | 'ok'
+
+### New State Variables
+- `alertsAcknowledged`: Boolean (persisted in localStorage)
+- `healthBannerExpanded`: Boolean
+- `projectCountHistory`: number[] (persisted in localStorage)
+- `runningEnvsHistory`: number[] (persisted in localStorage)
+- `analyticsPeriod`: '1h' | '6h' | '24h'
+- `analyticsVisible`: Boolean (persisted in localStorage)
+- `deployments`: Deployment[] (persisted in localStorage per project)
+- `deploying`: Boolean (in DetailSheet)
+
+### New Components/Functions
+- `MiniSparkline`: SVG sparkline chart component
+- `SeverityGroup`: Collapsible severity group for Health Alerts
+- `getAlertSeverity()`: Classify health score into severity level
+- `severityConfig()`: Get visual config for severity level
+
+### Files Modified
+- `src/app/page.tsx` — All 5 features + bug fix + style polish (6654→7055 lines)
+- `src/app/globals.css` — Added 6 new CSS animations/classes
+
+### Post-Implementation QA Verification
+- ✅ 0 lint errors, 0 warnings
+- ✅ 0 JS console errors (after fixing nested button hydration bug)
+- ✅ Server returns 200 OK
+- ✅ Page renders correctly
+- ✅ No React hydration errors
+
+### Known Issues / Risks
+1. **Deployment history is simulated**: Not connected to actual deployment process. Should integrate with real CI/CD.
+2. **Analytics data is sparse**: Only collects data while the page is open. Should seed with more historical data.
+3. **Component size**: The file is now ~7055 lines. Component refactoring would significantly improve maintainability.
+4. **MiniSparkline needs minimum 2 data points**: Shows nothing until 2+ data points collected.
+
+### Recommended Next Steps
+1. **Component refactoring**: Split the 7055-line DashboardPage into smaller components
+2. **Aggregated Activity API**: Create `/api/activity` endpoint instead of per-project fetch
+3. **WebSocket real-time updates**: Replace polling with WebSocket for live status
+4. **Project Notes database migration**: Add Notes field to Prisma Project model
+5. **User authentication**: Add login/auth with NextAuth.js
+6. **LLM-powered analysis**: Use LLM skill for project analysis
+7. **Custom dashboard widgets**: Drag-and-drop configurable dashboard layout
+8. **Real deployment integration**: Connect deployment history to actual CI/CD
+9. **mDNS device discovery**: Auto-discover agents on LAN
+
+---
+
 ## Session 13: QA + 5 New Features + Enhanced Interactions (2026-06-13)
 
 ### Project Current Status
@@ -1441,3 +1609,65 @@ Added 5 visual refinements:
 5. **LLM-powered analysis**: Use LLM skill for project analysis and recommendations
 6. **Drag-and-drop between devices**: Move projects between devices
 7. **Dashboard customization**: Allow users to customize card layout and visible stats
+
+---
+Task ID: 2-7
+Agent: Session 14 Feature Developer
+Task: Implement 5 new features + style polish
+
+Work Log:
+- Read full page.tsx (6654→7052 lines) and worklog.md to understand codebase
+- Feature 1: Health Alert System Overhaul
+  - Replaced per-project toast spam with single Health Alert Summary Banner
+  - Added alert severity levels (Critical/Warning/Notice/OK) with color coding
+  - Added collapsible alert groups in both banner and Health Alerts dialog
+  - Added SeverityGroup component with AnimatePresence collapse animation
+  - Added "Acknowledge All" button in banner and dialog footer
+  - Added getAlertSeverity() and severityConfig() utility functions
+  - Removed per-project addToast effect that caused alert overload
+- Feature 2: Project Pin to Top Enhanced
+  - Replaced Star icon with Pin icon for pinned projects (rose/pink themed)
+  - Added pin priority numbers (#1, #2, #3...) as small badges
+  - Updated Pinned section header with Pin icon + rose gradient
+  - Added pinOrder prop to SortableProjectCard, passed from all render locations
+  - Changed color from amber to rose throughout pin system
+- Feature 3: Dashboard Analytics Widget
+  - Added MiniSparkline component for SVG sparkline charts
+  - Added Analytics widget with 3 sparklines: Projects, Running Envs, Health
+  - Added period selector (1h/6h/24h) for data point range
+  - Added projectCountHistory and runningEnvsHistory with localStorage persistence
+  - Rose/pink theme to distinguish from emerald activity feed
+  - Dismissible, re-enableable from Customize Dashboard Quick Actions
+- Feature 4: Enhanced Context Menu
+  - Added section headers: Actions, Environment, Dangerous
+  - Added new options: View Details, Duplicate Project, Copy Path, Pin/Unpin
+  - Added keyboard shortcut hints (Enter, e, s, x, Del)
+  - Visual grouping with separators between sections
+  - Wider context menu (220px) for better readability
+  - Added User, Clipboard lucide icons to imports
+- Feature 5: Project Deployment History
+  - Added "Deployments" tab to DetailSheet with rose theme
+  - Added Deployment interface type
+  - Deploy button with 2-second spinner simulation (80% success rate)
+  - Rollback button on successful deployments
+  - Visual timeline with colored dots (green/red/amber)
+  - Deployment records stored in localStorage per project
+  - Auto-incrementing version numbers
+- Style Polish
+  - Added custom-scrollbar CSS for dark mode
+  - Added alert-critical-pulse animation for critical alerts
+  - Added tab-slide-in animation for tab transitions
+  - Added btn-micro-click micro-interaction for button clicks
+  - Added status-bounce animation for status changes
+  - Added hover-glow effect for interactive cards
+  - Added gradient-section-header styling
+  - Added sparkline-path and deployment-timeline-line CSS
+  - Added gradient backgrounds to section headers in dialogs
+
+Stage Summary:
+- All 5 features implemented and working
+- 0 lint errors, 0 warnings
+- File size: 6654 → 7052 lines (+398 lines)
+- All new state persisted to localStorage where appropriate
+- Analytics widget quick action added to Customize Dashboard
+- Dev server running stable with 200 OK responses

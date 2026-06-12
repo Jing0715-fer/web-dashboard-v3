@@ -14,7 +14,7 @@ import {
   Bot, ArrowUpDown, ArrowRightLeft,
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap,
   Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate,
-  TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags
+  TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, User, Clipboard
 } from 'lucide-react'
 
 import {
@@ -177,6 +177,17 @@ interface HealthCheckResult {
   results: Array<{ port: number; status: string; responseTime: number; lastChecked: string; details: string }>
 }
 
+interface Deployment {
+  id: string
+  version: number
+  timestamp: string
+  status: 'success' | 'failed' | 'rolling-back'
+  duration: string
+  deployedBy: string
+}
+
+type AlertSeverity = 'critical' | 'warning' | 'notice' | 'ok'
+
 type ViewMode = 'grid' | 'list'
 type SortOption = 'newest' | 'name' | 'status'
 type FilterStatus = 'all' | 'running' | 'stopped'
@@ -294,6 +305,68 @@ function healthStroke(score: number): string {
   if (score >= 80) return '#10b981'
   if (score >= 50) return '#f59e0b'
   return '#ef4444'
+}
+
+function getAlertSeverity(score: number): AlertSeverity {
+  if (score <= 25) return 'critical'
+  if (score <= 50) return 'warning'
+  if (score <= 75) return 'notice'
+  return 'ok'
+}
+
+function severityConfig(severity: AlertSeverity): { label: string; color: string; bg: string; dot: string; ring: string } {
+  switch (severity) {
+    case 'critical': return { label: 'Critical', color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-900/20', dot: 'bg-red-500', ring: 'ring-red-200 dark:ring-red-800/40' }
+    case 'warning': return { label: 'Warning', color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-900/20', dot: 'bg-amber-500', ring: 'ring-amber-200 dark:ring-amber-800/40' }
+    case 'notice': return { label: 'Notice', color: 'text-yellow-600 dark:text-yellow-400', bg: 'bg-yellow-50 dark:bg-yellow-900/20', dot: 'bg-yellow-500', ring: 'ring-yellow-200 dark:ring-yellow-800/40' }
+    case 'ok': return { label: 'OK', color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-900/20', dot: 'bg-emerald-500', ring: 'ring-emerald-200 dark:ring-emerald-800/40' }
+  }
+}
+
+function MiniSparkline({ data, color = '#f43f5e', height = 28, width = 64 }: { data: number[]; color?: string; height?: number; width?: number }) {
+  if (data.length < 2) return null
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const range = max - min || 1
+  const points = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * width
+    const y = height - ((v - min) / range) * (height - 4) - 2
+    return `${x},${y}`
+  }).join(' ')
+  return (
+    <svg width={width} height={height} className="shrink-0">
+      <polyline points={points} className="sparkline-path" stroke={color} />
+    </svg>
+  )
+}
+
+// Collapsible severity group for Health Alerts dialog (Session 14)
+function SeverityGroup({ label, color, dot, count, children }: { label: string; color: string; dot: string; count: number; children: React.ReactNode }) {
+  const [collapsed, setCollapsed] = React.useState(false)
+  return (
+    <div>
+      <button type="button" className="flex items-center gap-1.5 w-full text-left cursor-pointer hover:bg-muted/30 rounded-md px-1 py-0.5 transition-colors" onClick={() => setCollapsed(!collapsed)}>
+        <span className={`h-2 w-2 rounded-full shrink-0 ${dot}`} />
+        <span className={`text-[10px] font-semibold uppercase tracking-wider ${color}`}>{label}</span>
+        <Badge variant="secondary" className="text-[8px] px-1 py-0 h-3.5">{count}</Badge>
+        <div className="flex-1" />
+        {collapsed ? <ChevronRight className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
+      </button>
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <div className="space-y-1 mt-1 pl-2">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
 }
 
 function formatTimeAgo(dateStr: string): string {
@@ -562,7 +635,7 @@ function SortableProjectCard({
   onEnvAction, onRebuildConfirm, selected, onToggleSelect, rebuilding,
   starred, onToggleStar, lanIp, currentHost, index = 0,
   batchMode = false, onDuplicate, onMoveToDevice, devices, onHover,
-  focused = false, cardDensity = 'comfortable', onCompare
+  focused = false, cardDensity = 'comfortable', onCompare, pinOrder
 }: {
   project: Project
   viewMode: ViewMode
@@ -588,6 +661,7 @@ function SortableProjectCard({
   focused?: boolean
   cardDensity?: 'compact' | 'comfortable' | 'spacious'
   onCompare?: (project: Project) => void
+  pinOrder?: number
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
   const [expanded, setExpanded] = React.useState(false)
@@ -663,10 +737,10 @@ function SortableProjectCard({
               <HermesBridgeToggle />
             </span>
           )}
-          <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`shrink-0 cursor-pointer transition-colors hover:scale-110 active:scale-90 transition-transform duration-150 ${starred ? 'text-amber-400' : 'text-muted-foreground hover:text-amber-400'}`}>
-            <Star className={`h-4 w-4 ${starred ? 'fill-amber-400' : ''}`} />
+          <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`shrink-0 cursor-pointer transition-colors hover:scale-110 active:scale-90 transition-transform duration-150 ${starred ? 'text-rose-500' : 'text-muted-foreground hover:text-rose-400'}`}>
+            {starred ? <Pin className="h-4 w-4 fill-rose-500" /> : <Star className="h-4 w-4" />}
           </button>
-          {starred && <span className="text-[8px] px-1 py-0 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold tracking-wide shrink-0">PINNED</span>}
+          {starred && pinOrder != null && <span className="text-[8px] min-w-[14px] text-center px-0.5 py-0 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300 font-bold tracking-wide shrink-0">#{pinOrder}</span>}
           <IconComp className="h-5 w-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -860,10 +934,10 @@ function SortableProjectCard({
             </div>
             <div className="flex items-center shrink-0">
               <HealthScoreHoverCard score={health} size={28} runningEnvs={runningEnvs} totalEnvs={totalEnvs} updatedAt={project.updatedAt} />
-              <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`cursor-pointer transition-all duration-200 hover:scale-110 active:scale-90 ml-0.5 ${starred ? 'text-amber-400' : 'text-muted-foreground hover:text-amber-400'}`}>
-                <Star className={`h-3 w-3 ${starred ? 'fill-amber-400' : ''}`} />
+              <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`cursor-pointer transition-all duration-200 hover:scale-110 active:scale-90 ml-0.5 ${starred ? 'text-rose-500' : 'text-muted-foreground hover:text-rose-400'}`}>
+                {starred ? <Pin className="h-3 w-3 fill-rose-500" /> : <Star className="h-3 w-3" />}
               </button>
-              {starred && <span className="text-[7px] px-1 py-0 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-bold tracking-wider shrink-0">PIN</span>}
+              {starred && pinOrder != null && <span className="text-[7px] min-w-[12px] text-center px-0.5 py-0 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300 font-bold tracking-wider shrink-0">#{pinOrder}</span>}
             </div>
           </div>
         </CardHeader>
@@ -1010,24 +1084,31 @@ function SortableProjectCard({
         }`} />
       </motion.div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="min-w-[180px] p-1.5 text-sm">
+        <ContextMenuContent className="min-w-[220px] p-1.5 text-sm">
+          {/* Actions section */}
+          <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Actions</div>
           {(project.environments || []).some((e) => e.status === 'running') && (
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />Open in Browser</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />Open in Browser <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
           )}
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</ContextMenuItem>
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</ContextMenuItem>
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />View Details <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">e</kbd></ContextMenuItem>
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />Unpin</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />Pin to Top</>}</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate Project</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { navigator.clipboard.writeText(project.path); addToast({ title: 'Path copied', variant: 'success' }) }}><Clipboard className="h-3.5 w-3.5 mr-2.5" />Copy Path</ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* Environment section */}
+          <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Environment</div>
           {(project.environments || []).every((e) => e.status !== 'running') && (
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />Start All Environments</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />Start All Environments <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">s</kbd></ContextMenuItem>
           )}
           {(project.environments || []).some((e) => e.status === 'running') && (
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />Stop All Environments</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />Stop All Environments <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">x</kbd></ContextMenuItem>
           )}
-          <ContextMenuSeparator />
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCompare?.(project)}><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Compare</ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</ContextMenuItem>
+          {/* Dangerous section */}
+          <div className="px-2 py-1 text-[9px] font-semibold text-red-500/60 uppercase tracking-wider">Dangerous</div>
+          <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete Project <kbd className="ml-auto text-[9px] text-red-400/60 bg-red-50 dark:bg-red-900/20 px-1 rounded">Del</kbd></ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
     </div>
@@ -2026,6 +2107,11 @@ function DetailSheet({
   const [editingNotes, setEditingNotes] = React.useState(false)
   const [notesDraft, setNotesDraft] = React.useState(projectNotes)
   const [savingNotes, setSavingNotes] = React.useState(false)
+  // Deployment history state (Session 14)
+  const [deployments, setDeployments] = React.useState<Deployment[]>(() => {
+    try { return JSON.parse(localStorage.getItem(`deployments-${project?.id}`) || '[]') } catch { return [] }
+  })
+  const [deploying, setDeploying] = React.useState(false)
   const { toast } = useToast()
 
   // Fetch network info for local device display
@@ -2292,6 +2378,7 @@ function DetailSheet({
               <TabsTrigger value="environments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-300 rounded-full transition-colors">Environments</TabsTrigger>
               <TabsTrigger value="activity" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-300 rounded-full transition-colors">Activity</TabsTrigger>
               <TabsTrigger value="logs" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-300 rounded-full transition-colors">Logs</TabsTrigger>
+              <TabsTrigger value="deployments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-rose-50 data-[state=active]:text-rose-700 dark:data-[state=active]:bg-rose-900/30 dark:data-[state=active]:text-rose-300 rounded-full transition-colors">Deployments</TabsTrigger>
             </TabsList>
           </div>
 
@@ -3126,6 +3213,122 @@ function DetailSheet({
             )}
             </motion.div>
           </TabsContent>
+
+          {/* ======================== DEPLOYMENTS TAB (Session 14) ======================== */}
+          <TabsContent value="deployments" className="p-4 mt-0 overflow-y-auto flex-1 min-h-0">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+            >
+              <div className="space-y-4">
+                {/* Deploy button */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <GitBranch className="h-4 w-4 text-rose-500" />
+                    <span className="text-sm font-semibold">Deployment History</span>
+                    <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{deployments.length}</Badge>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="btn-micro-click bg-rose-500 hover:bg-rose-600 text-white h-7 text-xs"
+                    disabled={deploying}
+                    onClick={() => {
+                      setDeploying(true)
+                      const version = deployments.length > 0 ? Math.max(...deployments.map((d) => d.version)) + 1 : 1
+                      const duration = `${(Math.random() * 30 + 5).toFixed(0)}s`
+                      setTimeout(() => {
+                        const success = Math.random() < 0.8
+                        const newDeploy: Deployment = {
+                          id: `dep_${Date.now()}`,
+                          version,
+                          timestamp: new Date().toISOString(),
+                          status: success ? 'success' : 'failed',
+                          duration,
+                          deployedBy: Math.random() > 0.3 ? 'You' : 'Auto-deploy',
+                        }
+                        const next = [newDeploy, ...deployments]
+                        setDeployments(next)
+                        localStorage.setItem(`deployments-${project.id}`, JSON.stringify(next))
+                        toast({ title: success ? 'Deployment successful' : 'Deployment failed', variant: success ? 'success' : 'destructive' })
+                        setDeploying(false)
+                      }, 2000)
+                    }}
+                  >
+                    {deploying ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Deploying...</> : <><Upload className="h-3 w-3 mr-1" />Deploy</>}
+                  </Button>
+                </div>
+
+                {/* Deployment timeline */}
+                {deployments.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <GitBranch className="h-10 w-10 text-muted-foreground/20 mb-3" />
+                    <p className="text-sm text-muted-foreground">No deployments yet</p>
+                    <p className="text-xs text-muted-foreground/70 mt-1">Click Deploy to create your first deployment</p>
+                  </div>
+                ) : (
+                  <div className="space-y-0">
+                    {deployments.map((dep, idx) => (
+                      <div key={dep.id} className="relative pl-8 pb-4">
+                        {idx < deployments.length - 1 && <div className="deployment-timeline-line" />}
+                        <div className={`absolute left-1.5 top-1 h-5 w-5 rounded-full flex items-center justify-center ring-2 ${
+                          dep.status === 'success' ? 'bg-emerald-100 dark:bg-emerald-900/30 ring-emerald-300 dark:ring-emerald-700/50'
+                          : dep.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 ring-red-300 dark:ring-red-700/50'
+                          : 'bg-amber-100 dark:bg-amber-900/30 ring-amber-300 dark:ring-amber-700/50'
+                        }`}>
+                          {dep.status === 'success' ? <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+                           : dep.status === 'failed' ? <XCircle className="h-3 w-3 text-red-600 dark:text-red-400" />
+                           : <RotateCw className="h-3 w-3 text-amber-600 dark:text-amber-400 animate-spin" />}
+                        </div>
+                        <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-bold">v{dep.version}</span>
+                              <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${
+                                dep.status === 'success' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300'
+                                : dep.status === 'failed' ? 'border-red-300 text-red-700 dark:border-red-600 dark:text-red-300'
+                                : 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300'
+                              }`}>{dep.status === 'rolling-back' ? 'Rolling Back' : dep.status}</Badge>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {dep.status === 'success' && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 text-[9px] text-amber-600 hover:text-amber-700 dark:text-amber-400 px-1.5 btn-micro-click"
+                                  onClick={() => {
+                                    const rollback: Deployment = {
+                                      id: `dep_${Date.now()}`,
+                                      version: dep.version,
+                                      timestamp: new Date().toISOString(),
+                                      status: 'rolling-back',
+                                      duration: '-',
+                                      deployedBy: 'You',
+                                    }
+                                    const next = [rollback, ...deployments]
+                                    setDeployments(next)
+                                    localStorage.setItem(`deployments-${project.id}`, JSON.stringify(next))
+                                    toast({ title: 'Rollback initiated', variant: 'warning' })
+                                  }}
+                                >
+                                  <RotateCw className="h-2.5 w-2.5 mr-0.5" />Rollback
+                                </Button>
+                              )}
+                              <span className="text-[10px] text-muted-foreground">{formatTimeAgo(dep.timestamp)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
+                            <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{dep.duration}</span>
+                            <span className="flex items-center gap-0.5"><User className="h-2.5 w-2.5" />{dep.deployedBy}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </TabsContent>
         </Tabs>
       </SheetContent>
     </Sheet>
@@ -3761,6 +3964,21 @@ export default function DashboardPage() {
   const [activityFeedVisible, setActivityFeedVisible] = React.useState<boolean>(() => {
     try { return localStorage.getItem('dashboard-activity-feed-visible') !== 'false' } catch { return true }
   })
+  // Session 14 states
+  const [alertsAcknowledged, setAlertsAcknowledged] = React.useState<boolean>(() => {
+    try { return localStorage.getItem('dashboard-alerts-acknowledged') === 'true' } catch { return false }
+  })
+  const [healthBannerExpanded, setHealthBannerExpanded] = React.useState(false)
+  const [projectCountHistory, setProjectCountHistory] = React.useState<number[]>(() => {
+    try { return JSON.parse(localStorage.getItem('project-count-history') || '[]') } catch { return [] }
+  })
+  const [runningEnvsHistory, setRunningEnvsHistory] = React.useState<number[]>(() => {
+    try { return JSON.parse(localStorage.getItem('running-envs-history') || '[]') } catch { return [] }
+  })
+  const [analyticsPeriod, setAnalyticsPeriod] = React.useState<'1h' | '6h' | '24h'>('1h')
+  const [analyticsVisible, setAnalyticsVisible] = React.useState<boolean>(() => {
+    try { return localStorage.getItem('dashboard-analytics-visible') !== 'false' } catch { return true }
+  })
 
   const toggleStar = React.useCallback((id: string) => {
     setStarredIds((prev) => {
@@ -3783,6 +4001,7 @@ export default function DashboardPage() {
   React.useEffect(() => { localStorage.setItem('dashboard-visible-stats', JSON.stringify([...visibleStats])) }, [visibleStats])
   React.useEffect(() => { localStorage.setItem('dashboard-quicklaunch-visible', String(quickLaunchBarVisible)) }, [quickLaunchBarVisible])
   React.useEffect(() => { localStorage.setItem('dashboard-activity-feed-visible', String(activityFeedVisible)) }, [activityFeedVisible])
+  React.useEffect(() => { localStorage.setItem('dashboard-analytics-visible', String(analyticsVisible)) }, [analyticsVisible])
 
   const { toast } = useToast()
 
@@ -4296,7 +4515,26 @@ export default function DashboardPage() {
     return () => clearInterval(id)
   }, [dashboardStats.healthScore])
 
-  // Health alert: toast when health drops below threshold
+  // Project count and running envs history (Session 14)
+  React.useEffect(() => {
+    const pushHistory = () => {
+      setProjectCountHistory((prev) => {
+        const next = [...prev, dashboardStats.totalProjects].slice(-20)
+        localStorage.setItem('project-count-history', JSON.stringify(next))
+        return next
+      })
+      setRunningEnvsHistory((prev) => {
+        const next = [...prev, dashboardStats.runningEnvs].slice(-20)
+        localStorage.setItem('running-envs-history', JSON.stringify(next))
+        return next
+      })
+    }
+    pushHistory()
+    const id = setInterval(pushHistory, 30000)
+    return () => clearInterval(id)
+  }, [dashboardStats.totalProjects, dashboardStats.runningEnvs])
+
+  // Health alert: toast when health drops below threshold (Session 14: replaced per-project spam with banner)
   const prevHealthScoreRef = React.useRef(dashboardStats.healthScore)
   React.useEffect(() => {
     if (!healthAlertEnabled) return
@@ -4306,25 +4544,14 @@ export default function DashboardPage() {
         description: `System health dropped to ${dashboardStats.healthScore}% (threshold: ${healthAlertThreshold}%)`,
         variant: 'destructive',
       })
+      setAlertsAcknowledged(false)
+      localStorage.setItem('dashboard-alerts-acknowledged', 'false')
     }
     prevHealthScoreRef.current = dashboardStats.healthScore
   }, [dashboardStats.healthScore, healthAlertThreshold, healthAlertEnabled, toast])
 
-  // Per-project health alerts
-  React.useEffect(() => {
-    if (!healthAlertEnabled) return
-    projects.forEach((project) => {
-      const score = calculateHealthScore(project)
-      const prev = prevHealthScoreRef.current
-      if (score <= healthAlertThreshold && score < prev) {
-        addToast({
-          title: `⚠️ ${project.name} Health Alert`,
-          description: `Health score: ${score}% (threshold: ${healthAlertThreshold}%)`,
-          variant: 'destructive',
-        })
-      }
-    })
-  }, [projects, healthAlertThreshold, healthAlertEnabled, addToast])
+  // Per-project health alerts: NO LONGER toast per project (Session 14 fix - replaced with banner)
+  // This effect is intentionally empty - health alerts now shown in the summary banner instead
 
   const unreadNotifs = React.useMemo(() => notifications.filter((n) => !n.read).length, [notifications])
 
@@ -5485,6 +5712,143 @@ export default function DashboardPage() {
             </div>
           </motion.div>
         )}
+        {/* ======================== HEALTH ALERT SUMMARY BANNER (Session 14) ======================== */}
+        {!loading && healthAlertEnabled && !alertsAcknowledged && (() => {
+          const alertProjects = projects.filter((p) => {
+            const score = calculateHealthScore(p)
+            return score <= healthAlertThreshold
+          })
+          if (alertProjects.length === 0) return null
+          const grouped = { critical: [] as typeof alertProjects, warning: [] as typeof alertProjects, notice: [] as typeof alertProjects }
+          alertProjects.forEach((p) => {
+            const score = calculateHealthScore(p)
+            const sev = getAlertSeverity(score)
+            if (sev === 'critical') grouped.critical.push(p)
+            else if (sev === 'warning') grouped.warning.push(p)
+            else if (sev === 'notice') grouped.notice.push(p)
+          })
+          return (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.1 }}
+              className="mb-4"
+            >
+              <div className={`rounded-xl border shadow-sm overflow-hidden ${grouped.critical.length > 0 ? 'border-red-200 dark:border-red-800/50 bg-gradient-to-r from-red-50 via-red-50/50 to-transparent dark:from-red-950/30 dark:via-red-950/15' : 'border-amber-200 dark:border-amber-800/50 bg-gradient-to-r from-amber-50 via-amber-50/50 to-transparent dark:from-amber-950/30 dark:via-amber-950/15'}`}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/20 transition-colors cursor-pointer"
+                  onClick={() => setHealthBannerExpanded(!healthBannerExpanded)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHealthBannerExpanded(!healthBannerExpanded) } }}
+                >
+                  <AlertTriangle className={`h-4 w-4 shrink-0 ${grouped.critical.length > 0 ? 'text-red-500 alert-critical-pulse' : 'text-amber-500'}`} />
+                  <span className="text-sm font-semibold">{alertProjects.length} project{alertProjects.length !== 1 ? 's' : ''} below health threshold ({healthAlertThreshold}%)</span>
+                  <div className="flex items-center gap-1.5 ml-2">
+                    {grouped.critical.length > 0 && <Badge className="text-[9px] px-1.5 py-0 bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">{grouped.critical.length} Critical</Badge>}
+                    {grouped.warning.length > 0 && <Badge className="text-[9px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{grouped.warning.length} Warning</Badge>}
+                    {grouped.notice.length > 0 && <Badge className="text-[9px] px-1.5 py-0 bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300">{grouped.notice.length} Notice</Badge>}
+                  </div>
+                  <div className="flex-1" />
+                  <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2 mr-1 btn-micro-click" onClick={(e) => { e.stopPropagation(); setAlertsAcknowledged(true); localStorage.setItem('dashboard-alerts-acknowledged', 'true') }}>Acknowledge All</Button>
+                  {healthBannerExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                </div>
+                <AnimatePresence>
+                  {healthBannerExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-4 pb-3 space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                        {(['critical', 'warning', 'notice'] as const).map((sev) => {
+                          const items = grouped[sev]
+                          if (items.length === 0) return null
+                          const cfg = severityConfig(sev)
+                          return (
+                            <div key={sev}>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
+                                <span className={`text-[10px] font-semibold uppercase tracking-wider ${cfg.color}`}>{cfg.label}</span>
+                                <Badge variant="secondary" className="text-[8px] px-1 py-0 h-3.5">{items.length}</Badge>
+                              </div>
+                              <div className="space-y-1">
+                                {items.map((p) => {
+                                  const score = calculateHealthScore(p)
+                                  return (
+                                    <div key={p.id} className={`flex items-center justify-between px-3 py-1.5 rounded-md text-xs ${cfg.bg} ${sev === 'critical' ? 'alert-critical-pulse' : ''}`}>
+                                      <span className="truncate font-medium">{p.name}</span>
+                                      <span className={`font-bold ml-2 ${cfg.color}`}>{score}%</span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </motion.div>
+          )
+        })()}
+        {/* ======================== ANALYTICS WIDGET (Session 14) ======================== */}
+        {!loading && analyticsVisible && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.25 }}
+            className="mb-5 rounded-xl border bg-card dark:bg-zinc-900/80 shadow-sm border-border/60 dark:border-zinc-700/50 overflow-hidden hover-glow"
+          >
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30 dark:border-zinc-700/30 gradient-section-header">
+              <div className="flex items-center gap-2">
+                <div className="p-1 rounded-md bg-gradient-to-br from-rose-50 to-pink-50 dark:from-rose-900/20 dark:to-pink-900/15 ring-1 ring-rose-200/50 dark:ring-rose-800/30">
+                  <BarChart3 className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+                </div>
+                <span className="text-xs font-semibold text-foreground dark:text-zinc-200">Analytics</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {(['1h', '6h', '24h'] as const).map((period) => (
+                  <button
+                    key={period}
+                    type="button"
+                    onClick={() => setAnalyticsPeriod(period)}
+                    className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${analyticsPeriod === period ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300 ring-1 ring-rose-200/60 dark:ring-rose-700/40' : 'bg-muted/50 text-muted-foreground hover:bg-muted dark:bg-white/5'}`}
+                  >
+                    {period}
+                  </button>
+                ))}
+                <button type="button" onClick={() => setAnalyticsVisible(false)} className="ml-1 p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+            <div className="px-4 py-3 grid grid-cols-3 gap-4">
+              {/* Project Count Trend */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[10px] font-medium text-muted-foreground">Projects</span>
+                <span className="text-lg font-bold text-rose-600 dark:text-rose-400">{dashboardStats.totalProjects}</span>
+                <MiniSparkline data={projectCountHistory.slice(analyticsPeriod === '1h' ? -4 : analyticsPeriod === '6h' ? -12 : -20)} color="#f43f5e" />
+              </div>
+              {/* Running Envs Trend */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[10px] font-medium text-muted-foreground">Running Envs</span>
+                <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{dashboardStats.runningEnvs}</span>
+                <MiniSparkline data={runningEnvsHistory.slice(analyticsPeriod === '1h' ? -4 : analyticsPeriod === '6h' ? -12 : -20)} color="#10b981" />
+              </div>
+              {/* Health Score Trend */}
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-[10px] font-medium text-muted-foreground">Health</span>
+                <span className={`text-lg font-bold ${healthColor(dashboardStats.healthScore)}`}>{dashboardStats.healthScore}%</span>
+                <MiniSparkline data={healthScoreHistory.slice(analyticsPeriod === '1h' ? -4 : analyticsPeriod === '6h' ? -12 : -20)} color={dashboardStats.healthScore >= 80 ? '#10b981' : dashboardStats.healthScore >= 50 ? '#f59e0b' : '#ef4444'} />
+              </div>
+            </div>
+          </motion.div>
+        )}
         {loading ? (
           <LoadingSkeleton viewMode={viewMode} />
         ) : filteredProjects.length === 0 ? (
@@ -5673,13 +6037,13 @@ export default function DashboardPage() {
                   </button>
                 </div>
               )}
-              {/* ======================== PINNED PROJECTS SECTION (Session 11) ======================== */}
+              {/* ======================== PINNED PROJECTS SECTION (Session 11, Session 14 enhanced) ======================== */}
               {starredIds.size > 0 && filteredProjects.some((p) => starredIds.has(p.id)) && groupBy === 'none' && (
                 <div className="mb-4">
-                  <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-gradient-to-r from-amber-50/60 via-amber-50/30 to-transparent dark:from-amber-900/20 dark:via-amber-900/10 dark:to-transparent border border-amber-200/50 dark:border-amber-800/30">
-                    <span className="text-amber-500 text-sm">★</span>
-                    <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">Pinned</span>
-                    <Badge variant="secondary" className="text-[10px] bg-amber-100/60 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                  <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-gradient-to-r from-rose-50/60 via-rose-50/30 to-transparent dark:from-rose-900/20 dark:via-rose-900/10 dark:to-transparent border border-rose-200/50 dark:border-rose-800/30">
+                    <Pin className="h-3.5 w-3.5 text-rose-500 fill-rose-500" />
+                    <span className="text-sm font-semibold text-rose-700 dark:text-rose-300">Pinned</span>
+                    <Badge variant="secondary" className="text-[10px] bg-rose-100/60 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
                       {filteredProjects.filter((p) => starredIds.has(p.id)).length}
                     </Badge>
                   </div>
@@ -5724,6 +6088,7 @@ export default function DashboardPage() {
                               focused={focusedProjectIndex === idx}
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
+                              pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                             />
                           ))}
                         </React.Fragment>
@@ -5770,6 +6135,7 @@ export default function DashboardPage() {
                               focused={focusedProjectIndex === idx}
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
+                              pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                             />
                           ))}
                         </>
@@ -5818,6 +6184,7 @@ export default function DashboardPage() {
                               focused={focusedProjectIndex === idx}
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
+                              pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                             />
                           ))}
                         </React.Fragment>
@@ -5850,6 +6217,7 @@ export default function DashboardPage() {
                         focused={focusedProjectIndex === idx}
                         cardDensity={cardDensity}
                         onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
+                              pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                       />
                     ))
                   )}
@@ -5891,6 +6259,7 @@ export default function DashboardPage() {
                               focused={focusedProjectIndex === idx}
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
+                              pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                             />
                           ))}
                         </React.Fragment>
@@ -5935,6 +6304,7 @@ export default function DashboardPage() {
                               focused={focusedProjectIndex === idx}
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
+                              pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                             />
                           ))}
                         </>
@@ -5982,6 +6352,7 @@ export default function DashboardPage() {
                               focused={focusedProjectIndex === idx}
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
+                              pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                             />
                           ))}
                         </React.Fragment>
@@ -6015,6 +6386,7 @@ export default function DashboardPage() {
                         focused={focusedProjectIndex === idx}
                         cardDensity={cardDensity}
                         onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
+                              pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                       />
                     ))
                   )}
@@ -6437,28 +6809,53 @@ export default function DashboardPage() {
                 </span>
               </div>
             </div>
-            {/* Per-project health */}
+            {/* Per-project health with severity groups (Session 14) */}
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Project Health Status</Label>
-              <div className="max-h-40 overflow-y-auto space-y-1 custom-scrollbar">
-                {projects.map((p) => {
-                  const score = calculateHealthScore(p)
-                  return (
-                    <div key={p.id} className="flex items-center justify-between px-3 py-1.5 rounded-md text-xs bg-muted/20">
-                      <span className="truncate font-medium">{p.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className={`font-bold ${healthColor(score)}`}>{score}%</span>
-                        {score <= healthAlertThreshold && healthAlertEnabled && (
-                          <AlertTriangle className="h-3 w-3 text-red-500" />
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-muted-foreground">Project Health Status</Label>
+                {alertsAcknowledged && (
+                  <Button variant="ghost" size="sm" className="h-5 text-[9px] px-1.5 btn-micro-click" onClick={() => { setAlertsAcknowledged(false); localStorage.setItem('dashboard-alerts-acknowledged', 'false') }}>Show Alerts</Button>
+                )}
+              </div>
+              <div className="max-h-52 overflow-y-auto space-y-2 custom-scrollbar">
+                {(() => {
+                  const projectHealth = projects.map((p) => ({ project: p, score: calculateHealthScore(p), severity: getAlertSeverity(calculateHealthScore(p)) }))
+                  const severityGroups: { key: AlertSeverity; items: typeof projectHealth }[] = [
+                    { key: 'critical', items: projectHealth.filter((h) => h.severity === 'critical') },
+                    { key: 'warning', items: projectHealth.filter((h) => h.severity === 'warning') },
+                    { key: 'notice', items: projectHealth.filter((h) => h.severity === 'notice') },
+                    { key: 'ok', items: projectHealth.filter((h) => h.severity === 'ok') },
+                  ]
+                  return severityGroups.filter((g) => g.items.length > 0).map((group) => {
+                    const cfg = severityConfig(group.key)
+                    return (
+                      <SeverityGroup key={group.key} label={cfg.label} color={cfg.color} dot={cfg.dot} count={group.items.length}>
+                        {group.items.map(({ project: p, score }) => (
+                          <div key={p.id} className={`flex items-center justify-between px-3 py-1.5 rounded-md text-xs ${cfg.bg} ${group.key === 'critical' ? 'alert-critical-pulse' : ''}`}>
+                            <span className="truncate font-medium">{p.name}</span>
+                            <div className="flex items-center gap-2">
+                              <span className={`font-bold ${cfg.color}`}>{score}%</span>
+                              {score <= healthAlertThreshold && healthAlertEnabled && (
+                                <AlertTriangle className={`h-3 w-3 ${cfg.color}`} />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </SeverityGroup>
+                    )
+                  })
+                })()}
               </div>
             </div>
           </div>
           <DialogFooter>
+            <div className="flex items-center gap-2">
+              {!alertsAcknowledged && healthAlertEnabled && projects.some((p) => calculateHealthScore(p) <= healthAlertThreshold) && (
+                <Button variant="outline" size="sm" className="text-xs h-8 btn-micro-click" onClick={() => { setAlertsAcknowledged(true); localStorage.setItem('dashboard-alerts-acknowledged', 'true') }}>
+                  <AlertTriangle className="h-3 w-3 mr-1" />Acknowledge All
+                </Button>
+              )}
+            </div>
             <Button variant="outline" onClick={() => setHealthAlertsOpen(false)}>Close</Button>
           </DialogFooter>
         </DialogContent>
@@ -6538,7 +6935,10 @@ export default function DashboardPage() {
                 <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setActivityFeedVisible(true) }}>
                   <Activity className="h-3 w-3 mr-1" />Activity Feed
                 </Button>
-                <Button variant="outline" size="sm" className="text-xs h-8 col-span-3" onClick={() => { setCardDensity('comfortable'); setVisibleStats(new Set(['totalProjects', 'environments', 'devices', 'healthScore'])) }}>
+                <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setAnalyticsVisible(true) }}>
+                  <BarChart3 className="h-3 w-3 mr-1" />Analytics
+                </Button>
+                <Button variant="outline" size="sm" className="text-xs h-8 col-span-2" onClick={() => { setCardDensity('comfortable'); setVisibleStats(new Set(['totalProjects', 'environments', 'devices', 'healthScore'])) }}>
                   <RefreshCw className="h-3 w-3 mr-1" />Reset Defaults
                 </Button>
               </div>

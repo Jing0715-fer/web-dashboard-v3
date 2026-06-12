@@ -343,3 +343,100 @@
   0% { transform: translateX(-8px); opacity: 0; }
   100% { transform: translateX(0); opacity: 1; }
 }
+
+/* Custom scrollbar for dark mode */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.3);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.5);
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Critical alert pulse */
+@keyframes alert-critical-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+.alert-critical-pulse {
+  animation: alert-critical-pulse 1.5s ease-in-out infinite;
+}
+
+/* Tab transition slide */
+@keyframes tab-slide-in {
+  0% { opacity: 0; transform: translateX(8px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+.tab-slide-in {
+  animation: tab-slide-in 0.2s ease-out forwards;
+}
+
+/* Micro-interaction: scale on click */
+@keyframes btn-click-scale {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.94); }
+  100% { transform: scale(1); }
+}
+.btn-micro-click:active {
+  animation: btn-click-scale 0.15s ease-out;
+}
+
+/* Status bounce */
+@keyframes status-bounce {
+  0%, 100% { transform: scale(1); }
+  40% { transform: scale(1.2); }
+  70% { transform: scale(0.95); }
+}
+.status-bounce {
+  animation: status-bounce 0.4s ease-out;
+}
+
+/* Hover glow effect for interactive cards */
+.hover-glow {
+  transition: box-shadow 0.3s ease;
+}
+.hover-glow:hover {
+  box-shadow: 0 0 20px rgba(244, 63, 94, 0.15), 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+.dark .hover-glow:hover {
+  box-shadow: 0 0 20px rgba(244, 63, 94, 0.1), 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Gradient section header */
+.gradient-section-header {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(20, 184, 166, 0.04) 100%);
+}
+.dark .gradient-section-header {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(20, 184, 166, 0.06) 100%);
+}
+
+/* Sparkline chart area */
+.sparkline-path {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Deployment timeline connector */
+.deployment-timeline-line {
+  position: absolute;
+  left: 11px;
+  top: 24px;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(to bottom, rgba(16, 185, 129, 0.3), rgba(16, 185, 129, 0.05));
+}
