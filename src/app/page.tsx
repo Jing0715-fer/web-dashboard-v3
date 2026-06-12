@@ -351,29 +351,21 @@ function HealthScoreCircle({ score, size = 40 }: { score: number; size?: number 
   const circumference = radius * 2 * Math.PI
   const safeScore = typeof score === 'number' && !isNaN(score) ? score : 0
   const offset = circumference - (safeScore / 100) * circumference
-  const [animatedOffset, setAnimatedOffset] = React.useState(offset)
-  const prevOffset = React.useRef(offset)
-
-  React.useEffect(() => {
-    if (prevOffset.current !== offset) {
-      setAnimatedOffset(offset)
-      prevOffset.current = offset
-    }
-  }, [offset])
 
   return (
     <svg width={size} height={size} className="transform -rotate-90">
       <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-muted-foreground/20 dark:text-muted-foreground/20" />
       <motion.circle
         cx={size / 2} cy={size / 2} r={radius} fill="none"
-        stroke={healthStroke(score)}
+        stroke={healthStroke(safeScore)}
         strokeWidth={strokeWidth}
         strokeDasharray={circumference}
+        strokeDashoffset={circumference}
         strokeLinecap="round"
-        animate={{ strokeDashoffset: animatedOffset }}
+        animate={{ strokeDashoffset: offset }}
         transition={{ duration: 0.6, ease: 'easeOut' }}
       />
-      <text x={size / 2} y={size / 2} textAnchor="middle" dominantBaseline="central" className={`text-[10px] font-semibold ${healthColor(score)}`} transform={`rotate(90, ${size / 2}, ${size / 2})`}>{score}</text>
+      <text x={size / 2} y={size / 2} textAnchor="middle" dominantBaseline="central" className={`text-[10px] font-semibold ${healthColor(safeScore)}`} transform={`rotate(90, ${size / 2}, ${size / 2})`}>{safeScore}</text>
     </svg>
   )
 }
@@ -519,22 +511,28 @@ function useBridgeStatus() {
 
 // ======================== ANIMATED STATUS DOT ========================
 
-function AnimatedStatusDot({ status }: { status: string }) {
-  return (
-    <motion.span
-      className={`h-2 w-2 rounded-full inline-block ${status === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`}
-      initial={{ scale: 1 }}
-      animate={status === 'running'
-        ? { scale: [1, 1.3, 1], opacity: [1, 0.7, 1] }
-        : { scale: [1, 1.8, 1], opacity: [1, 0.7, 1] }
-      }
-      transition={status === 'running'
-        ? { duration: 2, ease: 'easeInOut', repeat: Infinity }
-        : { duration: 0.4, ease: 'easeInOut' }
-      }
-      key={status}
-    />
-  )
+function AnimatedStatusDot({ status, size = 'sm' }: { status: string; size?: 'sm' | 'md' }) {
+  const dotSize = size === 'md' ? 'h-2.5 w-2.5' : 'h-2 w-2'
+  if (status === 'running') {
+    return (
+      <span className={`relative inline-flex ${dotSize}`}>
+        {/* Outer pulse ring */}
+        <motion.span
+          className={`absolute inset-0 rounded-full bg-emerald-400/40`}
+          animate={{ scale: [1, 1.8, 1], opacity: [0.6, 0, 0.6] }}
+          transition={{ duration: 2, ease: 'easeInOut', repeat: Infinity }}
+        />
+        {/* Inner dot */}
+        <motion.span
+          className={`relative rounded-full bg-emerald-500 ${dotSize}`}
+          animate={{ scale: [1, 1.15, 1], opacity: [1, 0.85, 1] }}
+          transition={{ duration: 2, ease: 'easeInOut', repeat: Infinity }}
+        />
+      </span>
+    )
+  }
+  // Stopped / offline — static dot, no animation
+  return <span className={`inline-block rounded-full bg-red-400 ${dotSize}`} />
 }
 
 // ======================== SORTABLE PROJECT CARD ========================
@@ -909,10 +907,18 @@ function SortableProjectCard({
           </div>
         </div>
 
-        {/* Subtle hover overlay */}
-        <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none bg-gradient-to-br from-emerald-500/[0.02] via-transparent to-teal-500/[0.02] dark:from-emerald-500/[0.03] dark:via-transparent dark:to-teal-500/[0.03]" />
-        {/* Subtle border color transition on hover */}
-        <div className="absolute inset-0 rounded-xl border-2 border-transparent group-hover:border-emerald-200/30 dark:group-hover:border-emerald-700/20 transition-colors duration-300 pointer-events-none" />
+        {/* Status-based hover gradient overlay */}
+        <div className={`absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none ${
+          status === 'running' ? 'bg-gradient-to-t from-emerald-500/[0.06] via-transparent to-emerald-500/[0.02] dark:from-emerald-500/[0.08] dark:via-transparent dark:to-emerald-500/[0.03]'
+          : status === 'mixed' ? 'bg-gradient-to-t from-amber-500/[0.06] via-transparent to-amber-500/[0.02] dark:from-amber-500/[0.08] dark:via-transparent dark:to-amber-500/[0.03]'
+          : 'bg-gradient-to-t from-red-500/[0.06] via-transparent to-red-500/[0.02] dark:from-red-500/[0.08] dark:via-transparent dark:to-red-500/[0.03]'
+        }`} />
+        {/* Subtle border glow on hover */}
+        <div className={`absolute inset-0 rounded-xl border-2 border-transparent group-hover:border-emerald-200/30 dark:group-hover:border-emerald-700/20 transition-colors duration-300 pointer-events-none ${
+          status === 'running' ? 'group-hover:border-emerald-200/40 dark:group-hover:border-emerald-600/30'
+          : status === 'mixed' ? 'group-hover:border-amber-200/40 dark:group-hover:border-amber-600/30'
+          : 'group-hover:border-red-200/40 dark:group-hover:border-red-600/30'
+        }`} />
       </motion.div>
     </div>
   )
@@ -921,7 +927,8 @@ function SortableProjectCard({
 // ======================== COMMAND PALETTE ========================
 
 function CommandPalette({
-  open, onClose, projects, onSelectProject, onAddProject, onRefresh, onToggleView
+  open, onClose, projects, onSelectProject, onAddProject, onRefresh, onToggleView,
+  devices, onOpenDeviceManagement, onFilterByDevice
 }: {
   open: boolean
   onClose: () => void
@@ -930,6 +937,9 @@ function CommandPalette({
   onAddProject: () => void
   onRefresh: () => void
   onToggleView: () => void
+  devices: Device[]
+  onOpenDeviceManagement: () => void
+  onFilterByDevice: (deviceId: string | null) => void
 }) {
   const [query, setQuery] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -946,6 +956,7 @@ function CommandPalette({
     { id: 'toggle-view', label: 'Toggle Grid/List View', icon: LayoutGrid, category: 'Actions', action: onToggleView },
     { id: 'gateway', label: 'Open Gateway Monitor', icon: Server, category: 'Actions', action: () => {} },
     { id: 'llm', label: 'Configure LLM Settings', icon: Bot, category: 'Actions', action: () => {} },
+    { id: 'device-mgmt', label: 'Go to Device Management', icon: Monitor, category: 'Actions', action: onOpenDeviceManagement },
   ]
 
   const projectItems = projects.map((p) => ({
@@ -956,7 +967,32 @@ function CommandPalette({
     action: () => onSelectProject(p),
   }))
 
-  const allItems = [...commands, ...projectItems]
+  const deviceItems = [
+    ...devices.map((d) => [
+      {
+        id: `device-health-${d.id}`,
+        label: `Check Health: ${d.name}`,
+        icon: Activity,
+        category: 'Devices',
+        action: () => {
+          fetch(`http://${d.ip}:${d.port}/api/agent/health`, {
+            headers: { 'Authorization': `Bearer ${d.apiKey}` },
+          })
+            .then((r) => addToast({ title: `${d.name} is ${r.ok ? 'online' : 'offline'}`, variant: r.ok ? 'success' : 'destructive' }))
+            .catch(() => addToast({ title: `${d.name} is unreachable`, variant: 'destructive' }))
+        },
+      },
+      {
+        id: `device-filter-${d.id}`,
+        label: `Filter by ${d.name}`,
+        icon: Filter,
+        category: 'Devices',
+        action: () => onFilterByDevice(d.id),
+      },
+    ]).flat(),
+  ]
+
+  const allItems = [...commands, ...projectItems, ...deviceItems]
   const filtered = query.trim()
     ? allItems.filter((item) => item.label.toLowerCase().includes(query.toLowerCase()))
     : allItems
@@ -1006,12 +1042,14 @@ function CommandPalette({
 
 function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const shortcuts = [
-    { keys: 'Ctrl + K', description: 'Focus search' },
-    { keys: 'Ctrl + N', description: 'Add new project' },
-    { keys: 'Ctrl + Shift + R', description: 'Refresh data' },
-    { keys: 'Ctrl + P', description: 'Command palette' },
+    { keys: '⌘/Ctrl + K', description: 'Focus search' },
+    { keys: '⌘/Ctrl + N', description: 'Add new project' },
+    { keys: '⌘/Ctrl + Shift + R', description: 'Refresh data' },
+    { keys: '⌘/Ctrl + P', description: 'Command palette' },
+    { keys: '⌘/Ctrl + D', description: 'Device management' },
     { keys: 'G then G', description: 'Grid view' },
     { keys: 'G then L', description: 'List view' },
+    { keys: 'Escape', description: 'Close dialog / sheet' },
     { keys: '?', description: 'Show shortcuts' },
   ]
   return (
@@ -1160,15 +1198,22 @@ function ProjectFormDialog({
           </div>
           <div className="space-y-1">
             <Label>Icon</Label>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="grid grid-cols-4 gap-2">
               {Object.entries(ICON_MAP).map(([key, Ic]) => (
                 <button
                   key={key}
                   type="button"
                   onClick={() => setIcon(key)}
-                  className={`p-2 rounded-md border transition-colors ${icon === key ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' : 'border-border hover:bg-accent'}`}
+                  className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all duration-150 hover:bg-accent/50 cursor-pointer ${
+                    icon === key
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 ring-2 ring-emerald-500/30 shadow-sm shadow-emerald-500/20'
+                      : 'border-border hover:border-muted-foreground/30'
+                  }`}
                 >
-                  <Ic className="h-4 w-4" />
+                  <Ic className={`h-5 w-5 ${icon === key ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
+                  <span className={`text-[10px] leading-tight ${icon === key ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-muted-foreground'}`}>
+                    {key.replace('-', ' ')}
+                  </span>
                 </button>
               ))}
             </div>
@@ -1494,7 +1539,7 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement
 }: {
   project: Project | null
   open: boolean
@@ -1502,6 +1547,9 @@ function DetailSheet({
   onEnvAction: (projectId: string, envId: string, action: string) => void
   lanIp: string
   currentHost: string
+  onRefresh?: () => void
+  devices?: Device[]
+  onOpenDeviceManagement?: () => void
 }) {
   const [activeTab, setActiveTab] = React.useState('overview')
   const [activity, setActivity] = React.useState<ActivityEvent[]>([])
@@ -1512,7 +1560,103 @@ function DetailSheet({
   const [editingPort, setEditingPort] = React.useState<string | null>(null)
   const [portValue, setPortValue] = React.useState('')
   const [healthResult, setHealthResult] = React.useState<HealthCheckResult | null>(null)
+  const [editingEnvVars, setEditingEnvVars] = React.useState<string | null>(null) // env.id being edited
+  const [envVarDraft, setEnvVarDraft] = React.useState<Record<string, string>>({}) // draft key-value pairs
+  const [newEnvKey, setNewEnvKey] = React.useState('')
+  const [newEnvValue, setNewEnvValue] = React.useState('')
+  const [savingEnvVars, setSavingEnvVars] = React.useState(false)
+  const [editingTags, setEditingTags] = React.useState(false)
+  const [tagDraft, setTagDraft] = React.useState<string[]>([])
+  const [savingTags, setSavingTags] = React.useState(false)
+  const [tagSearchOpen, setTagSearchOpen] = React.useState(false)
+  const [tagSearchQuery, setTagSearchQuery] = React.useState('')
+  const [editingDescription, setEditingDescription] = React.useState(false)
+  const [descDraft, setDescDraft] = React.useState('')
+  const [savingDesc, setSavingDesc] = React.useState(false)
+  const [localNetworkInfo, setLocalNetworkInfo] = React.useState<{ hostname: string; platform: string; arch: string; cpus: number } | null>(null)
   const { toast } = useToast()
+
+  // Fetch network info for local device display
+  React.useEffect(() => {
+    if (open && !project?.deviceId) {
+      fetch('/api/network-info')
+        .then((r) => r.json())
+        .then((data) => setLocalNetworkInfo({ hostname: data.hostname, platform: data.platform, arch: data.arch, cpus: data.cpus }))
+        .catch(() => {})
+    }
+  }, [open, project?.deviceId])
+
+  const startEditingTags = () => {
+    setTagDraft([...tags])
+    setEditingTags(true)
+    setTagSearchQuery('')
+    setTagSearchOpen(false)
+  }
+
+  const saveTags = async () => {
+    if (!project) return
+    setSavingTags(true)
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: JSON.stringify(tagDraft) }),
+      })
+      if (res.ok) {
+        toast({ title: 'Tags updated', variant: 'success' })
+        setEditingTags(false)
+        onRefresh?.()
+      } else {
+        const err = await res.json()
+        toast({ title: 'Failed to update tags', description: err.error || 'Server error', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Failed to update tags', variant: 'destructive' })
+    } finally {
+      setSavingTags(false)
+    }
+  }
+
+  const removeTag = (tagName: string) => {
+    setTagDraft((prev) => prev.filter((t) => t !== tagName))
+  }
+
+  const addTag = (tagName: string) => {
+    if (!tagDraft.includes(tagName)) {
+      setTagDraft((prev) => [...prev, tagName])
+    }
+    setTagSearchQuery('')
+    setTagSearchOpen(false)
+  }
+
+  const startEditingDescription = () => {
+    setDescDraft(project?.description || '')
+    setEditingDescription(true)
+  }
+
+  const saveDescription = async () => {
+    if (!project) return
+    setSavingDesc(true)
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: descDraft }),
+      })
+      if (res.ok) {
+        toast({ title: 'Description updated', variant: 'success' })
+        setEditingDescription(false)
+        onRefresh?.()
+      } else {
+        const err = await res.json()
+        toast({ title: 'Failed to update description', description: err.error || 'Server error', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Failed to update description', variant: 'destructive' })
+    } finally {
+      setSavingDesc(false)
+    }
+  }
 
   React.useEffect(() => {
     if (project && activeTab === 'activity' && open) {
@@ -1576,6 +1720,69 @@ function DetailSheet({
     toast({ title: `${label} copied!`, variant: 'success' })
   }
 
+  const startEditingEnvVars = (envId: string, currentVars: string) => {
+    setEditingEnvVars(envId)
+    setEnvVarDraft(parseEnvVars(currentVars))
+    setNewEnvKey('')
+    setNewEnvValue('')
+  }
+
+  const saveEnvVars = async (envId: string) => {
+    if (!project) return
+    setSavingEnvVars(true)
+    try {
+      const res = await fetch(`/api/projects/${project.id}/environments/${envId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ envVars: envVarDraft }),
+      })
+      if (res.ok) {
+        toast({ title: 'Environment variables saved', variant: 'success' })
+        setEditingEnvVars(null)
+        // Refresh the project data so the detail sheet shows updated env vars
+        onRefresh?.()
+      } else {
+        const err = await res.json()
+        toast({ title: 'Failed to save env vars', description: err.error || 'Server error', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Failed to save env vars', variant: 'destructive' })
+    } finally {
+      setSavingEnvVars(false)
+    }
+  }
+
+  const addEnvVarPair = () => {
+    const key = newEnvKey.trim()
+    if (!key) return
+    setEnvVarDraft((prev) => ({ ...prev, [key]: newEnvValue }))
+    setNewEnvKey('')
+    setNewEnvValue('')
+  }
+
+  const removeEnvVarPair = (key: string) => {
+    setEnvVarDraft((prev) => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+
+  const updateEnvVarKey = (oldKey: string, newKey: string) => {
+    setEnvVarDraft((prev) => {
+      const next: Record<string, string> = {}
+      for (const [k, v] of Object.entries(prev)) {
+        if (k === oldKey) next[newKey] = v
+        else next[k] = v
+      }
+      return next
+    })
+  }
+
+  const updateEnvVarValue = (key: string, value: string) => {
+    setEnvVarDraft((prev) => ({ ...prev, [key]: value }))
+  }
+
   if (!project) return null
 
   // Defensive default: if environments is missing for any reason, render an
@@ -1615,26 +1822,92 @@ function DetailSheet({
           </div>
 
           <TabsContent value="overview" className="p-4 space-y-4 mt-0 overflow-y-auto flex-1 min-h-0">
-            {project.description && (
-              <div>
-                <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1">Description</h4></div>
-                <p className="text-sm">{project.description}</p>
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="h-1 w-3 rounded-full bg-emerald-500" />
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1">Description</h4>
+                <div className="flex-1" />
+                {!editingDescription && (
+                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={startEditingDescription}>
+                    <Edit3 className="h-2.5 w-2.5 mr-0.5" />Edit
+                  </Button>
+                )}
               </div>
-            )}
+              {editingDescription ? (
+                <div className="space-y-2">
+                  <Textarea
+                    value={descDraft}
+                    onChange={(e) => setDescDraft(e.target.value)}
+                    placeholder="Add a description..."
+                    className="text-sm min-h-[80px] resize-none"
+                    autoFocus
+                  />
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingDescription(false)} disabled={savingDesc}>Cancel</Button>
+                    <Button size="sm" className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={saveDescription} disabled={savingDesc}>
+                      {savingDesc && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                project.description ? (
+                  <p className="text-sm">{project.description}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">No description</p>
+                )
+              )}
+            </div>
             {/* Device info row */}
             <div>
               <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Device</h4></div>
               <div className="p-2.5 rounded-lg border bg-muted/30">
                 {project.deviceId && project.deviceName ? (
-                  <div className="flex items-center gap-2">
-                    <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${project.deviceStatus === 'online' ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                    <span className="text-sm font-medium">{project.deviceName}</span>
-                    <span className="text-xs text-muted-foreground font-mono">({project.deviceStatus === 'online' ? '🟢' : '🔴'} {project.deviceStatus ?? 'unknown'})</span>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2.5 w-2.5">
+                        {project.deviceStatus === 'online' && (
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                        )}
+                        <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${project.deviceStatus === 'online' ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                      </span>
+                      <span className="text-sm font-medium">{project.deviceName}</span>
+                      <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${project.deviceStatus === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400'}`}>
+                        {project.deviceStatus === 'online' ? 'Online' : 'Offline'}
+                      </Badge>
+                    </div>
+                    {(() => {
+                      const device = devices?.find((d) => d.id === project.deviceId)
+                      if (!device) return null
+                      return (
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-5">
+                          <span>IP:Port</span>
+                          <span className="font-mono text-foreground dark:text-zinc-200">{device.ip}:{device.port}</span>
+                          <span>Last Seen</span>
+                          <span className="font-mono text-foreground dark:text-zinc-200">{device.lastSeen ? formatTimeAgo(device.lastSeen) : 'Never'}</span>
+                        </div>
+                      )
+                    })()}
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => { onOpenDeviceManagement?.(); onClose() }}>
+                        <ExternalLink className="h-2.5 w-2.5 mr-0.5" />Go to Device
+                      </Button>
+                    </div>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    <span className="text-sm font-medium">💻 This Machine</span>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                      <span className="text-sm font-medium">💻 This Machine</span>
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300">Local</Badge>
+                    </div>
+                    {localNetworkInfo && (
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-6">
+                        <span>Hostname</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.hostname}</span>
+                        <span>Platform</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.platform} {localNetworkInfo.arch}</span>
+                        <span>CPU Cores</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.cpus}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1653,12 +1926,74 @@ function DetailSheet({
               </div>
             </div>
             <div>
-              <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Tags</h4></div>
-              <div className="flex flex-wrap gap-1">
-                {tags.length > 0 ? tags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className={`cursor-default ${getTagColor(tag)}`}>{tag}</Badge>
-                )) : <span className="text-xs text-muted-foreground">No tags</span>}
+              <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Tags</h4>
+                <div className="flex-1" />
+                {!editingTags && (
+                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={startEditingTags}>
+                    <Edit3 className="h-2.5 w-2.5 mr-0.5" />Edit
+                  </Button>
+                )}
               </div>
+              {editingTags ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-1">
+                    {tagDraft.map((tag) => (
+                      <Badge key={tag} variant="secondary" className={`cursor-default pr-0.5 ${getTagColor(tag)}`}>
+                        {tag}
+                        <button type="button" className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/20 transition-colors" onClick={() => removeTag(tag)}>
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </Badge>
+                    ))}
+                    {tagDraft.length === 0 && <span className="text-xs text-muted-foreground italic">No tags selected</span>}
+                  </div>
+                  <Popover open={tagSearchOpen} onOpenChange={setTagSearchOpen}>
+                    <PopoverTrigger render={<Button variant="outline" size="sm" className="h-6 text-[10px] w-full justify-start" />}>
+                      <Tag className="h-2.5 w-2.5 mr-1" />Add tag...
+                    </PopoverTrigger>
+                    <PopoverContent className="w-56 p-2" align="start">
+                      <Input
+                        placeholder="Search tags..."
+                        value={tagSearchQuery}
+                        onChange={(e) => setTagSearchQuery(e.target.value)}
+                        className="h-7 text-xs mb-1.5"
+                        autoFocus
+                      />
+                      <div className="max-h-40 overflow-y-auto space-y-0.5">
+                        {TAG_OPTIONS
+                          .filter((t) => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) && !tagDraft.includes(t.name))
+                          .map((tag) => (
+                            <button
+                              key={tag.name}
+                              type="button"
+                              className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-md hover:bg-accent transition-colors text-left"
+                              onClick={() => addTag(tag.name)}
+                            >
+                              <Badge variant="secondary" className={`text-[9px] px-1.5 py-0 cursor-default ${tag.color}`}>{tag.name}</Badge>
+                            </button>
+                          ))
+                        }
+                        {TAG_OPTIONS.filter((t) => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) && !tagDraft.includes(t.name)).length === 0 && (
+                          <p className="text-[10px] text-muted-foreground text-center py-2">No more tags available</p>
+                        )}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  <div className="flex items-center gap-1.5 justify-end">
+                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingTags(false)} disabled={savingTags}>Cancel</Button>
+                    <Button size="sm" className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={saveTags} disabled={savingTags}>
+                      {savingTags && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {tags.length > 0 ? tags.map((tag) => (
+                    <Badge key={tag} variant="secondary" className={`cursor-default ${getTagColor(tag)}`}>{tag}</Badge>
+                  )) : <span className="text-xs text-muted-foreground">No tags</span>}
+                </div>
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Environments Summary</h4></div>
@@ -1845,17 +2180,119 @@ function DetailSheet({
                         <div><span className="text-muted-foreground">Created:</span> {new Date(env.createdAt).toLocaleDateString()}</div>
                       </div>
                       <div>
-                        <div className="text-xs text-muted-foreground mb-1">Environment Variables</div>
-                        <div className="rounded bg-muted/50 p-2 space-y-1 max-h-32 overflow-y-auto">
-                          {Object.entries(envVars).length > 0 ? Object.entries(envVars).map(([k, v]) => (
-                            <div key={k} className="flex items-center gap-2 text-xs font-mono">
-                              <span className="text-emerald-600 dark:text-emerald-400">{k}</span>
-                              <span className="text-muted-foreground">=</span>
-                              <span className="text-foreground">{v}</span>
-                              <Button variant="ghost" size="icon" className="h-4 w-4 ml-auto" onClick={() => copyToClipboard(`${k}=${v}`, k)}><Copy className="h-2.5 w-2.5" /></Button>
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="text-xs text-muted-foreground">Environment Variables</div>
+                          {editingEnvVars !== env.id ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 text-[10px] px-1.5 gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
+                              onClick={() => startEditingEnvVars(env.id, env.envVars)}
+                            >
+                              <Edit3 className="h-2.5 w-2.5" />
+                              Edit
+                            </Button>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 text-[10px] px-1.5 text-muted-foreground"
+                                onClick={() => setEditingEnvVars(null)}
+                                disabled={savingEnvVars}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 text-[10px] px-1.5 gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
+                                onClick={() => saveEnvVars(env.id)}
+                                disabled={savingEnvVars}
+                              >
+                                {savingEnvVars ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
+                                Save
+                              </Button>
                             </div>
-                          )) : <span className="text-xs text-muted-foreground">No environment variables set</span>}
+                          )}
                         </div>
+                        {editingEnvVars === env.id ? (
+                          <div className="rounded bg-muted/50 p-2 space-y-1.5 max-h-48 overflow-y-auto">
+                            {Object.entries(envVarDraft).map(([k, v]) => (
+                              <div key={k} className="flex items-center gap-1.5 text-xs">
+                                <Input
+                                  value={k}
+                                  onChange={(e) => updateEnvVarKey(k, e.target.value)}
+                                  className="h-6 text-xs font-mono flex-1 min-w-0 bg-background"
+                                  placeholder="KEY"
+                                />
+                                <span className="text-muted-foreground shrink-0">=</span>
+                                <Input
+                                  value={v}
+                                  onChange={(e) => updateEnvVarValue(k, e.target.value)}
+                                  className="h-6 text-xs font-mono flex-1 min-w-0 bg-background"
+                                  placeholder="value"
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 shrink-0 text-red-400 hover:text-red-600"
+                                  onClick={() => removeEnvVarPair(k)}
+                                  disabled={savingEnvVars}
+                                >
+                                  <Trash2 className="h-2.5 w-2.5" />
+                                </Button>
+                              </div>
+                            ))}
+                            {Object.entries(envVarDraft).length === 0 && (
+                              <div className="text-xs text-muted-foreground text-center py-1">No variables — add one below</div>
+                            )}
+                            {/* Add new pair */}
+                            <div className="flex items-center gap-1.5 text-xs pt-1 border-t border-border/30">
+                              <Input
+                                value={newEnvKey}
+                                onChange={(e) => setNewEnvKey(e.target.value)}
+                                className="h-6 text-xs font-mono flex-1 min-w-0 bg-background"
+                                placeholder="NEW_KEY"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && newEnvKey.trim()) addEnvVarPair()
+                                }}
+                                disabled={savingEnvVars}
+                              />
+                              <span className="text-muted-foreground shrink-0">=</span>
+                              <Input
+                                value={newEnvValue}
+                                onChange={(e) => setNewEnvValue(e.target.value)}
+                                className="h-6 text-xs font-mono flex-1 min-w-0 bg-background"
+                                placeholder="value"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && newEnvKey.trim()) addEnvVarPair()
+                                }}
+                                disabled={savingEnvVars}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-5 w-5 shrink-0 text-emerald-500 hover:text-emerald-700"
+                                onClick={addEnvVarPair}
+                                disabled={savingEnvVars || !newEnvKey.trim()}
+                              >
+                                <Plus className="h-2.5 w-2.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded bg-muted/50 p-2 space-y-1 max-h-32 overflow-y-auto">
+                            {Object.entries(envVars).length > 0 ? Object.entries(envVars).map(([k, v]) => (
+                              <div key={k} className="flex items-center gap-2 text-xs font-mono">
+                                <span className="text-emerald-600 dark:text-emerald-400">{k}</span>
+                                <span className="text-muted-foreground">=</span>
+                                <span className="text-foreground">{v}</span>
+                                <Button variant="ghost" size="icon" className="h-4 w-4 ml-auto" onClick={() => copyToClipboard(`${k}=${v}`, k)}><Copy className="h-2.5 w-2.5" /></Button>
+                              </div>
+                            )) : <span className="text-xs text-muted-foreground">No environment variables set</span>}
+                          </div>
+                        )}
                       </div>
                       {/* Resource Usage Bars */}
                       <div className="px-1 pb-1 space-y-1.5">
@@ -2005,7 +2442,7 @@ function GlobalStatusPanel({ projects }: { projects: Project[] }) {
 
 // ======================== ENHANCED FOOTER ========================
 
-function EnhancedFooter({ projects, onOpenDevices }: { projects: Project[]; onOpenDevices: () => void }) {
+function EnhancedFooter({ projects, onOpenDevices, devices }: { projects: Project[]; onOpenDevices: () => void; devices: Device[] }) {
   const [expanded, setExpanded] = React.useState(false)
   const [networkInfo, setNetworkInfo] = React.useState<{ hostname: string; totalMemory: number; freeMemory: number; cpus: number; uptime: number } | null>(null)
   const [gatewayStatus, setGatewayStatus] = React.useState<GatewayStatus | null>(null)
@@ -2019,9 +2456,11 @@ function EnhancedFooter({ projects, onOpenDevices }: { projects: Project[]; onOp
 
   const totalEnvs = projects.reduce((a, p) => a + (p.environments?.length || 0), 0)
   const runningEnvs = projects.reduce((a, p) => a + (p.environments?.filter((e) => e.status === 'running').length || 0), 0)
+  const onlineDevices = devices.filter((d) => d.status === 'online').length
+  const totalDevices = devices.length
 
   return (
-    <footer className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/95 backdrop-blur-md shadow-[0_-4px_20px_rgba(0,0,0,0.08)] dark:bg-zinc-900/95 dark:border-t dark:border-zinc-800/60">
+    <footer className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-gradient-to-r from-background/95 via-background/98 to-background/95 backdrop-blur-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] dark:from-zinc-900/98 dark:via-zinc-900/95 dark:to-zinc-900/98 dark:border-t dark:border-zinc-800/60">
       <AnimatePresence>
         {expanded && (
           <motion.div
@@ -2053,17 +2492,30 @@ function EnhancedFooter({ projects, onOpenDevices }: { projects: Project[]; onOp
           </motion.div>
         )}
       </AnimatePresence>
-      <div className="px-4 py-3 flex items-center justify-between text-xs text-foreground/80 dark:text-zinc-300">
-        <div className="flex items-center gap-6">
-          <span className="flex items-center gap-1"><CircleDot className={`h-2.5 w-2.5 ${runningEnvs > 0 ? 'text-emerald-500' : 'text-red-400'}`} /><span className="font-bold dark:text-zinc-200">{runningEnvs}/{totalEnvs}</span> running</span>
+      <div className="px-4 py-2.5 flex items-center justify-between text-xs text-foreground/80 dark:text-zinc-300">
+        <div className="flex items-center gap-5">
+          <span className="flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${runningEnvs > 0 ? 'bg-emerald-500' : 'bg-red-400'}`} />
+            <span className="font-bold dark:text-zinc-200">{runningEnvs}/{totalEnvs}</span>
+            <span className="text-muted-foreground dark:text-zinc-400">running</span>
+          </span>
+          <span className="text-muted-foreground dark:text-zinc-500">·</span>
           <span className="dark:text-zinc-300 font-medium">{projects.length} projects</span>
+          <span className="text-muted-foreground dark:text-zinc-500 hidden sm:inline">·</span>
+          <span className="hidden sm:inline-flex items-center gap-1 text-muted-foreground dark:text-zinc-400">
+            <span className={`h-2 w-2 rounded-full ${totalDevices === 0 ? 'bg-zinc-400' : onlineDevices > 0 ? 'bg-emerald-500' : 'bg-red-400'}`} />
+            {onlineDevices}/{totalDevices + 1} devices online
+          </span>
         </div>
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-3 py-1.5 rounded-md bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 hover:bg-teal-100 dark:hover:bg-teal-900/30 font-medium" onClick={onOpenDevices}>
+          <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-3 py-1.5 rounded-md bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 text-teal-700 dark:text-teal-400 hover:from-teal-100 hover:to-cyan-100 dark:hover:from-teal-900/30 dark:hover:to-cyan-900/20 font-medium ring-1 ring-teal-200/50 dark:ring-teal-800/30" onClick={onOpenDevices}>
             <Plug className="h-3.5 w-3.5" />
             <span className="font-medium text-xs">Devices</span>
+            {totalDevices > 0 && (
+              <span className="text-[9px] px-1 py-0 rounded-full bg-teal-200/60 dark:bg-teal-800/40 text-teal-700 dark:text-teal-300 font-semibold">{onlineDevices}/{totalDevices}</span>
+            )}
           </button>
-          <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-3 py-1.5 rounded-md bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 font-medium" onClick={() => setExpanded(!expanded)}>
+          <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-3 py-1.5 rounded-md bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/15 text-emerald-700 dark:text-emerald-400 hover:from-emerald-100 hover:to-teal-100 dark:hover:from-emerald-900/30 dark:hover:to-teal-900/20 font-medium ring-1 ring-emerald-200/50 dark:ring-emerald-800/30" onClick={() => setExpanded(!expanded)}>
             <Monitor className="h-3.5 w-3.5" />
             <span className="font-medium text-xs">System</span>
             {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
@@ -2088,6 +2540,11 @@ function DeviceManagementPanel({
   onHealthCheck: (id: string) => Promise<{ status: string } | null>
 }) {
   const [healthCheckingIds, setHealthCheckingIds] = React.useState<Set<string>>(new Set())
+  const [testingIds, setTestingIds] = React.useState<Set<string>>(new Set())
+  const [testResults, setTestResults] = React.useState<Record<string, { latency: number; success: boolean } | null>>({})
+
+  const onlineCount = devices.filter((d) => d.status === 'online').length
+  const offlineCount = devices.filter((d) => d.status !== 'online').length
 
   const handleHealthCheck = async (id: string) => {
     setHealthCheckingIds((prev) => new Set(prev).add(id))
@@ -2099,12 +2556,33 @@ function DeviceManagementPanel({
     })
   }
 
+  const handleTestConnection = async (device: Device) => {
+    setTestingIds((prev) => new Set(prev).add(device.id))
+    const start = performance.now()
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 5000)
+      const res = await fetch(`http://${device.ip}:${device.port}/api/health`, { signal: controller.signal })
+      clearTimeout(timeout)
+      const latency = Math.round(performance.now() - start)
+      setTestResults((prev) => ({ ...prev, [device.id]: { latency, success: res.ok } }))
+    } catch {
+      const latency = Math.round(performance.now() - start)
+      setTestResults((prev) => ({ ...prev, [device.id]: { latency, success: false } }))
+    }
+    setTestingIds((prev) => {
+      const next = new Set(prev)
+      next.delete(device.id)
+      return next
+    })
+  }
+
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-lg overflow-hidden p-0 flex flex-col dark:bg-zinc-900/98 dark:border-l dark:border-zinc-800/60">
         <SheetHeader className="px-4 pt-4 pb-2 border-b shrink-0">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-teal-50 dark:bg-teal-900/20">
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30">
               <Plug className="h-5 w-5 text-teal-600 dark:text-teal-400" />
             </div>
             <div className="flex-1 min-w-0">
@@ -2116,6 +2594,26 @@ function DeviceManagementPanel({
             </Button>
           </div>
         </SheetHeader>
+
+        {/* Device Stats Bar */}
+        {devices.length > 0 && (
+          <div className="px-4 py-3 border-b bg-muted/20 dark:bg-zinc-800/20">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="text-center">
+                <div className="text-lg font-bold dark:text-zinc-100">{devices.length}</div>
+                <div className="text-[10px] text-muted-foreground dark:text-zinc-400 font-medium">Total</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{onlineCount}</div>
+                <div className="text-[10px] text-emerald-600/70 dark:text-emerald-400/60 font-medium">Online</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-red-500 dark:text-red-400">{offlineCount}</div>
+                <div className="text-[10px] text-red-500/70 dark:text-red-400/60 font-medium">Offline</div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {devices.length === 0 ? (
@@ -2135,39 +2633,77 @@ function DeviceManagementPanel({
                 key={device.id}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="rounded-lg border p-3 space-y-2 hover:shadow-md transition-shadow"
+                className={`rounded-lg border p-3.5 space-y-2.5 hover:shadow-md transition-shadow ${
+                  device.status === 'online'
+                    ? 'border-emerald-200/50 dark:border-emerald-800/30 bg-emerald-50/20 dark:bg-emerald-900/5'
+                    : device.status === 'error'
+                    ? 'border-amber-200/50 dark:border-amber-800/30 bg-amber-50/20 dark:bg-amber-900/5'
+                    : 'border-red-200/50 dark:border-red-800/30 bg-red-50/20 dark:bg-red-900/5'
+                }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${device.status === 'online' ? 'bg-emerald-500' : device.status === 'error' ? 'bg-amber-500' : 'bg-red-400'}`} />
+                  <AnimatedStatusDot status={device.status === 'online' ? 'running' : 'stopped'} size="md" />
                   <span className="font-medium text-sm truncate">{device.name}</span>
                   <Badge variant="outline" className={`text-[9px] ml-auto shrink-0 ${device.status === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20' : device.status === 'error' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}>
-                    {device.status === 'online' ? '🟢 Online' : device.status === 'error' ? '⚠️ Error' : '🔴 Offline'}
+                    {device.status === 'online' ? 'Online' : device.status === 'error' ? 'Error' : 'Offline'}
                   </Badge>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <Globe className="h-3 w-3" />
-                    <span className="font-mono">{device.ip}:{device.port}</span>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                  <div className="flex items-center gap-1.5">
+                    <Globe className="h-3 w-3 text-muted-foreground" />
+                    <span className="font-mono text-muted-foreground dark:text-zinc-400">{device.ip}:{device.port}</span>
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center h-4 w-4 rounded hover:bg-muted dark:hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground"
+                      onClick={() => { navigator.clipboard.writeText(`${device.ip}:${device.port}`); addToast({ title: 'Copied', description: `${device.ip}:${device.port}`, variant: 'success' }) }}
+                      title="Copy IP:Port"
+                    >
+                      <Copy className="h-2.5 w-2.5" />
+                    </button>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Folder className="h-3 w-3" />
-                    <span>{device.projectCount ?? 0} projects</span>
+                  <div className="flex items-center gap-1.5">
+                    <Folder className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-muted-foreground dark:text-zinc-400">{device.projectCount ?? 0} projects</span>
+                    {device.projectCount !== undefined && device.projectCount > 0 && (
+                      <Badge variant="secondary" className="text-[8px] px-1 py-0 h-3.5 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">{device.projectCount}</Badge>
+                    )}
                   </div>
-                  <div className="flex items-center gap-1 col-span-2">
-                    <Clock className="h-3 w-3" />
-                    <span>Last seen: {device.lastSeen ? formatTimeAgo(device.lastSeen) : 'Never'}</span>
+                  <div className="flex items-center gap-1.5 col-span-2">
+                    <Clock className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-muted-foreground dark:text-zinc-400">Last seen: {device.lastSeen ? formatTimeAgo(device.lastSeen) : 'Never'}</span>
                   </div>
                 </div>
+                {/* Connection test result */}
+                {testResults[device.id] && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    className={`text-[10px] px-2 py-1 rounded-md ${
+                      testResults[device.id]!.success
+                        ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
+                        : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+                    }`}
+                  >
+                    {testResults[device.id]!.success
+                      ? `✓ Connected in ${testResults[device.id]!.latency}ms`
+                      : `✗ Unreachable (${testResults[device.id]!.latency}ms timeout)`
+                    }
+                  </motion.div>
+                )}
                 <div className="flex items-center gap-1.5 pt-1">
                   <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => onEdit(device)}>
                     <Edit3 className="h-3 w-3 mr-1" />Edit
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => handleTestConnection(device)} disabled={testingIds.has(device.id)}>
+                    {testingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Zap className="h-3 w-3 mr-1" />}
+                    Test
                   </Button>
                   <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => handleHealthCheck(device.id)} disabled={healthCheckingIds.has(device.id)}>
                     {healthCheckingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Activity className="h-3 w-3 mr-1" />}
                     Health
                   </Button>
                   <AlertDialog>
-                    <AlertDialogTrigger render={<Button variant="outline" size="sm" className="h-7 text-xs text-destructive hover:bg-red-50 dark:hover:bg-red-900/20" />}>
+                    <AlertDialogTrigger render={<Button variant="outline" size="sm" className="h-7 text-xs text-destructive hover:bg-red-50 dark:hover:bg-red-900/20 px-2" />}>
                       <Trash2 className="h-3 w-3" />
                     </AlertDialogTrigger>
                     <AlertDialogContent>
@@ -2198,19 +2734,29 @@ function DeviceFormDialog({
 }: {
   open: boolean
   onClose: () => void
-  onSubmit: (data: { name: string; ip: string; port: number; apiKey: string }) => void
+  onSubmit: (data: { name: string; ip: string; port: number; apiKey: string; icon?: string }) => void
   device?: Device | null
   mode: 'add' | 'edit'
 }) {
+  const DEVICE_EMOJIS = ['💻', '🖥️', '📱', '☁️', '🐳', '🔧', '⚡', '🏢', '🏠', '🔧', '🌐', '📊', '🎮', '🤖', '🔒', '📦']
   const [name, setName] = React.useState(() => mode === 'edit' && device ? device.name : '')
   const [ip, setIp] = React.useState(() => mode === 'edit' && device ? device.ip : '')
   const [port, setPort] = React.useState(() => mode === 'edit' && device ? String(device.port) : '3100')
   const [apiKey, setApiKey] = React.useState(() => mode === 'edit' && device ? device.apiKey : '')
+  const [icon, setIcon] = React.useState(() => {
+    if (mode === 'edit' && device) {
+      // Extract emoji from name if present
+      const emojiMatch = device.name.match(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u)
+      return emojiMatch ? emojiMatch[1] : '💻'
+    }
+    return '💻'
+  })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim() || !ip.trim()) return
-    onSubmit({ name: name.trim(), ip: ip.trim(), port: parseInt(port) || 3100, apiKey: apiKey.trim() })
+    const finalName = name.trim().replace(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u, '').trim()
+    onSubmit({ name: `${icon} ${finalName}`.trim(), ip: ip.trim(), port: parseInt(port) || 3100, apiKey: apiKey.trim(), icon })
     onClose()
   }
 
@@ -2223,8 +2769,30 @@ function DeviceFormDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="space-y-1">
+            <Label>Device Icon</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {DEVICE_EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => setIcon(emoji)}
+                  className={`text-lg p-1.5 rounded-md border transition-colors ${
+                    icon === emoji
+                      ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20 ring-1 ring-teal-500/30'
+                      : 'border-border hover:bg-accent'
+                  }`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1">
             <Label htmlFor="device-name">Name *</Label>
-            <Input id="device-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="MacBook Pro" />
+            <div className="flex items-center gap-2">
+              <span className="text-xl shrink-0">{icon}</span>
+              <Input id="device-name" value={name.replace(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u, '')} onChange={(e) => setName(e.target.value)} placeholder="MacBook Pro" />
+            </div>
           </div>
           <div className="space-y-1">
             <Label htmlFor="device-ip">IP Address *</Label>
@@ -2252,19 +2820,80 @@ function DeviceFormDialog({
 
 // ======================== SKELETON LOADING ========================
 
+function ProjectCardSkeleton() {
+  return (
+    <div className="rounded-xl border bg-card dark:bg-zinc-900/80 overflow-hidden border-border/60 dark:border-zinc-700/50 border-l-2 border-l-zinc-300 dark:border-l-zinc-600">
+      <div className="p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="h-8 w-8 rounded-lg bg-muted animate-pulse" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-4 w-28 rounded bg-muted animate-pulse" />
+            <div className="h-3 w-40 rounded bg-muted animate-pulse" style={{ animationDelay: '100ms' }} />
+          </div>
+          <div className="h-7 w-7 rounded-full bg-muted animate-pulse" style={{ animationDelay: '100ms' }} />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-3 w-full rounded bg-muted animate-pulse" style={{ animationDelay: '150ms' }} />
+          <div className="h-3 w-2/3 rounded bg-muted animate-pulse" style={{ animationDelay: '200ms' }} />
+        </div>
+        <div className="flex gap-1.5">
+          <div className="h-5 w-14 rounded-md bg-muted animate-pulse" style={{ animationDelay: '150ms' }} />
+          <div className="h-5 w-14 rounded-md bg-muted animate-pulse" style={{ animationDelay: '200ms' }} />
+          <div className="h-5 w-10 rounded-md bg-muted animate-pulse" style={{ animationDelay: '250ms' }} />
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-2 py-2 rounded-lg">
+            <div className="flex items-center gap-1.5">
+              <div className="h-2 w-2 rounded-full bg-muted animate-pulse" />
+              <div className="h-4 w-8 rounded bg-muted animate-pulse" style={{ animationDelay: '200ms' }} />
+              <div className="h-3 w-6 rounded bg-muted animate-pulse" style={{ animationDelay: '250ms' }} />
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="h-4 w-8 rounded bg-muted animate-pulse" style={{ animationDelay: '250ms' }} />
+              <div className="h-5 w-5 rounded bg-muted animate-pulse" style={{ animationDelay: '300ms' }} />
+            </div>
+          </div>
+          <div className="flex items-center justify-between px-2 py-2 rounded-lg">
+            <div className="flex items-center gap-1.5">
+              <div className="h-2 w-2 rounded-full bg-muted animate-pulse" style={{ animationDelay: '200ms' }} />
+              <div className="h-4 w-8 rounded bg-muted animate-pulse" style={{ animationDelay: '250ms' }} />
+              <div className="h-3 w-6 rounded bg-muted animate-pulse" style={{ animationDelay: '300ms' }} />
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="h-4 w-8 rounded bg-muted animate-pulse" style={{ animationDelay: '300ms' }} />
+              <div className="h-5 w-5 rounded bg-muted animate-pulse" style={{ animationDelay: '350ms' }} />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="h-px bg-border/30 dark:bg-zinc-700/30" />
+      <div className="px-4 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="h-5 w-20 rounded-md bg-muted animate-pulse" style={{ animationDelay: '300ms' }} />
+          <div className="h-3 w-10 rounded bg-muted animate-pulse" style={{ animationDelay: '350ms' }} />
+        </div>
+        <div className="flex gap-1">
+          <div className="h-7 w-14 rounded-md bg-muted animate-pulse" style={{ animationDelay: '350ms' }} />
+          <div className="h-7 w-7 rounded-md bg-muted animate-pulse" style={{ animationDelay: '400ms' }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function LoadingSkeleton({ viewMode }: { viewMode: ViewMode }) {
   if (viewMode === 'list') {
     return (
       <div className="space-y-2">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 p-3 rounded-lg border bg-card">
-            <div className="h-4 w-4 rounded animate-shimmer" style={{ animationDelay: '0ms' }} />
-            <div className="h-5 w-5 rounded animate-shimmer" style={{ animationDelay: '0ms' }} />
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3 p-3.5 rounded-lg border bg-card dark:bg-zinc-900/80">
+            <div className="h-4 w-4 rounded bg-muted animate-pulse" />
+            <div className="h-5 w-5 rounded bg-muted animate-pulse" />
             <div className="flex-1 space-y-1">
-              <div className="h-4 w-32 rounded animate-shimmer" style={{ animationDelay: '100ms' }} />
-              <div className="h-3 w-48 rounded animate-shimmer" style={{ animationDelay: '200ms' }} />
+              <div className="h-4 w-32 rounded bg-muted animate-pulse" style={{ animationDelay: `${i * 100}ms` }} />
+              <div className="h-3 w-48 rounded bg-muted animate-pulse" style={{ animationDelay: `${i * 100 + 50}ms` }} />
             </div>
-            <div className="h-8 w-8 rounded-full animate-shimmer" style={{ animationDelay: '100ms' }} />
+            <div className="h-8 w-8 rounded-full bg-muted animate-pulse" style={{ animationDelay: `${i * 100 + 100}ms` }} />
           </div>
         ))}
       </div>
@@ -2273,22 +2902,7 @@ function LoadingSkeleton({ viewMode }: { viewMode: ViewMode }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="rounded-xl border bg-card overflow-hidden">
-          <div className="p-4 space-y-3">
-            <div className="flex items-center gap-2"><div className="h-8 w-8 rounded-lg animate-shimmer" style={{ animationDelay: '0ms' }} /><div className="flex-1 space-y-1"><div className="h-4 w-24 rounded animate-shimmer" style={{ animationDelay: '0ms' }} /><div className="h-3 w-32 rounded animate-shimmer" style={{ animationDelay: '100ms' }} /></div><div className="h-9 w-9 rounded-full animate-shimmer" style={{ animationDelay: '100ms' }} /></div>
-            <div className="space-y-1">
-              <div className="h-3 w-full rounded animate-shimmer" style={{ animationDelay: '100ms' }} />
-              <div className="h-3 w-2/3 rounded animate-shimmer" style={{ animationDelay: '150ms' }} />
-              <div className="h-3 w-1/2 rounded animate-shimmer" style={{ animationDelay: '200ms' }} />
-            </div>
-            <div className="flex gap-1"><div className="h-4 w-14 rounded animate-shimmer" style={{ animationDelay: '150ms' }} /><div className="h-4 w-14 rounded animate-shimmer" style={{ animationDelay: '200ms' }} /></div>
-          </div>
-          <div className="h-px mx-5 bg-gradient-to-r from-transparent via-border/50 dark:via-zinc-700/40 to-transparent" />
-          <div className="px-4 py-2 flex items-center justify-between">
-            <div className="h-4 w-20 rounded animate-shimmer" style={{ animationDelay: '200ms' }} />
-            <div className="flex gap-1"><div className="h-6 w-14 rounded animate-shimmer" style={{ animationDelay: '200ms' }} /><div className="h-6 w-6 rounded animate-shimmer" style={{ animationDelay: '200ms' }} /></div>
-          </div>
-        </div>
+        <ProjectCardSkeleton key={i} />
       ))}
     </div>
   )
@@ -2502,6 +3116,79 @@ export default function DashboardPage() {
     return () => clearInterval(interval)
   }, [fetchProjects])
 
+  // Client-side notification queue for auto-generated notifications
+  const autoNotifIdRef = React.useRef(0)
+  const addAutoNotification = React.useCallback((type: 'success' | 'warning' | 'error' | 'info', title: string, message: string, projectName?: string) => {
+    const id = `auto_${++autoNotifIdRef.current}_${Date.now()}`
+    const notif: Notification = {
+      id,
+      type,
+      title,
+      message,
+      timestamp: new Date().toISOString(),
+      read: false,
+      projectName,
+    }
+    setNotifications((prev) => [notif, ...prev])
+  }, [])
+
+  // Device health polling every 30 seconds
+  const prevDeviceStatusRef = React.useRef<Record<string, string>>({})
+  React.useEffect(() => {
+    // Capture current device statuses for change detection
+    const currentStatuses: Record<string, string> = {}
+    for (const d of devices) {
+      currentStatuses[d.id] = d.status
+    }
+    prevDeviceStatusRef.current = currentStatuses
+  }, [devices])
+  React.useEffect(() => {
+    if (devices.length === 0) return
+    const pollDeviceHealth = async () => {
+      for (const device of devices) {
+        try {
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), 5000)
+          const res = await fetch(`http://${device.ip}:${device.port}/api/agent/health`, {
+            signal: controller.signal,
+            headers: { 'Authorization': `Bearer ${device.apiKey}` },
+          })
+          clearTimeout(timeout)
+          const isOnline = res.ok
+          const prevStatus = prevDeviceStatusRef.current[device.id]
+          setDevices((prev) => prev.map((d) =>
+            d.id === device.id
+              ? { ...d, status: isOnline ? 'online' : 'offline', lastSeen: isOnline ? new Date().toISOString() : d.lastSeen }
+              : d
+          ))
+          // Generate notification for status changes
+          if (prevStatus && prevStatus !== (isOnline ? 'online' : 'offline')) {
+            addAutoNotification(
+              isOnline ? 'success' : 'error',
+              isOnline ? 'Device Online' : 'Device Offline',
+              `${device.name} (${device.ip}:${device.port}) is now ${isOnline ? 'online' : 'unreachable'}.`
+            )
+          }
+        } catch {
+          const prevStatus = prevDeviceStatusRef.current[device.id]
+          setDevices((prev) => prev.map((d) =>
+            d.id === device.id ? { ...d, status: 'offline' } : d
+          ))
+          if (prevStatus && prevStatus === 'online') {
+            addAutoNotification(
+              'error',
+              'Device Offline',
+              `${device.name} (${device.ip}:${device.port}) is now unreachable.`
+            )
+          }
+        }
+      }
+    }
+    pollDeviceHealth()
+    const interval = setInterval(pollDeviceHealth, 30000)
+    return () => clearInterval(interval)
+  }, [devices.length, addAutoNotification])
+
   // Fetch LAN IP for access links
   React.useEffect(() => {
     const id = requestAnimationFrame(() => {
@@ -2562,6 +3249,7 @@ export default function DashboardPage() {
         if (e.key === 'n') { e.preventDefault(); handleAddProject() }
         if (e.shiftKey && (e.key === 'R' || e.key === 'r')) { e.preventDefault(); loadData() }
         if (e.key === 'p') { e.preventDefault(); setCommandPaletteOpen(true) }
+        if (e.key === 'd') { e.preventDefault(); setDeviceManagementOpen(true) }
       }
 
       if (e.key === '?' && !e.ctrlKey && !e.metaKey) { setShortcutsOpen(true) }
@@ -2702,6 +3390,7 @@ export default function DashboardPage() {
         })
         if (res.ok) {
           toast({ title: 'Project created', variant: 'success' })
+          addAutoNotification('success', 'Project Created', `Project "${data.name}" has been created successfully.`, data.name)
           fetchProjects()
         } else {
           const err = await res.json()
@@ -2716,6 +3405,9 @@ export default function DashboardPage() {
         if (res.ok) {
           toast({ title: 'Project updated', variant: 'success' })
           fetchProjects()
+        } else {
+          const err = await res.json()
+          toast({ title: 'Failed to update project', description: err.error, variant: 'destructive' })
         }
       }
     } catch {
@@ -2728,9 +3420,12 @@ export default function DashboardPage() {
       const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
       if (res.ok) {
         toast({ title: 'Project deleted', variant: 'success' })
+        addAutoNotification('warning', 'Project Deleted', `A project has been deleted.`, undefined)
         fetchProjects()
         setDeleteProject(null)
         if (selectedProject?.id === id) { setSelectedProject(null); setDetailOpen(false) }
+      } else {
+        toast({ title: 'Failed to delete project', variant: 'destructive' })
       }
     } catch {
       toast({ title: 'Failed to delete', variant: 'destructive' })
@@ -2820,6 +3515,12 @@ export default function DashboardPage() {
       const res = await fetch(`/api/projects/${projectId}/environments/${envId}/${action}`, { method: 'POST' })
       if (res.ok) {
         toast({ title: `${actionLabels[action] ?? `${action}ed`} ${envLabel}`, variant: 'success' })
+        addAutoNotification(
+          action === 'start' ? 'success' : action === 'stop' ? 'warning' : action === 'restart' ? 'info' : 'success',
+          `${actionLabels[action] ?? `${action}ed`} ${envLabel}`,
+          `${envLabel} for ${project?.name ?? 'project'} has been ${actionLabels[action]?.toLowerCase() ?? action + 'ed'}.`,
+          project?.name
+        )
 
         // Auto-start Hermes Bridge when Hermes Web dev/prod starts
         if (action === 'start' && project?.name === 'Hermes Web') {
@@ -2855,6 +3556,8 @@ export default function DashboardPage() {
           const fresh = await (await fetch(`/api/projects/${projectId}`)).json()
           setSelectedProject(fresh?.project ?? fresh)
         }
+      } else {
+        toast({ title: `Failed to ${action} ${envLabel}`, description: 'Server returned an error', variant: 'destructive' })
       }
     } catch {
       toast({ title: `Failed to ${action} ${envLabel}`, variant: 'destructive' })
@@ -2911,7 +3614,6 @@ export default function DashboardPage() {
     }
   }, [toast, fetchProjects, projects, selectedProject])
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleAddEnv = React.useCallback((projectId: string) => {
     setAddEnvProjectId(projectId)
     setEnvFormMode('add')
@@ -2919,7 +3621,6 @@ export default function DashboardPage() {
     setEnvFormOpen(true)
   }, [])
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleEditEnv = React.useCallback((env: Environment) => {
     setEnvFormMode('edit')
     setEditingEnv(env)
@@ -2937,6 +3638,9 @@ export default function DashboardPage() {
         if (res.ok) {
           toast({ title: 'Environment created', variant: 'success' })
           fetchProjects()
+        } else {
+          const err = await res.json()
+          toast({ title: 'Failed to create environment', description: err.error, variant: 'destructive' })
         }
       } else if (editingEnv) {
         const res = await fetch(`/api/projects/${editingEnv.projectId}/environments/${editingEnv.id}`, {
@@ -2947,6 +3651,9 @@ export default function DashboardPage() {
         if (res.ok) {
           toast({ title: 'Environment updated', variant: 'success' })
           fetchProjects()
+        } else {
+          const err = await res.json()
+          toast({ title: 'Failed to update environment', description: err.error, variant: 'destructive' })
         }
       }
     } catch {
@@ -2954,7 +3661,6 @@ export default function DashboardPage() {
     }
   }, [envFormMode, addEnvProjectId, editingEnv, toast, fetchProjects])
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleDeleteEnv = React.useCallback(async (projectId: string, envId: string) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/environments/${envId}`, { method: 'DELETE' })
@@ -2965,6 +3671,8 @@ export default function DashboardPage() {
           const fresh = await (await fetch(`/api/projects/${projectId}`)).json()
           setSelectedProject(fresh?.project ?? fresh)
         }
+      } else {
+        toast({ title: 'Failed to delete environment', variant: 'destructive' })
       }
     } catch {
       toast({ title: 'Failed to delete environment', variant: 'destructive' })
@@ -2972,15 +3680,32 @@ export default function DashboardPage() {
   }, [toast, fetchProjects, selectedProject])
 
   const handleMarkNotifRead = React.useCallback(async (id?: string) => {
-    try {
-      await fetch('/api/notifications', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(id ? { id } : { markAll: true }),
-      })
-      fetchNotifications()
-    } catch { /* ignore */ }
-  }, [fetchNotifications])
+    if (id) {
+      // Optimistically update UI
+      setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n))
+      try {
+        await fetch('/api/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        })
+      } catch { /* ignore */ }
+    } else {
+      // Mark all as read
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
+      try {
+        await fetch('/api/notifications', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ markAll: true }),
+        })
+      } catch { /* ignore */ }
+    }
+  }, [])
+
+  const handleClearNotifications = React.useCallback(() => {
+    setNotifications([])
+  }, [])
 
   const handleBatchAction = React.useCallback(async (action: string) => {
     const ids = Array.from(selectedIds)
@@ -3094,7 +3819,7 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {/* ======================== HEADER ======================== */}
-      <header className="sticky top-0 z-30 border-b border-border/50 bg-background/80 backdrop-blur-xl supports-backdrop-blur:bg-background/60 shadow-[0_1px_8px_rgba(0,0,0,0.06)] dark:bg-zinc-900/95 dark:border-b dark:border-zinc-800/60 dark:shadow-[0_1px_8px_rgba(0,0,0,0.3)]">
+      <header className="sticky top-0 z-30 border-b border-border/50 bg-gradient-to-r from-background/90 via-background/80 to-background/90 backdrop-blur-2xl supports-backdrop-blur:bg-background/60 shadow-[0_1px_8px_rgba(0,0,0,0.06),0_4px_16px_rgba(0,0,0,0.03)] dark:from-zinc-900/98 dark:via-zinc-900/95 dark:to-zinc-900/98 dark:border-b dark:border-zinc-800/60 dark:shadow-[0_1px_8px_rgba(0,0,0,0.3),0_4px_16px_rgba(0,0,0,0.15)]">
         <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center gap-3">
           <div className="flex items-center gap-2 shrink-0">
             <div className="p-1.5 rounded-lg bg-gradient-to-br from-emerald-100 to-teal-100 dark:from-emerald-900/40 dark:to-teal-900/40 shadow-sm ring-1 ring-emerald-200/50 dark:ring-emerald-800/30">
@@ -3187,43 +3912,74 @@ export default function DashboardPage() {
               <PopoverTrigger render={<button type="button" className="inline-flex items-center justify-center rounded-md h-8 w-8 hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground cursor-pointer relative transition-all duration-150 active:scale-95" />}>
                   <Bell className="h-4 w-4" />
                   {unreadNotifs > 0 && (
-                    <motion.span key={unreadNotifs} initial={{ scale: 0.5 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 500, damping: 25 }} className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-red-500 text-white text-[9px] flex items-center justify-center font-bold">{unreadNotifs}</motion.span>
+                    <motion.span
+                      key={unreadNotifs}
+                      initial={{ scale: 0.3 }}
+                      animate={{ scale: [0.3, 1.2, 1] }}
+                      transition={{ duration: 0.4, ease: 'easeOut' }}
+                      className="absolute -top-1 -right-1 min-h-[18px] min-w-[18px] rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-bold px-1 shadow-lg shadow-red-500/30"
+                    >
+                      {unreadNotifs > 99 ? '99+' : unreadNotifs}
+                    </motion.span>
                   )}
                 </PopoverTrigger>
               <PopoverContent align="end" className="w-80 p-0">
-                <div className="flex items-center justify-between px-3 py-2 border-b">
+                <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
                   <span className="text-sm font-semibold">Notifications</span>
-                  {unreadNotifs > 0 && (
-                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => handleMarkNotifRead()}>Mark all read</Button>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {unreadNotifs > 0 && (
+                      <Button variant="ghost" size="sm" className="h-6 text-[11px] px-1.5 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300" onClick={() => handleMarkNotifRead()}>
+                        <CheckCircle2 className="h-3 w-3 mr-0.5" />Mark all read
+                      </Button>
+                    )}
+                    {notifications.length > 0 && (
+                      <Button variant="ghost" size="sm" className="h-6 text-[11px] px-1.5 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300" onClick={handleClearNotifications}>
+                        <Trash2 className="h-3 w-3 mr-0.5" />Clear all
+                      </Button>
+                    )}
+                  </div>
                 </div>
-                <div className="max-h-72 overflow-y-auto">
-                  {notifications.slice(0, 8).map((notif) => {
-                    const IconMap = { success: CheckCircle2, warning: AlertTriangle, error: XCircle, info: Info }
-                    const ColorMap: Record<string, string> = { success: 'text-emerald-500', warning: 'text-amber-500', error: 'text-red-500', info: 'text-cyan-500' }
-                    const NIcon = IconMap[notif.type]
-                    return (
-                      <button
-                        key={notif.id}
-                        className={`w-full flex items-start gap-2 p-2.5 text-left hover:bg-accent/50 transition-colors border-b last:border-0 border-l-2 ${notif.type === 'success' ? 'border-l-emerald-500' : notif.type === 'warning' ? 'border-l-amber-500' : notif.type === 'error' ? 'border-l-red-500' : 'border-l-cyan-500'}`}
-                        onClick={() => {
-                          if (!notif.read) handleMarkNotifRead(notif.id)
-                          setNotifDetail(notif)
-                          setNotifDetailOpen(true)
-                        }}
-                      >
-                        <NIcon className={`h-4 w-4 mt-0.5 shrink-0 ${ColorMap[notif.type]}`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-medium truncate">{notif.title}</span>
-                            {!notif.read && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />}
+                <div className="max-h-80 overflow-y-auto">
+                  {notifications.length === 0 && (
+                    <div className="py-8 text-center text-sm text-muted-foreground">
+                      <Bell className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                      <p>No notifications</p>
+                    </div>
+                  )}
+                  <AnimatePresence initial={false}>
+                    {notifications.slice(0, 10).map((notif) => {
+                      const NotifIconMap = { success: CheckCircle2, warning: AlertTriangle, error: XCircle, info: Info }
+                      const NotifColorMap: Record<string, string> = { success: 'text-emerald-500', warning: 'text-amber-500', error: 'text-red-500', info: 'text-cyan-500' }
+                      const NotifBorderMap: Record<string, string> = { success: 'border-l-emerald-500', warning: 'border-l-amber-500', error: 'border-l-red-500', info: 'border-l-cyan-500' }
+                      const NotifBgMap: Record<string, string> = { success: 'bg-emerald-50/50 dark:bg-emerald-950/20', warning: 'bg-amber-50/50 dark:bg-amber-950/20', error: 'bg-red-50/50 dark:bg-red-950/20', info: 'bg-cyan-50/50 dark:bg-cyan-950/20' }
+                      const NIcon = NotifIconMap[notif.type]
+                      return (
+                        <motion.button
+                          key={notif.id}
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                          transition={{ duration: 0.2, ease: 'easeInOut' }}
+                          className={`w-full flex items-start gap-2 p-2.5 text-left hover:bg-accent/50 transition-colors border-b last:border-0 border-l-2 ${NotifBorderMap[notif.type]} ${!notif.read ? NotifBgMap[notif.type] : ''}`}
+                          onClick={() => {
+                            if (!notif.read) handleMarkNotifRead(notif.id)
+                            setNotifDetail(notif)
+                            setNotifDetailOpen(true)
+                          }}
+                        >
+                          <NIcon className={`h-4 w-4 mt-0.5 shrink-0 ${NotifColorMap[notif.type]}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-sm truncate ${!notif.read ? 'font-semibold' : 'font-medium'}`}>{notif.title}</span>
+                              {!notif.read && <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 400, damping: 20 }} className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />}
+                            </div>
+                            <p className="text-xs text-muted-foreground truncate">{notif.message}</p>
+                            <p className="text-[10px] text-muted-foreground/70 mt-0.5 flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{formatTimeAgo(notif.timestamp)}</p>
                           </div>
-                          <p className="text-xs text-muted-foreground truncate">{notif.message}</p>
-                          <p className="text-[10px] text-muted-foreground mt-0.5">{formatTimeAgo(notif.timestamp)}</p>
-                        </div>
-                      </button>
-                    )
-                  })}
+                        </motion.button>
+                      )
+                    })}
+                  </AnimatePresence>
                 </div>
               </PopoverContent>
             </Popover>
@@ -3429,27 +4185,30 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ======================== BATCH OPERATIONS BAR ======================== */}
+      {/* ======================== BATCH OPERATIONS BAR (bottom) ======================== */}
       <AnimatePresence>
         {batchMode && selectedIds.size > 0 && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="border-b bg-emerald-50 dark:bg-emerald-950/30 overflow-hidden"
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 100, opacity: 0 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed bottom-12 left-0 right-0 z-40 border-t border-emerald-200 dark:border-emerald-800/40 bg-white/95 dark:bg-zinc-900/98 backdrop-blur-xl shadow-[0_-8px_30px_rgba(0,0,0,0.12)] dark:shadow-[0_-8px_30px_rgba(0,0,0,0.5)]"
           >
-            <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
                 <Checkbox checked={selectedIds.size === filteredProjects.length && filteredProjects.length > 0} onCheckedChange={toggleSelectAll} />
-                <span className="text-sm font-medium">{selectedIds.size} selected</span>
+                <span className="text-sm font-semibold">{selectedIds.size} <span className="font-normal text-muted-foreground">selected</span></span>
+                <Button variant="ghost" size="sm" className="h-6 text-[10px] text-muted-foreground hover:text-foreground" onClick={toggleSelectAll}>
+                  {selectedIds.size === filteredProjects.length && filteredProjects.length > 0 ? 'Deselect All' : 'Select All'}
+                </Button>
               </div>
               <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('start')}><Play className="h-3 w-3 mr-1 text-emerald-500" />Start</Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1 text-red-500" />Stop</Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('rebuild')}><Hammer className="h-3 w-3 mr-1 text-teal-500" />Rebuild</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('start')}><Play className="h-3 w-3 mr-1 text-emerald-500" />Start All</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1 text-red-500" />Stop All</Button>
                 <AlertDialog>
                   <AlertDialogTrigger render={<Button size="sm" variant="outline" className="h-7 text-xs text-destructive" />}>
-                    <Trash2 className="h-3 w-3 mr-1" />Delete
+                    <Trash2 className="h-3 w-3 mr-1" />Delete All
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
@@ -3523,10 +4282,12 @@ export default function DashboardPage() {
                       {deviceGroupedProjects.localProjects.length > 0 && (
                         <>
                           <div className="col-span-full">
-                            <div className="flex items-center gap-2 px-1 py-2">
-                              <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                              <span className="text-sm font-semibold">💻 This Machine</span>
-                              <Badge variant="secondary" className="text-[10px]">{deviceGroupedProjects.localProjects.length}</Badge>
+                            <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-gradient-to-r from-emerald-50/60 via-emerald-50/30 to-transparent dark:from-emerald-900/20 dark:via-emerald-900/10 dark:to-transparent border border-emerald-100/50 dark:border-emerald-800/20">
+                              <div className="p-1 rounded-md bg-emerald-100 dark:bg-emerald-800/30">
+                                <Monitor className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                              </div>
+                              <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">💻 This Machine</span>
+                              <Badge variant="secondary" className="text-[10px] bg-emerald-100/60 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">{deviceGroupedProjects.localProjects.length}</Badge>
                             </div>
                           </div>
                           {deviceGroupedProjects.localProjects.map((project, idx) => (
@@ -3557,13 +4318,18 @@ export default function DashboardPage() {
                       {deviceGroupedProjects.remoteGroups.map((group) => (
                         <React.Fragment key={group.device?.id ?? 'unknown'}>
                           <div className="col-span-full">
-                            <div className="flex items-center gap-2 px-1 py-2">
-                              <span className={group.device?.status === 'online' ? 'text-emerald-500' : 'text-red-400'}>
-                                {group.device?.status === 'online' ? '🟢' : '🔴'}
-                              </span>
-                              <span className="text-sm font-semibold">{group.device?.name ?? 'Unknown Device'}</span>
+                            <div className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border ${
+                              group.device?.status === 'online'
+                                ? 'bg-gradient-to-r from-teal-50/60 via-teal-50/30 to-transparent dark:from-teal-900/20 dark:via-teal-900/10 dark:to-transparent border-teal-100/50 dark:border-teal-800/20'
+                                : 'bg-gradient-to-r from-red-50/40 via-red-50/20 to-transparent dark:from-red-900/15 dark:via-red-900/8 dark:to-transparent border-red-100/50 dark:border-red-800/20'
+                            }`}>
+                              <div className={`p-1 rounded-md ${group.device?.status === 'online' ? 'bg-teal-100 dark:bg-teal-800/30' : 'bg-red-100 dark:bg-red-800/30'}`}>
+                                <Server className={`h-3.5 w-3.5 ${group.device?.status === 'online' ? 'text-teal-600 dark:text-teal-400' : 'text-red-500 dark:text-red-400'}`} />
+                              </div>
+                              <AnimatedStatusDot status={group.device?.status === 'online' ? 'running' : 'stopped'} size="md" />
+                              <span className={`text-sm font-semibold ${group.device?.status === 'online' ? 'text-teal-700 dark:text-teal-300' : 'text-red-600 dark:text-red-400'}`}>{group.device?.name ?? 'Unknown Device'}</span>
                               <span className="text-[10px] text-muted-foreground font-mono">{group.device?.ip}:{group.device?.port}</span>
-                              <Badge variant="secondary" className="text-[10px]">{group.projects.length}</Badge>
+                              <Badge variant="secondary" className={`text-[10px] ${group.device?.status === 'online' ? 'bg-teal-100/60 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300' : 'bg-red-100/60 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>{group.projects.length}</Badge>
                             </div>
                           </div>
                           {group.projects.map((project, idx) => (
@@ -3623,10 +4389,12 @@ export default function DashboardPage() {
                       {/* Local projects group */}
                       {deviceGroupedProjects.localProjects.length > 0 && (
                         <>
-                          <div className="flex items-center gap-2 px-1 py-1.5">
-                            <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                            <span className="text-sm font-semibold">💻 This Machine</span>
-                            <Badge variant="secondary" className="text-[10px]">{deviceGroupedProjects.localProjects.length}</Badge>
+                          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-gradient-to-r from-emerald-50/60 via-emerald-50/30 to-transparent dark:from-emerald-900/20 dark:via-emerald-900/10 dark:to-transparent border border-emerald-100/50 dark:border-emerald-800/20">
+                            <div className="p-1 rounded-md bg-emerald-100 dark:bg-emerald-800/30">
+                              <Monitor className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                            </div>
+                            <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">💻 This Machine</span>
+                            <Badge variant="secondary" className="text-[10px] bg-emerald-100/60 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">{deviceGroupedProjects.localProjects.length}</Badge>
                           </div>
                           {deviceGroupedProjects.localProjects.map((project, idx) => (
                             <SortableProjectCard
@@ -3655,13 +4423,18 @@ export default function DashboardPage() {
                       {/* Remote device groups */}
                       {deviceGroupedProjects.remoteGroups.map((group) => (
                         <React.Fragment key={group.device?.id ?? 'unknown'}>
-                          <div className="flex items-center gap-2 px-1 py-1.5 mt-2">
-                            <span className={group.device?.status === 'online' ? 'text-emerald-500' : 'text-red-400'}>
-                              {group.device?.status === 'online' ? '🟢' : '🔴'}
-                            </span>
-                            <span className="text-sm font-semibold">{group.device?.name ?? 'Unknown Device'}</span>
+                          <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border mt-2 ${
+                            group.device?.status === 'online'
+                              ? 'bg-gradient-to-r from-teal-50/60 via-teal-50/30 to-transparent dark:from-teal-900/20 dark:via-teal-900/10 dark:to-transparent border-teal-100/50 dark:border-teal-800/20'
+                              : 'bg-gradient-to-r from-red-50/40 via-red-50/20 to-transparent dark:from-red-900/15 dark:via-red-900/8 dark:to-transparent border-red-100/50 dark:border-red-800/20'
+                          }`}>
+                            <div className={`p-1 rounded-md ${group.device?.status === 'online' ? 'bg-teal-100 dark:bg-teal-800/30' : 'bg-red-100 dark:bg-red-800/30'}`}>
+                              <Server className={`h-3.5 w-3.5 ${group.device?.status === 'online' ? 'text-teal-600 dark:text-teal-400' : 'text-red-500 dark:text-red-400'}`} />
+                            </div>
+                            <AnimatedStatusDot status={group.device?.status === 'online' ? 'running' : 'stopped'} size="md" />
+                            <span className={`text-sm font-semibold ${group.device?.status === 'online' ? 'text-teal-700 dark:text-teal-300' : 'text-red-600 dark:text-red-400'}`}>{group.device?.name ?? 'Unknown Device'}</span>
                             <span className="text-[10px] text-muted-foreground font-mono">{group.device?.ip}:{group.device?.port}</span>
-                            <Badge variant="secondary" className="text-[10px]">{group.projects.length}</Badge>
+                            <Badge variant="secondary" className={`text-[10px] ${group.device?.status === 'online' ? 'bg-teal-100/60 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300' : 'bg-red-100/60 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>{group.projects.length}</Badge>
                           </div>
                           {group.projects.map((project, idx) => (
                             <SortableProjectCard
@@ -3721,7 +4494,7 @@ export default function DashboardPage() {
       </main>
 
       {/* ======================== FOOTER ======================== */}
-      <EnhancedFooter projects={projects} onOpenDevices={() => setDeviceManagementOpen(true)} />
+      <EnhancedFooter projects={projects} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} />
 
       {/* ======================== GLOBAL STATUS PANEL ======================== */}
       {!loading && projects.length > 0 && <GlobalStatusPanel projects={projects} />}
@@ -3789,6 +4562,17 @@ export default function DashboardPage() {
         onEnvAction={handleEnvAction}
         lanIp={lanIp}
         currentHost={currentHost}
+        onRefresh={() => {
+          fetchProjects()
+          if (selectedProject) {
+            fetch(`/api/projects/${selectedProject.id}`)
+              .then((r) => r.json())
+              .then((fresh) => setSelectedProject(fresh?.project ?? fresh))
+              .catch(() => {})
+          }
+        }}
+        devices={devices}
+        onOpenDeviceManagement={() => setDeviceManagementOpen(true)}
       />
 
       {/* Gateway monitor */}
@@ -3807,6 +4591,9 @@ export default function DashboardPage() {
         onAddProject={handleAddProject}
         onRefresh={loadData}
         onToggleView={() => setViewMode((v) => v === 'grid' ? 'list' : 'grid')}
+        devices={devices}
+        onOpenDeviceManagement={() => setDeviceManagementOpen(true)}
+        onFilterByDevice={(deviceId) => setSelectedDeviceId(deviceId)}
       />
 
       {/* Keyboard shortcuts */}

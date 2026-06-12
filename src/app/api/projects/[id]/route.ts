@@ -68,7 +68,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, description, icon } = body;
+    const { name, description, icon, tags } = body;
 
     const existing = await db.project.findUnique({
       where: { id },
@@ -96,6 +96,7 @@ export async function PUT(
         ...(name !== undefined && { name }),
         ...(description !== undefined && { description }),
         ...(icon !== undefined && { icon }),
+        ...(tags !== undefined && { tags }),
       },
       include: { environments: true },
     });
