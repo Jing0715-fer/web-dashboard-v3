@@ -1,5 +1,129 @@
 # Web Dashboard Multi-Device Interconnection - Worklog
 
+## Session 12: QA + 6 New Features + Enhanced Style Polish (2026-06-13)
+
+### Project Current Status
+- Dashboard fully functional with 9 projects (6 local + 3 remote), all rendering correctly
+- All previous features working + 6 new features from this session
+- 0 lint errors, 0 warnings
+- Dev server running stable (200 OK)
+- HMR temporal dead zone errors resolved by using refs for keyboard handler
+
+### QA Results (Pre-Implementation)
+- ✅ 9 projects displayed correctly (6 local + 3 remote)
+- ✅ Detail sheet tabs (Overview, Environments, Activity, Logs) all functional
+- ✅ Dark mode toggle works
+- ✅ System monitor opens
+- ✅ Add project dialog works
+- ✅ Batch mode checkbox works
+- ✅ Search filtering works (e.g., "API" filters to 3 projects)
+- ✅ Notification panel expands
+- ✅ 0 JS console errors captured
+- ✅ 0 lint errors
+
+### Completed Work This Session
+
+#### Feature 1: Project Health Alerts System ✅
+- Added configurable health alert threshold (10-90%, default 50%)
+- Added enable/disable toggle for health alerts
+- Toast notifications when system health drops below threshold
+- Per-project health monitoring with visual indicators
+- "Health Alerts" option in Settings dropdown
+- Beautiful dialog with threshold slider, current status display, per-project health list
+- Health alert indicators (red pulse dot when below threshold)
+- All settings persisted in localStorage
+
+#### Feature 2: Dashboard Layout Customization ✅
+- "Customize Dashboard" option in Settings dropdown
+- **Card Density** selector: Compact / Comfortable / Spacious with visual preview cards
+- **Visible Stats Cards** toggles: show/hide Total Projects, Environments, Devices, Health Score
+- Stats grid adapts column count based on visible cards (1-4 columns)
+- **Quick Actions**: "Show Welcome" (reset welcome widget) and "Reset Defaults"
+- All preferences persisted in localStorage
+
+#### Feature 3: Enhanced Log Viewer ✅
+- Complete redesign: terminal-style dark background (zinc-950)
+- **Line numbers** for each log entry (sequential numbering)
+- **Color-coded log levels**: ERROR (red-400), WARN (amber-400), INFO (cyan-400), DEBUG (zinc-500)
+- **Source column** highlighted in emerald
+- **Error background tinting**: error rows get red-950/20 background, warn rows get amber-950/10
+- **Hover effects**: rows highlight on hover
+- Alternating row separators with border-zinc-800
+- Much more professional, IDE-like appearance
+
+#### Feature 4: Project Comparison Dialog ✅
+- "Compare" option in context menus (both list and grid views)
+- Side-by-side project comparison with dropdown selectors
+- Comparison table showing: Status, Health, Environments, Running, Stopped, Tags, Path, Device, Description
+- Color-coded status badges and health scores
+- Tags displayed as colored badges
+- Paths shown in monospace font
+- Empty state with icon when no second project selected
+
+#### Feature 5: Enhanced Skeleton Loading ✅
+- Added shimmer overlay animation to ProjectCardSkeleton
+- Shimmer effect uses the existing `animate-shimmer` CSS class
+- Creates a professional loading experience with light sweep effect
+
+#### Feature 6: Keyboard Navigation + Style Polish ✅
+- **Arrow key navigation**: Up/Down arrows navigate between project cards
+- **Home/End**: Jump to first/last project
+- **Enter**: Open focused project detail sheet
+- **Focus ring**: Focused project cards show emerald ring + shadow
+- **data-project-index**: All project cards have index attributes for DOM navigation
+- **tabIndex**: Project cards are keyboard-focusable
+- **Density classes**: List and grid views respect card density setting
+- **Ref-based keyboard handler**: Uses refs to avoid temporal dead zone errors
+
+### New State Variables
+- `healthAlertThreshold`: Number (persisted in localStorage)
+- `healthAlertEnabled`: Boolean (persisted in localStorage)
+- `healthAlertsOpen`: Boolean (dialog visibility)
+- `cardDensity`: 'compact' | 'comfortable' | 'spacious' (persisted)
+- `visibleStats`: Set<string> (persisted)
+- `dashboardCustomizeOpen`: Boolean (dialog visibility)
+- `compareOpen`: Boolean (dialog visibility)
+- `compareProjectA`: Project | null
+- `compareProjectB`: Project | null
+- `focusedProjectIndex`: Number (for keyboard navigation)
+- `filteredProjectsRef`: Ref<Project[]> (temporal dead zone workaround)
+- `focusedProjectIndexRef`: Ref<number> (temporal dead zone workaround)
+
+### New Props Added to SortableProjectCard
+- `focused`: boolean — shows focus ring when true
+- `cardDensity`: 'compact' | 'comfortable' | 'spacious' — adjusts padding
+- `onCompare`: (project: Project) => void — opens compare dialog
+
+### Files Modified
+- `src/app/page.tsx` — All 6 features (6017→6409 lines)
+- All 8 SortableProjectCard usages updated with new props
+- Both context menus (list + grid) updated with Compare option
+
+### Post-Implementation QA Verification
+- ✅ 9 projects displayed correctly
+- ✅ 0 lint errors, 0 warnings
+- ✅ Server returns 200 OK
+- ✅ All project names visible in DOM
+- ✅ No temporal dead zone errors (resolved with refs)
+
+### Known Issues / Risks
+1. **Per-project health alerts**: The per-project health alert effect runs on every projects change. This could fire false alerts during data refresh cycles. May need debouncing in the future.
+2. **Component size**: The file is now ~6409 lines. Component refactoring would improve maintainability.
+3. **Log viewer dark theme**: The terminal-style log viewer always uses dark theme regardless of app theme setting. This is intentional (mimics IDE terminal) but could be made theme-aware.
+
+### Recommended Next Steps
+1. **Component refactoring**: Split the 6409-line DashboardPage into smaller components
+2. **WebSocket real-time updates**: Replace polling with WebSocket for live status
+3. **mDNS device discovery**: Auto-discover agents on LAN
+4. **Project deployment history**: Track deployment versions and rollbacks
+5. **User authentication**: Add login/auth with NextAuth.js
+6. **LLM-powered analysis**: Use LLM skill for project analysis
+7. **Custom dashboard widgets**: Drag-and-drop configurable dashboard layout
+8. **Project health alerts debouncing**: Add debounce to prevent false alerts during data refresh
+9. **Theme-aware log viewer**: Make the log viewer respect the app theme setting
+
+---
+
 ## Session 11: QA + Bug Assessment + 6 New Features + Style Polish (2026-06-13)
 
 ### Project Current Status

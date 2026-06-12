@@ -561,7 +561,8 @@ function SortableProjectCard({
   project, viewMode, searchQuery, onSelect, onEdit, onDelete,
   onEnvAction, onRebuildConfirm, selected, onToggleSelect, rebuilding,
   starred, onToggleStar, lanIp, currentHost, index = 0,
-  batchMode = false, onDuplicate, onMoveToDevice, devices, onHover
+  batchMode = false, onDuplicate, onMoveToDevice, devices, onHover,
+  focused = false, cardDensity = 'comfortable', onCompare
 }: {
   project: Project
   viewMode: ViewMode
@@ -584,6 +585,9 @@ function SortableProjectCard({
   onMoveToDevice?: (project: Project) => void
   devices?: Device[]
   onHover?: (id: string | null) => void
+  focused?: boolean
+  cardDensity?: 'compact' | 'comfortable' | 'spacious'
+  onCompare?: (project: Project) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
   const [expanded, setExpanded] = React.useState(false)
@@ -619,9 +623,12 @@ function SortableProjectCard({
     return `http://${host}:${port}`
   }
 
+  const densityClass = cardDensity === 'compact' ? 'p-2.5' : cardDensity === 'spacious' ? 'p-5' : 'p-3.5'
+  const densityListClass = cardDensity === 'compact' ? 'p-2 gap-2' : cardDensity === 'spacious' ? 'p-5 gap-4' : 'p-3.5 gap-3'
+
   if (viewMode === 'list') {
     return (
-      <div ref={setNodeRef} style={style} className={isDragging ? 'z-50 shadow-xl' : ''} onMouseEnter={() => onHover?.(project.id)} onMouseLeave={() => onHover?.(null)}>
+      <div ref={setNodeRef} style={style} data-project-index={index} className={isDragging ? 'z-50 shadow-xl' : ''} onMouseEnter={() => onHover?.(project.id)} onMouseLeave={() => onHover?.(null)}>
         <ContextMenu>
           <ContextMenuTrigger asChild>
         <motion.div
@@ -630,8 +637,10 @@ function SortableProjectCard({
           exit={{ opacity: 0, y: -10 }}
           transition={{ delay: index * 0.05 }}
           whileHover={{ y: -1, boxShadow: '0 8px 24px rgba(0,0,0,0.12)' }}
-          className={`group flex items-center gap-3 p-3.5 rounded-lg border bg-card dark:bg-zinc-900/80 shadow-sm dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] hover:bg-accent/50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent}`}
+          tabIndex={0}
+          className={`group flex items-center ${densityListClass} rounded-lg border bg-card dark:bg-zinc-900/80 shadow-sm dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-md dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] hover:bg-accent/50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} ${focused ? 'ring-2 ring-emerald-500/50 shadow-md' : ''}`}
           onClick={() => onSelect(project)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
         >
           <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()} title="Drag to reorder">
             <GripVertical className="h-4 w-4 text-muted-foreground" />
@@ -772,6 +781,8 @@ function SortableProjectCard({
               <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />Stop All Environments</ContextMenuItem>
             )}
             <ContextMenuSeparator />
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCompare?.(project)}><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Compare</ContextMenuItem>
+            <ContextMenuSeparator />
             <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
@@ -780,7 +791,7 @@ function SortableProjectCard({
   }
 
   return (
-    <div ref={setNodeRef} style={style} onClick={() => onSelect(project)} className={isDragging ? 'z-50 shadow-xl' : ''} onMouseEnter={() => onHover?.(project.id)} onMouseLeave={() => onHover?.(null)}>
+    <div ref={setNodeRef} style={style} data-project-index={index} onClick={() => onSelect(project)} className={isDragging ? 'z-50 shadow-xl' : ''} onMouseEnter={() => onHover?.(project.id)} onMouseLeave={() => onHover?.(null)}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
       <motion.div
@@ -789,7 +800,9 @@ function SortableProjectCard({
         exit={{ opacity: 0, y: -10 }}
         transition={{ delay: index * 0.05 }}
         whileHover={{ y: -1 }}
-        className={`group relative flex flex-col rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer`}
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
+        className={`group relative flex flex-col ${densityClass} rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer ${focused ? 'ring-2 ring-emerald-500/50 shadow-xl' : ''}`}
         onMouseEnter={(e) => {
           const tagColors: Record<string, string> = { Frontend: 'rgba(16,185,129,0.25)', Backend: 'rgba(20,184,166,0.25)', Fullstack: 'rgba(6,182,212,0.25)', DevOps: 'rgba(245,158,11,0.25)', Mobile: 'rgba(244,63,94,0.25)', API: 'rgba(139,92,246,0.25)', Database: 'rgba(249,115,22,0.25)', 'ML/AI': 'rgba(236,72,153,0.25)', Automation: 'rgba(100,116,139,0.25)' }
           const primaryTag = tags[0]
@@ -1001,6 +1014,8 @@ function SortableProjectCard({
           {(project.environments || []).some((e) => e.status === 'running') && (
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />Stop All Environments</ContextMenuItem>
           )}
+          <ContextMenuSeparator />
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCompare?.(project)}><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Compare</ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</ContextMenuItem>
         </ContextMenuContent>
@@ -2988,13 +3003,13 @@ function DetailSheet({
                   }} />}><Copy className="h-3 w-3" /></TooltipTrigger><TooltipContent>Copy visible logs</TooltipContent></Tooltip></TooltipProvider>
                 </div>
                 {/* Log entries */}
-                <div className="rounded-lg bg-muted/50 border overflow-hidden">
-                  <div ref={logContainerRef} className="max-h-80 overflow-y-auto p-2 font-mono text-xs space-y-0">
+                <div className="rounded-lg bg-zinc-950 dark:bg-zinc-950 border border-zinc-800 overflow-hidden shadow-inner">
+                  <div ref={logContainerRef} className="max-h-80 overflow-y-auto font-mono text-[11px] leading-5 custom-scrollbar">
                     {(() => {
                       const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
                       if (filtered.length === 0) {
                         return (
-                          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                          <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
                             <Filter className="h-6 w-6 mb-2 opacity-40" />
                             <p className="text-xs">No logs found</p>
                             {(logLevelFilter !== 'all' || logSearchQuery) && <p className="text-[10px] mt-1">Try adjusting your filters</p>}
@@ -3002,11 +3017,12 @@ function DetailSheet({
                         )
                       }
                       return filtered.map((log, idx) => (
-                        <div key={log.id} className={`flex gap-2 py-0.5 px-1 rounded transition-colors border-l-2 break-all ${idx % 2 === 0 ? 'bg-transparent' : 'bg-muted/30'} hover:bg-accent/20 ${log.level === 'error' ? 'border-l-red-500' : log.level === 'warn' ? 'border-l-amber-500' : log.level === 'info' ? 'border-l-cyan-500' : 'border-l-gray-400'} ${log.level === 'error' ? 'text-red-500' : log.level === 'warn' ? 'text-amber-500' : log.level === 'debug' ? 'text-muted-foreground' : 'text-foreground'}`}>
-                          <span className="text-muted-foreground shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                          <span className={`uppercase w-10 shrink-0 font-semibold ${log.level === 'error' ? 'text-red-500' : log.level === 'warn' ? 'text-amber-500' : 'text-emerald-600'}`}>{log.level}</span>
-                          <span className="text-cyan-600 dark:text-cyan-400 shrink-0 w-16 truncate">{log.source}</span>
-                          <span className="break-all">{log.message}</span>
+                        <div key={log.id} className={`flex gap-0 border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors ${log.level === 'error' ? 'bg-red-950/20' : log.level === 'warn' ? 'bg-amber-950/10' : ''}`}>
+                          <span className="px-2 py-0.5 text-zinc-600 select-none shrink-0 text-right w-8 border-r border-zinc-800/50">{idx + 1}</span>
+                          <span className="px-1.5 py-0.5 text-zinc-500 shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                          <span className={`px-1.5 py-0.5 uppercase font-bold shrink-0 w-12 ${log.level === 'error' ? 'text-red-400' : log.level === 'warn' ? 'text-amber-400' : log.level === 'info' ? 'text-cyan-400' : 'text-zinc-500'}`}>{log.level}</span>
+                          <span className="px-1.5 py-0.5 text-emerald-400/80 shrink-0 w-20 truncate">{log.source}</span>
+                          <span className={`px-1.5 py-0.5 break-all ${log.level === 'error' ? 'text-red-300' : log.level === 'warn' ? 'text-amber-200' : 'text-zinc-300'}`}>{log.message}</span>
                         </div>
                       ))
                     })()}
@@ -3448,7 +3464,8 @@ function DeviceFormDialog({
 
 function ProjectCardSkeleton() {
   return (
-    <div className="rounded-xl border bg-card dark:bg-zinc-900/80 overflow-hidden border-border/60 dark:border-zinc-700/50 border-l-2 border-l-zinc-300 dark:border-l-zinc-600">
+    <div className="rounded-xl border bg-card dark:bg-zinc-900/80 overflow-hidden border-border/60 dark:border-zinc-700/50 border-l-2 border-l-zinc-300 dark:border-l-zinc-600 relative">
+      <div className="absolute inset-0 animate-shimmer pointer-events-none" />
       <div className="p-5 space-y-3">
         <div className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-lg bg-muted animate-pulse" />
@@ -3623,6 +3640,25 @@ export default function DashboardPage() {
   const [batchTagDraft, setBatchTagDraft] = React.useState<string[]>([])
   const [batchTagApplying, setBatchTagApplying] = React.useState(false)
   const [scrollTopVisible, setScrollTopVisible] = React.useState(false)
+  // Session 12 states
+  const [healthAlertThreshold, setHealthAlertThreshold] = React.useState<number>(() => {
+    try { const v = localStorage.getItem('dashboard-health-alert-threshold'); return v ? parseInt(v, 10) : 50 } catch { return 50 }
+  })
+  const [healthAlertEnabled, setHealthAlertEnabled] = React.useState<boolean>(() => {
+    try { return localStorage.getItem('dashboard-health-alert-enabled') !== 'false' } catch { return true }
+  })
+  const [healthAlertsOpen, setHealthAlertsOpen] = React.useState(false)
+  const [cardDensity, setCardDensity] = React.useState<'compact' | 'comfortable' | 'spacious'>(() => {
+    try { const v = localStorage.getItem('dashboard-card-density'); return v === 'compact' || v === 'spacious' ? v : 'comfortable' } catch { return 'comfortable' }
+  })
+  const [visibleStats, setVisibleStats] = React.useState<Set<string>>(() => {
+    try { const v = localStorage.getItem('dashboard-visible-stats'); return v ? new Set(JSON.parse(v)) : new Set(['totalProjects', 'environments', 'devices', 'healthScore']) } catch { return new Set(['totalProjects', 'environments', 'devices', 'healthScore']) }
+  })
+  const [dashboardCustomizeOpen, setDashboardCustomizeOpen] = React.useState(false)
+  const [compareOpen, setCompareOpen] = React.useState(false)
+  const [compareProjectA, setCompareProjectA] = React.useState<Project | null>(null)
+  const [compareProjectB, setCompareProjectB] = React.useState<Project | null>(null)
+  const [focusedProjectIndex, setFocusedProjectIndex] = React.useState(-1)
 
   const toggleStar = React.useCallback((id: string) => {
     setStarredIds((prev) => {
@@ -3639,6 +3675,10 @@ export default function DashboardPage() {
   React.useEffect(() => { localStorage.setItem('dashboard-sortBy', sortBy) }, [sortBy])
   React.useEffect(() => { localStorage.setItem('dashboard-selectedDeviceId', selectedDeviceId ?? 'null') }, [selectedDeviceId])
   React.useEffect(() => { localStorage.setItem('dashboard-groupBy', groupBy) }, [groupBy])
+  React.useEffect(() => { localStorage.setItem('dashboard-health-alert-threshold', String(healthAlertThreshold)) }, [healthAlertThreshold])
+  React.useEffect(() => { localStorage.setItem('dashboard-health-alert-enabled', String(healthAlertEnabled)) }, [healthAlertEnabled])
+  React.useEffect(() => { localStorage.setItem('dashboard-card-density', cardDensity) }, [cardDensity])
+  React.useEffect(() => { localStorage.setItem('dashboard-visible-stats', JSON.stringify([...visibleStats])) }, [visibleStats])
 
   const { toast } = useToast()
 
@@ -3891,6 +3931,8 @@ export default function DashboardPage() {
   // Keyboard shortcuts - defined after handleAddProject to avoid before-declaration error
   const [hoveredProjectId, setHoveredProjectId] = React.useState<string | null>(null)
   const projectActionsRef = React.useRef<{ selectProject: (p: Project) => void; editProject: (p: Project) => void; envAction: (projectId: string, envId: string, action: string) => void }>({ selectProject: () => {}, editProject: () => {}, envAction: () => {} })
+  const filteredProjectsRef = React.useRef<Project[]>([])
+  const focusedProjectIndexRef = React.useRef(-1)
 
   React.useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -3911,6 +3953,30 @@ export default function DashboardPage() {
       }
 
       if (e.key === '?' && !e.ctrlKey && !e.metaKey) { setShortcutsOpen(true) }
+
+      // Arrow key navigation between projects
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        const total = filteredProjectsRef.current.length
+        if (total === 0) return
+        setFocusedProjectIndex((prev) => {
+          let next = prev
+          if (e.key === 'ArrowDown') next = prev < total - 1 ? prev + 1 : 0
+          if (e.key === 'ArrowUp') next = prev > 0 ? prev - 1 : total - 1
+          focusedProjectIndexRef.current = next
+          // Focus the project card element
+          const card = document.querySelector(`[data-project-index="${next}"]`)
+          if (card) (card as HTMLElement).focus()
+          return next
+        })
+      }
+      if (e.key === 'Enter' && focusedProjectIndexRef.current >= 0 && focusedProjectIndexRef.current < filteredProjectsRef.current.length) {
+        e.preventDefault()
+        const project = filteredProjectsRef.current[focusedProjectIndexRef.current]
+        if (project) projectActionsRef.current.selectProject(project)
+      }
+      if (e.key === 'Home') { e.preventDefault(); setFocusedProjectIndex(0); focusedProjectIndexRef.current = 0; const card = document.querySelector('[data-project-index="0"]'); if (card) (card as HTMLElement).focus() }
+      if (e.key === 'End') { e.preventDefault(); const last = filteredProjectsRef.current.length - 1; setFocusedProjectIndex(last); focusedProjectIndexRef.current = last; const card = document.querySelector(`[data-project-index="${last}"]`); if (card) (card as HTMLElement).focus() }
 
       // Project-specific shortcuts when a project is hovered
       if (hoveredProjectId) {
@@ -4011,6 +4077,10 @@ export default function DashboardPage() {
     return result
   }, [projects, searchQuery, filterStatus, filterTags, sortBy, starredIds, selectedDeviceId])
 
+  // Keep refs in sync for keyboard handler (avoids temporal dead zone)
+  React.useEffect(() => { filteredProjectsRef.current = filteredProjects }, [filteredProjects])
+  React.useEffect(() => { focusedProjectIndexRef.current = focusedProjectIndex }, [focusedProjectIndex])
+
   // Device-grouped projects for when "All" devices are selected
   const deviceGroupedProjects = React.useMemo(() => {
     if (selectedDeviceId !== null) return null // Only group when "All" is selected
@@ -4094,6 +4164,36 @@ export default function DashboardPage() {
     const id = setInterval(pushScore, 30000)
     return () => clearInterval(id)
   }, [dashboardStats.healthScore])
+
+  // Health alert: toast when health drops below threshold
+  const prevHealthScoreRef = React.useRef(dashboardStats.healthScore)
+  React.useEffect(() => {
+    if (!healthAlertEnabled) return
+    if (prevHealthScoreRef.current > healthAlertThreshold && dashboardStats.healthScore <= healthAlertThreshold && prevHealthScoreRef.current !== dashboardStats.healthScore) {
+      toast({
+        title: '⚠️ Health Alert',
+        description: `System health dropped to ${dashboardStats.healthScore}% (threshold: ${healthAlertThreshold}%)`,
+        variant: 'destructive',
+      })
+    }
+    prevHealthScoreRef.current = dashboardStats.healthScore
+  }, [dashboardStats.healthScore, healthAlertThreshold, healthAlertEnabled, toast])
+
+  // Per-project health alerts
+  React.useEffect(() => {
+    if (!healthAlertEnabled) return
+    projects.forEach((project) => {
+      const score = calculateHealthScore(project)
+      const prev = prevHealthScoreRef.current
+      if (score <= healthAlertThreshold && score < prev) {
+        addToast({
+          title: `⚠️ ${project.name} Health Alert`,
+          description: `Health score: ${score}% (threshold: ${healthAlertThreshold}%)`,
+          variant: 'destructive',
+        })
+      }
+    })
+  }, [projects, healthAlertThreshold, healthAlertEnabled, addToast])
 
   const unreadNotifs = React.useMemo(() => notifications.filter((n) => !n.read).length, [notifications])
 
@@ -4904,6 +5004,12 @@ export default function DashboardPage() {
                 <DropdownMenuItem onClick={() => setDepGraphOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
                   <GitFork className="h-3.5 w-3.5 mr-2.5" />Dependency Map
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setHealthAlertsOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
+                  <AlertTriangle className="h-3.5 w-3.5 mr-2.5" />Health Alerts
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDashboardCustomizeOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
+                  <LayoutGrid className="h-3.5 w-3.5 mr-2.5" />Customize Dashboard
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSyncFromConfig} className="px-2.5 py-2 text-sm rounded-md">
                   <RefreshCw className="h-3.5 w-3.5 mr-2.5" />Sync from config
@@ -5214,13 +5320,13 @@ export default function DashboardPage() {
 
               {/* Dashboard Overview Stats Cards */}
               {filteredProjects.length > 0 && (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5 relative">
+                <div className={`grid gap-3 mb-5 relative ${visibleStats.size === 1 ? 'grid-cols-1 max-w-xs' : visibleStats.size === 2 ? 'grid-cols-2' : visibleStats.size === 3 ? 'grid-cols-3' : 'grid-cols-2 lg:grid-cols-4'}`}>
                   {[
-                    { label: 'Total Projects', value: dashboardStats.totalProjects, icon: Folder, iconColor: 'text-emerald-600 dark:text-emerald-400', gradient: 'from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20', ring: 'ring-emerald-200/50 dark:ring-emerald-800/30', sub: `${dashboardStats.runningEnvs} of ${dashboardStats.totalEnvs} envs running`, subIcon: Activity, miniChart: true, miniRunning: dashboardStats.runningEnvs, miniTotal: dashboardStats.totalEnvs, glowColor: 'rgba(16,185,129,0.3)', statusBars: true, runningCount: stats.running, mixedCount: stats.mixed, stoppedCount: stats.stopped },
-                    { label: 'Environments', value: dashboardStats.runningEnvs, icon: Play, iconColor: 'text-cyan-600 dark:text-cyan-400', gradient: 'from-cyan-50 to-sky-50 dark:from-cyan-950/30 dark:to-sky-950/20', ring: 'ring-cyan-200/50 dark:ring-cyan-800/30', sub: `${dashboardStats.runningEnvs} / ${dashboardStats.totalEnvs} running`, trend: dashboardStats.totalEnvs > 0 ? `${Math.round((dashboardStats.runningEnvs / dashboardStats.totalEnvs) * 100)}%` : '0%', glowColor: 'rgba(6,182,212,0.3)', envRing: true, envRunning: dashboardStats.runningEnvs, envTotal: dashboardStats.totalEnvs },
-                    { label: 'Devices', value: dashboardStats.onlineDevices, icon: Server, iconColor: 'text-teal-600 dark:text-teal-400', gradient: 'from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/20', ring: 'ring-teal-200/50 dark:ring-teal-800/30', sub: `${dashboardStats.onlineDevices} / ${dashboardStats.totalDevices} online`, glowColor: 'rgba(20,184,166,0.3)', deviceDots: true },
-                    { label: 'Health Score', value: dashboardStats.healthScore, icon: Activity, iconColor: healthColor(dashboardStats.healthScore), gradient: dashboardStats.healthScore >= 80 ? 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/20' : dashboardStats.healthScore >= 50 ? 'from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/20' : 'from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/20', ring: dashboardStats.healthScore >= 80 ? 'ring-emerald-200/50 dark:ring-emerald-800/30' : dashboardStats.healthScore >= 50 ? 'ring-amber-200/50 dark:ring-amber-800/30' : 'ring-red-200/50 dark:ring-red-800/30', sub: dashboardStats.healthScore >= 80 ? 'Healthy' : dashboardStats.healthScore >= 50 ? 'Warning' : 'Critical', isPercent: true, sparkline: healthScoreHistory, glowColor: dashboardStats.healthScore >= 80 ? 'rgba(16,185,129,0.3)' : dashboardStats.healthScore >= 50 ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)', trendArrow: true },
-                  ].map((card, i) => (
+                    { key: 'totalProjects', label: 'Total Projects', value: dashboardStats.totalProjects, icon: Folder, iconColor: 'text-emerald-600 dark:text-emerald-400', gradient: 'from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20', ring: 'ring-emerald-200/50 dark:ring-emerald-800/30', sub: `${dashboardStats.runningEnvs} of ${dashboardStats.totalEnvs} envs running`, subIcon: Activity, miniChart: true, miniRunning: dashboardStats.runningEnvs, miniTotal: dashboardStats.totalEnvs, glowColor: 'rgba(16,185,129,0.3)', statusBars: true, runningCount: stats.running, mixedCount: stats.mixed, stoppedCount: stats.stopped },
+                    { key: 'environments', label: 'Environments', value: dashboardStats.runningEnvs, icon: Play, iconColor: 'text-cyan-600 dark:text-cyan-400', gradient: 'from-cyan-50 to-sky-50 dark:from-cyan-950/30 dark:to-sky-950/20', ring: 'ring-cyan-200/50 dark:ring-cyan-800/30', sub: `${dashboardStats.runningEnvs} / ${dashboardStats.totalEnvs} running`, trend: dashboardStats.totalEnvs > 0 ? `${Math.round((dashboardStats.runningEnvs / dashboardStats.totalEnvs) * 100)}%` : '0%', glowColor: 'rgba(6,182,212,0.3)', envRing: true, envRunning: dashboardStats.runningEnvs, envTotal: dashboardStats.totalEnvs },
+                    { key: 'devices', label: 'Devices', value: dashboardStats.onlineDevices, icon: Server, iconColor: 'text-teal-600 dark:text-teal-400', gradient: 'from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/20', ring: 'ring-teal-200/50 dark:ring-teal-800/30', sub: `${dashboardStats.onlineDevices} / ${dashboardStats.totalDevices} online`, glowColor: 'rgba(20,184,166,0.3)', deviceDots: true },
+                    { key: 'healthScore', label: 'Health Score', value: dashboardStats.healthScore, icon: Activity, iconColor: healthColor(dashboardStats.healthScore), gradient: dashboardStats.healthScore >= 80 ? 'from-emerald-50 to-green-50 dark:from-emerald-950/30 dark:to-green-950/20' : dashboardStats.healthScore >= 50 ? 'from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/20' : 'from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/20', ring: dashboardStats.healthScore >= 80 ? 'ring-emerald-200/50 dark:ring-emerald-800/30' : dashboardStats.healthScore >= 50 ? 'ring-amber-200/50 dark:ring-amber-800/30' : 'ring-red-200/50 dark:ring-red-800/30', sub: dashboardStats.healthScore >= 80 ? 'Healthy' : dashboardStats.healthScore >= 50 ? 'Warning' : 'Critical', isPercent: true, sparkline: healthScoreHistory, glowColor: dashboardStats.healthScore >= 80 ? 'rgba(16,185,129,0.3)' : dashboardStats.healthScore >= 50 ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)', trendArrow: true },
+                  ].filter((card) => visibleStats.has(card.key)).map((card, i) => (
                     <motion.div
                       key={card.label}
                       initial={{ opacity: 0, y: 12 }}
@@ -5374,6 +5480,9 @@ export default function DashboardPage() {
                               onMoveToDevice={setMoveProjectDialog}
                               devices={devices}
                               onHover={setHoveredProjectId}
+                              focused={focusedProjectIndex === idx}
+                              cardDensity={cardDensity}
+                              onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                             />
                           ))}
                         </React.Fragment>
@@ -5417,6 +5526,9 @@ export default function DashboardPage() {
                               onMoveToDevice={setMoveProjectDialog}
                               devices={devices}
                               onHover={setHoveredProjectId}
+                              focused={focusedProjectIndex === idx}
+                              cardDensity={cardDensity}
+                              onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                             />
                           ))}
                         </>
@@ -5462,6 +5574,9 @@ export default function DashboardPage() {
                               onDuplicate={handleDuplicateProject}
                               onMoveToDevice={setMoveProjectDialog}
                               devices={devices}
+                              focused={focusedProjectIndex === idx}
+                              cardDensity={cardDensity}
+                              onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                             />
                           ))}
                         </React.Fragment>
@@ -5491,6 +5606,9 @@ export default function DashboardPage() {
                         onDuplicate={handleDuplicateProject}
                         onMoveToDevice={setMoveProjectDialog}
                         devices={devices}
+                        focused={focusedProjectIndex === idx}
+                        cardDensity={cardDensity}
+                        onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                       />
                     ))
                   )}
@@ -5529,6 +5647,9 @@ export default function DashboardPage() {
                               onMoveToDevice={setMoveProjectDialog}
                               devices={devices}
                               onHover={setHoveredProjectId}
+                              focused={focusedProjectIndex === idx}
+                              cardDensity={cardDensity}
+                              onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                             />
                           ))}
                         </React.Fragment>
@@ -5570,6 +5691,9 @@ export default function DashboardPage() {
                               onMoveToDevice={setMoveProjectDialog}
                               devices={devices}
                               onHover={setHoveredProjectId}
+                              focused={focusedProjectIndex === idx}
+                              cardDensity={cardDensity}
+                              onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                             />
                           ))}
                         </>
@@ -5614,6 +5738,9 @@ export default function DashboardPage() {
                               onMoveToDevice={setMoveProjectDialog}
                               devices={devices}
                               onHover={setHoveredProjectId}
+                              focused={focusedProjectIndex === idx}
+                              cardDensity={cardDensity}
+                              onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                             />
                           ))}
                         </React.Fragment>
@@ -5644,6 +5771,9 @@ export default function DashboardPage() {
                         onMoveToDevice={setMoveProjectDialog}
                         devices={devices}
                         onHover={setHoveredProjectId}
+                        focused={focusedProjectIndex === idx}
+                        cardDensity={cardDensity}
+                        onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                       />
                     ))
                   )}
@@ -6005,6 +6135,267 @@ export default function DashboardPage() {
               {batchTagApplying && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
               Apply Tags
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ======================== HEALTH ALERTS CONFIG (Session 12) ======================== */}
+      <Dialog open={healthAlertsOpen} onOpenChange={setHealthAlertsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/15 ring-1 ring-amber-200/50 dark:ring-amber-800/30">
+                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <DialogTitle>Health Alerts</DialogTitle>
+            </div>
+            <DialogDescription>Configure health monitoring alerts for your dashboard</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            {/* Enable toggle */}
+            <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Enable Health Alerts</Label>
+                <p className="text-xs text-muted-foreground">Get notified when health drops below threshold</p>
+              </div>
+              <Switch checked={healthAlertEnabled} onCheckedChange={setHealthAlertEnabled} />
+            </div>
+            {/* Threshold slider */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Alert Threshold</Label>
+                <span className={`text-sm font-bold px-2.5 py-0.5 rounded-md ${healthAlertThreshold >= 80 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : healthAlertThreshold >= 50 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
+                  {healthAlertThreshold}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={10}
+                max={90}
+                step={5}
+                value={healthAlertThreshold}
+                onChange={(e) => setHealthAlertThreshold(parseInt(e.target.value, 10))}
+                className="w-full h-2 rounded-full appearance-none cursor-pointer bg-muted accent-amber-500"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>10% (More alerts)</span>
+                <span>90% (Fewer alerts)</span>
+              </div>
+            </div>
+            {/* Current status */}
+            <div className="p-3 rounded-lg border bg-muted/20 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Current Health Score</span>
+                <span className={`font-bold ${healthColor(dashboardStats.healthScore)}`}>{dashboardStats.healthScore}%</span>
+              </div>
+              <Progress value={dashboardStats.healthScore} className="h-2" />
+              <div className="flex items-center gap-1.5">
+                <span className={`h-2 w-2 rounded-full ${dashboardStats.healthScore <= healthAlertThreshold ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
+                <span className="text-[10px] text-muted-foreground">
+                  {dashboardStats.healthScore <= healthAlertThreshold ? 'Below threshold — alerts active' : 'Above threshold — all clear'}
+                </span>
+              </div>
+            </div>
+            {/* Per-project health */}
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Project Health Status</Label>
+              <div className="max-h-40 overflow-y-auto space-y-1 custom-scrollbar">
+                {projects.map((p) => {
+                  const score = calculateHealthScore(p)
+                  return (
+                    <div key={p.id} className="flex items-center justify-between px-3 py-1.5 rounded-md text-xs bg-muted/20">
+                      <span className="truncate font-medium">{p.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold ${healthColor(score)}`}>{score}%</span>
+                        {score <= healthAlertThreshold && healthAlertEnabled && (
+                          <AlertTriangle className="h-3 w-3 text-red-500" />
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHealthAlertsOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ======================== DASHBOARD CUSTOMIZE (Session 12) ======================== */}
+      <Dialog open={dashboardCustomizeOpen} onOpenChange={setDashboardCustomizeOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-gradient-to-br from-cyan-50 to-sky-50 dark:from-cyan-900/20 dark:to-sky-900/15 ring-1 ring-cyan-200/50 dark:ring-cyan-800/30">
+                <LayoutGrid className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
+              </div>
+              <DialogTitle>Customize Dashboard</DialogTitle>
+            </div>
+            <DialogDescription>Personalize your dashboard layout and preferences</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            {/* Card Density */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Card Density</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {(['compact', 'comfortable', 'spacious'] as const).map((density) => (
+                  <button
+                    key={density}
+                    type="button"
+                    onClick={() => setCardDensity(density)}
+                    className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-all ${cardDensity === density ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20 ring-1 ring-emerald-500/30' : 'border-border hover:bg-accent/50'}`}
+                  >
+                    <div className={`w-full space-y-1 ${density === 'compact' ? 'p-1' : density === 'spacious' ? 'p-3' : 'p-2'}`}>
+                      <div className="h-2 rounded bg-muted-foreground/20" />
+                      <div className="h-2 rounded bg-muted-foreground/10 w-3/4" />
+                    </div>
+                    <span className="text-[10px] font-medium capitalize">{density}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Visible Stats */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Visible Stats Cards</Label>
+              <div className="space-y-1.5">
+                {[
+                  { key: 'totalProjects', label: 'Total Projects', icon: Folder },
+                  { key: 'environments', label: 'Environments', icon: Play },
+                  { key: 'devices', label: 'Devices', icon: Server },
+                  { key: 'healthScore', label: 'Health Score', icon: Activity },
+                ].map(({ key, label, icon: Icon }) => (
+                  <label key={key} className="flex items-center gap-3 p-2.5 rounded-lg border hover:bg-accent/50 cursor-pointer transition-colors">
+                    <Checkbox
+                      checked={visibleStats.has(key)}
+                      onCheckedChange={(v) => {
+                        setVisibleStats((prev) => {
+                          const next = new Set(prev)
+                          if (v) next.add(key)
+                          else next.delete(key)
+                          return next
+                        })
+                      }}
+                    />
+                    <Icon className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            {/* Quick Actions */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium">Quick Actions</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setWelcomeDismissed(false); localStorage.removeItem('dashboard-welcome-dismissed') }}>
+                  <Zap className="h-3 w-3 mr-1" />Show Welcome
+                </Button>
+                <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setCardDensity('comfortable'); setVisibleStats(new Set(['totalProjects', 'environments', 'devices', 'healthScore'])) }}>
+                  <RefreshCw className="h-3 w-3 mr-1" />Reset Defaults
+                </Button>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setDashboardCustomizeOpen(false)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ======================== PROJECT COMPARE (Session 12) ======================== */}
+      <Dialog open={compareOpen} onOpenChange={(v) => { setCompareOpen(v); if (!v) { setCompareProjectA(null); setCompareProjectB(null) } }}>
+        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/15 ring-1 ring-violet-200/50 dark:ring-violet-800/30">
+                <ArrowRightLeft className="h-5 w-5 text-violet-600 dark:text-violet-400" />
+              </div>
+              <DialogTitle>Compare Projects</DialogTitle>
+            </div>
+            <DialogDescription>Side-by-side project comparison</DialogDescription>
+          </DialogHeader>
+          {!compareProjectA ? (
+            <div className="py-6 text-center space-y-4">
+              <p className="text-sm text-muted-foreground">Select two projects to compare</p>
+              <div className="grid grid-cols-2 gap-4">
+                {['Project A', 'Project B'].map((label, i) => (
+                  <div key={label} className="space-y-2">
+                    <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
+                    <Select onValueChange={(v) => { const p = projects.find((pr) => pr.id === v); if (i === 0) setCompareProjectA(p || null); else setCompareProjectB(p || null) }}>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select project..." /></SelectTrigger>
+                      <SelectContent>
+                        {projects.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* Project selectors */}
+              <div className="grid grid-cols-2 gap-3">
+                <Select value={compareProjectA.id} onValueChange={(v) => setCompareProjectA(projects.find((p) => p.id === v) || null)}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Select value={compareProjectB?.id || ''} onValueChange={(v) => setCompareProjectB(projects.find((p) => p.id === v) || null)}>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select project..." /></SelectTrigger>
+                  <SelectContent>
+                    {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Comparison table */}
+              {compareProjectB && (
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left p-2.5 font-medium text-muted-foreground w-1/4">Property</th>
+                        <th className="text-left p-2.5 font-medium">{compareProjectA.name}</th>
+                        <th className="text-left p-2.5 font-medium">{compareProjectB.name}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {[
+                        { label: 'Status', a: getProjectStatus(compareProjectA), b: getProjectStatus(compareProjectB), render: (v: string) => <Badge variant="secondary" className={`text-[10px] ${v === 'running' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : v === 'mixed' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>{v}</Badge> },
+                        { label: 'Health', a: calculateHealthScore(compareProjectA), b: calculateHealthScore(compareProjectB), render: (v: number) => <span className={`font-bold ${healthColor(v)}`}>{v}%</span> },
+                        { label: 'Environments', a: (compareProjectA.environments || []).length, b: (compareProjectB.environments || []).length, render: (v: number) => <span>{v}</span> },
+                        { label: 'Running', a: (compareProjectA.environments || []).filter((e) => e.status === 'running').length, b: (compareProjectB.environments || []).filter((e) => e.status === 'running').length, render: (v: number) => <span className="text-emerald-600 dark:text-emerald-400">{v}</span> },
+                        { label: 'Stopped', a: (compareProjectA.environments || []).filter((e) => e.status !== 'running').length, b: (compareProjectB.environments || []).filter((e) => e.status !== 'running').length, render: (v: number) => <span className="text-red-500">{v}</span> },
+                        { label: 'Tags', a: parseTags(compareProjectA.tags), b: parseTags(compareProjectB.tags), render: (v: string[]) => <div className="flex flex-wrap gap-0.5">{v.map((t) => <Badge key={t} variant="secondary" className={`text-[8px] px-1 py-0 ${getTagColor(t)}`}>{t}</Badge>)}</div> },
+                        { label: 'Path', a: compareProjectA.path, b: compareProjectB.path, render: (v: string) => <span className="font-mono text-[10px] truncate max-w-[180px] inline-block">{v}</span> },
+                        { label: 'Device', a: compareProjectA.deviceName || 'Local', b: compareProjectB.deviceName || 'Local', render: (v: string) => <span>{v}</span> },
+                        { label: 'Description', a: compareProjectA.description || '—', b: compareProjectB.description || '—', render: (v: string) => <span className="truncate max-w-[180px] inline-block">{v}</span> },
+                      ].map(({ label, a, b, render }) => (
+                        <tr key={label} className="hover:bg-muted/20 transition-colors">
+                          <td className="p-2.5 font-medium text-muted-foreground">{label}</td>
+                          <td className="p-2.5">{render(a as never)}</td>
+                          <td className="p-2.5">{render(b as never)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {!compareProjectB && (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <ArrowRightLeft className="h-10 w-10 text-muted-foreground/30 mb-3" />
+                  <p className="text-sm text-muted-foreground">Select a second project to compare</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCompareOpen(false); setCompareProjectA(null); setCompareProjectB(null) }}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
