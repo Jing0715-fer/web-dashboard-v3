@@ -13,6 +13,7 @@ import {
   CheckCircle2, XCircle, Loader2,
   Bot, ArrowUpDown, ArrowRightLeft,
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap,
+  Keyboard,
   Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate,
   TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, User, Clipboard
 } from 'lucide-react'
@@ -23,7 +24,7 @@ import {
 } from '@dnd-kit/core'
 import {
   arrayMove, SortableContext, sortableKeyboardCoordinates,
-  useSortable, verticalListSortingStrategy
+  useSortable, verticalListSortingStrategy, rectSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 
@@ -46,6 +47,7 @@ import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { useToast, addToast } from '@/hooks/use-toast'
 
@@ -549,6 +551,99 @@ function HealthScoreHoverCard({
   )
 }
 
+// ======================== PROJECT QUICK PREVIEW HOVER CARD ========================
+
+function ProjectQuickPreview({
+  project, children
+}: {
+  project: Project
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = React.useState(false)
+  const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const health = calculateHealthScore(project)
+  const runningEnvs = (project.environments || []).filter((e) => e.status === 'running').length
+  const totalEnvs = (project.environments || []).length
+  const status = getProjectStatus(project)
+  const IconComp = ICON_MAP[project.icon] || Folder
+
+  const handleMouseEnter = React.useCallback(() => {
+    hoverTimerRef.current = setTimeout(() => setOpen(true), 800)
+  }, [])
+
+  const handleMouseLeave = React.useCallback(() => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current)
+    setOpen(false)
+  }, [])
+
+  return (
+    <HoverCard open={open} onOpenChange={setOpen} openDelay={800} closeDelay={150}>
+      <HoverCardTrigger asChild
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        {children}
+      </HoverCardTrigger>
+      <HoverCardContent
+        side="right"
+        align="start"
+        className="w-72 p-0 overflow-hidden"
+        onMouseEnter={() => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); setOpen(true) }}
+        onMouseLeave={handleMouseLeave}
+      >
+        <div className="p-3 border-b bg-gradient-to-r from-emerald-50/50 via-teal-50/30 to-transparent dark:from-emerald-950/30 dark:via-teal-950/20 dark:to-transparent">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20">
+              <IconComp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold truncate">{project.name}</p>
+              <p className="text-[11px] text-muted-foreground truncate">{project.path}</p>
+            </div>
+          </div>
+        </div>
+        <div className="p-3 space-y-2.5">
+          {project.description && (
+            <p className="text-xs text-muted-foreground line-clamp-2">{project.description}</p>
+          )}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <HealthScoreCircle score={health} size={28} />
+              <span className={`text-xs font-semibold ${healthColor(health)}`}>{health}%</span>
+            </div>
+            <div className="h-4 w-px bg-border" />
+            <div className="flex items-center gap-1">
+              <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-red-400'}`} />
+              <span className="text-xs text-muted-foreground">{runningEnvs}/{totalEnvs} running</span>
+            </div>
+          </div>
+          {/* Health bar */}
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${health >= 80 ? 'bg-emerald-500' : health >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
+              style={{ width: `${health}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Updated {formatTimeAgo(project.updatedAt)}</span>
+          </div>
+          <div className="flex items-center gap-1.5 pt-1">
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium ring-1 ring-emerald-200/50 dark:ring-emerald-800/30">
+              <Play className="h-3 w-3" />Start
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-[11px] font-medium ring-1 ring-red-200/50 dark:ring-red-800/30">
+              <Square className="h-3 w-3" />Stop
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-muted/50 text-muted-foreground text-[11px] font-medium ring-1 ring-border/30">
+              <ExternalLink className="h-3 w-3" />Open
+            </span>
+          </div>
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
 // ======================== DASHBOARD CLOCK WIDGET ========================
 
 function DashboardClockWidget() {
@@ -755,7 +850,7 @@ function SortableProjectCard({
           onClick={() => onSelect(project)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
         >
-          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()} title="Drag to reorder">
+          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1 opacity-30 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()} title="Drag to reorder">
             <GripVertical className="h-4 w-4 text-muted-foreground" />
           </div>
           {batchMode && (
@@ -779,14 +874,14 @@ function SortableProjectCard({
                   {deviceOnline ? '🟢' : '🔴'} {project.deviceName}
                 </Badge>
               )}
-              <Badge variant={status === 'running' ? 'default' : 'secondary'} className={`text-xs shrink-0 ${status === 'running' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 animate-pulse' : ''}`}>
+              <Badge variant={status === 'running' ? 'default' : 'secondary'} className={`text-xs font-medium shrink-0 ${status === 'running' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 animate-pulse' : 'text-foreground dark:text-zinc-200'}`}>
                 <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : 'bg-red-400'} mr-1`} />
                 {runningEnvs}/{totalEnvs} running
               </Badge>
             </div>
             <button type="button" className="text-xs text-muted-foreground dark:text-gray-400 truncate text-left cursor-pointer hover:text-foreground dark:hover:text-gray-200 transition-colors hover:underline decoration-dotted underline-offset-2" title={`${project.path} — Click to copy`} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(project.path); addToast({ title: 'Path copied', description: project.path, variant: 'success' }) }}>{highlightText(project.path, searchQuery)}</button>
           </div>
-          <div className="hidden sm:flex items-center gap-1 flex-wrap justify-end max-w-[200px]">
+          <div className="hidden sm:flex items-center gap-1.5 flex-wrap justify-end max-w-[200px]">
             {tags.slice(0, 3).map((tag) => (
               <Badge key={tag} variant="secondary" className={`text-[10px] px-1.5 cursor-default transition-transform duration-150 hover:scale-105 ${getTagColor(tag)}`}>{tag}</Badge>
             ))}
@@ -907,6 +1002,7 @@ function SortableProjectCard({
   }
 
   return (
+    <ProjectQuickPreview project={project}>
     <div ref={setNodeRef} style={style} data-project-index={index} onClick={() => onSelect(project)} className={isDragging ? 'z-50 shadow-xl' : ''} onMouseEnter={() => onHover?.(project.id)} onMouseLeave={() => onHover?.(null)}>
       <ContextMenu>
         <ContextMenuTrigger asChild>
@@ -918,7 +1014,7 @@ function SortableProjectCard({
         whileHover={{ y: -2 }}
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
-        className={`group relative flex flex-col ${densityClass} rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer ${focused ? 'ring-2 ring-emerald-500/50 shadow-xl' : ''} ${statusChanged ? 'ring-2 ring-amber-400/50 animate-pulse' : ''} ${status === 'running' ? 'hover:border-emerald-300 dark:hover:border-emerald-700' : status === 'mixed' ? 'hover:border-amber-300 dark:hover:border-amber-700' : 'hover:border-red-300 dark:hover:border-red-700'}`}
+        className={`group relative flex flex-col ${densityClass} rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer h-full ${focused ? 'ring-2 ring-emerald-500/50 shadow-xl' : ''} ${statusChanged ? 'ring-2 ring-amber-400/50 animate-pulse' : ''} ${status === 'running' ? 'hover:border-emerald-300 dark:hover:border-emerald-700' : status === 'mixed' ? 'hover:border-amber-300 dark:hover:border-amber-700' : 'hover:border-red-300 dark:hover:border-red-700'}`}
         onMouseEnter={(e) => {
           const tagColors: Record<string, string> = { Frontend: 'rgba(16,185,129,0.25)', Backend: 'rgba(20,184,166,0.25)', Fullstack: 'rgba(6,182,212,0.25)', DevOps: 'rgba(245,158,11,0.25)', Mobile: 'rgba(244,63,94,0.25)', API: 'rgba(139,92,246,0.25)', Database: 'rgba(249,115,22,0.25)', 'ML/AI': 'rgba(236,72,153,0.25)', Automation: 'rgba(100,116,139,0.25)' }
           const primaryTag = tags[0]
@@ -1002,7 +1098,7 @@ function SortableProjectCard({
                   {env.name === 'production' && <span className="shrink-0 text-[8px] px-1 py-0 rounded bg-amber-100/60 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 font-medium tracking-wide" title="Production build — requires rebuild to apply changes">Build</span>}
                 </div>
                 <div className="flex items-center gap-1 sm:gap-1 shrink-0">
-                  <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="text-muted-foreground dark:text-zinc-400 font-mono text-[10px] px-1.5 py-0.5 rounded-md bg-muted/40 dark:bg-white/5 hover:bg-muted/60 dark:hover:bg-white/10 cursor-pointer transition-colors ring-1 ring-border/20 dark:ring-white/10 min-w-[28px] text-center" />} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(env.port)); addToast({ title: 'Port copied', description: `Port ${env.port}`, variant: 'success' }) }} title="Click to copy port">{env.port}</TooltipTrigger><TooltipContent>Click to copy port</TooltipContent></Tooltip></TooltipProvider>
+                  <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="text-muted-foreground dark:text-zinc-400 font-mono text-[11px] px-1.5 py-0.5 rounded-md bg-muted/40 dark:bg-white/5 hover:bg-muted/60 dark:hover:bg-white/10 cursor-pointer transition-colors ring-1 ring-border/20 dark:ring-white/10 min-w-[30px] text-center" />} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(env.port)); addToast({ title: 'Port copied', description: `Port ${env.port}`, variant: 'success' }) }} title="Click to copy port">:{env.port}</TooltipTrigger><TooltipContent>Click to copy port</TooltipContent></Tooltip></TooltipProvider>
                   {env.status === 'running' && (
                     <a
                       href={getOpenUrl(env.port)}
@@ -1052,7 +1148,7 @@ function SortableProjectCard({
         <div className="border-t border-border/30 dark:border-zinc-700/30" />
         <div className="px-4 sm:px-5 pb-3 pt-2 flex items-center justify-between min-w-0 rounded-b-xl">
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className={`text-[11px] px-2.5 py-0.5 ${status === 'running' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-900/10' : status === 'mixed' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-900/10'} ${runningEnvs > 0 ? 'env-running-badge' : ''}`}>
+            <Badge variant="outline" className={`text-[11px] font-medium px-2.5 py-0.5 ${status === 'running' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50/50 dark:bg-emerald-900/10' : status === 'mixed' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-900/10' : 'border-red-300 text-red-700 dark:border-red-600 dark:text-red-400 bg-red-50/50 dark:bg-red-900/10'} ${runningEnvs > 0 ? 'env-running-badge' : ''}`}>
               <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-red-400'} mr-1`} />
               {runningEnvs}/{totalEnvs} running
             </Badge>
@@ -1147,6 +1243,7 @@ function SortableProjectCard({
         </ContextMenuContent>
       </ContextMenu>
     </div>
+    </ProjectQuickPreview>
   )
 }
 
@@ -1177,12 +1274,12 @@ function CommandPalette({
   }, [])
 
   const commands = [
-    { id: 'add', label: 'Add New Project', icon: Plus, category: 'Actions', action: onAddProject },
-    { id: 'refresh', label: 'Refresh Data', icon: RefreshCw, category: 'Actions', action: onRefresh },
-    { id: 'toggle-view', label: 'Toggle Grid/List View', icon: LayoutGrid, category: 'Actions', action: onToggleView },
-    { id: 'gateway', label: 'Open Gateway Monitor', icon: Server, category: 'Actions', action: () => {} },
-    { id: 'llm', label: 'Configure LLM Settings', icon: Bot, category: 'Actions', action: () => {} },
-    { id: 'device-mgmt', label: 'Go to Device Management', icon: Monitor, category: 'Actions', action: onOpenDeviceManagement },
+    { id: 'add', label: 'Add New Project', icon: Plus, category: 'Actions', action: onAddProject, shortcut: '⌘N' },
+    { id: 'refresh', label: 'Refresh Data', icon: RefreshCw, category: 'Actions', action: onRefresh, shortcut: '⌘⇧R' },
+    { id: 'toggle-view', label: 'Toggle Grid/List View', icon: LayoutGrid, category: 'Actions', action: onToggleView, shortcut: 'G G/L' },
+    { id: 'gateway', label: 'Open Gateway Monitor', icon: Server, category: 'Actions', action: () => {}, shortcut: '' },
+    { id: 'llm', label: 'Configure LLM Settings', icon: Bot, category: 'Actions', action: () => {}, shortcut: '' },
+    { id: 'device-mgmt', label: 'Go to Device Management', icon: Monitor, category: 'Actions', action: onOpenDeviceManagement, shortcut: '⌘D' },
   ]
 
   const projectItems = projects.map((p) => ({
@@ -1254,6 +1351,9 @@ function CommandPalette({
                 >
                   <item.icon className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span className="truncate">{item.label}</span>
+                  {'shortcut' in item && (item as { shortcut?: string }).shortcut && (
+                    <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono shrink-0">{(item as { shortcut: string }).shortcut}</kbd>
+                  )}
                 </button>
               ))}
             </div>
@@ -1276,7 +1376,9 @@ function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: ()
     { keys: '⌘/Ctrl + D', description: 'Device management' },
     { keys: 'G then G', description: 'Grid view' },
     { keys: 'G then L', description: 'List view' },
-    { keys: 'Enter', description: 'Open project details (on hover)' },
+    { keys: '↑ / ↓', description: 'Navigate between project cards' },
+    { keys: 'Home / End', description: 'First / last project card' },
+    { keys: 'Enter', description: 'Open project details (on hover/focus)' },
     { keys: 'e', description: 'Edit project (on hover)' },
     { keys: 's', description: 'Start all envs (on hover)' },
     { keys: 'x', description: 'Stop all envs (on hover)' },
@@ -2414,6 +2516,7 @@ function DetailSheet({
               <TabsTrigger value="activity" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-300 rounded-full transition-colors">Activity</TabsTrigger>
               <TabsTrigger value="logs" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-emerald-50 data-[state=active]:text-emerald-700 dark:data-[state=active]:bg-emerald-900/30 dark:data-[state=active]:text-emerald-300 rounded-full transition-colors">Logs</TabsTrigger>
               <TabsTrigger value="deployments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-rose-50 data-[state=active]:text-rose-700 dark:data-[state=active]:bg-rose-900/30 dark:data-[state=active]:text-rose-300 rounded-full transition-colors">Deployments</TabsTrigger>
+              <TabsTrigger value="timeline" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-cyan-50 data-[state=active]:text-cyan-700 dark:data-[state=active]:bg-cyan-900/30 dark:data-[state=active]:text-cyan-300 rounded-full transition-colors">Timeline</TabsTrigger>
             </TabsList>
           </div>
 
@@ -3364,9 +3467,199 @@ function DetailSheet({
               </div>
             </motion.div>
           </TabsContent>
+          <TabsContent value="timeline" className="p-4 mt-0 overflow-y-auto flex-1 min-h-0">
+            <ProjectStatusTimeline project={project} />
+          </TabsContent>
         </Tabs>
       </SheetContent>
     </Sheet>
+  )
+}
+
+// ======================== PROJECT STATUS TIMELINE ========================
+
+interface TimelineEvent {
+  id: string
+  timestamp: string
+  oldStatus: string
+  newStatus: string
+  envName: string
+  envPort: number
+}
+
+function generateSampleTimeline(project: Project): TimelineEvent[] {
+  const envs = project.environments || []
+  if (envs.length === 0) return []
+
+  const events: TimelineEvent[] = []
+  const now = Date.now()
+  const statusCycle: Array<{ from: string; to: string }> = [
+    { from: 'stopped', to: 'running' },
+    { from: 'running', to: 'stopped' },
+    { from: 'stopped', to: 'running' },
+    { from: 'running', to: 'running' }, // restart
+    { from: 'running', to: 'stopped' },
+    { from: 'stopped', to: 'running' },
+  ]
+
+  // Generate 8-14 events per project
+  const count = 8 + Math.floor(Math.abs(Math.sin(project.id.charCodeAt(0) * 17)) * 7)
+  for (let i = 0; i < count; i++) {
+    const envIdx = i % envs.length
+    const env = envs[envIdx]
+    const cycle = statusCycle[i % statusCycle.length]
+    events.push({
+      id: `tl_${project.id}_${i}`,
+      timestamp: new Date(now - i * 2400000 - Math.floor(Math.abs(Math.cos(i * 3.7)) * 1800000)).toISOString(),
+      oldStatus: cycle.from,
+      newStatus: cycle.to,
+      envName: env.name,
+      envPort: env.port,
+    })
+  }
+
+  return events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+}
+
+function getTimelineDotColor(status: string): string {
+  if (status === 'running') return 'bg-emerald-500 ring-emerald-300 dark:ring-emerald-700/50'
+  if (status === 'stopped') return 'bg-red-500 ring-red-300 dark:ring-red-700/50'
+  return 'bg-amber-500 ring-amber-300 dark:ring-amber-700/50'
+}
+
+function getTimelineStatusLabel(oldStatus: string, newStatus: string): { text: string; className: string } {
+  if (oldStatus === 'stopped' && newStatus === 'running') return { text: 'Started', className: 'text-emerald-600 dark:text-emerald-400' }
+  if (oldStatus === 'running' && newStatus === 'stopped') return { text: 'Stopped', className: 'text-red-600 dark:text-red-400' }
+  if (oldStatus === 'running' && newStatus === 'running') return { text: 'Restarted', className: 'text-amber-600 dark:text-amber-400' }
+  return { text: `${oldStatus} → ${newStatus}`, className: 'text-muted-foreground' }
+}
+
+function ProjectStatusTimeline({ project }: { project: Project }) {
+  const [timelineEvents, setTimelineEvents] = React.useState<TimelineEvent[]>([])
+
+  React.useEffect(() => {
+    const storedKey = `project-timeline-${project.id}`
+    try {
+      const stored = localStorage.getItem(storedKey)
+      if (stored) {
+        setTimelineEvents(JSON.parse(stored))
+      } else {
+        const sample = generateSampleTimeline(project)
+        setTimelineEvents(sample)
+        localStorage.setItem(storedKey, JSON.stringify(sample))
+      }
+    } catch {
+      const sample = generateSampleTimeline(project)
+      setTimelineEvents(sample)
+    }
+  }, [project.id])
+
+  const addTimelineEvent = React.useCallback((event: Omit<TimelineEvent, 'id'>) => {
+    const newEvent: TimelineEvent = { ...event, id: `tl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}` }
+    setTimelineEvents((prev) => {
+      const next = [newEvent, ...prev].slice(0, 50)
+      try { localStorage.setItem(`project-timeline-${project.id}`, JSON.stringify(next)) } catch { /* ignore */ }
+      return next
+    })
+  }, [project.id])
+
+  // Record env action events to timeline
+  React.useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      const { projectId, envId, action } = e.detail || {}
+      if (projectId !== project.id) return
+      const env = (project.environments || []).find((e) => e.id === envId)
+      if (!env) return
+      const statusMap: Record<string, { old: string; new: string }> = {
+        start: { old: 'stopped', new: 'running' },
+        stop: { old: 'running', new: 'stopped' },
+        restart: { old: 'running', new: 'running' },
+      }
+      const change = statusMap[action]
+      if (change) {
+        addTimelineEvent({ timestamp: new Date().toISOString(), oldStatus: change.old, newStatus: change.new, envName: env.name, envPort: env.port })
+      }
+    }
+    window.addEventListener('env-action' as string, handler as EventListener)
+    return () => window.removeEventListener('env-action' as string, handler as EventListener)
+  }, [project, addTimelineEvent])
+
+  const envLabel = (name: string) => name === 'development' ? 'dev' : name === 'production' ? 'prod' : name
+
+  return (
+    <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.2 }}>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Clock className="h-4 w-4 text-cyan-500" />
+          <span className="text-sm font-semibold">Status Timeline</span>
+          <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{timelineEvents.length}</Badge>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 text-[10px] text-muted-foreground"
+          onClick={() => {
+            const sample = generateSampleTimeline(project)
+            setTimelineEvents(sample)
+            try { localStorage.setItem(`project-timeline-${project.id}`, JSON.stringify(sample)) } catch { /* ignore */ }
+            addToast({ title: 'Timeline refreshed', variant: 'success' })
+          }}
+        >
+          <RefreshCw className="h-3 w-3 mr-1" />Regenerate
+        </Button>
+      </div>
+
+      {timelineEvents.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <Clock className="h-10 w-10 text-muted-foreground/20 mb-3" />
+          <p className="text-sm text-muted-foreground">No timeline events yet</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">Events will appear when environments are started, stopped, or restarted</p>
+        </div>
+      ) : (
+        <div className="relative pl-7 space-y-0">
+          {/* Vertical line */}
+          <div className="absolute left-[9px] top-2 bottom-2 w-px bg-border/40 dark:bg-zinc-700/40" />
+          {timelineEvents.map((event, idx) => {
+            const label = getTimelineStatusLabel(event.oldStatus, event.newStatus)
+            return (
+              <div key={event.id} className="relative pb-4 group/tl">
+                {/* Dot */}
+                <div className={`absolute -left-7 top-1 h-3.5 w-3.5 rounded-full ring-2 ring-background dark:ring-zinc-900 ${getTimelineDotColor(event.newStatus)} transition-transform group-hover/tl:scale-125`} />
+                {/* Content */}
+                <div className="rounded-lg border bg-muted/20 px-3 py-2 group-hover/tl:bg-muted/40 transition-colors">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-xs font-semibold ${label.className}`}>{label.text}</span>
+                      <span className="text-[10px] text-muted-foreground">·</span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {envLabel(event.envName)}
+                        <span className="font-mono ml-0.5">:{event.envPort}</span>
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{formatTimeAgo(event.timestamp)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/70">
+                    <span className="flex items-center gap-0.5">
+                      <span className={`h-1.5 w-1.5 rounded-full ${event.oldStatus === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                      {event.oldStatus}
+                    </span>
+                    <span>→</span>
+                    <span className="flex items-center gap-0.5">
+                      <span className={`h-1.5 w-1.5 rounded-full ${event.newStatus === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                      {event.newStatus}
+                    </span>
+                    <span className="text-muted-foreground/50 ml-1">{new Date(event.timestamp).toLocaleString()}</span>
+                  </div>
+                </div>
+                {idx < timelineEvents.length - 1 && (
+                  <div className="absolute -left-[4.5px] top-5 bottom-0 w-px bg-border/20 dark:bg-zinc-700/20" />
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </motion.div>
   )
 }
 
@@ -3473,9 +3766,20 @@ function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor,
             {onlineDevices}/{totalDevices + 1} devices online
           </span>
           <span className="text-muted-foreground dark:text-zinc-500 hidden sm:inline">·</span>
-          <span className="hidden sm:inline text-[10px] text-muted-foreground dark:text-zinc-500">Last updated: {lastRefreshAgo}s ago</span>
+          <span className="hidden sm:inline text-[11px] text-muted-foreground dark:text-zinc-400">Last updated: {lastRefreshAgo}s ago</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Keyboard shortcut hints */}
+          <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-muted-foreground dark:text-zinc-500">
+            <kbd className="px-1 py-0.5 rounded bg-muted/60 dark:bg-zinc-800/60 border border-border/30 dark:border-zinc-700/30 font-mono">⌘K</kbd>
+            <span>Search</span>
+            <span className="mx-0.5">·</span>
+            <kbd className="px-1 py-0.5 rounded bg-muted/60 dark:bg-zinc-800/60 border border-border/30 dark:border-zinc-700/30 font-mono">?</kbd>
+            <span>Shortcuts</span>
+            <span className="mx-0.5">·</span>
+            <kbd className="px-1 py-0.5 rounded bg-muted/60 dark:bg-zinc-800/60 border border-border/30 dark:border-zinc-700/30 font-mono">↑↓</kbd>
+            <span>Navigate</span>
+          </div>
           {/* Quick action buttons */}
           {onRefresh && (
             <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onRefresh} />}><RefreshCw className="h-3.5 w-3.5" /></TooltipTrigger><TooltipContent>Refresh</TooltipContent></Tooltip></TooltipProvider>
@@ -5255,7 +5559,7 @@ export default function DashboardPage() {
               onChange={(e) => { setSearchQuery(e.target.value); setSearchDropdownOpen(true) }}
               onFocus={() => { if (searchQuery.length >= 2) setSearchDropdownOpen(true) }}
               onBlur={() => { setTimeout(() => setSearchDropdownOpen(false), 200) }}
-              className="pl-9 h-9 text-sm rounded-full bg-muted/40 border border-border/30 search-focus-glow focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:border-emerald-500/50 focus-visible:bg-background transition-all duration-200"
+              className="pl-9 h-9 text-sm rounded-full bg-muted/40 border border-border/30 search-focus-glow focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:border-emerald-500/50 focus-visible:bg-background transition-all duration-200 placeholder:text-muted-foreground/70 dark:placeholder:text-zinc-500"
             />
             <kbd className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center pointer-events-none px-1.5 py-0.5 text-[9px] text-muted-foreground dark:text-zinc-500 bg-muted dark:bg-zinc-800 rounded border border-border/50 dark:border-zinc-700/50 font-mono">⌘K</kbd>
             {/* Search results dropdown */}
@@ -5470,7 +5774,7 @@ export default function DashboardPage() {
             {/* Filter controls — wrap naturally, no horizontal scroll */}
             <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
               <DropdownMenu>
-                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-border bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors" />}>
+                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-zinc-300 dark:border-zinc-600 bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors shadow-sm" />}>
                   <Filter className="h-3 w-3 mr-1" />
                   {filterStatus === 'all' ? 'Status' : filterStatus}
                 </DropdownMenuTrigger>
@@ -5484,7 +5788,7 @@ export default function DashboardPage() {
               </DropdownMenu>
 
               <DropdownMenu>
-                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-border bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors" />}>
+                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-zinc-300 dark:border-zinc-600 bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors shadow-sm" />}>
                   <Tag className="h-3 w-3 mr-1" />
                   Tags {filterTags.length > 0 && `(${filterTags.length})`}
                 </DropdownMenuTrigger>
@@ -5504,7 +5808,7 @@ export default function DashboardPage() {
               </DropdownMenu>
 
               <DropdownMenu>
-                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-border bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors" />}>
+                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-zinc-300 dark:border-zinc-600 bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors shadow-sm" />}>
                   <ArrowUpDown className="h-3 w-3 mr-1" />
                   {sortBy === 'newest' ? 'Newest' : sortBy === 'name' ? 'Name' : 'Status'}
                 </DropdownMenuTrigger>
@@ -5518,7 +5822,7 @@ export default function DashboardPage() {
               </DropdownMenu>
 
               <DropdownMenu>
-                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-border bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors" />}>
+                <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center rounded-md border border-zinc-300 dark:border-zinc-600 bg-background hover:bg-muted dark:hover:bg-white/10 hover:text-foreground h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors shadow-sm" />}>
                   <Layers className="h-3 w-3 mr-1" />
                   Group: {groupBy === 'device' ? 'Device' : groupBy === 'tags' ? 'Tags' : 'None'}
                 </DropdownMenuTrigger>
@@ -5794,8 +6098,8 @@ export default function DashboardPage() {
                       <IconComp className="h-3 w-3" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[11px] font-medium truncate max-w-[200px]">{event.message}</p>
-                      <p className="text-[9px] text-muted-foreground">{formatTimeAgo(event.timestamp)}</p>
+                      <p className="text-[11px] font-medium truncate max-w-[240px]">{event.message}</p>
+                      <p className="text-[10px] text-muted-foreground">{formatTimeAgo(event.timestamp)}</p>
                     </div>
                   </motion.div>
                 )
@@ -5959,7 +6263,7 @@ export default function DashboardPage() {
           )
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={filteredProjects.map((p) => p.id)} strategy={viewMode === 'list' ? verticalListSortingStrategy : verticalListSortingStrategy}>
+            <SortableContext items={filteredProjects.map((p) => p.id)} strategy={viewMode === 'list' ? verticalListSortingStrategy : rectSortingStrategy}>
               {/* ======================== WELCOME WIDGET (Session 11) ======================== */}
               {filteredProjects.length > 0 && !welcomeDismissed && projects.length > 0 && (
                 <motion.div
@@ -5995,7 +6299,7 @@ export default function DashboardPage() {
                           {stats.stopped} project{stats.stopped !== 1 ? 's' : ''} need attention
                         </motion.p>
                       )}
-                      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="text-[10px] text-emerald-600/60 dark:text-emerald-400/50 mt-1">
+                      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="text-[11px] text-emerald-600/70 dark:text-emerald-400/60 mt-1">
                         Last refreshed: {formatTimeAgo(lastRefreshed)}
                       </motion.p>
                     </div>
@@ -6042,7 +6346,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-end justify-between">
                         <div className="flex items-center gap-1">
-                          <span className={`text-2xl font-bold tracking-tight ${card.isPercent && card.value < 50 ? 'text-red-600 dark:text-red-400' : 'text-foreground dark:text-zinc-100'}`}>
+                          <span className={`text-2xl font-bold tracking-tight ${card.isPercent && card.value < 50 ? 'text-red-700 dark:text-red-300' : 'text-foreground dark:text-zinc-100'}`} style={card.isPercent && card.value < 50 ? { textShadow: '0 0 8px rgba(239,68,68,0.3), 0 1px 2px rgba(255,255,255,0.8)' } : undefined}>
                             <AnimatedCounter target={card.value} />
                           </span>
                           {card.isPercent && <span className="text-sm text-muted-foreground ml-0.5">%</span>}
@@ -6234,7 +6538,7 @@ export default function DashboardPage() {
                       {/* Remote device groups */}
                       {deviceGroupedProjects.remoteGroups.map((group) => (
                         <React.Fragment key={group.device?.id ?? 'unknown'}>
-                          <div className="col-span-full">
+                          <div className="col-span-full mt-4">
                             <div className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg border ${
                               group.device?.status === 'online'
                                 ? 'bg-gradient-to-r from-teal-50/60 via-teal-50/30 to-transparent dark:from-teal-900/20 dark:via-teal-900/10 dark:to-transparent border-teal-100/50 dark:border-teal-800/20'
@@ -6403,7 +6707,7 @@ export default function DashboardPage() {
                       {/* Remote device groups */}
                       {deviceGroupedProjects.remoteGroups.map((group) => (
                         <React.Fragment key={group.device?.id ?? 'unknown'}>
-                          <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border mt-2 ${
+                          <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg border mt-4 ${
                             group.device?.status === 'online'
                               ? 'bg-gradient-to-r from-teal-50/60 via-teal-50/30 to-transparent dark:from-teal-900/20 dark:via-teal-900/10 dark:to-transparent border-teal-100/50 dark:border-teal-800/20'
                               : 'bg-gradient-to-r from-red-50/40 via-red-50/20 to-transparent dark:from-red-900/15 dark:via-red-900/8 dark:to-transparent border-red-100/50 dark:border-red-800/20'

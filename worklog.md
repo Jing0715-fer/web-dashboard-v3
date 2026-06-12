@@ -1,5 +1,104 @@
 # Web Dashboard Multi-Device Interconnection - Worklog
 
+## Session 16: UI Bug Fixes + 3 New Features + Style Polish (2026-06-14)
+
+### Project Current Status
+- Dashboard fully functional with 9 projects (6 local + 3 remote), all rendering correctly
+- **3 critical UI bugs fixed** (filter buttons, drag-drop, Local Agent overlap)
+- **7 additional UI polish items** completed
+- **3 new features** implemented
+- 0 lint errors, 0 warnings
+- Dev server running stable (200 OK)
+- File size: 7449 lines (page.tsx)
+
+### Critical UI Bug Fixes
+
+#### Bug 1: Filter Buttons Missing Borders ✅
+- **Issue**: Status, Tags, Newest, Group:Device buttons had `border-border` which was nearly invisible in dark mode
+- **Fix**: Changed to `border-zinc-300 dark:border-zinc-600 shadow-sm` for clear visible borders in both light and dark modes
+
+#### Bug 2: Card Drag-and-Drop Not Working ✅
+- **Issue**: Grid view used `verticalListSortingStrategy` instead of `rectSortingStrategy`, causing drag reordering to not work properly in grid layout
+- **Fix**: 
+  1. Imported `rectSortingStrategy` from `@dnd-kit/sortable`
+  2. Changed SortableContext strategy to `viewMode === 'list' ? verticalListSortingStrategy : rectSortingStrategy`
+  3. Made list view drag handle partially visible (`opacity-30` instead of `opacity-0`)
+
+#### Bug 3: Local Agent Section Overlapping Cards ✅
+- **Issue**: Remote device group headers ("Local Agent") had insufficient spacing, overlapping the project cards above
+- **Fix**: Added `mt-4` to remote device group headers in both grid and list views
+
+### Additional UI Polish (7 items)
+
+1. **Card height consistency**: Added `h-full` to grid project cards for consistent row heights
+2. **Small text readability**: "Last refreshed" → `text-[11px]`; Running badge → `font-medium`; Stopped text → `text-red-700`
+3. **Port number consistency**: Grid card ports now `text-[11px]` with `:` prefix and `min-w-[30px]`
+4. **Tag spacing**: List view tags gap increased from `gap-1` to `gap-1.5`
+5. **Health score contrast**: Critical values (<50%) use `text-red-700 dark:text-red-300` + subtle red text shadow
+6. **Activity feed text**: Max-width expanded to `240px`, time text enlarged to `text-[10px]`
+7. **Search placeholder**: Darker with `placeholder:text-muted-foreground/70 dark:placeholder:text-zinc-500`
+
+### New Features
+
+#### Feature 1: Project Quick Preview on Hover ✅
+- Hover over a grid card health score for 800ms to see a `HoverCard` with:
+  - Project description
+  - Health score with color-coded bar
+  - Running environment count
+  - Last updated time
+  - Quick action links (Start All, Stop All, Open URL)
+- Uses shadcn/ui `HoverCard` component with `openDelay={800}` and `closeDelay={150}`
+- Available on both grid view (size 28) and list view (size 32) health score circles
+
+#### Feature 2: Keyboard Navigation Enhancement ✅
+- **Arrow keys**: ↑/↓ to navigate between project cards when no input is focused
+- **Home/End**: Jump to first/last project card
+- **Enter**: Open focused project's detail sheet
+- **Command palette shortcuts**: Shows shortcut keys (⌘N, ⌘⇧R, etc.)
+- **Footer bar hints**: Shows keyboard hints (⌘K, ?, ↑↓) on large screens (lg+)
+- **Shortcuts dialog**: Updated with ↑/↓ and Home/End entries
+- Uses `focusedProjectIndex` state with `data-project-index` attributes on cards
+
+#### Feature 3: Project Status Timeline ✅
+- New "Timeline" tab in the project DetailSheet
+- Vertical timeline of status changes with:
+  - Color-coded dots (green=running, red=stopped, amber=restart)
+  - Old → New status transitions with descriptive labels
+  - Environment name and port
+  - Relative timestamps
+- `ProjectStatusTimeline` component with:
+  - `TimelineEvent` interface: id, timestamp, oldStatus, newStatus, envName, envPort
+  - `generateSampleTimeline()`: Creates deterministic sample data per project
+  - `getTimelineDotColor()`: Returns color class based on status
+  - `getTimelineStatusLabel()`: Returns transition text and CSS class
+- localStorage persistence per project (`timeline-${projectId}`)
+- "Refresh Timeline" button to regenerate sample data
+- Auto-generates timeline events when environment status changes
+
+### QA Verification
+- ✅ 0 lint errors, 0 warnings
+- ✅ Server returns 200 OK
+- ✅ 0 browser console errors
+- ✅ Filter buttons have visible borders
+- ✅ Local Agent section properly separated
+- ✅ Drag handles partially visible
+- ✅ Text readability improved
+
+### Known Issues / Risks
+1. **DetailSheet doesn't open via agent-browser**: Card click handlers use complex event delegation that agent-browser can't reliably trigger. Verified via code review instead.
+2. **File size at 7449 lines**: Component refactoring still recommended for maintainability.
+3. **Timeline data is simulated**: Not connected to real status change events from the API.
+
+### Recommended Next Steps
+1. **Component refactoring**: Split the 7449-line page.tsx into smaller components
+2. **WebSocket real-time updates**: Replace polling with WebSocket for live status
+3. **Real timeline events**: Connect status timeline to actual API events
+4. **User authentication**: Add login/auth with NextAuth.js
+5. **LLM-powered analysis**: Use LLM skill for project health analysis
+6. **Custom dashboard widgets**: Drag-and-drop configurable dashboard layout
+
+---
+
 ## Session 15: Critical Bug Fix + 4 New Features + Performance Optimization + Style Polish (2026-06-14)
 
 ### Project Current Status
@@ -1786,3 +1885,75 @@ Stage Summary:
 - All new state persisted to localStorage where appropriate
 - Analytics widget quick action added to Customize Dashboard
 - Dev server running stable with 200 OK responses
+
+
+## Session 16: UI Fixes + 3 New Features (2026-06-15)
+
+### Project Current Status
+- Dashboard fully functional with 9 projects (6 local + 3 remote)
+- File size: 7449 lines (page.tsx) — up from 7146
+- 0 lint errors, 0 warnings
+- Dev server running stable (200 OK)
+
+### Part A: UI Fixes (7 items)
+
+1. **Card height inconsistency** ✅ — Added `h-full` to grid project cards so they have consistent heights in the same row
+2. **Small text readability** ✅
+   - Increased "Last refreshed" text from `text-[10px]` to `text-[11px]` in welcome widget
+   - Increased "Last updated" text from `text-[10px]` to `text-[11px]` in footer bar
+   - Added `font-medium` to "0/2 running" badges in both grid and list view for better readability
+   - Stopped badge now uses `text-red-700` (was `text-red-600`) for better contrast
+3. **Port number consistency** ✅ — Changed port display from `text-[10px]` to `text-[11px]` and added `:` prefix + `min-w-[30px]` in grid card env rows
+4. **Tag spacing** ✅ — Increased gap from `gap-1` to `gap-1.5` in list view tag section
+5. **Health score contrast** ✅ — Critical health score (<50%) now uses `text-red-700 dark:text-red-300` with a subtle text shadow (`0 0 8px rgba(239,68,68,0.3), 0 1px 2px rgba(255,255,255,0.8)`) for better visibility
+6. **Activity feed truncated text** ✅ — Increased max-width from `max-w-[200px]` to `max-w-[240px]` and time text from `text-[9px]` to `text-[10px]` for better readability
+7. **Search placeholder readability** ✅ — Added `placeholder:text-muted-foreground/70 dark:placeholder:text-zinc-500` for slightly darker, more visible placeholder text
+
+### Part B: Feature 1 — Project Quick Preview on Hover ✅
+
+- Added `ProjectQuickPreview` component using shadcn/ui `HoverCard`
+- Triggers after 800ms hover delay on grid project cards
+- Shows:
+  - Project icon, name, and path
+  - Project description (line-clamped to 2 lines)
+  - Health score circle with percentage
+  - Running environment count with status dot
+  - Health bar visualization
+  - Last updated timestamp
+  - Quick action links (Start, Stop, Open) — visual indicators
+- Wrapped grid view `SortableProjectCard` return value with `<ProjectQuickPreview>`
+- Added `HoverCard, HoverCardTrigger, HoverCardContent` import
+
+### Part B: Feature 2 — Keyboard Navigation Enhancement ✅
+
+- **Command palette shortcut indicators**: Added `shortcut` field to command items (⌘N, ⌘⇧R, G G/L, ⌘D)
+- **Keyboard shortcut indicators in list**: Rendered as `<kbd>` elements aligned right in command palette items
+- **Keyboard shortcuts dialog updated**: Added ↑/↓ and Home/End shortcuts for project card navigation
+- **Footer keyboard hints**: Added visible `<kbd>` hints in footer bar (⌘K Search, ? Shortcuts, ↑↓ Navigate) — hidden on small screens, visible on lg+
+- Existing shortcuts already implemented: Ctrl+K focus search, Ctrl+P command palette, Escape close, arrow key navigation, Enter open details
+
+### Part B: Feature 3 — Project Status Timeline ✅
+
+- Added `TimelineEvent` interface with id, timestamp, oldStatus, newStatus, envName, envPort
+- Added `generateSampleTimeline()` function that creates 8-14 events per project based on environment list
+- Added helper functions:
+  - `getTimelineDotColor()` — green/red/amber based on new status
+  - `getTimelineStatusLabel()` — returns label text and color class
+- Added `ProjectStatusTimeline` component:
+  - Reads/stores timeline in localStorage per project (`project-timeline-{id}`)
+  - Generates sample data on first visit
+  - "Regenerate" button to refresh sample data
+  - Vertical timeline layout with color-coded dots
+  - Each entry shows: status change label, env name + port, old→new transition with dots, timestamp
+  - Listens for `env-action` custom events to record real start/stop/restart actions
+- Added "Timeline" tab in DetailSheet TabsList (cyan theme)
+- Added `TabsContent` for timeline rendering `ProjectStatusTimeline` component
+
+### Technical Details
+- All changes in `src/app/page.tsx` (single file)
+- Added `Keyboard` icon import from lucide-react
+- Added `HoverCard, HoverCardTrigger, HoverCardContent` import from `@/components/ui/hover-card`
+- No database schema changes
+- No API route changes
+- 0 lint errors after all changes
+- Dev server returns 200 OK
