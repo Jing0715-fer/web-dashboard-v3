@@ -13,7 +13,7 @@ import {
   CheckCircle2, XCircle, Loader2,
   Bot, ArrowUpDown, ArrowRightLeft,
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap,
-  Wifi, Gauge, MemoryStick, BarChart3, Upload
+  Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate
 } from 'lucide-react'
 
 import {
@@ -400,23 +400,39 @@ function HealthScoreHoverCard({
       </PopoverTrigger>
       <PopoverContent
         side="right"
-        className="w-48 p-3 text-xs"
+        className="w-56 p-3 text-xs"
         onMouseEnter={() => setOpen(true)}
         onMouseLeave={() => setOpen(false)}
       >
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           <div className="font-semibold text-sm">Project Stats</div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Health Score</span>
             <span className={`font-medium ${healthColor(score)}`}>{score}%</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Running Envs</span>
-            <span className="font-medium text-emerald-600 dark:text-emerald-400">{runningEnvs}</span>
+            <span className="text-muted-foreground">Uptime</span>
+            <span className="font-medium">{totalEnvs > 0 ? Math.round((runningEnvs / totalEnvs) * 100) : 0}%</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Total Envs</span>
-            <span className="font-medium">{totalEnvs}</span>
+            <span className="text-muted-foreground">Running Envs</span>
+            <span className="font-medium text-emerald-600 dark:text-emerald-400">{runningEnvs}/{totalEnvs}</span>
+          </div>
+          {/* Status breakdown bar */}
+          <div className="space-y-1">
+            <span className="text-muted-foreground text-[10px]">Status Breakdown</span>
+            <div className="h-2 rounded-full bg-muted overflow-hidden flex">
+              {totalEnvs > 0 && runningEnvs > 0 && (
+                <div className="bg-emerald-500 h-full rounded-l-full transition-all" style={{ width: `${(runningEnvs / totalEnvs) * 100}%` }} />
+              )}
+              {totalEnvs > 0 && totalEnvs - runningEnvs > 0 && (
+                <div className="bg-red-400 h-full rounded-r-full transition-all" style={{ width: `${((totalEnvs - runningEnvs) / totalEnvs) * 100}%` }} />
+              )}
+            </div>
+            <div className="flex items-center gap-3 text-[10px]">
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Running ({runningEnvs})</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-red-400" /> Stopped ({totalEnvs - runningEnvs})</span>
+            </div>
           </div>
           <Separator />
           <div className="flex justify-between">
@@ -744,7 +760,7 @@ function SortableProjectCard({
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ delay: index * 0.05 }}
-        className={`group relative flex flex-col rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent}`}
+        className={`group relative flex flex-col rounded-xl border bg-card dark:bg-zinc-900/80 shadow-md dark:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:shadow-xl dark:hover:shadow-[0_8px_30px_rgba(0,0,0,0.5)] transition-all duration-200 cursor-pointer overflow-hidden border-border/60 dark:border-zinc-700/50 ${statusBorderAccent} card-shimmer`}
       >
 
         <div className="absolute top-5 left-2 z-10 flex gap-1 items-start" onClick={(e) => e.stopPropagation()}>
@@ -1197,6 +1213,31 @@ function ProjectFormDialog({
           <DialogDescription>{mode === 'add' ? 'Create a new project to manage.' : 'Update project details.'}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
+          {/* Templates - only shown when adding a new project */}
+          {mode === 'add' && (
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5" />Templates</Label>
+              <div className="grid grid-cols-5 gap-1.5">
+                {([
+                  { label: 'Web App', icon: Globe, tpl: { name: 'Web App', icon: 'globe', tags: ['Frontend', 'Fullstack'], description: 'Modern web application' } },
+                  { label: 'API Server', icon: Server, tpl: { name: 'API Server', icon: 'server', tags: ['Backend', 'API'], description: 'RESTful API server' } },
+                  { label: 'ML Project', icon: CpuIcon, tpl: { name: 'ML Project', icon: 'cpu', tags: ['ML/AI', 'Backend'], description: 'Machine learning project' } },
+                  { label: 'Mobile App', icon: Smartphone, tpl: { name: 'Mobile App', icon: 'smartphone', tags: ['Mobile', 'Fullstack'], description: 'Cross-platform mobile application' } },
+                  { label: 'DevOps', icon: Terminal, tpl: { name: 'DevOps', icon: 'terminal', tags: ['DevOps', 'Automation'], description: 'DevOps automation pipeline' } },
+                ] as const).map(({ label, icon: TplIcon, tpl }) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => { setName(tpl.name); setIcon(tpl.icon); setSelectedTags(tpl.tags); setDescription(tpl.description) }}
+                    className="flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all duration-150 hover:bg-accent/50 cursor-pointer border-border hover:border-muted-foreground/30"
+                  >
+                    <TplIcon className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-[10px] leading-tight text-muted-foreground">{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="space-y-1">
             <Label htmlFor="proj-name">Name *</Label>
             <Input id="proj-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="My Project" />
@@ -1881,6 +1922,16 @@ function DetailSheet({
   const [descDraft, setDescDraft] = React.useState('')
   const [savingDesc, setSavingDesc] = React.useState(false)
   const [localNetworkInfo, setLocalNetworkInfo] = React.useState<{ hostname: string; platform: string; arch: string; cpus: number } | null>(null)
+  // Log viewer state
+  const [logLevelFilter, setLogLevelFilter] = React.useState<string>('all')
+  const [logSearchQuery, setLogSearchQuery] = React.useState('')
+  const [logAutoScroll, setLogAutoScroll] = React.useState(true)
+  const logContainerRef = React.useRef<HTMLDivElement>(null)
+  // Collapsible sections state
+  const [descCollapsed, setDescCollapsed] = React.useState(() => !project?.description)
+  const [deviceCollapsed, setDeviceCollapsed] = React.useState(false)
+  const [tagsCollapsed, setTagsCollapsed] = React.useState(() => parseTags(project?.tags || '').length === 0)
+  const [envSummaryCollapsed, setEnvSummaryCollapsed] = React.useState(false)
   const { toast } = useToast()
 
   // Fetch network info for local device display
@@ -1992,6 +2043,14 @@ function DetailSheet({
       return () => cancelAnimationFrame(id)
     }
   }, [project, activeTab, open])
+
+  // Auto-scroll log viewer when new logs arrive
+  React.useEffect(() => {
+    if (logAutoScroll && logContainerRef.current && activeTab === 'logs') {
+      const el = logContainerRef.current
+      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight })
+    }
+  }, [logs, logAutoScroll, activeTab])
 
   const runHealthCheck = React.useCallback(async () => {
     if (!project) return
@@ -2128,96 +2187,145 @@ function DetailSheet({
             </TabsList>
           </div>
 
-          <TabsContent value="overview" className="p-4 space-y-4 mt-0 overflow-y-auto flex-1 min-h-0">
+          <TabsContent value="overview" className="p-4 space-y-3 mt-0 overflow-y-auto flex-1 min-h-0">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="space-y-3"
+            >
+            {/* Description - collapsible */}
             <div>
-              <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full text-left group/section"
+                onClick={() => setDescCollapsed(!descCollapsed)}
+              >
                 <div className="h-1 w-3 rounded-full bg-emerald-500" />
                 <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1">Description</h4>
                 <div className="flex-1" />
-                {!editingDescription && (
-                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={startEditingDescription}>
+                {!editingDescription && !descCollapsed && (
+                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); startEditingDescription() }}>
                     <Edit3 className="h-2.5 w-2.5 mr-0.5" />Edit
                   </Button>
                 )}
-              </div>
-              {editingDescription ? (
-                <div className="space-y-2">
-                  <Textarea
-                    value={descDraft}
-                    onChange={(e) => setDescDraft(e.target.value)}
-                    placeholder="Add a description..."
-                    className="text-sm min-h-[80px] resize-none"
-                    autoFocus
-                  />
-                  <div className="flex items-center gap-1.5 justify-end">
-                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingDescription(false)} disabled={savingDesc}>Cancel</Button>
-                    <Button size="sm" className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={saveDescription} disabled={savingDesc}>
-                      {savingDesc && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                      Save
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                project.description ? (
-                  <p className="text-sm">{project.description}</p>
-                ) : (
-                  <p className="text-sm text-muted-foreground italic">No description</p>
-                )
-              )}
-            </div>
-            {/* Device info row */}
-            <div>
-              <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Device</h4></div>
-              <div className="p-2.5 rounded-lg border bg-muted/30">
-                {project.deviceId && project.deviceName ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="relative flex h-2.5 w-2.5">
-                        {project.deviceStatus === 'online' && (
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                        )}
-                        <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${project.deviceStatus === 'online' ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                      </span>
-                      <span className="text-sm font-medium">{project.deviceName}</span>
-                      <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${project.deviceStatus === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400'}`}>
-                        {project.deviceStatus === 'online' ? 'Online' : 'Offline'}
-                      </Badge>
-                    </div>
-                    {(() => {
-                      const device = devices?.find((d) => d.id === project.deviceId)
-                      if (!device) return null
-                      return (
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-5">
-                          <span>IP:Port</span>
-                          <span className="font-mono text-foreground dark:text-zinc-200">{device.ip}:{device.port}</span>
-                          <span>Last Seen</span>
-                          <span className="font-mono text-foreground dark:text-zinc-200">{device.lastSeen ? formatTimeAgo(device.lastSeen) : 'Never'}</span>
+                <span className="text-muted-foreground">
+                  {descCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </span>
+              </button>
+              <AnimatePresence initial={false}>
+                {!descCollapsed && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: 'easeInOut' }}
+                    className="overflow-hidden"
+                  >
+                    {editingDescription ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          value={descDraft}
+                          onChange={(e) => setDescDraft(e.target.value)}
+                          placeholder="Add a description..."
+                          className="text-sm min-h-[80px] resize-none"
+                          autoFocus
+                        />
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingDescription(false)} disabled={savingDesc}>Cancel</Button>
+                          <Button size="sm" className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={saveDescription} disabled={savingDesc}>
+                            {savingDesc && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                            Save
+                          </Button>
                         </div>
-                      )
-                    })()}
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => { onOpenDeviceManagement?.(); onClose() }}>
-                        <ExternalLink className="h-2.5 w-2.5 mr-0.5" />Go to Device
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                      <span className="text-sm font-medium">💻 This Machine</span>
-                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300">Local</Badge>
-                    </div>
-                    {localNetworkInfo && (
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-6">
-                        <span>Hostname</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.hostname}</span>
-                        <span>Platform</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.platform} {localNetworkInfo.arch}</span>
-                        <span>CPU Cores</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.cpus}</span>
                       </div>
+                    ) : (
+                      project.description ? (
+                        <p className="text-sm">{project.description}</p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">No description</p>
+                      )
                     )}
-                  </div>
+                  </motion.div>
                 )}
-              </div>
+              </AnimatePresence>
+            </div>
+            {/* Device - collapsible */}
+            <div>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full text-left"
+                onClick={() => setDeviceCollapsed(!deviceCollapsed)}
+              >
+                <div className="h-1 w-3 rounded-full bg-emerald-500" />
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Device</h4>
+                <div className="flex-1" />
+                <span className="text-muted-foreground">
+                  {deviceCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </span>
+              </button>
+              <AnimatePresence initial={false}>
+                {!deviceCollapsed && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: 'easeInOut' }}
+                    className="overflow-hidden"
+                  >
+                    <div className="p-2.5 rounded-lg border bg-muted/30">
+                      {project.deviceId && project.deviceName ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="relative flex h-2.5 w-2.5">
+                              {project.deviceStatus === 'online' && (
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                              )}
+                              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${project.deviceStatus === 'online' ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                            </span>
+                            <span className="text-sm font-medium">{project.deviceName}</span>
+                            <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${project.deviceStatus === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400'}`}>
+                              {project.deviceStatus === 'online' ? 'Online' : 'Offline'}
+                            </Badge>
+                          </div>
+                          {(() => {
+                            const device = devices?.find((d) => d.id === project.deviceId)
+                            if (!device) return null
+                            return (
+                              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-5">
+                                <span>IP:Port</span>
+                                <span className="font-mono text-foreground dark:text-zinc-200">{device.ip}:{device.port}</span>
+                                <span>Last Seen</span>
+                                <span className="font-mono text-foreground dark:text-zinc-200">{device.lastSeen ? formatTimeAgo(device.lastSeen) : 'Never'}</span>
+                              </div>
+                            )
+                          })()}
+                          <div className="flex items-center gap-2">
+                            <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => { onOpenDeviceManagement?.(); onClose() }}>
+                              <ExternalLink className="h-2.5 w-2.5 mr-0.5" />Go to Device
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            <span className="text-sm font-medium">💻 This Machine</span>
+                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300">Local</Badge>
+                          </div>
+                          {localNetworkInfo && (
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-6">
+                              <span>Hostname</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.hostname}</span>
+                              <span>Platform</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.platform} {localNetworkInfo.arch}</span>
+                              <span>CPU Cores</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.cpus}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="p-3 rounded-lg border">
@@ -2233,123 +2341,172 @@ function DetailSheet({
               </div>
             </div>
             <div>
-              <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Tags</h4>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full text-left"
+                onClick={() => setTagsCollapsed(!tagsCollapsed)}
+              >
+                <div className="h-1 w-3 rounded-full bg-emerald-500" />
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">
+                  Tags{tagsCollapsed && tags.length > 0 ? ` (${tags.length})` : ''}
+                </h4>
                 <div className="flex-1" />
-                {!editingTags && (
-                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={startEditingTags}>
+                {!editingTags && !tagsCollapsed && (
+                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); startEditingTags() }}>
                     <Edit3 className="h-2.5 w-2.5 mr-0.5" />Edit
                   </Button>
                 )}
-              </div>
-              {editingTags ? (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap gap-1">
-                    {tagDraft.map((tag) => (
-                      <Badge key={tag} variant="secondary" className={`cursor-default pr-0.5 ${getTagColor(tag)}`}>
-                        {tag}
-                        <button type="button" className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/20 transition-colors" onClick={() => removeTag(tag)}>
-                          <X className="h-2.5 w-2.5" />
-                        </button>
-                      </Badge>
-                    ))}
-                    {tagDraft.length === 0 && <span className="text-xs text-muted-foreground italic">No tags selected</span>}
-                  </div>
-                  <Popover open={tagSearchOpen} onOpenChange={setTagSearchOpen}>
-                    <PopoverTrigger render={<Button variant="outline" size="sm" className="h-6 text-[10px] w-full justify-start" />}>
-                      <Tag className="h-2.5 w-2.5 mr-1" />Add tag...
-                    </PopoverTrigger>
-                    <PopoverContent className="w-56 p-2" align="start">
-                      <Input
-                        placeholder="Search tags..."
-                        value={tagSearchQuery}
-                        onChange={(e) => setTagSearchQuery(e.target.value)}
-                        className="h-7 text-xs mb-1.5"
-                        autoFocus
-                      />
-                      <div className="max-h-40 overflow-y-auto space-y-0.5">
-                        {TAG_OPTIONS
-                          .filter((t) => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) && !tagDraft.includes(t.name))
-                          .map((tag) => (
-                            <button
-                              key={tag.name}
-                              type="button"
-                              className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-md hover:bg-accent transition-colors text-left"
-                              onClick={() => addTag(tag.name)}
-                            >
-                              <Badge variant="secondary" className={`text-[9px] px-1.5 py-0 cursor-default ${tag.color}`}>{tag.name}</Badge>
-                            </button>
-                          ))
-                        }
-                        {TAG_OPTIONS.filter((t) => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) && !tagDraft.includes(t.name)).length === 0 && (
-                          <p className="text-[10px] text-muted-foreground text-center py-2">No more tags available</p>
-                        )}
+                <span className="text-muted-foreground">
+                  {tagsCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </span>
+              </button>
+              <AnimatePresence initial={false}>
+                {!tagsCollapsed && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: 'easeInOut' }}
+                    className="overflow-hidden"
+                  >
+                    {editingTags ? (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap gap-1">
+                          {tagDraft.map((tag) => (
+                            <Badge key={tag} variant="secondary" className={`cursor-default pr-0.5 ${getTagColor(tag)}`}>
+                              {tag}
+                              <button type="button" className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/20 transition-colors" onClick={() => removeTag(tag)}>
+                                <X className="h-2.5 w-2.5" />
+                              </button>
+                            </Badge>
+                          ))}
+                          {tagDraft.length === 0 && <span className="text-xs text-muted-foreground italic">No tags selected</span>}
+                        </div>
+                        <Popover open={tagSearchOpen} onOpenChange={setTagSearchOpen}>
+                          <PopoverTrigger render={<Button variant="outline" size="sm" className="h-6 text-[10px] w-full justify-start" />}>
+                            <Tag className="h-2.5 w-2.5 mr-1" />Add tag...
+                          </PopoverTrigger>
+                          <PopoverContent className="w-56 p-2" align="start">
+                            <Input
+                              placeholder="Search tags..."
+                              value={tagSearchQuery}
+                              onChange={(e) => setTagSearchQuery(e.target.value)}
+                              className="h-7 text-xs mb-1.5"
+                              autoFocus
+                            />
+                            <div className="max-h-40 overflow-y-auto space-y-0.5">
+                              {TAG_OPTIONS
+                                .filter((t) => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) && !tagDraft.includes(t.name))
+                                .map((tag) => (
+                                  <button
+                                    key={tag.name}
+                                    type="button"
+                                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-md hover:bg-accent transition-colors text-left"
+                                    onClick={() => addTag(tag.name)}
+                                  >
+                                    <Badge variant="secondary" className={`text-[9px] px-1.5 py-0 cursor-default ${tag.color}`}>{tag.name}</Badge>
+                                  </button>
+                                ))
+                              }
+                              {TAG_OPTIONS.filter((t) => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) && !tagDraft.includes(t.name)).length === 0 && (
+                                <p className="text-[10px] text-muted-foreground text-center py-2">No more tags available</p>
+                              )}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                        <div className="flex items-center gap-1.5 justify-end">
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingTags(false)} disabled={savingTags}>Cancel</Button>
+                          <Button size="sm" className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={saveTags} disabled={savingTags}>
+                            {savingTags && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                            Save
+                          </Button>
+                        </div>
                       </div>
-                    </PopoverContent>
-                  </Popover>
-                  <div className="flex items-center gap-1.5 justify-end">
-                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingTags(false)} disabled={savingTags}>Cancel</Button>
-                    <Button size="sm" className="h-6 text-xs bg-emerald-600 hover:bg-emerald-700 text-white" onClick={saveTags} disabled={savingTags}>
-                      {savingTags && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                      Save
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-1">
-                  {tags.length > 0 ? tags.map((tag) => (
-                    <Badge key={tag} variant="secondary" className={`cursor-default ${getTagColor(tag)}`}>{tag}</Badge>
-                  )) : <span className="text-xs text-muted-foreground">No tags</span>}
-                </div>
-              )}
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {tags.length > 0 ? tags.map((tag) => (
+                          <Badge key={tag} variant="secondary" className={`cursor-default ${getTagColor(tag)}`}>{tag}</Badge>
+                        )) : <span className="text-xs text-muted-foreground">No tags</span>}
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <div>
-              <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Environments Summary</h4>
-                <div className="flex items-center gap-1 ml-auto">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => { const ports = envs.map((e) => String(e.port)).join(', '); navigator.clipboard.writeText(ports); toast({ title: 'Ports copied', description: ports, variant: 'success' }) }}
-                    title="Copy all ports"
-                  ><Copy className="h-2.5 w-2.5" />Copy All Ports</button>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                    onClick={() => { envs.filter((e) => e.status === 'running').forEach((env) => { let url: string; if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) { url = `/api/proxy/${env.port}/` } else { const host = currentHost || 'localhost'; url = `http://${host}:${env.port}` } window.open(url, '_blank') }) }}
-                    title="Open all running URLs"
-                  ><ExternalLink className="h-2.5 w-2.5" />Open All Running</button>
-                </div>
-              </div>
-              <div className="space-y-1">
-                {envs.map((env) => (
-                  <div key={env.id} className="flex items-center justify-between p-2 rounded border text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full ${env.status === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                      <span>{env.name}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <button className="font-mono hover:text-foreground transition-colors" onClick={() => copyToClipboard(String(env.port), `Port :${env.port}`)}>:{env.port}</button>
-                      {env.pid && <span>PID {env.pid}</span>}
-                      {env.status === 'running' && (
-                        <a
-                          href={(() => {
-                            if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) {
-                              return `/api/proxy/${env.port}/`
-                            }
-                            const host = currentHost || 'localhost'
-                            return `http://${host}:${env.port}`
-                          })()}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-0.5"
-                        >
-                          Open <ExternalLink className="h-2.5 w-2.5" />
-                        </a>
-                      )}
-                    </div>
+              <button
+                type="button"
+                className="flex items-center gap-2 w-full text-left"
+                onClick={() => setEnvSummaryCollapsed(!envSummaryCollapsed)}
+              >
+                <div className="h-1 w-3 rounded-full bg-emerald-500" />
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">
+                  Environments Summary{envSummaryCollapsed && envs.length > 0 ? ` (${envs.length})` : ''}
+                </h4>
+                <div className="flex-1" />
+                {!envSummaryCollapsed && (
+                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => { const ports = envs.map((e) => String(e.port)).join(', '); navigator.clipboard.writeText(ports); toast({ title: 'Ports copied', description: ports, variant: 'success' }) }}
+                      title="Copy all ports"
+                    ><Copy className="h-2.5 w-2.5" />Copy All Ports</button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => { envs.filter((e) => e.status === 'running').forEach((env) => { let url: string; if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) { url = `/api/proxy/${env.port}/` } else { const host = currentHost || 'localhost'; url = `http://${host}:${env.port}` } window.open(url, '_blank') }) }}
+                      title="Open all running URLs"
+                    ><ExternalLink className="h-2.5 w-2.5" />Open All Running</button>
                   </div>
-                ))}
-                {envs.length === 0 && <span className="text-xs text-muted-foreground">No environments</span>}
-              </div>
+                )}
+                <span className="text-muted-foreground">
+                  {envSummaryCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                </span>
+              </button>
+              <AnimatePresence initial={false}>
+                {!envSummaryCollapsed && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: 'easeInOut' }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-1">
+                      {envs.map((env) => (
+                        <div key={env.id} className="flex items-center justify-between p-2 rounded border text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className={`h-2 w-2 rounded-full ${env.status === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                            <span>{env.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <button className="font-mono hover:text-foreground transition-colors" onClick={() => copyToClipboard(String(env.port), `Port :${env.port}`)}>:{env.port}</button>
+                            {env.pid && <span>PID {env.pid}</span>}
+                            {env.status === 'running' && (
+                              <a
+                                href={(() => {
+                                  if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) {
+                                    return `/api/proxy/${env.port}/`
+                                  }
+                                  const host = currentHost || 'localhost'
+                                  return `http://${host}:${env.port}`
+                                })()}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-0.5"
+                              >
+                                Open <ExternalLink className="h-2.5 w-2.5" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {envs.length === 0 && <span className="text-xs text-muted-foreground">No environments</span>}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             {/* Access URLs Section */}
             {envs.some((e) => e.status === 'running') && (
@@ -2421,9 +2578,16 @@ function DetailSheet({
                 ))}
               </div>
             )}
+            </motion.div>
           </TabsContent>
 
           <TabsContent value="environments" className="p-4 space-y-3 mt-0 overflow-y-auto flex-1 min-h-0">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="space-y-3"
+            >
             {envs.map((env) => {
               const envVars = parseEnvVars(env.envVars)
               const isExpanded = expandedEnv === env.id
@@ -2652,33 +2816,110 @@ function DetailSheet({
                 <p className="text-sm">No environments yet</p>
               </div>
             )}
+            </motion.div>
           </TabsContent>
 
           <TabsContent value="activity" className="p-4 mt-0 overflow-y-auto flex-1 min-h-0">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+            >
             {loadingActivity ? (
               <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
             ) : (
               <ActivityTimeline activity={activity} />
             )}
+            </motion.div>
           </TabsContent>
 
           <TabsContent value="logs" className="p-4 mt-0 overflow-y-auto flex-1 min-h-0">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+            >
             {loadingLogs ? (
               <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
             ) : (
-              <div className="rounded-lg bg-muted/50 border overflow-hidden">
-                <div className="max-h-80 overflow-y-auto p-2 font-mono text-xs space-y-0.5">
-                  {logs.map((log) => (
-                    <div key={log.id} className={`flex gap-2 py-0.5 px-1 rounded hover:bg-accent/20 transition-colors border-l-2 ${log.level === 'error' ? 'border-l-red-500' : log.level === 'warn' ? 'border-l-amber-500' : log.level === 'info' ? 'border-l-cyan-500' : 'border-l-gray-400'} ${log.level === 'error' ? 'text-red-500' : log.level === 'warn' ? 'text-amber-500' : log.level === 'debug' ? 'text-muted-foreground' : 'text-foreground'}`}>
-                      <span className="text-muted-foreground shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                      <span className={`uppercase w-10 shrink-0 font-semibold ${log.level === 'error' ? 'text-red-500' : log.level === 'warn' ? 'text-amber-500' : 'text-emerald-600'}`}>{log.level}</span>
-                      <span className="text-cyan-600 dark:text-cyan-400 shrink-0 w-16 truncate">{log.source}</span>
-                      <span className="truncate">{log.message}</span>
-                    </div>
-                  ))}
+              <div className="space-y-2">
+                {/* Log filter toolbar */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-1">
+                    {(['all', 'error', 'warn', 'info', 'debug'] as const).map((level) => (
+                      <button
+                        key={level}
+                        type="button"
+                        onClick={() => setLogLevelFilter(level)}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+                          logLevelFilter === level
+                            ? (level === 'error' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 ring-1 ring-red-300 dark:ring-red-700/50'
+                              : level === 'warn' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-700/50'
+                              : level === 'info' ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300 ring-1 ring-cyan-300 dark:ring-cyan-700/50'
+                              : level === 'debug' ? 'bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-300 ring-1 ring-slate-300 dark:ring-slate-600/50'
+                              : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 ring-1 ring-emerald-300 dark:ring-emerald-700/50')
+                            : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                        }`}
+                      >
+                        {level.charAt(0).toUpperCase() + level.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                  {(() => {
+                    const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
+                    return (
+                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{filtered.length} logs</Badge>
+                    )
+                  })()}
+                  <div className="flex-1" />
+                  <div className="relative">
+                    <Search className="h-3 w-3 absolute left-1.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={logSearchQuery}
+                      onChange={(e) => setLogSearchQuery(e.target.value)}
+                      placeholder="Search logs..."
+                      className="h-6 text-[10px] pl-6 w-32"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-muted-foreground">Auto-scroll</span>
+                    <Switch checked={logAutoScroll} onCheckedChange={setLogAutoScroll} className="scale-75" />
+                  </div>
+                  <TooltipProvider><Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                    const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
+                    const text = filtered.map((log) => `[${new Date(log.timestamp).toLocaleTimeString()}] [${log.level.toUpperCase()}] ${log.source}: ${log.message}`).join('\n')
+                    navigator.clipboard.writeText(text)
+                    toast({ title: 'Logs copied', variant: 'success' })
+                  }} />}><Copy className="h-3 w-3" /></TooltipTrigger><TooltipContent>Copy visible logs</TooltipContent></Tooltip></TooltipProvider>
+                </div>
+                {/* Log entries */}
+                <div className="rounded-lg bg-muted/50 border overflow-hidden">
+                  <div ref={logContainerRef} className="max-h-80 overflow-y-auto p-2 font-mono text-xs space-y-0">
+                    {(() => {
+                      const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                            <Filter className="h-6 w-6 mb-2 opacity-40" />
+                            <p className="text-xs">No logs found</p>
+                            {(logLevelFilter !== 'all' || logSearchQuery) && <p className="text-[10px] mt-1">Try adjusting your filters</p>}
+                          </div>
+                        )
+                      }
+                      return filtered.map((log, idx) => (
+                        <div key={log.id} className={`flex gap-2 py-0.5 px-1 rounded transition-colors border-l-2 break-all ${idx % 2 === 0 ? 'bg-transparent' : 'bg-muted/30'} hover:bg-accent/20 ${log.level === 'error' ? 'border-l-red-500' : log.level === 'warn' ? 'border-l-amber-500' : log.level === 'info' ? 'border-l-cyan-500' : 'border-l-gray-400'} ${log.level === 'error' ? 'text-red-500' : log.level === 'warn' ? 'text-amber-500' : log.level === 'debug' ? 'text-muted-foreground' : 'text-foreground'}`}>
+                          <span className="text-muted-foreground shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                          <span className={`uppercase w-10 shrink-0 font-semibold ${log.level === 'error' ? 'text-red-500' : log.level === 'warn' ? 'text-amber-500' : 'text-emerald-600'}`}>{log.level}</span>
+                          <span className="text-cyan-600 dark:text-cyan-400 shrink-0 w-16 truncate">{log.source}</span>
+                          <span className="break-all">{log.message}</span>
+                        </div>
+                      ))
+                    })()}
+                  </div>
                 </div>
               </div>
             )}
+            </motion.div>
           </TabsContent>
         </Tabs>
       </SheetContent>
@@ -2738,30 +2979,67 @@ function GlobalStatusPanel({ projects }: { projects: Project[] }) {
 
 // ======================== ENHANCED FOOTER ========================
 
-function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor }: { projects: Project[]; onOpenDevices: () => void; devices: Device[]; onOpenSystemMonitor: () => void }) {
+function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor, onRefresh, onAddProject }: { projects: Project[]; onOpenDevices: () => void; devices: Device[]; onOpenSystemMonitor: () => void; onRefresh?: () => void; onAddProject?: () => void }) {
   const totalEnvs = projects.reduce((a, p) => a + (p.environments?.length || 0), 0)
   const runningEnvs = projects.reduce((a, p) => a + (p.environments?.filter((e) => e.status === 'running').length || 0), 0)
   const onlineDevices = devices.filter((d) => d.status === 'online').length
   const totalDevices = devices.length
+  const healthRatio = totalEnvs > 0 ? Math.round((runningEnvs / totalEnvs) * 100) : 0
+
+  // Last refreshed timer
+  const [lastRefreshAgo, setLastRefreshAgo] = React.useState(0)
+  React.useEffect(() => {
+    const interval = setInterval(() => setLastRefreshAgo((prev) => prev + 1), 5000)
+    return () => clearInterval(interval)
+  }, [])
+  // Reset timer when projects change (i.e., when data refreshes)
+  React.useEffect(() => { setLastRefreshAgo(0) }, [projects])
 
   return (
-    <footer className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-gradient-to-r from-background/95 via-background/98 to-background/95 backdrop-blur-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] dark:from-zinc-900/98 dark:via-zinc-900/95 dark:to-zinc-900/98 dark:border-t dark:border-zinc-800/60">
+    <motion.footer
+      initial={{ y: 20 }}
+      animate={{ y: 0 }}
+      transition={{ duration: 0.4, ease: 'easeOut' }}
+      className="fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-gradient-to-r from-background/95 via-background/98 to-background/95 backdrop-blur-xl shadow-[0_-4px_20px_rgba(0,0,0,0.08)] dark:from-zinc-900/98 dark:via-zinc-900/95 dark:to-zinc-900/98 dark:border-t dark:border-zinc-800/60"
+    >
       <div className="px-4 py-2.5 flex items-center justify-between text-xs text-foreground/80 dark:text-zinc-300">
         <div className="flex items-center gap-5">
           <span className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${runningEnvs > 0 ? 'bg-emerald-500' : 'bg-red-400'}`} />
+            {/* Animated pulse dot when envs running */}
+            <span className="relative flex h-2 w-2">
+              {runningEnvs > 0 && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              )}
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${runningEnvs > 0 ? 'bg-emerald-500' : 'bg-red-400'}`} />
+            </span>
             <span className="font-bold dark:text-zinc-200">{runningEnvs}/{totalEnvs}</span>
             <span className="text-muted-foreground dark:text-zinc-400">running</span>
           </span>
-          <span className="text-muted-foreground dark:text-zinc-500">·</span>
+          {/* Mini health bar */}
+          <div className="hidden sm:flex items-center gap-1.5">
+            <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
+              <div className={`h-full rounded-full transition-all duration-500 ${healthRatio >= 80 ? 'bg-emerald-500' : healthRatio >= 50 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${healthRatio}%` }} />
+            </div>
+            <span className="text-[10px] text-muted-foreground">{healthRatio}%</span>
+          </div>
+          <span className="text-muted-foreground dark:text-zinc-500 hidden sm:inline">·</span>
           <span className="dark:text-zinc-300 font-medium">{projects.length} projects</span>
           <span className="text-muted-foreground dark:text-zinc-500 hidden sm:inline">·</span>
           <span className="hidden sm:inline-flex items-center gap-1 text-muted-foreground dark:text-zinc-400">
             <span className={`h-2 w-2 rounded-full ${totalDevices === 0 ? 'bg-zinc-400' : onlineDevices > 0 ? 'bg-emerald-500' : 'bg-red-400'}`} />
             {onlineDevices}/{totalDevices + 1} devices online
           </span>
+          <span className="text-muted-foreground dark:text-zinc-500 hidden sm:inline">·</span>
+          <span className="hidden sm:inline text-[10px] text-muted-foreground dark:text-zinc-500">Last updated: {lastRefreshAgo}s ago</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Quick action buttons */}
+          {onRefresh && (
+            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onRefresh} />}><RefreshCw className="h-3.5 w-3.5" /></TooltipTrigger><TooltipContent>Refresh</TooltipContent></Tooltip></TooltipProvider>
+          )}
+          {onAddProject && (
+            <TooltipProvider><Tooltip><TooltipTrigger render={<button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onAddProject} />}><Plus className="h-3.5 w-3.5" /></TooltipTrigger><TooltipContent>Add Project</TooltipContent></Tooltip></TooltipProvider>
+          )}
           <button className="flex items-center gap-1.5 hover:text-foreground transition-all px-3 py-1.5 rounded-md bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 text-teal-700 dark:text-teal-400 hover:from-teal-100 hover:to-cyan-100 dark:hover:from-teal-900/30 dark:hover:to-cyan-900/20 font-medium ring-1 ring-teal-200/50 dark:ring-teal-800/30 hover:scale-105 active:scale-95" onClick={onOpenDevices}>
             <Plug className="h-3.5 w-3.5" />
             <span className="font-medium text-xs">Devices</span>
@@ -2775,7 +3053,7 @@ function EnhancedFooter({ projects, onOpenDevices, devices, onOpenSystemMonitor 
           </button>
         </div>
       </div>
-    </footer>
+    </motion.footer>
   )
 }
 
@@ -3168,8 +3446,8 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <motion.div
         className="p-8 rounded-2xl bg-gradient-to-br from-emerald-50/80 via-teal-50/40 to-cyan-50/60 dark:from-emerald-900/20 dark:via-teal-900/10 dark:to-cyan-900/15 ring-1 ring-emerald-200/30 dark:ring-emerald-800/20 shadow-inner mb-6"
-        animate={{ y: [0, -6, 0] }}
-        transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+        animate={{ y: [0, -12, 0] }}
+        transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
       >
         <Folder className="h-16 w-16 text-emerald-600/70 dark:text-emerald-400/60" />
       </motion.div>
@@ -4295,7 +4573,7 @@ export default function DashboardPage() {
                       initial={{ scale: 0.3 }}
                       animate={{ scale: [0.3, 1.2, 1] }}
                       transition={{ duration: 0.4, ease: 'easeOut' }}
-                      className="absolute -top-1 -right-1 min-h-[18px] min-w-[18px] rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-bold px-1 shadow-lg shadow-red-500/30"
+                      className="absolute -top-1 -right-1 min-h-[18px] min-w-[18px] rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-bold px-1 shadow-lg shadow-red-500/30 notif-badge-pulse"
                     >
                       {unreadNotifs > 99 ? '99+' : unreadNotifs}
                     </motion.span>
@@ -4944,7 +5222,7 @@ export default function DashboardPage() {
       </main>
 
       {/* ======================== FOOTER ======================== */}
-      <EnhancedFooter projects={projects} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} onOpenSystemMonitor={() => setSystemMonitorOpen(true)} />
+      <EnhancedFooter projects={projects} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} onOpenSystemMonitor={() => setSystemMonitorOpen(true)} onRefresh={() => fetchProjects()} onAddProject={() => { setEditingProject(null); setProjectFormMode('add'); setProjectFormOpen(true) }} />
 
       {/* ======================== GLOBAL STATUS PANEL ======================== */}
       {!loading && projects.length > 0 && <GlobalStatusPanel projects={projects} />}

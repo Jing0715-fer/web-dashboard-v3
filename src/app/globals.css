@@ -245,3 +245,51 @@
 .search-focus-glow:focus-visible {
   animation: search-glow 2s ease-in-out infinite;
 }
+
+/* Card shimmer on hover */
+@keyframes card-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.card-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(16, 185, 129, 0.06) 40%,
+    rgba(20, 184, 166, 0.1) 50%,
+    rgba(16, 185, 129, 0.06) 60%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.card-shimmer:hover::after {
+  animation: card-shimmer 0.8s ease-out;
+}
+
+.dark .card-shimmer::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(16, 185, 129, 0.04) 40%,
+    rgba(20, 184, 166, 0.08) 50%,
+    rgba(16, 185, 129, 0.04) 60%,
+    transparent 100%
+  );
+}
+
+/* Notification badge pulse */
+@keyframes notif-badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+.notif-badge-pulse {
+  animation: notif-badge-pulse 1.5s ease-in-out infinite;
+}
