@@ -1,0 +1,13 @@
+{
+  "name": "dashboard-agent",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "DATABASE_URL=file:./db/agent.db bun index.ts --port 3100 --apiKey test-api-key-12345"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.11.1",
+    "better-sqlite3": "^12.10.0",
+    "prisma": "^6.11.1"
+  }
+}
