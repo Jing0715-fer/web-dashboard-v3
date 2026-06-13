@@ -1,5 +1,75 @@
 # Web Dashboard Multi-Device Interconnection - Worklog
 
+## Session 19b: Cross-Platform Agent (Windows Support) (2026-06-15)
+
+### Task
+用户要求 Agent 支持 Windows 设备安装运行，需要一个 Windows 版本
+
+### 问题分析
+原始 Agent（`mini-services/agent/index.ts`）有以下 Windows 不兼容问题：
+1. **日志目录** `/tmp/dashboard-agent-logs` — Windows 无 `/tmp`
+2. **端口检查** 使用 `lsof`、`ss` — 仅 Linux/macOS 命令
+3. **进程终止** 使用 `SIGTERM`/`SIGKILL` — Windows 上不工作，需 `taskkill`
+4. **PATH 分隔符** 使用 `:` — Windows 用 `;`
+5. **子进程管理** `detached: true` + `unref()` — Windows 行为不同
+6. **关闭信号** 仅监听 `SIGINT`/`SIGTERM` — Windows 控制台关闭不发送 SIGTERM
+
+### 修改内容
+
+#### 1. 创建跨平台 Agent (`mini-services/agent-win/index.ts`)
+- 平台检测：`const IS_WINDOWS = platform() === 'win32'`
+- 日志目录：Windows → `%APPDATA%\dashboard-agent-logs`，Unix → `$TMPDIR/dashboard-agent-logs`
+- 端口检查：Windows → `netstat -ano | findstr :PORT | findstr LISTENING`，Unix → `lsof`/`ss`
+- 进程终止：Windows → `taskkill /PID /T /F`（树形终止），Unix → `SIGTERM`/`SIGKILL`
+- PATH 分隔符：跨平台 `PATH_SEP = IS_WINDOWS ? ';' : ':'`
+- 子进程：Windows 不使用 `detached`，Unix 保留 `detached` + `unref()`
+- 优雅关闭：Windows 额外处理 `SIGHUP` 和 readline `SIGINT`
+- 新增路由：`POST /api/agent/projects`（创建项目）、`POST .../environments`（添加环境）、`POST .../rebuild`
+- 健康检查新增 `platform` 和 `arch` 字段
+
+#### 2. 创建 Windows 脚本
+- `setup.bat` — 一键安装依赖 + 初始化数据库
+- `start.bat` — 启动 Agent（支持自定义端口和 API Key）
+- `start-service.bat` — 后台启动 Agent
+- `stop-service.bat` — 停止后台 Agent
+
+#### 3. 更新原始 Agent
+- `mini-services/agent/index.ts` 也更新为跨平台版本，确保向后兼容
+
+### Windows 部署步骤
+```
+1. 将 agent-win 文件夹复制到 Windows 设备
+2. 双击 setup.bat 安装依赖和初始化数据库
+3. 双击 start.bat 启动 Agent
+4. 在 Dashboard 设备管理中添加该 Windows 设备的 IP、端口、API Key
+```
+
+### Windows 运行要求
+- Node.js 18+（https://nodejs.org/）
+- 可选：Bun（如果用 `bun index.ts` 启动）
+
+### 验证结果
+- ✅ Agent 在 Linux 上正常启动和响应
+- ✅ Health 端点返回 `version: "1.1.0"`, `platform`, `arch`
+- ✅ Projects 端点正常返回项目列表
+- ✅ 跨平台日志目录正确解析
+- ✅ 跨平台端口检查逻辑已实现
+- ✅ Windows 进程终止逻辑已实现（taskkill）
+- ✅ Windows 脚本（setup.bat, start.bat 等）已创建
+
+### 文件变更
+- 新增: `mini-services/agent-win/index.ts` — 跨平台 Agent 主程序
+- 新增: `mini-services/agent-win/package.json` — 依赖配置
+- 新增: `mini-services/agent-win/prisma/` — 数据库 Schema
+- 新增: `mini-services/agent-win/db/` — SQLite 数据库
+- 新增: `mini-services/agent-win/setup.bat` — Windows 安装脚本
+- 新增: `mini-services/agent-win/start.bat` — Windows 启动脚本
+- 新增: `mini-services/agent-win/start-service.bat` — Windows 后台启动
+- 新增: `mini-services/agent-win/stop-service.bat` — Windows 停止服务
+- 修改: `mini-services/agent/index.ts` — 更新为跨平台版本
+
+---
+
 ## Session 19: Usage Guide Document Created (2026-06-15)
 
 ### Task

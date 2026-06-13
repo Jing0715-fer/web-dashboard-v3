@@ -1,0 +1,20 @@
+{
+  "name": "dashboard-agent-win",
+  "version": "1.1.0",
+  "description": "Dashboard Agent - Cross-platform (Windows/macOS/Linux) remote device management service",
+  "private": true,
+  "scripts": {
+    "dev": "bun index.ts --port 3100 --apiKey test-api-key-12345",
+    "dev:node": "npx tsx index.ts --port 3100 --apiKey test-api-key-12345",
+    "start": "bun index.ts --port 3100 --apiKey test-api-key-12345",
+    "start:node": "node --loader tsx index.ts --port 3100 --apiKey test-api-key-12345"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.11.1",
+    "better-sqlite3": "^12.10.0",
+    "prisma": "^6.11.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}
