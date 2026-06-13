@@ -3905,7 +3905,7 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
 // ======================== DEVICE MANAGEMENT PANEL ========================
 
 function DeviceManagementPanel({
-  open, onClose, devices, onAdd, onEdit, onDelete, onHealthCheck
+  open, onClose, devices, onAdd, onEdit, onDelete, onHealthCheck, onOpenDeployGuide
 }: {
   open: boolean
   onClose: () => void
@@ -3914,6 +3914,7 @@ function DeviceManagementPanel({
   onEdit: (device: Device) => void
   onDelete: (id: string) => void
   onHealthCheck: (id: string) => Promise<{ status: string } | null>
+  onOpenDeployGuide: () => void
 }) {
   const [healthCheckingIds, setHealthCheckingIds] = React.useState<Set<string>>(new Set())
   const [testingIds, setTestingIds] = React.useState<Set<string>>(new Set())
@@ -3965,6 +3966,9 @@ function DeviceManagementPanel({
               <SheetTitle>Device Management</SheetTitle>
               <SheetDescription className="text-xs">Manage connected devices and remote agents</SheetDescription>
             </div>
+            <Button size="sm" variant="outline" onClick={onOpenDeployGuide} className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
+              <Download className="h-3 w-3 mr-1" />Deploy Agent
+            </Button>
             <Button size="sm" onClick={onAdd} className="bg-teal-600 hover:bg-teal-700 text-white h-7 text-xs">
               <Plus className="h-3 w-3 mr-1" />Add Device
             </Button>
@@ -3999,9 +4003,14 @@ function DeviceManagementPanel({
               </div>
               <h3 className="text-sm font-semibold mb-1">No devices registered</h3>
               <p className="text-xs text-muted-foreground dark:text-gray-400 mb-4 max-w-xs">Add a remote device to monitor and manage projects on other machines.</p>
-              <Button onClick={onAdd} size="sm" className="bg-teal-600 hover:bg-teal-700 text-white">
-                <Plus className="h-3 w-3 mr-1" />Add Device
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button onClick={onAdd} size="sm" className="bg-teal-600 hover:bg-teal-700 text-white">
+                  <Plus className="h-3 w-3 mr-1" />Add Device
+                </Button>
+                <Button onClick={onOpenDeployGuide} size="sm" variant="outline" className="border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
+                  <Download className="h-3 w-3 mr-1" />Deploy Agent
+                </Button>
+              </div>
             </div>
           ) : (
             devices.map((device) => (
@@ -4364,6 +4373,7 @@ export default function DashboardPage() {
   const [deviceManagementOpen, setDeviceManagementOpen] = React.useState(false)
   const [addDeviceFormOpen, setAddDeviceFormOpen] = React.useState(false)
   const [editingDevice, setEditingDevice] = React.useState<Device | null>(null)
+  const [agentDeployGuideOpen, setAgentDeployGuideOpen] = React.useState(false)
   const [moveProjectDialog, setMoveProjectDialog] = React.useState<Project | null>(null)
   // Session 11 states
   const [welcomeDismissed, setWelcomeDismissed] = React.useState<boolean>(() => {
@@ -7063,6 +7073,7 @@ export default function DashboardPage() {
         onEdit={(device) => { setEditingDevice(device); setAddDeviceFormOpen(true) }}
         onDelete={handleDeleteDevice}
         onHealthCheck={handleCheckDeviceHealth}
+        onOpenDeployGuide={() => { setDeviceManagementOpen(false); setAgentDeployGuideOpen(true) }}
       />
 
       {/* Device form dialog */}
@@ -7542,6 +7553,286 @@ export default function DashboardPage() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => { setCompareOpen(false); setCompareProjectA(null); setCompareProjectB(null) }}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ======================== AGENT DEPLOY GUIDE DIALOG ======================== */}
+      <Dialog open={agentDeployGuideOpen} onOpenChange={setAgentDeployGuideOpen}>
+        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30">
+                <Download className="h-5 w-5 text-teal-600 dark:text-teal-400" />
+              </div>
+              Deploy Agent to Remote Device
+            </DialogTitle>
+            <DialogDescription>Install Dashboard Agent on Windows, macOS, or Linux devices to manage them remotely.</DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1">
+            {/* Platform Selection */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Monitor className="h-4 w-4 text-teal-600" />
+                Choose Platform
+              </h4>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { key: 'windows', label: 'Windows', icon: '🪟', desc: 'EXE Installer / Service', active: true },
+                  { key: 'macos', label: 'macOS', icon: '🍎', desc: 'Bun / Node.js', active: false },
+                  { key: 'linux', label: 'Linux', icon: '🐧', desc: 'Bun / Node.js', active: false },
+                ].map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    className={`rounded-lg border-2 p-3 text-left transition-all ${
+                      p.active
+                        ? 'border-teal-500 bg-teal-50/50 dark:bg-teal-900/20 ring-1 ring-teal-500/30'
+                        : 'border-muted hover:border-teal-300 dark:hover:border-teal-700'
+                    }`}
+                  >
+                    <div className="text-lg mb-1">{p.icon}</div>
+                    <div className="text-sm font-semibold">{p.label}</div>
+                    <div className="text-[10px] text-muted-foreground">{p.desc}</div>
+                    {p.active && <Badge className="mt-1.5 text-[9px] bg-teal-600 text-white">Recommended</Badge>}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Quick Start - Windows */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Zap className="h-4 w-4 text-amber-500" />
+                Quick Start (3 Steps)
+              </h4>
+
+              {/* Step 1 */}
+              <div className="rounded-lg border bg-muted/20 dark:bg-zinc-800/20 p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[10px] font-bold shrink-0">1</span>
+                  <span className="text-sm font-medium">Download & Extract</span>
+                </div>
+                <p className="text-xs text-muted-foreground pl-7">
+                  Download the <code className="px-1.5 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[11px] font-mono">dashboard-agent-windows.zip</code> package and extract it to your desired location.
+                </p>
+                <div className="pl-7">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => {
+                    window.open('/api/agent/download?platform=windows', '_blank')
+                    addToast({ title: 'Downloading Agent Package', description: 'dashboard-agent-windows.zip is being downloaded...', variant: 'success' })
+                  }}>
+                    <Download className="h-3 w-3" />
+                    Download Agent Package
+                  </Button>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="rounded-lg border bg-muted/20 dark:bg-zinc-800/20 p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[10px] font-bold shrink-0">2</span>
+                  <span className="text-sm font-medium">Install & Configure</span>
+                </div>
+                <p className="text-xs text-muted-foreground pl-7">Run the setup wizard to install dependencies and configure the agent:</p>
+                <div className="pl-7 mt-1.5">
+                  <div className="rounded-md bg-zinc-900 dark:bg-zinc-950 p-3 font-mono text-xs text-zinc-300 overflow-x-auto">
+                    <div className="text-emerald-400">:: Option A: Interactive Setup</div>
+                    <div className="text-zinc-300">node setup.js</div>
+                    <div className="text-zinc-500 mt-2">:: Option B: Quick Start</div>
+                    <div className="text-zinc-300">start.bat</div>
+                    <div className="text-zinc-500 mt-2">:: Option C: EXE Installer</div>
+                    <div className="text-zinc-300">dashboard-agent-setup.exe</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="rounded-lg border bg-muted/20 dark:bg-zinc-800/20 p-4 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[10px] font-bold shrink-0">3</span>
+                  <span className="text-sm font-medium">Add Device to Dashboard</span>
+                </div>
+                <p className="text-xs text-muted-foreground pl-7">
+                  Copy the generated API Key, then add the device in the Dashboard using the device&apos;s IP address and port.
+                </p>
+                <div className="pl-7 mt-1.5">
+                  <Button size="sm" className="h-7 text-xs bg-teal-600 hover:bg-teal-700 text-white gap-1.5" onClick={() => {
+                    setAgentDeployGuideOpen(false)
+                    setTimeout(() => setAddDeviceFormOpen(true), 300)
+                  }}>
+                    <Plus className="h-3 w-3" />
+                    Add Device Now
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Installation Methods */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Layers className="h-4 w-4 text-violet-600" />
+                Installation Methods
+              </h4>
+
+              <div className="grid gap-3">
+                {/* Method 1: Simple */}
+                <div className="rounded-lg border p-3.5 space-y-2 hover:shadow-sm transition-shadow">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 rounded bg-emerald-100 dark:bg-emerald-900/30">
+                      <Terminal className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <span className="text-sm font-semibold">Simple (ZIP + start.bat)</span>
+                    <Badge variant="secondary" className="text-[9px] bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Easiest</Badge>
+                  </div>
+                  <ol className="text-xs text-muted-foreground space-y-1 pl-6 list-decimal">
+                    <li>Install <a href="https://nodejs.org" target="_blank" rel="noopener" className="text-teal-600 dark:text-teal-400 underline underline-offset-2">Node.js 18+</a></li>
+                    <li>Download & extract the agent package</li>
+                    <li>Double-click <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">start.bat</code></li>
+                    <li>Copy the generated API Key</li>
+                  </ol>
+                </div>
+
+                {/* Method 2: EXE Installer */}
+                <div className="rounded-lg border p-3.5 space-y-2 hover:shadow-sm transition-shadow">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 rounded bg-violet-100 dark:bg-violet-900/30">
+                      <Monitor className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                    </div>
+                    <span className="text-sm font-semibold">EXE Installer (Inno Setup)</span>
+                    <Badge variant="secondary" className="text-[9px] bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">Professional</Badge>
+                  </div>
+                  <ol className="text-xs text-muted-foreground space-y-1 pl-6 list-decimal">
+                    <li>Build the installer on a Windows machine: <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">build-installer.bat</code></li>
+                    <li>Distribute <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">dashboard-agent-setup.exe</code></li>
+                    <li>Run the installer wizard on target device</li>
+                    <li>Configure port &amp; API Key during setup</li>
+                  </ol>
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 pl-6">⚠ Requires Inno Setup installed on build machine</p>
+                </div>
+
+                {/* Method 3: Windows Service */}
+                <div className="rounded-lg border p-3.5 space-y-2 hover:shadow-sm transition-shadow">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 rounded bg-amber-100 dark:bg-amber-900/30">
+                      <Shield className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    </div>
+                    <span className="text-sm font-semibold">Windows Service (Auto-start)</span>
+                    <Badge variant="secondary" className="text-[9px] bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Production</Badge>
+                  </div>
+                  <ol className="text-xs text-muted-foreground space-y-1 pl-6 list-decimal">
+                    <li>Run PowerShell as Administrator</li>
+                    <li>Execute: <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">.\install-service.ps1 -Port 3100</code></li>
+                    <li>Agent starts automatically with Windows</li>
+                    <li>Manage: <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">Start-Service DashboardAgent</code></li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Configuration Reference */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Settings className="h-4 w-4 text-zinc-500" />
+                Configuration
+              </h4>
+              <div className="rounded-lg border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/30">
+                      <th className="text-left p-2.5 font-medium text-muted-foreground">Parameter</th>
+                      <th className="text-left p-2.5 font-medium text-muted-foreground">Default</th>
+                      <th className="text-left p-2.5 font-medium text-muted-foreground">Description</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/50">
+                    {[
+                      { param: '--port', default: '3100', desc: 'HTTP server port' },
+                      { param: '--apiKey', default: 'Auto-generated', desc: 'Authentication token for Dashboard' },
+                      { param: '--name', default: 'Hostname', desc: 'Agent display name' },
+                      { param: '--config', default: '—', desc: 'Path to JSON config file' },
+                      { param: '--install-service', default: '—', desc: 'Install as Windows Service (admin)' },
+                      { param: '--uninstall-service', default: '—', desc: 'Remove Windows Service (admin)' },
+                    ].map((row) => (
+                      <tr key={row.param} className="hover:bg-muted/20 transition-colors">
+                        <td className="p-2.5 font-mono text-teal-600 dark:text-teal-400">{row.param}</td>
+                        <td className="p-2.5 text-muted-foreground">{row.default}</td>
+                        <td className="p-2.5">{row.desc}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Firewall Setup */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Shield className="h-4 w-4 text-red-500" />
+                Firewall Configuration
+              </h4>
+              <p className="text-xs text-muted-foreground">Open the Agent port in Windows Firewall to allow Dashboard connections:</p>
+              <div className="rounded-md bg-zinc-900 dark:bg-zinc-950 p-3 font-mono text-xs text-zinc-300 overflow-x-auto">
+                <div className="text-zinc-500">:: Run as Administrator</div>
+                <div className="text-zinc-300">netsh advfirewall firewall add rule name=&quot;Dashboard Agent&quot; dir=in action=allow protocol=TCP localport=3100</div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* File Structure */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Folder className="h-4 w-4 text-sky-500" />
+                Package Contents
+              </h4>
+              <div className="rounded-md bg-muted/30 dark:bg-zinc-800/30 p-3 font-mono text-xs space-y-0.5">
+                <div className="text-zinc-500">📁 dashboard-agent-windows/</div>
+                <div className="text-zinc-400 pl-4">📄 agent.js <span className="text-zinc-600 ml-2">— Main agent server</span></div>
+                <div className="text-zinc-400 pl-4">📄 package.json <span className="text-zinc-600 ml-2">— Dependencies</span></div>
+                <div className="text-zinc-400 pl-4">📄 setup.js <span className="text-zinc-600 ml-2">— Interactive setup wizard</span></div>
+                <div className="text-zinc-400 pl-4">📄 start.bat <span className="text-zinc-600 ml-2">— Quick start script</span></div>
+                <div className="text-zinc-400 pl-4">📄 install-service.ps1 <span className="text-zinc-600 ml-2">— Windows Service installer</span></div>
+                <div className="text-zinc-400 pl-4">📄 uninstall-service.ps1 <span className="text-zinc-600 ml-2">— Service uninstaller</span></div>
+                <div className="text-zinc-400 pl-4">📄 agent-installer.iss <span className="text-zinc-600 ml-2">— Inno Setup script</span></div>
+                <div className="text-zinc-400 pl-4">📄 build-installer.bat <span className="text-zinc-600 ml-2">— Build EXE installer</span></div>
+                <div className="text-zinc-400 pl-4">📁 prisma/ <span className="text-zinc-600 ml-2">— Database schema</span></div>
+                <div className="text-zinc-400 pl-4">📄 .env.example <span className="text-zinc-600 ml-2">— Environment template</span></div>
+                <div className="text-zinc-400 pl-4">📄 README.md <span className="text-zinc-600 ml-2">— Documentation</span></div>
+              </div>
+            </div>
+
+            {/* Building EXE from source */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold flex items-center gap-2">
+                <Hammer className="h-4 w-4 text-orange-500" />
+                Build Standalone EXE
+              </h4>
+              <p className="text-xs text-muted-foreground">Create a single-file executable using <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">pkg</code>:</p>
+              <div className="rounded-md bg-zinc-900 dark:bg-zinc-950 p-3 font-mono text-xs text-zinc-300 overflow-x-auto">
+                <div className="text-zinc-500">:: Install pkg globally</div>
+                <div className="text-zinc-300">npm install -g pkg</div>
+                <div className="text-zinc-500 mt-2">:: Build for Windows x64</div>
+                <div className="text-zinc-300">npm run build:exe</div>
+                <div className="text-zinc-500 mt-2">:: Output: dist/dashboard-agent.exe</div>
+              </div>
+              <p className="text-[10px] text-amber-600 dark:text-amber-400">⚠ Note: Prisma native binaries need to be bundled alongside the exe. Use the Inno Setup method for a complete installer.</p>
+            </div>
+          </div>
+
+          <DialogFooter className="shrink-0 border-t pt-3">
+            <div className="flex items-center justify-between w-full">
+              <span className="text-[10px] text-muted-foreground">Package location: <code className="font-mono">mini-services/agent-windows/</code></span>
+              <Button variant="outline" onClick={() => setAgentDeployGuideOpen(false)}>Close</Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

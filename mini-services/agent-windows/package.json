@@ -1,0 +1,30 @@
+{
+  "name": "dashboard-agent-windows",
+  "version": "1.2.0",
+  "description": "Dashboard Agent for Windows - Remote device management service",
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "start:dev": "node agent.js --port 3100 --apiKey dev-test-key",
+    "build:exe": "pkg agent.js --targets node18-win-x64 --output dist/dashboard-agent.exe",
+    "build:exe-all": "pkg agent.js --targets node18-win-x64,node18-win-arm64 --output dist/dashboard-agent.exe",
+    "setup": "node setup.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.11.1",
+    "better-sqlite3": "^12.10.0",
+    "prisma": "^6.11.1"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  },
+  "bin": "agent.js",
+  "pkg": {
+    "assets": [
+      "prisma/**/*",
+      "node_modules/.prisma/**/*",
+      "node_modules/@prisma/**/*"
+    ],
+    "outputPath": "dist"
+  }
+}

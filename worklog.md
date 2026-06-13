@@ -2445,3 +2445,167 @@ Stage Summary:
 - No new dependencies needed — all features use existing framer-motion + Tailwind utilities
 - Lint: 0 errors, 0 warnings
 - Dev server: running stable, no runtime errors
+
+## Task 2: Create Windows Agent Distribution Package (2026-03-05)
+
+### Task
+Create a complete Windows Agent distribution at `/home/z/my-project/mini-services/agent-windows/` that can be packaged into a Windows exe installer.
+
+### What Was Done
+
+Created all 11 required files in `/home/z/my-project/mini-services/agent-windows/`:
+
+#### 1. `package.json`
+- Name: `dashboard-agent-windows`, version 1.2.0
+- Dependencies: @prisma/client, better-sqlite3, prisma
+- Scripts: start, start:dev, build:exe (pkg for node18-win-x64), build:exe-all, setup
+- pkg configuration for bundling Prisma assets
+
+#### 2. `agent.js` — Complete JS Port (most critical file)
+- Full faithful port of the original TypeScript `index.ts` to plain JavaScript
+- All same API routes:
+  - `GET /api/agent/health` (no auth, returns platform, arch, pid)
+  - `GET/POST /api/agent/projects`
+  - `GET/PUT/DELETE /api/agent/projects/:id`
+  - `POST /api/agent/projects/:id/environments`
+  - `PUT/DELETE /api/agent/projects/:id/environments/:envId`
+  - `POST .../start`, `POST .../stop`, `POST .../restart`, `POST .../rebuild`
+  - `GET .../logs` (environment-level and project-level)
+  - `GET .../activity`
+- Cross-platform support: `IS_WINDOWS = process.platform === 'win32'`
+  - Windows: taskkill for process termination, netstat for port checks, cmd.exe shell
+  - Unix: SIGTERM/SIGKILL, lsof/ss, detached+unref
+- Same security features: command whitelist, auth middleware (Bearer token)
+- Same process management: spawn, kill with taskkill on Windows
+- **Windows Service support** via `--install-service` and `--uninstall-service` flags
+  - Uses sc.exe to register Windows Service
+  - Creates wrapper .bat file for service execution
+- **Config file support** via `--config` flag (reads JSON config, CLI args take precedence)
+- **PID file management**: writes `agent.pid` on startup, removes on shutdown
+- Graceful shutdown: kills all managed processes, removes PID file, disconnects DB
+- Windows-specific: SIGHUP handler, readline SIGINT for Ctrl+C in terminal
+- Version bumped to 1.2.0 (from original 1.1.0)
+
+#### 3. `start.bat` — Windows Batch Script
+- Checks for Node.js installation
+- Parses --port, --apiKey, --name arguments
+- Sets DATABASE_URL to local db/agent.db
+- Auto-installs npm dependencies on first run
+- Auto-generates API key if not provided (displays for user to save)
+- Starts agent with node agent.js
+
+#### 4. `install-service.ps1` — PowerShell Service Installer
+- Requires Administrator privileges
+- Supports -Port, -ApiKey, -Name parameters
+- Generates API key if not provided
+- Saves configuration to agent-config.json
+- Supports both NSSM (preferred) and sc.exe for service creation
+- Creates logs directory, sets SERVICE_AUTO_START
+- Starts the service and verifies it's running
+- Shows service management commands
+
+#### 5. `uninstall-service.ps1` — PowerShell Service Uninstaller
+- Requires Administrator privileges
+- Stops and removes the DashboardAgent service
+- Clean removal with status feedback
+
+#### 6. `setup.js` — Interactive Setup Wizard
+- 7-step guided setup:
+  1. System requirements check (Node.js 18+, npm, platform, memory)
+  2. Configuration (port with availability check, name, API key generation)
+  3. npm install (skips if node_modules exists)
+  4. Database setup (prisma generate + db push)
+  5. Configuration save (agent-config.json + .env)
+  6. Optional Windows Service installation
+  7. Connection test (starts agent, tests health endpoint, stops agent)
+- Shows final summary with configuration and next steps
+- Firewall setup reminder for Windows users
+
+#### 7. `agent-installer.iss` — Inno Setup Script
+- Professional Windows installer configuration
+- App metadata (name, version, publisher)
+- Custom configuration page (port, API key, name)
+- File inclusion: agent.js, package.json, prisma/, scripts, docs
+- Post-install: npm install, prisma generate, prisma db push, config save, firewall rule
+- Shortcuts: Start Menu and Desktop (optional)
+- Optional Windows Service installation via task checkbox
+- Uninstall: removes service, firewall rule, cleans up data files
+- System requirements: Windows 10+, admin privileges, Node.js check
+
+#### 8. `build-installer.bat` — Build Script
+- Checks for Inno Setup installation (common paths + env variable)
+- Runs npm install --production
+- Runs prisma generate
+- Compiles Inno Setup script
+- Outputs to dist/DashboardAgent-1.2.0-Setup.exe
+
+#### 9. `README.md` — Comprehensive Documentation
+- System requirements table
+- 3 Quick Start methods (ZIP, EXE, Service)
+- Detailed installation guides for each method
+- Configuration reference (CLI args, config file, env vars)
+- Complete API reference table
+- API Key management guide
+- Firewall setup instructions
+- Troubleshooting section (6 common issues with solutions)
+- Building from source instructions
+- File structure diagram
+
+#### 10. `prisma/schema.prisma`
+- Identical copy from original Agent
+- Project model (id, name, path, description, icon, tags, order, timestamps)
+- Environment model (id, projectId, name, cmd, port, envVars, status, pid, timestamps)
+- Cascade delete, index on projectId
+
+#### 11. `.env.example`
+- Template for DATABASE_URL configuration
+- Examples for Windows and Linux/macOS paths
+
+### Key Differences from Original Agent
+- **Plain JavaScript** instead of TypeScript (no build step needed on Windows)
+- **Version 1.2.0** (was 1.1.0)
+- **Config file support** (`--config` flag for JSON config)
+- **Windows Service management** (`--install-service`, `--uninstall-service`)
+- **PID file management** (agent.pid for service tracking)
+
+---
+
+## Session 20: Windows EXE Installer Package & Dashboard Deploy Guide (2026-06-13)
+
+### Task
+用户要求打包 Windows 的 exe 安装包，方便使用
+
+### Work Log
+- 阅读现有 Agent 代码，确认已有跨平台兼容性
+- 创建 Windows Agent 发行包 (`mini-services/agent-windows/`)：
+  - `agent.js` — 纯 JavaScript 完整移植（1051行）
+  - `package.json` — 含 pkg 打包配置
+  - `start.bat` — Windows 快速启动脚本
+  - `install-service.ps1` — PowerShell Windows 服务安装
+  - `uninstall-service.ps1` — 服务卸载
+  - `setup.js` — 交互式安装向导
+  - `agent-installer.iss` — Inno Setup 安装脚本
+  - `build-installer.bat` — 构建 EXE 安装包
+  - `README.md` — 完整文档
+  - `prisma/schema.prisma` — 数据库 Schema
+  - `.env.example` — 环境变量模板
+- 在 Dashboard 中添加 Agent 部署指南入口：
+  - DeviceManagementPanel 添加 "Deploy Agent" 按钮
+  - 空设备列表添加 "Deploy Agent" 链接
+  - 新增 AgentDeployGuide 对话框（包含平台选择、3步快速开始、3种安装方式、配置参数表、防火墙配置、文件结构、构建EXE说明）
+- 创建 `/api/agent/download` API 路由（下载 ZIP 包）
+- 更新 DeviceManagementPanel 组件，增加 onOpenDeployGuide prop
+- Agent Browser 验证：Deploy Guide 对话框正常显示
+- 下载 API 验证：返回 200，ZIP 包含12个文件（26KB）
+
+### Stage Summary
+- Windows Agent 发行包已完成，包含11个文件
+- Dashboard 中可通过 Device Management → Deploy Agent 按钮打开部署指南
+- 支持一键下载 `dashboard-agent-windows.zip` 包
+- 3种 Windows 安装方式：ZIP+start.bat、EXE Installer、Windows Service
+- 额外功能：config 文件支持、PID 文件管理、Windows Service 安装/卸载
+
+### Unresolved Issues
+- 历史遗留 bug 未修复：拖拽排序、通知红圈位置、stat pills 重复、Clock hydration mismatch
+- EXE 安装包需要在 Windows 机器上用 Inno Setup 实际构建（当前仅有 .iss 脚本）
+- pkg 打包需要处理 Prisma native binaries 的捆绑
