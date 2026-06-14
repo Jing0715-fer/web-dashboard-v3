@@ -38,9 +38,9 @@ export async function GET(req: NextRequest) {
       execSync(`rm -f ${zipPath}`)
     }
 
-    // Create the zip (exclude node_modules and db files)
+    // Create the zip (exclude node_modules, db files, dist, zip archives, and temp files)
     execSync(
-      `cd ${agentDir} && zip -r ${zipPath} . -x "node_modules/*" -x "db/*" -x "*.db" -x "*.lock" -x ".tmp/*"`,
+      `cd ${agentDir} && zip -r ${zipPath} . -x "node_modules/*" -x "db/*" -x "*.db" -x "*.lock" -x ".tmp/*" -x "dist/*" -x "*.zip"`,
       { timeout: 30000 }
     )
 
