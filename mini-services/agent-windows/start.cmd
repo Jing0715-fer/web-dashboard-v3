@@ -57,21 +57,35 @@ if not exist "node_modules\@prisma\client\index.js" (
 echo.
 
 REM Prisma
-if not exist "node_modules\.prisma\client\default.js" (
-    echo [2/4] Generating Prisma client
-    if not exist "db" mkdir db
-    set DB_FULLPATH=!CD!\db\agent.db
-    set DATABASE_URL=file:!DB_FULLPATH!
-    call npx --yes prisma generate
+set DB_FULLPATH=!CD!\db\agent.db
+set DATABASE_URL=file:!DB_FULLPATH!
+if not exist "db" mkdir db
+
+REM Always (re)generate Prisma client to guarantee node_modules\.prisma\client exists.
+REM npx --yes downloads prisma to a temp dir on every run and is slow / may fail offline,
+REM so use the local install in node_modules\.bin instead.
+echo [2/4] Generating Prisma client
+if not exist "node_modules\.bin\prisma.cmd" (
+    echo [ERROR] prisma CLI not found. Run "npm install" first.
+    pause
+    exit /b 1
+)
+call "node_modules\.bin\prisma.cmd" generate
+if errorlevel 1 (
+    echo [WARN] prisma generate via .bin failed, retrying with npx...
+    call npx --no-install prisma generate
     if errorlevel 1 (
-        echo [ERROR] prisma generate failed
+        echo [ERROR] prisma generate failed. Check network and try again.
         pause
         exit /b 1
     )
-    echo [OK] Prisma generated
-) else (
-    echo [2/4] Prisma already generated
 )
+if not exist "node_modules\.prisma\client\default.js" (
+    echo [ERROR] Prisma client not generated (node_modules\.prisma\client\default.js missing)
+    pause
+    exit /b 1
+)
+echo [OK] Prisma client ready
 echo.
 
 REM Database
