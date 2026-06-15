@@ -14,12 +14,16 @@ try {
 const SYSTEM_PROMPT = 'You are a DevOps expert that analyzes project structures and generates startup configurations. Always respond with valid JSON only. Ensure all port numbers are different between environments and all IP addresses are valid.';
 
 // POST /api/projects/[id]/analyze - LLM analyzes project directory
+// Query params:
+//   ?replace=true  — delete all existing environments before creating new ones
+//                    (default: update by name or create)
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    const replace = req.nextUrl.searchParams.get('replace') === 'true';
     const project = await db.project.findUnique({
       where: { id },
       include: { environments: true },
@@ -27,6 +31,13 @@ export async function POST(
 
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // If replace=true, delete all existing environments first
+    if (replace && project.environments.length > 0) {
+      await db.environment.deleteMany({ where: { projectId: id } });
+      // Refetch after deletion so the rest of the flow sees an empty set
+      project.environments = [];
     }
 
     // Read project directory

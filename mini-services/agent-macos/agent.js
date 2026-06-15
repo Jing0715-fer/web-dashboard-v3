@@ -763,6 +763,103 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // ======================== POST /api/agent/projects/:id/analyze ========================
+    // Lightweight local analyzer — no LLM needed. Reads package.json scripts and
+    // auto-creates dev/prod environments based on common patterns.
+    const analyzeMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/analyze$/);
+    if (analyzeMatch && req.method === 'POST') {
+      const projectId = analyzeMatch[1];
+      const project = await db.project.findUnique({
+        where: { id: projectId },
+        include: { environments: true },
+      });
+      if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
+
+      // Read package.json from the project directory
+      const pkgPath = path.join(project.path, 'package.json');
+      let scripts = {};
+      try {
+        const pkgRaw = fs.readFileSync(pkgPath, 'utf-8');
+        const pkg = JSON.parse(pkgRaw);
+        scripts = pkg.scripts || {};
+      } catch {
+        sendJSON(res, 400, { error: 'Cannot read package.json — ensure the project path is correct and accessible.' });
+        return;
+      }
+
+      const scriptNames = Object.keys(scripts);
+
+      // Determine dev command: prefer "dev" > "start" > "serve" > first script
+      const devCandidates = ['dev', 'start', 'serve', 'develop', 'dev:server'];
+      const devScript = devCandidates.find(s => scriptNames.includes(s)) || scriptNames[0];
+      const devCmd = devScript ? `npm run ${devScript}` : 'npm start';
+
+      // Determine prod command: prefer "build" + "preview" > "build" > "start"
+      const hasBuild = scriptNames.includes('build');
+      const hasPreview = scriptNames.includes('preview');
+      const hasStart = scriptNames.includes('start');
+      let prodCmd;
+      if (hasBuild && hasPreview) {
+        prodCmd = 'npm run build && npm run preview';
+      } else if (hasBuild) {
+        prodCmd = 'npm run build && npm start';
+      } else if (hasStart) {
+        prodCmd = 'npm start';
+      } else {
+        prodCmd = devCmd;
+      }
+
+      // Pick ports: try to extract from the dev command, default 3000/3001
+      let devPort = 3000;
+      let prodPort = 3001;
+      const portMatch = scripts[devScript]?.match(/--port\s+(\d+)/);
+      if (portMatch) {
+        devPort = parseInt(portMatch[1], 10);
+        prodPort = devPort + 1;
+      }
+
+      // Delete existing environments if replace=true
+      const body = await getBody(req).catch(() => ({}));
+      if (body.replace) {
+        await db.environment.deleteMany({ where: { projectId } });
+      }
+
+      // Create or update dev environment
+      const existingDev = project.environments.find(e => e.name === 'dev' || e.name === 'development');
+      if (existingDev) {
+        await db.environment.update({
+          where: { id: existingDev.id },
+          data: { cmd: devCmd, port: devPort, envVars: JSON.stringify({ NODE_ENV: 'development', PORT: String(devPort) }) },
+        });
+      } else {
+        await db.environment.create({
+          data: { projectId, name: 'dev', cmd: devCmd, port: devPort, envVars: JSON.stringify({ NODE_ENV: 'development', PORT: String(devPort) }), status: 'stopped' },
+        });
+      }
+
+      // Create or update prod environment (skip if prodCmd === devCmd and ports collide)
+      if (prodCmd !== devCmd || prodPort !== devPort) {
+        const existingProd = project.environments.find(e => e.name === 'prod' || e.name === 'production');
+        if (existingProd) {
+          await db.environment.update({
+            where: { id: existingProd.id },
+            data: { cmd: prodCmd, port: prodPort, envVars: JSON.stringify({ NODE_ENV: 'production', PORT: String(prodPort) }) },
+          });
+        } else {
+          await db.environment.create({
+            data: { projectId, name: 'prod', cmd: prodCmd, port: prodPort, envVars: JSON.stringify({ NODE_ENV: 'production', PORT: String(prodPort) }), status: 'stopped' },
+          });
+        }
+      }
+
+      const updated = await db.project.findUnique({
+        where: { id: projectId },
+        include: { environments: true },
+      });
+      sendJSON(res, 200, { project: updated, analyzed: { devCmd, devPort, prodCmd, prodPort, scripts: scriptNames } });
+      return;
+    }
+
     // ======================== POST /api/agent/projects/:id/environments (add environment) ========================
 
     const addEnvMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/environments$/);

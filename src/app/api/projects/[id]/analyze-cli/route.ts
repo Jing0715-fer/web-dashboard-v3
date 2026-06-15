@@ -9,12 +9,16 @@ import path from 'path';
 const execFileAsync = promisify(execFile);
 
 // POST /api/projects/[id]/analyze-cli - Use Claude Code CLI to analyze project
+// Query params:
+//   ?replace=true  — delete all existing environments before creating new ones
+//                    (default: update by name or create)
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    const replace = req.nextUrl.searchParams.get('replace') === 'true';
     const project = await db.project.findUnique({
       where: { id },
       include: { environments: true },
@@ -22,6 +26,12 @@ export async function POST(
 
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // If replace=true, delete all existing environments first
+    if (replace && project.environments.length > 0) {
+      await db.environment.deleteMany({ where: { projectId: id } });
+      project.environments = [];
     }
 
     // Check if claude CLI is available

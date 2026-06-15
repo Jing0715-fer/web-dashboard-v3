@@ -49,6 +49,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Switch } from '@/components/ui/switch'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/hover-card'
+import { proxyToAgent } from '@/lib/remote-agent'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { useToast, addToast } from '@/hooks/use-toast'
 
@@ -768,7 +769,7 @@ function SortableProjectCard({
   onEnvAction, onRebuildConfirm, selected, onToggleSelect, rebuilding,
   starred, onToggleStar, lanIp, currentHost, index = 0,
   batchMode = false, onDuplicate, onMoveToDevice, devices, onHover,
-  focused = false, cardDensity = 'comfortable', onCompare, pinOrder
+  focused = false, cardDensity = 'comfortable', onCompare, pinOrder, onReanalyze
 }: {
   project: Project
   viewMode: ViewMode
@@ -795,6 +796,7 @@ function SortableProjectCard({
   cardDensity?: 'compact' | 'comfortable' | 'spacious'
   onCompare?: (project: Project) => void
   pinOrder?: number
+  onReanalyze?: (p: Project) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
   const [expanded, setExpanded] = React.useState(false)
@@ -956,18 +958,29 @@ function SortableProjectCard({
               </TooltipTrigger><TooltipContent>Open project in browser</TooltipContent></Tooltip></TooltipProvider>
             )}
 
-            {/* Start All / Stop All - prominent rightmost button */}
+            {/* Re-fetch Environments — surfaced prominently when the project
+                has no environments and is stranded in an unstartable state.
+                Skipped for remote projects (analyze runs on the host machine). */}
+            {totalEnvs === 0 && onReanalyze && (
+              <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 cursor-pointer gap-1.5 text-white transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" onClick={() => onReanalyze(project)}>
+                <RefreshCw className="h-3 w-3" />
+                <span className="text-[11px] hidden sm:inline whitespace-nowrap">Re-fetch Env</span>
+              </button></TooltipTrigger><TooltipContent>Detect dev/prod environments from package.json</TooltipContent></Tooltip></TooltipProvider>
+            )}
+
+            {/* Start All / Stop All - prominent rightmost button. Hidden when
+                there are zero environments (the Re-fetch button above takes that slot). */}
             {(project.environments || []).some((e) => e.status === 'running') ? (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 border border-red-200 dark:border-red-800/50 bg-white dark:bg-zinc-800 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer gap-1.5 text-red-600 dark:text-red-400 transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}>
                 <Square className="h-3 w-3 fill-current" />
                 <span className="text-[11px] hidden sm:inline whitespace-nowrap">Stop All</span>
               </button></TooltipTrigger><TooltipContent>Stop all running environments</TooltipContent></Tooltip></TooltipProvider>
-            ) : (
+            ) : totalEnvs > 0 ? (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 cursor-pointer gap-1.5 text-white transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" onClick={() => { (project.environments || []).filter((e) => e.status !== 'running').forEach((env) => onEnvAction(project.id, env.id, 'start')) }}>
                 <Play className="h-3 w-3 fill-current" />
                 <span className="text-[11px] hidden sm:inline whitespace-nowrap">Start All</span>
               </button></TooltipTrigger><TooltipContent>Start all stopped environments</TooltipContent></Tooltip></TooltipProvider>
-            )}
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 hover:bg-accent dark:hover:bg-white/10 cursor-pointer transition-colors"><MoreVertical className="h-3.5 w-3.5" /></button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
@@ -976,6 +989,9 @@ function SortableProjectCard({
                 <DropdownMenuItem onClick={() => onDuplicate(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
                 {!project.deviceId && onMoveToDevice && (
                   <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Move to Device</DropdownMenuItem>
+                )}
+                {onReanalyze && (
+                  <DropdownMenuItem onClick={() => onReanalyze(project)} className="px-2.5 py-2 text-sm rounded-md"><RefreshCw className="h-3.5 w-3.5 mr-2.5" />Re-fetch Environments</DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 {(project.environments || []).some((e) => e.status === 'running') && (
@@ -1230,18 +1246,29 @@ function SortableProjectCard({
               </TooltipTrigger><TooltipContent>Open project in browser</TooltipContent></Tooltip></TooltipProvider>
             )}
 
-            {/* Start All / Stop All - prominent rightmost button */}
+            {/* Re-fetch Environments — surfaced prominently when the project
+                has no environments and is stranded in an unstartable state.
+                Skipped for remote projects (analyze runs on the host machine). */}
+            {totalEnvs === 0 && onReanalyze && (
+              <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 bg-amber-500 hover:bg-amber-600 dark:bg-amber-600 dark:hover:bg-amber-700 cursor-pointer gap-1.5 text-white transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" onClick={() => onReanalyze(project)}>
+                <RefreshCw className="h-3 w-3" />
+                <span className="text-[11px] hidden sm:inline whitespace-nowrap">Re-fetch Env</span>
+              </button></TooltipTrigger><TooltipContent>Detect dev/prod environments from package.json</TooltipContent></Tooltip></TooltipProvider>
+            )}
+
+            {/* Start All / Stop All - prominent rightmost button. Hidden when
+                there are zero environments (the Re-fetch button above takes that slot). */}
             {(project.environments || []).some((e) => e.status === 'running') ? (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 border border-red-200 dark:border-red-800/50 bg-white dark:bg-zinc-800 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer gap-1.5 text-red-600 dark:text-red-400 transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" onClick={() => { (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}>
                 <Square className="h-3 w-3 fill-current" />
                 <span className="text-[11px] hidden sm:inline whitespace-nowrap">Stop All</span>
               </button></TooltipTrigger><TooltipContent>Stop all running environments</TooltipContent></Tooltip></TooltipProvider>
-            ) : (
+            ) : totalEnvs > 0 ? (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-lg h-7 px-2.5 bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700 cursor-pointer gap-1.5 text-white transition-all hover:scale-105 active:scale-95 shadow-sm font-medium" onClick={() => { (project.environments || []).filter((e) => e.status !== 'running').forEach((env) => onEnvAction(project.id, env.id, 'start')) }}>
                 <Play className="h-3 w-3 fill-current" />
                 <span className="text-[11px] hidden sm:inline whitespace-nowrap">Start All</span>
               </button></TooltipTrigger><TooltipContent>Start all stopped environments</TooltipContent></Tooltip></TooltipProvider>
-            )}
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 hover:bg-accent dark:hover:bg-white/10 cursor-pointer transition-colors"><MoreVertical className="h-3.5 w-3.5" /></button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
@@ -1250,6 +1277,9 @@ function SortableProjectCard({
                 <DropdownMenuItem onClick={() => onDuplicate(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
                 {!project.deviceId && onMoveToDevice && (
                   <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Move to Device</DropdownMenuItem>
+                )}
+                {onReanalyze && (
+                  <DropdownMenuItem onClick={() => onReanalyze(project)} className="px-2.5 py-2 text-sm rounded-md"><RefreshCw className="h-3.5 w-3.5 mr-2.5" />Re-fetch Environments</DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 {(project.environments || []).some((e) => e.status === 'running') && (
@@ -2288,7 +2318,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze
 }: {
   project: Project | null
   open: boolean
@@ -2299,6 +2329,7 @@ function DetailSheet({
   onRefresh?: () => void
   devices?: Device[]
   onOpenDeviceManagement?: () => void
+  onReanalyze?: (p: Project) => void
 }) {
   const [activeTab, setActiveTab] = React.useState('overview')
   const [activity, setActivity] = React.useState<ActivityEvent[]>([])
@@ -3338,7 +3369,19 @@ function DetailSheet({
             {envs.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <Layers className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No environments yet</p>
+                <p className="text-sm mb-3">No environments yet</p>
+                {project && onReanalyze && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => onReanalyze(project)}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Detect environments
+                  </Button>
+                )}
               </div>
             )}
             </motion.div>
@@ -5131,6 +5174,72 @@ export default function DashboardPage() {
     }
   }, [toast, fetchProjects])
 
+  // Re-fetch environments for a project: deletes existing envs and re-analyzes
+  // the project directory to regenerate dev/prod entries.
+  // For local projects → calls /api/projects/:id/analyze?replace=true (LLM).
+  // For remote projects → proxies to the device agent's /api/agent/projects/:id/analyze
+  //   which reads package.json locally (no LLM needed).
+  const handleReanalyzeProject = React.useCallback(async (project: Project) => {
+    const hasExistingEnvs = (project.environments || []).length > 0
+    const action = hasExistingEnvs ? 'Replacing' : 'Detecting'
+
+    if (project.deviceId) {
+      // Remote project → proxy to the device agent
+      const device = devices.find((d) => d.id === project.deviceId)
+      if (!device) {
+        toast({ title: 'Device not found', description: 'Cannot locate the remote device for this project.', variant: 'destructive' })
+        return
+      }
+      toast({ title: `${action} environments...`, description: `${project.name} — analyzing on ${device.name}` })
+      try {
+        const result = await proxyToAgent(
+          { ip: device.ip, port: device.port, apiKey: device.apiKey },
+          `/projects/${project.id}/analyze`,
+          'POST',
+          { replace: true }
+        )
+        if (result.ok) {
+          const envCount = result.data.project?.environments?.length ?? 0
+          toast({
+            title: hasExistingEnvs ? 'Environments replaced' : 'Environments detected',
+            description: envCount > 0
+              ? `Created ${envCount} environment${envCount === 1 ? '' : 's'}: ${result.data.project.environments.map((e: { name: string; port: number }) => `${e.name} (:${e.port})`).join(', ')}`
+              : 'No environments were generated — check that the project has package.json or similar manifest.',
+            variant: 'success',
+          })
+          fetchProjects()
+        } else {
+          toast({ title: 'Re-fetch failed', description: result.data?.error || `Agent returned ${result.status}`, variant: 'destructive' })
+        }
+      } catch (e: any) {
+        toast({ title: 'Re-fetch failed', description: e?.message || 'Network error', variant: 'destructive' })
+      }
+    } else {
+      // Local project → LLM analyze
+      toast({ title: `${action} environments...`, description: `${project.name} — analyzing package.json` })
+      try {
+        const res = await fetch(`/api/projects/${project.id}/analyze?replace=true`, { method: 'POST' })
+        if (res.ok) {
+          const data = await res.json()
+          const envCount = data.analysis?.environments?.length ?? 0
+          toast({
+            title: hasExistingEnvs ? 'Environments replaced' : 'Environments detected',
+            description: envCount > 0
+              ? `Created ${envCount} environment${envCount === 1 ? '' : 's'}: ${data.analysis.environments.map((e: { name: string; port: number }) => `${e.name} (:${e.port})`).join(', ')}`
+              : 'No environments were generated — check that the project has package.json or similar manifest.',
+            variant: 'success',
+          })
+          fetchProjects()
+        } else {
+          const err = await res.json().catch(() => ({}))
+          toast({ title: 'Re-fetch failed', description: err.error || `HTTP ${res.status}`, variant: 'destructive' })
+        }
+      } catch (e: any) {
+        toast({ title: 'Re-fetch failed', description: e?.message || 'Network error', variant: 'destructive' })
+      }
+    }
+  }, [toast, fetchProjects, devices])
+
   const handleMoveProject = React.useCallback(async (projectId: string, targetDeviceId: string | null) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/move`, {
@@ -6650,6 +6759,7 @@ export default function DashboardPage() {
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
+                              onReanalyze={handleReanalyzeProject}
                             />
                           ))}
                         </React.Fragment>
@@ -6697,6 +6807,7 @@ export default function DashboardPage() {
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
+                              onReanalyze={handleReanalyzeProject}
                             />
                           ))}
                         </>
@@ -6746,6 +6857,7 @@ export default function DashboardPage() {
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
+                              onReanalyze={handleReanalyzeProject}
                             />
                           ))}
                         </React.Fragment>
@@ -6779,6 +6891,7 @@ export default function DashboardPage() {
                         cardDensity={cardDensity}
                         onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
+                              onReanalyze={handleReanalyzeProject}
                       />
                     ))
                   )}
@@ -6821,6 +6934,7 @@ export default function DashboardPage() {
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
+                              onReanalyze={handleReanalyzeProject}
                             />
                           ))}
                         </React.Fragment>
@@ -6866,6 +6980,7 @@ export default function DashboardPage() {
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
+                              onReanalyze={handleReanalyzeProject}
                             />
                           ))}
                         </>
@@ -6914,6 +7029,7 @@ export default function DashboardPage() {
                               cardDensity={cardDensity}
                               onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
+                              onReanalyze={handleReanalyzeProject}
                             />
                           ))}
                         </React.Fragment>
@@ -6948,6 +7064,7 @@ export default function DashboardPage() {
                         cardDensity={cardDensity}
                         onCompare={(p) => { setCompareProjectA(p); setCompareOpen(true) }}
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
+                              onReanalyze={handleReanalyzeProject}
                       />
                     ))
                   )}
@@ -7081,6 +7198,7 @@ export default function DashboardPage() {
         }}
         devices={devices}
         onOpenDeviceManagement={() => setDeviceManagementOpen(true)}
+        onReanalyze={handleReanalyzeProject}
       />
 
       {/* Gateway monitor */}
