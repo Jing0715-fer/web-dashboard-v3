@@ -58,3 +58,7 @@ tool-results/
 
 # runtime data
 db/custom.db
+db/custom.db.*.bak
+screenshot-*.png
+qa-*.png
+*.bak

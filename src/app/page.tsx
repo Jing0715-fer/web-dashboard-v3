@@ -5646,12 +5646,14 @@ export default function DashboardPage() {
 
           {/* Device Selector */}
           <DropdownMenu>
-            <DropdownMenuTrigger render={<button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background hover:bg-muted dark:hover:bg-white/10 h-9 px-2.5 text-xs font-medium cursor-pointer transition-colors max-w-[180px]" />}>
-              <Monitor className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-              <span className="truncate">
-                {selectedDeviceId === null ? 'All Devices' : selectedDeviceId === 'local' ? '💻 This Machine' : devices.find(d => d.id === selectedDeviceId)?.name || 'Unknown'}
-              </span>
-              <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-9 px-3 text-xs font-medium cursor-pointer transition-colors max-w-[200px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50">
+                <Monitor className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <span className="truncate">
+                  {selectedDeviceId === null ? 'All Devices' : selectedDeviceId === 'local' ? '💻 This Machine' : devices.find(d => d.id === selectedDeviceId)?.name || 'Unknown'}
+                </span>
+                <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[220px] p-1.5 text-sm">
               <DropdownMenuItem onClick={() => setSelectedDeviceId(null)} className="px-2.5 py-2 text-sm rounded-md">
