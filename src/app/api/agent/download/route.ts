@@ -1,24 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { execSync } from 'child_process'
-import { existsSync, readFileSync, statSync } from 'fs'
+import { existsSync, readFileSync, statSync, readdirSync } from 'fs'
 import { join } from 'path'
 
 export const dynamic = 'force-dynamic'
 
+function getAvailablePlatforms(): string[] {
+  const miniServicesDir = join(process.cwd(), 'mini-services')
+  if (!existsSync(miniServicesDir)) return []
+  try {
+    return readdirSync(miniServicesDir, { withFileTypes: true })
+      .filter(d => d.isDirectory() && d.name.startsWith('agent-'))
+      .map(d => d.name.replace('agent-', ''))
+  } catch {
+    return []
+  }
+}
+
 /**
  * GET /api/agent/download
- * Downloads the Windows Agent package as a ZIP file.
+ * Downloads the Agent package as a ZIP file.
  * Query params:
  *   - platform: 'windows' (default) | 'linux' | 'macos'
  */
 export async function GET(req: NextRequest) {
   const platform = req.nextUrl.searchParams.get('platform') || 'windows'
+  const availablePlatforms = getAvailablePlatforms()
 
   const agentDir = join(process.cwd(), 'mini-services', `agent-${platform}`)
 
   if (!existsSync(agentDir)) {
     return NextResponse.json(
-      { error: `Agent package for '${platform}' not found`, availablePlatforms: ['windows'] },
+      { error: `Agent package for '${platform}' not found`, availablePlatforms },
       { status: 404 }
     )
   }

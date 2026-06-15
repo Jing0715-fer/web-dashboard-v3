@@ -1,0 +1,13 @@
+{
+  "name": "dashboard-agent-linux",
+  "version": "1.0.0",
+  "private": true,
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "setup": "node setup.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0"
+  }
+}
