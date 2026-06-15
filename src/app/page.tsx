@@ -166,6 +166,7 @@ interface GatewayStatus {
   memoryUsage: { total: number; used: number; free: number; percentage: number }
   cpuUsage: { percentage: number; cores: number; loadAverage: number[] }
   processMemory?: { rss: number; heapUsed: number; heapTotal: number }
+  diskUsage?: { total: number; used: number; free: number; percentage: number }
   services: Array<{ name: string; status: string; port: number; pid: number; uptime: string; memory: number }>
   agentGateways: Array<{ name: string; url: string; connected: boolean; lastPing: string }>
   lastChecked: string
@@ -1864,25 +1865,40 @@ function CircularGauge({ value, size = 100, label, color = '#10b981' }: { value:
   const offset = circumference - (safeValue / 100) * circumference
 
   return (
-    <div className="flex flex-col items-center gap-1.5">
-      <svg width={size} height={size} className="transform -rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-muted-foreground/15" />
-        <motion.circle
-          cx={size / 2} cy={size / 2} r={radius} fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeDasharray={circumference}
-          strokeDashoffset={circumference}
-          strokeLinecap="round"
-          animate={{ strokeDashoffset: offset }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
-        />
-      </svg>
-      <div className="-mt-[calc(50%+8px)] flex flex-col items-center" style={{ marginTop: -(size / 2 + 8) }}>
-        <span className="text-xl font-bold" style={{ color }}>{safeValue}</span>
-        <span className="text-[9px] text-muted-foreground font-medium">%</span>
+    <div className="flex flex-col items-center gap-1">
+      <div style={{ position: 'relative', width: size, height: size }}>
+        <svg width={size} height={size} style={{ display: 'block', transform: 'rotate(-90deg)' }}>
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-muted-foreground/15" />
+          <motion.circle
+            cx={size / 2} cy={size / 2} r={radius} fill="none"
+            stroke={color}
+            strokeWidth={strokeWidth}
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference}
+            strokeLinecap="round"
+            animate={{ strokeDashoffset: offset }}
+            transition={{ duration: 0.8, ease: 'easeOut' }}
+          />
+        </svg>
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: size,
+            height: size,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+          }}
+        >
+          <span className="text-xl font-bold tabular-nums leading-none" style={{ color }}>{safeValue}</span>
+          <span className="text-[9px] text-muted-foreground font-medium leading-none mt-0.5">%</span>
+        </div>
       </div>
-      <span className="text-xs font-medium text-muted-foreground mt-1">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
     </div>
   )
 }
@@ -1917,7 +1933,7 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-xl max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Monitor className="h-5 w-5 text-emerald-600" />
@@ -1937,7 +1953,7 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
                   <span className="text-sm font-semibold">CPU Usage</span>
                 </div>
                 <div className="flex items-center justify-center">
-                  <CircularGauge value={status.cpuUsage.percentage} size={110} label="CPU" color={cpuColor(status.cpuUsage.percentage)} />
+                  <CircularGauge value={status.cpuUsage.percentage} size={88} label="CPU" color={cpuColor(status.cpuUsage.percentage)} />
                 </div>
                 <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                   <div className="flex justify-between"><span>Cores</span><span className="font-medium text-foreground">{status.cpuUsage.cores}</span></div>
@@ -1950,7 +1966,7 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
                   <span className="text-sm font-semibold">Memory Usage</span>
                 </div>
                 <div className="flex items-center justify-center">
-                  <CircularGauge value={status.memoryUsage.percentage} size={110} label="Memory" color={memColor(status.memoryUsage.percentage)} />
+                  <CircularGauge value={status.memoryUsage.percentage} size={88} label="Memory" color={memColor(status.memoryUsage.percentage)} />
                 </div>
                 <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                   <div className="flex justify-between"><span>Used / Total</span><span className="font-medium text-foreground">{status.memoryUsage.used}MB / {status.memoryUsage.total}MB</span></div>
@@ -1985,7 +2001,7 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
               </div>
             </div>
 
-            {/* Disk Usage (estimated) */}
+            {/* Disk Usage (real data from df) */}
             <div className="p-4 rounded-xl border bg-gradient-to-br from-violet-50/50 to-purple-50/30 dark:from-violet-950/20 dark:to-purple-950/10">
               <div className="flex items-center gap-2 mb-3">
                 <BarChart3 className="h-4 w-4 text-violet-500" />
@@ -1994,14 +2010,14 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
               <div className="space-y-2">
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Estimated Usage</span>
-                    <span className="font-medium">{Math.min(Math.round(status.memoryUsage.percentage * 1.2), 100)}%</span>
+                    <span className="text-muted-foreground">Usage</span>
+                    <span className="font-medium">{status.diskUsage?.percentage ?? 0}%</span>
                   </div>
-                  <Progress value={Math.min(status.memoryUsage.percentage * 1.2, 100)} className="h-2" />
+                  <Progress value={status.diskUsage?.percentage ?? 0} className="h-2" />
                 </div>
                 <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>Based on memory pressure</span>
-                  <span>Free: {status.memoryUsage.free}MB</span>
+                  <span>Used: {status.diskUsage?.used ?? 0}MB / {status.diskUsage?.total ?? 0}MB</span>
+                  <span>Free: {status.diskUsage?.free ?? 0}MB</span>
                 </div>
               </div>
             </div>
