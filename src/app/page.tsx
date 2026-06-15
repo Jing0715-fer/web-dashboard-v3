@@ -832,8 +832,13 @@ function SortableProjectCard({
 
   // Smart URL: use proxy path for external access (ngrok), direct URL for local/LAN
   const getOpenUrl = (port: number) => {
-    // Always use proxy path to open in browser (avoids Chrome treating localhost as PWA/app)
-    return `/api/proxy/${port}/`
+    if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) {
+      // External access (ngrok or similar) — use proxy path
+      return `/api/proxy/${port}/`
+    }
+    // Local/LAN access — use direct URL
+    const host = currentHost || 'localhost'
+    return `http://${host}:${port}`
   }
 
   const densityClass = cardDensity === 'compact' ? 'p-2.5' : cardDensity === 'spacious' ? 'p-5' : 'p-3.5'
