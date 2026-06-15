@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  path        String        @unique
+  description String        @default("")
+  icon        String        @default("folder")
+  tags        String        @default("[]")
+  order       Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  environments Environment[]
+}
+
+model Environment {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  cmd       String
+  port      Int
+  envVars   String   @default("{}")
+  status    String   @default("stopped")
+  pid       Int?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}

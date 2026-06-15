@@ -1,13 +1,17 @@
 {
   "name": "dashboard-agent-macos",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "private": true,
   "main": "agent.js",
   "scripts": {
     "start": "node agent.js",
-    "setup": "node setup.js"
+    "start:dev": "node agent.js --port 3100 --apiKey dev-test-key",
+    "setup": "node setup.js",
+    "postinstall": "prisma generate || echo [postinstall] prisma generate skipped - run manually if needed"
   },
   "dependencies": {
-    "better-sqlite3": "^12.10.0"
+    "@prisma/client": "^6.11.1",
+    "better-sqlite3": "^12.10.0",
+    "prisma": "^6.11.1"
   }
 }
