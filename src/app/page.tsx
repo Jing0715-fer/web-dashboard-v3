@@ -1577,12 +1577,12 @@ function ProjectFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md" style={{ maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto', top: '1rem', transform: 'translate(-50%, 0)' }}>
-        <DialogHeader>
+      <DialogContent className="sm:max-w-md flex flex-col p-0 max-h-[calc(100vh-2rem)] gap-0 overflow-hidden">
+        <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
           <DialogTitle>{mode === 'add' ? 'Add New Project' : 'Edit Project'}</DialogTitle>
           <DialogDescription>{mode === 'add' ? 'Create a new project to manage.' : 'Update project details.'}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form id="project-form" onSubmit={handleSubmit} className="space-y-3 px-6 pb-6 overflow-y-auto flex-1 min-h-0">
           {/* Templates - only shown when adding a new project */}
           {mode === 'add' && (
             <div className="space-y-1.5">
@@ -1673,13 +1673,13 @@ function ProjectFormDialog({
               </SelectContent>
             </Select>
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={!name.trim() || !path.trim()} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-              {mode === 'add' ? 'Create' : 'Update'}
-            </Button>
-          </DialogFooter>
         </form>
+        <DialogFooter className="px-6 pt-4 pb-6 border-t shrink-0 bg-background">
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="project-form" disabled={!name.trim() || !path.trim()} className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleSubmit}>
+            {mode === 'add' ? 'Create' : 'Update'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
