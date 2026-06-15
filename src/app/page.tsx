@@ -832,13 +832,8 @@ function SortableProjectCard({
 
   // Smart URL: use proxy path for external access (ngrok), direct URL for local/LAN
   const getOpenUrl = (port: number) => {
-    if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) {
-      // External access (ngrok or similar) — use proxy path
-      return `/api/proxy/${port}/`
-    }
-    // Local/LAN access — use direct URL
-    const host = currentHost || 'localhost'
-    return `http://${host}:${port}`
+    // Always use proxy path to open in browser (avoids Chrome treating localhost as PWA/app)
+    return `/api/proxy/${port}/`
   }
 
   const densityClass = cardDensity === 'compact' ? 'p-2.5' : cardDensity === 'spacious' ? 'p-5' : 'p-3.5'
@@ -1577,7 +1572,7 @@ function ProjectFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" style={{ maxHeight: 'calc(100vh - 2rem)', overflowY: 'auto', top: '1rem', transform: 'translate(-50%, 0)' }}>
         <DialogHeader>
           <DialogTitle>{mode === 'add' ? 'Add New Project' : 'Edit Project'}</DialogTitle>
           <DialogDescription>{mode === 'add' ? 'Create a new project to manage.' : 'Update project details.'}</DialogDescription>
@@ -5057,8 +5052,24 @@ export default function DashboardPage() {
           body: JSON.stringify(data),
         })
         if (res.ok) {
+          const result = await res.json()
+          const newProjectId = result.project?.id
           toast({ title: 'Project created', variant: 'success' })
           addAutoNotification('success', 'Project Created', `Project "${data.name}" has been created successfully.`, data.name)
+
+          // Auto-analyze local projects to detect environments (dev/prod)
+          if (newProjectId && !data.deviceId) {
+            toast({ title: 'Analyzing project...', description: 'Detecting startup commands and environments.' })
+            try {
+              const analyzeRes = await fetch(`/api/projects/${newProjectId}/analyze`, { method: 'POST' })
+              if (analyzeRes.ok) {
+                toast({ title: 'Analysis complete', description: 'Dev and production environments have been configured.', variant: 'success' })
+              }
+            } catch {
+              // Non-blocking: project was created even if analysis fails
+            }
+          }
+
           fetchProjects()
         } else {
           const err = await res.json()
