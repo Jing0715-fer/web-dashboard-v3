@@ -1547,13 +1547,14 @@ function ToastContainer() {
 // ======================== PROJECT FORM DIALOG ========================
 
 function ProjectFormDialog({
-  open, onClose, onSubmit, project, mode
+  open, onClose, onSubmit, project, mode, devices
 }: {
   open: boolean
   onClose: () => void
-  onSubmit: (data: { name: string; path: string; description: string; icon: string; tags: string[] }) => void
+  onSubmit: (data: { name: string; path: string; description: string; icon: string; tags: string[]; deviceId: string | null }) => void
   project?: Project | null
   mode: 'add' | 'edit'
+  devices: Device[]
 }) {
   // Initialize from props - key on parent component resets this when dialog opens
   const [name, setName] = React.useState(() => mode === 'edit' && project ? project.name : '')
@@ -1561,6 +1562,7 @@ function ProjectFormDialog({
   const [description, setDescription] = React.useState(() => mode === 'edit' && project ? project.description : '')
   const [icon, setIcon] = React.useState(() => mode === 'edit' && project ? project.icon : 'folder')
   const [selectedTags, setSelectedTags] = React.useState<string[]>(() => mode === 'edit' && project ? parseTags(project.tags) : [])
+  const [selectedDeviceId, setSelectedDeviceId] = React.useState<string | null>(() => mode === 'edit' && project ? (project.deviceId || null) : null)
 
   const toggleTag = (tag: string) => {
     setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag])
@@ -1569,7 +1571,7 @@ function ProjectFormDialog({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim() || !path.trim()) return
-    onSubmit({ name: name.trim(), path: path.trim(), description: description.trim(), icon, tags: selectedTags })
+    onSubmit({ name: name.trim(), path: path.trim(), description: description.trim(), icon, tags: selectedTags, deviceId: selectedDeviceId })
     onClose()
   }
 
@@ -1654,6 +1656,22 @@ function ProjectFormDialog({
                 </button>
               ))}
             </div>
+          </div>
+          <div className="space-y-1">
+            <Label>Device</Label>
+            <Select value={selectedDeviceId ?? 'local'} onValueChange={(v) => setSelectedDeviceId(v === 'local' ? null : v)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="This machine (local)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">This machine (local)</SelectItem>
+                {devices.map((device) => (
+                  <SelectItem key={device.id} value={device.id}>
+                    {device.name} {device.status === 'online' ? '🟢' : '🔴'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
@@ -5030,7 +5048,7 @@ export default function DashboardPage() {
     setProjectFormOpen(true)
   }, [])
 
-  const handleProjectSubmit = React.useCallback(async (data: { name: string; path: string; description: string; icon: string; tags: string[] }) => {
+  const handleProjectSubmit = React.useCallback(async (data: { name: string; path: string; description: string; icon: string; tags: string[]; deviceId: string | null }) => {
     try {
       if (projectFormMode === 'add') {
         const res = await fetch('/api/projects', {
@@ -7014,6 +7032,7 @@ export default function DashboardPage() {
         onSubmit={handleProjectSubmit}
         project={editingProject}
         mode={projectFormMode}
+        devices={devices}
       />
 
       {/* Environment form - key resets state when dialog opens */}
