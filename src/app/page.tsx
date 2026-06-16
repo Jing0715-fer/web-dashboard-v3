@@ -5470,7 +5470,9 @@ export default function DashboardPage() {
 
   const handleRebuildProject = React.useCallback(async (projectId: string) => {
     const project = projects.find((p) => p.id === projectId)
-    if (!project || envs.length === 0) return
+    if (!project) return
+    const envs = project.environments || []
+    if (envs.length === 0) return
     setRebuildingProjectIds((prev) => new Set(prev).add(projectId))
     try {
       let successCount = 0

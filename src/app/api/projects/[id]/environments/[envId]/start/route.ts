@@ -66,7 +66,7 @@ export async function POST(
       if (companionName) {
         try {
           const companion = await db.project.findFirst({
-            where: { name: { equals: companionName, mode: 'insensitive' } },
+            where: { name: companionName },
             include: { environments: true },
           });
           if (companion && companion.environments.length > 0) {
