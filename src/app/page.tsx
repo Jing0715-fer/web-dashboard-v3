@@ -4452,6 +4452,7 @@ export default function DashboardPage() {
   const [editingDevice, setEditingDevice] = React.useState<Device | null>(null)
   const [agentDeployGuideOpen, setAgentDeployGuideOpen] = React.useState(false)
   const [moveProjectDialog, setMoveProjectDialog] = React.useState<Project | null>(null)
+  const [errorDialog, setErrorDialog] = React.useState<{ title: string; detail: string } | null>(null)
   // Session 11 states
   const [welcomeDismissed, setWelcomeDismissed] = React.useState<boolean>(() => {
     try { return localStorage.getItem('dashboard-welcome-dismissed') === 'true' } catch { return false }
@@ -5437,10 +5438,32 @@ export default function DashboardPage() {
           setSelectedProject(fresh?.project ?? fresh)
         }
       } else {
-        toast({ title: `Failed to ${action} ${envLabel}`, description: 'Server returned an error', variant: 'destructive' })
+        // 解析 API 返回的详细错误信息
+        let errorDetail = 'Server returned an error'
+        try {
+          const errData = await res.json()
+          const parts: string[] = []
+          if (errData.error) parts.push(errData.error)
+          if (errData.stderr) parts.push(`stderr:\n${errData.stderr}`)
+          if (errData.stdout) parts.push(`stdout:\n${errData.stdout}`)
+          if (parts.length > 0) errorDetail = parts.join('\n\n')
+        } catch {
+          // 响应不是 JSON，使用 statusText
+          errorDetail = `Server error: ${res.status} ${res.statusText}`
+        }
+        // 截断过长的错误信息用于 toast
+        const toastDesc = errorDetail.length > 200
+          ? errorDetail.slice(0, 200) + '… (点击查看详情)'
+          : errorDetail
+        toast({
+          title: `Failed to ${action} ${envLabel}`,
+          description: toastDesc,
+          variant: 'destructive',
+          detail: errorDetail.length > 200 ? errorDetail : undefined,
+        })
       }
     } catch {
-      toast({ title: `Failed to ${action} ${envLabel}`, variant: 'destructive' })
+      toast({ title: `Failed to ${action} ${envLabel}`, description: 'Network error — check console for details', variant: 'destructive' })
     }
   }, [toast, fetchProjects, selectedProject, projects])
 
@@ -5450,6 +5473,16 @@ export default function DashboardPage() {
     projectActionsRef.current.editProject = handleEditProject
     projectActionsRef.current.envAction = handleEnvAction
   }, [handleSelectProject, handleEditProject, handleEnvAction])
+
+  // 注册 toast 点击处理器 — 点击有 detail 的 toast 打开错误详情弹窗
+  React.useEffect(() => {
+    const { setToastClickHandler } = require('@/components/ui/toaster')
+    if (setToastClickHandler) {
+      setToastClickHandler((detail: string, title: string) => {
+        setErrorDialog({ title, detail })
+      })
+    }
+  }, [])
 
   const handleSyncFromConfig = React.useCallback(async () => {
     if (!confirm('This will REPLACE all projects and environments with the contents of projects.config.json. Any unsaved changes will be lost. Continue?')) {
@@ -5482,18 +5515,47 @@ export default function DashboardPage() {
         toast({ title: 'No rebuildable environments', description: 'Dev environments use hot-reload and do not need rebuild', variant: 'info' })
         return
       }
+      const errors: string[] = []
       for (const env of rebuildEnvs) {
         const res = await fetch(`/api/projects/${projectId}/environments/${env.id}/rebuild`, { method: 'POST' })
-        if (res.ok) successCount++
+        if (res.ok) {
+          successCount++
+        } else {
+          try {
+            const errData = await res.json()
+            const errMsg = errData.error || `HTTP ${res.status}`
+            errors.push(`${env.name}: ${errMsg}`)
+          } catch {
+            errors.push(`${env.name}: HTTP ${res.status}`)
+          }
+        }
       }
-      toast({ title: `Rebuild completed`, description: `${successCount}/${rebuildEnvs.length} environments rebuilt (dev skipped — HMR)`, variant: 'success' })
+      if (successCount === rebuildEnvs.length) {
+        toast({ title: `Rebuild completed`, description: `${successCount}/${rebuildEnvs.length} environments rebuilt`, variant: 'success' })
+      } else if (successCount > 0) {
+        const detail = errors.join('\n')
+        toast({
+          title: `Rebuild partial failure`,
+          description: `${successCount}/${rebuildEnvs.length} succeeded. ${errors.length} failed (点击查看详情)`,
+          variant: 'destructive',
+          detail,
+        })
+      } else {
+        const detail = errors.join('\n')
+        toast({
+          title: `Rebuild failed`,
+          description: `All ${rebuildEnvs.length} environments failed (点击查看详情)`,
+          variant: 'destructive',
+          detail,
+        })
+      }
       fetchProjects()
       if (selectedProject?.id === projectId) {
         const fresh = await (await fetch(`/api/projects/${projectId}`)).json()
         setSelectedProject(fresh?.project ?? fresh)
       }
     } catch {
-      toast({ title: 'Failed to rebuild project', variant: 'destructive' })
+      toast({ title: 'Failed to rebuild project', description: 'Network error', variant: 'destructive' })
     } finally {
       setRebuildingProjectIds((prev) => {
         const next = new Set(prev)
@@ -7156,6 +7218,41 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Error detail dialog - shows full build error output */}
+      <Dialog open={!!errorDialog} onOpenChange={(v) => !v && setErrorDialog(null)}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+              {errorDialog?.title ?? 'Error'}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              完整的错误输出，用于排查问题
+            </DialogDescription>
+          </DialogHeader>
+          {errorDialog?.detail && (
+            <div className="flex-1 overflow-auto mt-2">
+              <pre className="bg-muted/50 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap break-all leading-relaxed max-h-[60vh] overflow-auto">
+                {errorDialog.detail}
+              </pre>
+            </div>
+          )}
+          <DialogFooter>
+            <Button size="sm" variant="outline" onClick={() => {
+              if (errorDialog?.detail) {
+                navigator.clipboard.writeText(errorDialog.detail).then(() => {
+                  toast({ title: '已复制到剪贴板', variant: 'success' })
+                }).catch(() => {})
+              }
+            }}>
+              <Copy className="h-3.5 w-3.5 mr-1.5" />
+              复制
+            </Button>
+            <Button size="sm" onClick={() => setErrorDialog(null)}>关闭</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

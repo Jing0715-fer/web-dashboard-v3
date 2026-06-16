@@ -6,6 +6,21 @@ import { promisify } from 'util'
 
 const execp = promisify(exec)
 
+// 构建子进程用的安全环境变量 — 过滤掉 Next.js 内部变量和 bundler flags
+function buildEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const env: Record<string, string | undefined> = {}
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.startsWith('__NEXT_PRIVATE_')) continue
+    if (k === 'NEXT_DEPLOYMENT_ID') continue
+    if (k === '__NEXT_PROCESSED_ENV') continue
+    if (k === 'TURBOPACK') continue
+    if (k === 'NEXT_RUNTIME') continue
+    if (v === undefined) continue
+    env[k] = v
+  }
+  return { ...env, ...extra }
+}
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; envId: string }> }
@@ -32,20 +47,30 @@ export async function POST(
     try {
       await execp('npm run build', {
         cwd: env.project.path,
-        env: { ...process.env, NODE_ENV: 'production' },
-        timeout: 120000,
+        env: buildEnv({ NODE_ENV: 'production' }),
+        timeout: 300000,
       })
     } catch (buildErr: any) {
+      const stderr = buildErr.stderr?.trim() || ''
+      const stdout = buildErr.stdout?.trim() || ''
+      const message = buildErr.message?.trim() || 'Unknown build error'
       return NextResponse.json({
-        error: `Build failed: ${buildErr.message}`,
-        stderr: buildErr.stderr?.slice(-500),
+        error: `Build failed: ${message}`,
+        stderr: stderr.slice(-2000),
+        stdout: stdout.slice(-1000),
       }, { status: 500 })
     }
 
     // 3. Copy build artifacts to standalone
     try {
-      await execp('cp -r .next/static .next/standalone/.next/', { cwd: env.project.path })
-      await execp('cp -r public .next/standalone/', { cwd: env.project.path })
+      await execp('cp -r .next/static .next/standalone/.next/', {
+        cwd: env.project.path,
+        env: buildEnv(),
+      })
+      await execp('cp -r public .next/standalone/', {
+        cwd: env.project.path,
+        env: buildEnv(),
+      })
     } catch {
       // ignore copy errors
     }
@@ -68,7 +93,6 @@ export async function POST(
     )
 
     if (result.success) {
-      // Update DB status
       await db.environment.update({
         where: { id: envId },
         data: { status: 'running', pid: result.pid },

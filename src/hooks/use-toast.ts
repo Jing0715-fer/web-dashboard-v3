@@ -7,6 +7,7 @@ interface Toast {
   title: string
   description?: string
   variant?: 'default' | 'destructive' | 'success'
+  detail?: string  // 完整错误信息，点击 toast 时展示
 }
 
 interface ToastState {
