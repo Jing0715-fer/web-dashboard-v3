@@ -16,7 +16,8 @@ import {
   Keyboard,
   Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate,
   TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, User, Clipboard,
-  SearchX
+  SearchX,
+  Cloud, Container, Wrench, Building, House, Box,
 } from 'lucide-react'
 
 import {
@@ -108,6 +109,7 @@ interface Device {
   createdAt: string
   updatedAt: string
   projectCount?: number
+  icon?: string
 }
 
 interface Project {
@@ -832,8 +834,15 @@ function SortableProjectCard({
 
   const envLabel = (name: string) => name === 'development' ? 'dev' : name === 'production' ? 'prod' : name
 
-  // Smart URL: use proxy path for external access (ngrok), direct URL for local/LAN
+  // Smart URL: use proxy path for external access (ngrok), direct URL for local/LAN.
+  // For remote projects, point to the device's own IP+port (the process runs there, not on the dashboard).
   const getOpenUrl = (port: number) => {
+    if (isRemote) {
+      // Remote project: process runs on the device — use device.ip + port
+      // Fall back to localhost if device.ip is missing for any reason
+      const deviceIp = (project as any).deviceIp || (project as any).ip || 'localhost'
+      return `http://${deviceIp}:${port}`
+    }
     if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) {
       // External access (ngrok or similar) — use proxy path
       return `/api/proxy/${port}/`
@@ -1697,7 +1706,10 @@ function ProjectFormDialog({
                 <SelectItem value="local">This machine (local)</SelectItem>
                 {devices.map((device) => (
                   <SelectItem key={device.id} value={device.id}>
-                    {device.name} {device.status === 'online' ? '🟢' : '🔴'}
+                    <span className="inline-flex items-center gap-2">
+                      <CircleDot className={`h-3 w-3 ${device.status === 'online' ? 'text-emerald-500 fill-emerald-500' : 'text-red-400 fill-red-400'}`} />
+                      {device.name}
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -4200,25 +4212,42 @@ function DeviceFormDialog({
   device?: Device | null
   mode: 'add' | 'edit'
 }) {
-  const DEVICE_EMOJIS = ['💻', '🖥️', '📱', '☁️', '🐳', '🔧', '⚡', '🏢', '🏠', '🔧', '🌐', '📊', '🎮', '🤖', '🔒', '📦']
   const [name, setName] = React.useState(() => mode === 'edit' && device ? device.name : '')
   const [ip, setIp] = React.useState(() => mode === 'edit' && device ? device.ip : '')
   const [port, setPort] = React.useState(() => mode === 'edit' && device ? String(device.port) : '3100')
   const [apiKey, setApiKey] = React.useState(() => mode === 'edit' && device ? device.apiKey : '')
+  // P-fix-device-emojis: replaced emoji picker with a lucide-react icon picker.
+  // No emojis anywhere in the device UI. Each entry is { key, Icon } so React's
+  // `key` prop is always unique (previous version had duplicate 🔧 and crashed
+  // with "Encountered two children with the same key, 🔧").
+  const DEVICE_ICONS: { key: string; Icon: React.ElementType; label: string }[] = [
+    { key: 'monitor',     Icon: Monitor,     label: 'Desktop' },
+    { key: 'server',      Icon: Server,      label: 'Server' },
+    { key: 'smartphone',  Icon: Smartphone,  label: 'Mobile' },
+    { key: 'cloud',       Icon: Cloud,       label: 'Cloud' },
+    { key: 'container',   Icon: Container,   label: 'Container' },
+    { key: 'wrench',      Icon: Wrench,      label: 'Workstation' },
+    { key: 'zap',         Icon: Zap,         label: 'Fast' },
+    { key: 'building',    Icon: Building,    label: 'Office' },
+    { key: 'home',        Icon: House,       label: 'Home' },
+    { key: 'globe',       Icon: Globe,       label: 'Network' },
+    { key: 'database',    Icon: Database,    label: 'Database' },
+    { key: 'cpu',         Icon: CpuIcon,     label: 'Hardware' },
+    { key: 'plug-zap',    Icon: PlugZap,     label: 'Connected' },
+    { key: 'shield',      Icon: Shield,      label: 'Secure' },
+    { key: 'box',         Icon: Box,         label: 'Generic' },
+  ]
   const [icon, setIcon] = React.useState(() => {
     if (mode === 'edit' && device) {
-      // Extract emoji from name if present
-      const emojiMatch = device.name.match(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u)
-      return emojiMatch ? emojiMatch[1] : '💻'
+      return device.icon || 'monitor'
     }
-    return '💻'
+    return 'monitor'
   })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim() || !ip.trim()) return
-    const finalName = name.trim().replace(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u, '').trim()
-    onSubmit({ name: `${icon} ${finalName}`.trim(), ip: ip.trim(), port: parseInt(port) || 3100, apiKey: apiKey.trim(), icon })
+    onSubmit({ name: name.trim(), ip: ip.trim(), port: parseInt(port) || 3100, apiKey: apiKey.trim(), icon })
     onClose()
   }
 
@@ -4233,20 +4262,26 @@ function DeviceFormDialog({
           <div className="space-y-1">
             <Label>Device Icon</Label>
             <div className="flex flex-wrap gap-1.5">
-              {DEVICE_EMOJIS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => setIcon(emoji)}
-                  className={`text-lg p-1.5 rounded-md border transition-colors ${
-                    icon === emoji
-                      ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20 ring-1 ring-teal-500/30'
-                      : 'border-border hover:bg-accent'
-                  }`}
-                >
-                  {emoji}
-                </button>
-              ))}
+              {DEVICE_ICONS.map(({ key: iconKey, Icon, label }) => {
+                const active = icon === iconKey
+                return (
+                  <button
+                    key={iconKey}
+                    type="button"
+                    title={label}
+                    aria-label={label}
+                    aria-pressed={active}
+                    onClick={() => setIcon(iconKey)}
+                    className={`p-1.5 rounded-md border transition-colors ${
+                      active
+                        ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20 ring-1 ring-teal-500/30'
+                        : 'border-border hover:bg-accent'
+                    }`}
+                  >
+                    <Icon className={`h-4 w-4 ${active ? 'text-teal-600 dark:text-teal-400' : 'text-muted-foreground'}`} />
+                  </button>
+                )
+              })}
             </div>
           </div>
           <div className="space-y-1">
@@ -5874,9 +5909,13 @@ export default function DashboardPage() {
               {devices.length > 0 && <DropdownMenuSeparator />}
               {devices.map((device) => (
                 <DropdownMenuItem key={device.id} onClick={() => setSelectedDeviceId(device.id)} className="px-2.5 py-2 text-sm rounded-md">
-                  <span className={`mr-2 ${device.status === 'online' ? 'text-emerald-500' : device.status === 'error' ? 'text-amber-500' : 'text-red-400'}`}>
-                    {device.status === 'online' ? '🟢' : device.status === 'error' ? '⚠️' : '🔴'}
-                  </span>
+                  {device.status === 'online' ? (
+                    <CircleDot className="mr-2 h-3.5 w-3.5 text-emerald-500 fill-emerald-500" />
+                  ) : device.status === 'error' ? (
+                    <AlertTriangle className="mr-2 h-3.5 w-3.5 text-amber-500" />
+                  ) : (
+                    <CircleDot className="mr-2 h-3.5 w-3.5 text-red-400 fill-red-400" />
+                  )}
                   <span className="truncate">{device.name}</span>
                   <span className="ml-auto text-[10px] text-muted-foreground">{device.ip}:{device.port}</span>
                 </DropdownMenuItem>
