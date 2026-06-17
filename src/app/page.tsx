@@ -18,6 +18,7 @@ import {
   TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, User, Clipboard,
   SearchX,
   Cloud, Container, Wrench, Building, House, Box,
+  EyeOff,
 } from 'lucide-react'
 
 import {
@@ -4216,6 +4217,7 @@ function DeviceFormDialog({
   const [ip, setIp] = React.useState(() => mode === 'edit' && device ? device.ip : '')
   const [port, setPort] = React.useState(() => mode === 'edit' && device ? String(device.port) : '3100')
   const [apiKey, setApiKey] = React.useState(() => mode === 'edit' && device ? device.apiKey : '')
+  const [showApiKey, setShowApiKey] = React.useState(false)
   // P-fix-device-emojis: replaced emoji picker with a lucide-react icon picker.
   // No emojis anywhere in the device UI. Each entry is { key, Icon } so React's
   // `key` prop is always unique (previous version had duplicate 🔧 and crashed
@@ -4287,8 +4289,12 @@ function DeviceFormDialog({
           <div className="space-y-1">
             <Label htmlFor="device-name">Name *</Label>
             <div className="flex items-center gap-2">
-              <span className="text-xl shrink-0">{icon}</span>
-              <Input id="device-name" value={name.replace(/^(\p{Emoji_Presentation}|\p{Extended_Pictographic})\s*/u, '')} onChange={(e) => setName(e.target.value)} placeholder="MacBook Pro" />
+              {(() => {
+                const selected = DEVICE_ICONS.find((d) => d.key === icon)
+                const SelectedIcon = selected?.Icon ?? Monitor
+                return <SelectedIcon className="h-5 w-5 shrink-0 text-muted-foreground" />
+              })()}
+              <Input id="device-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="MacBook Pro" />
             </div>
           </div>
           <div className="space-y-1">
@@ -4301,7 +4307,28 @@ function DeviceFormDialog({
           </div>
           <div className="space-y-1">
             <Label htmlFor="device-apikey">API Key</Label>
-            <Input id="device-apikey" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Auto-generated if empty" />
+            <div className="relative">
+              <Input
+                id="device-apikey"
+                type={showApiKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Auto-generated if empty"
+                className="pr-10 font-mono"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                onClick={() => setShowApiKey((v) => !v)}
+                title={showApiKey ? 'Hide API key' : 'Show API key'}
+                aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                aria-pressed={showApiKey}
+                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
