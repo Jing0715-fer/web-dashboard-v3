@@ -4473,7 +4473,7 @@ export default function DashboardPage() {
     try { const v = localStorage.getItem('dashboard-viewMode'); return v === 'grid' || v === 'list' ? v : 'grid' } catch { return 'grid' }
   })
   const [sortBy, setSortBy] = React.useState<SortOption>(() => {
-    try { const v = localStorage.getItem('dashboard-sortBy'); return v === 'newest' || v === 'name' || v === 'status' ? v : 'newest' } catch { return 'newest' }
+    try { const v = localStorage.getItem('dashboard-sortBy'); return v === 'newest' || v === 'name' || v === 'status' || v === 'custom' ? v : 'custom' } catch { return 'custom' }
   })
   const [filterStatus, setFilterStatus] = React.useState<FilterStatus>('all')
   const [filterTags, setFilterTags] = React.useState<string[]>([])
@@ -5801,6 +5801,10 @@ export default function DashboardPage() {
     const { active, over } = event
     if (!over || active.id === over.id) return
 
+    // Switch to "custom" sort so the manual drag order is respected instead of
+    // being immediately overridden by newest/name/status sorting.
+    setSortBy('custom')
+
     // Compute new order synchronously from the latest ref — do NOT rely on
     // setProjects updater side-effects, which may not have run yet in
     // React 18 concurrent mode.
@@ -5822,13 +5826,12 @@ export default function DashboardPage() {
       body: JSON.stringify({ order: newOrderIds.map((id) => ({ id })) }),
     })
       .then(() => {
-        // Reorder succeeded — fetch canonical DB state
         reorderInFlightRef.current = false
         fetchProjects()
       })
       .catch(() => {
-        // Reorder failed — resume auto-refresh, next cycle will sync
         reorderInFlightRef.current = false
+        fetchProjects()
       })
   }, [fetchProjects])
 
@@ -6229,6 +6232,7 @@ export default function DashboardPage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+                    <DropdownMenuRadioItem value="custom">Custom Order</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="newest">Newest First</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="name">By Name</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="status">By Status</DropdownMenuRadioItem>
