@@ -5805,18 +5805,37 @@ export default function DashboardPage() {
     // being immediately overridden by newest/name/status sorting.
     setSortBy('custom')
 
-    // Compute new order synchronously from the latest ref — do NOT rely on
-    // setProjects updater side-effects, which may not have run yet in
-    // React 18 concurrent mode.
-    const prev = projectsRef.current
-    const oldIndex = prev.findIndex((p) => p.id === active.id)
-    const newIndex = prev.findIndex((p) => p.id === over.id)
+    // Compute new order from filteredProjects (what the user sees and drags).
+    // Use the ref for synchronous read — do NOT rely on setProjects updater
+    // side-effects which may not have run yet in React 18 concurrent mode.
+    const currentFiltered = filteredProjectsRef.current
+    const oldIndex = currentFiltered.findIndex((p) => p.id === active.id)
+    const newIndex = currentFiltered.findIndex((p) => p.id === over.id)
     if (oldIndex < 0 || newIndex < 0) return
-    const moved = arrayMove(prev, oldIndex, newIndex)
-    const newOrderIds = moved.map((p) => p.id)
+    const movedFiltered = arrayMove(currentFiltered, oldIndex, newIndex)
+    const newOrderIds = movedFiltered.map((p) => p.id)
 
-    // Update local state immediately (visual reorder)
-    setProjects(moved)
+    // Apply the same reorder to the full projects array, preserving
+    // non-filtered items (e.g. Hermes Bridge) in their original positions.
+    const filteredIdSet = new Set(newOrderIds)
+    const newProjects: Project[] = []
+    let filteredIdx = 0
+    for (const p of projectsRef.current) {
+      if (filteredIdSet.has(p.id)) {
+        if (filteredIdx < movedFiltered.length) {
+          newProjects.push(movedFiltered[filteredIdx])
+          filteredIdx++
+        }
+      } else {
+        newProjects.push(p)
+      }
+    }
+    while (filteredIdx < movedFiltered.length) {
+      newProjects.push(movedFiltered[filteredIdx])
+      filteredIdx++
+    }
+
+    setProjects(newProjects)
 
     // Pause auto-refresh and persist to server
     reorderInFlightRef.current = true
