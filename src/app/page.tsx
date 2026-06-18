@@ -4597,8 +4597,15 @@ export default function DashboardPage() {
 
   const { toast } = useToast()
 
+  // Ref to track whether a reorder POST is in flight — used to pause
+  // auto-refresh from overwriting local drag order with stale DB data.
+  const reorderInFlightRef = React.useRef(false)
+
   // Data fetching
   const fetchProjects = React.useCallback(async () => {
+    // If a reorder POST is in flight, skip this auto-refresh cycle so we
+    // don't overwrite the locally-reordered state with stale DB data.
+    if (reorderInFlightRef.current) return
     try {
       const res = await fetch('/api/projects')
       if (res.ok) {
@@ -5794,30 +5801,36 @@ export default function DashboardPage() {
     const { active, over } = event
     if (!over || active.id === over.id) return
 
-    let nextOrder: string[] = []
-    setProjects((prev) => {
-      const oldIndex = prev.findIndex((p) => p.id === active.id)
-      const newIndex = prev.findIndex((p) => p.id === over.id)
-      if (oldIndex < 0 || newIndex < 0) return prev
-      const moved = arrayMove(prev, oldIndex, newIndex)
-      nextOrder = moved.map((p) => p.id)
-      return moved
-    })
+    // Compute new order synchronously from the latest ref — do NOT rely on
+    // setProjects updater side-effects, which may not have run yet in
+    // React 18 concurrent mode.
+    const prev = projectsRef.current
+    const oldIndex = prev.findIndex((p) => p.id === active.id)
+    const newIndex = prev.findIndex((p) => p.id === over.id)
+    if (oldIndex < 0 || newIndex < 0) return
+    const moved = arrayMove(prev, oldIndex, newIndex)
+    const newOrderIds = moved.map((p) => p.id)
 
-    // Persist the new order to the server in the background.
-    // We don't block on it — visual order is updated immediately, and the
-    // next fetchProjects() call will fetch the canonical order from the DB.
-    if (nextOrder.length > 0) {
-      fetch('/api/projects/reorder', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: nextOrder.map((id) => ({ id })) }),
-      }).catch(() => {
-        // Silent failure — the next 5s auto-refresh will reflect server truth.
-        // The local state is already in the right order, so user sees no jitter.
+    // Update local state immediately (visual reorder)
+    setProjects(moved)
+
+    // Pause auto-refresh and persist to server
+    reorderInFlightRef.current = true
+    fetch('/api/projects/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order: newOrderIds.map((id) => ({ id })) }),
+    })
+      .then(() => {
+        // Reorder succeeded — fetch canonical DB state
+        reorderInFlightRef.current = false
+        fetchProjects()
       })
-    }
-  }, [])
+      .catch(() => {
+        // Reorder failed — resume auto-refresh, next cycle will sync
+        reorderInFlightRef.current = false
+      })
+  }, [fetchProjects])
 
   // Session 11: Welcome widget dismiss handler
   const dismissWelcome = React.useCallback(() => {
