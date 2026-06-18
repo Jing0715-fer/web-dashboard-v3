@@ -901,6 +901,7 @@ function SortableProjectCard({
                 <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : 'bg-red-400'} mr-1`} />
                 {runningEnvs}/{totalEnvs} running
               </Badge>
+              {project.name === 'Hermes Web' && <HermesBridgeToggle />}
             </div>
             <button type="button" className="text-xs text-muted-foreground dark:text-gray-400 truncate text-left cursor-pointer hover:text-foreground dark:hover:text-gray-200 transition-colors hover:underline decoration-dotted underline-offset-2" title={`${project.path} — Click to copy`} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(project.path); addToast({ title: 'Path copied', description: project.path, variant: 'success' }) }}>{highlightText(project.path, searchQuery)}</button>
           </div>
@@ -957,15 +958,16 @@ function SortableProjectCard({
           </div>
           <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
             {(project.environments || []).some((e) => e.status === 'running') && (
-              <TooltipProvider><Tooltip><TooltipTrigger render={<a
+              <TooltipProvider><Tooltip><TooltipTrigger asChild><a
                 href={getOpenUrl((project.environments || []).find((e) => e.status === 'running')?.port || (project.environments || [])[0]?.port || 3000)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center rounded-md h-7 px-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer gap-1 text-emerald-600 dark:text-emerald-400 transition-all hover:scale-105 active:scale-95"
-              />} onClick={(e) => e.stopPropagation()}>
+                onClick={(e) => e.stopPropagation()}
+              >
                 <ExternalLink className="h-3 w-3" />
                 <span className="text-[11px] font-medium hidden sm:inline">Open</span>
-              </TooltipTrigger><TooltipContent>Open project in browser</TooltipContent></Tooltip></TooltipProvider>
+              </a></TooltipTrigger><TooltipContent>Open project in browser</TooltipContent></Tooltip></TooltipProvider>
             )}
 
             {/* Re-fetch Environments — surfaced prominently when the project
@@ -1241,19 +1243,21 @@ function SortableProjectCard({
               <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-red-400'} mr-1`} />
               {runningEnvs}/{totalEnvs} running
             </Badge>
+            {project.name === 'Hermes Web' && <HermesBridgeToggle />}
             <span className="text-[10px] text-muted-foreground dark:text-gray-400 hidden sm:inline" title={new Date(project.createdAt).toLocaleString()}>{formatTimeAgo(project.createdAt)}</span>
           </div>
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
             {(project.environments || []).some((e) => e.status === 'running') && (
-              <TooltipProvider><Tooltip><TooltipTrigger render={<a
+              <TooltipProvider><Tooltip><TooltipTrigger asChild><a
                 href={getOpenUrl((project.environments || []).find((e) => e.status === 'running')?.port || (project.environments || [])[0]?.port || 3000)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center rounded-md h-7 px-2 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer gap-1 text-emerald-600 dark:text-emerald-400 transition-all hover:scale-105 active:scale-95"
-              />} onClick={(e) => e.stopPropagation()}>
+                onClick={(e) => e.stopPropagation()}
+              >
                 <ExternalLink className="h-3 w-3" />
                 <span className="text-[11px] font-medium hidden sm:inline">Open</span>
-              </TooltipTrigger><TooltipContent>Open project in browser</TooltipContent></Tooltip></TooltipProvider>
+              </a></TooltipTrigger><TooltipContent>Open project in browser</TooltipContent></Tooltip></TooltipProvider>
             )}
 
             {/* Re-fetch Environments — surfaced prominently when the project
