@@ -54,6 +54,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/h
 import { proxyToAgent } from '@/lib/remote-agent'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { useToast, addToast } from '@/hooks/use-toast'
+import { setToastClickHandler } from '@/components/ui/toaster'
 
 // ======================== CUSTOM DnD SENSOR ========================
 // A PointerSensor that only activates when the pointerdown target is a
@@ -203,7 +204,7 @@ interface Deployment {
 type AlertSeverity = 'critical' | 'warning' | 'notice' | 'ok'
 
 type ViewMode = 'grid' | 'list'
-type SortOption = 'newest' | 'name' | 'status'
+type SortOption = 'newest' | 'name' | 'status' | 'custom'
 type FilterStatus = 'all' | 'running' | 'stopped'
 type GroupBy = 'device' | 'tags' | 'none'
 
@@ -998,7 +999,7 @@ function SortableProjectCard({
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onDuplicate(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
                 {!project.deviceId && onMoveToDevice && (
                   <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Move to Device</DropdownMenuItem>
                 )}
@@ -1024,7 +1025,7 @@ function SortableProjectCard({
             )}
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</ContextMenuItem>
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</ContextMenuItem>
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</ContextMenuItem>
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />Unpin</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />Pin to Top</>}</ContextMenuItem>
             {(project.environments || []).every((e) => e.status !== 'running') && (
               <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />Start All Environments</ContextMenuItem>
@@ -1288,7 +1289,7 @@ function SortableProjectCard({
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onDuplicate(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
                 {!project.deviceId && onMoveToDevice && (
                   <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Move to Device</DropdownMenuItem>
                 )}
@@ -1642,7 +1643,7 @@ function ProjectFormDialog({
                   <button
                     key={label}
                     type="button"
-                    onClick={() => { setName(tpl.name); setIcon(tpl.icon); setSelectedTags(tpl.tags); setDescription(tpl.description) }}
+                    onClick={() => { setName(tpl.name); setIcon(tpl.icon); setSelectedTags([...tpl.tags]); setDescription(tpl.description) }}
                     className="flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all duration-150 hover:bg-accent/50 cursor-pointer border-border hover:border-muted-foreground/30"
                   >
                     <TplIcon className="h-4 w-4 text-muted-foreground" />
@@ -2866,8 +2867,10 @@ function DetailSheet({
                           {tagDraft.length === 0 && <span className="text-xs text-muted-foreground italic">No tags selected</span>}
                         </div>
                         <Popover open={tagSearchOpen} onOpenChange={setTagSearchOpen}>
-                          <PopoverTrigger render={<Button variant="outline" size="sm" className="h-6 text-[10px] w-full justify-start" />}>
-                            <Tag className="h-2.5 w-2.5 mr-1" />Add tag...
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="h-6 text-[10px] w-full justify-start">
+                              <Tag className="h-2.5 w-2.5 mr-1" />Add tag...
+                            </Button>
                           </PopoverTrigger>
                           <PopoverContent className="w-56 p-2" align="start">
                             <Input
@@ -3199,7 +3202,7 @@ function DetailSheet({
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(`:${env.port}`, `Port :${env.port}`)}><Copy className="h-3 w-3" /></Button>
                       {env.status === 'running' ? (
                         <>
-                          <TooltipProvider><Tooltip><TooltipTrigger render={<a
+                          <TooltipProvider><Tooltip><TooltipTrigger asChild><a
                             href={(() => {
                               if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) {
                                 return `/api/proxy/${env.port}/`
@@ -3209,8 +3212,9 @@ function DetailSheet({
                             })()}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e: React.MouseEvent) => e.stopPropagation()}
                             className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer text-emerald-500 dark:text-emerald-400"
-                          />} onClick={(e: React.MouseEvent) => e.stopPropagation()}><ExternalLink className="h-3 w-3" /></TooltipTrigger><TooltipContent>Open in browser</TooltipContent></Tooltip></TooltipProvider>
+                          ><ExternalLink className="h-3 w-3" /></a></TooltipTrigger><TooltipContent>Open in browser</TooltipContent></Tooltip></TooltipProvider>
                           <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-red-500" onClick={() => onEnvAction(project.id, env.id, 'stop')}><Square className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>Stop</TooltipContent></Tooltip></TooltipProvider>
                           <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-amber-500" onClick={() => onEnvAction(project.id, env.id, 'restart')}><RotateCw className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>Restart</TooltipContent></Tooltip></TooltipProvider>
                         </>
@@ -3470,12 +3474,12 @@ function DetailSheet({
                     <span className="text-[9px] text-muted-foreground">Auto-scroll</span>
                     <Switch checked={logAutoScroll} onCheckedChange={setLogAutoScroll} className="scale-75" />
                   </div>
-                  <TooltipProvider><Tooltip><TooltipTrigger render={<Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                  <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
                     const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
                     const text = filtered.map((log) => `[${new Date(log.timestamp).toLocaleTimeString()}] [${log.level.toUpperCase()}] ${log.source}: ${log.message}`).join('\n')
                     navigator.clipboard.writeText(text)
                     toast({ title: 'Logs copied', variant: 'success' })
-                  }} />}><Copy className="h-3 w-3" /></TooltipTrigger><TooltipContent>Copy visible logs</TooltipContent></Tooltip></TooltipProvider>
+                  }}><Copy className="h-3 w-3" /></Button></TooltipTrigger><TooltipContent>Copy visible logs</TooltipContent></Tooltip></TooltipProvider>
                 </div>
                 {/* Log entries */}
                 <div className="rounded-lg bg-zinc-950 dark:bg-zinc-950 border border-zinc-800 overflow-hidden shadow-inner">
@@ -4182,8 +4186,10 @@ function DeviceManagementPanel({
                     Health
                   </Button>
                   <AlertDialog>
-                    <AlertDialogTrigger render={<Button variant="outline" size="sm" className="h-7 text-xs text-destructive hover:bg-red-50 dark:hover:bg-red-900/20 px-2" />}>
-                      <Trash2 className="h-3 w-3" />
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="sm" className="h-7 text-xs text-destructive hover:bg-red-50 dark:hover:bg-red-900/20 px-2">
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
@@ -4600,10 +4606,11 @@ export default function DashboardPage() {
   // Ref to track whether a reorder POST is in flight — used to pause
   // auto-refresh from overwriting local drag order with stale DB data.
   const reorderInFlightRef = React.useRef(false)
+  const lastProjectsSerializedRef = React.useRef('')
 
   // Data fetching
   const fetchProjects = React.useCallback(async () => {
-    // If a reorder POST is in flight, skip this auto-refresh cycle so we
+    // If a reorder POST is in-flight, skip this auto-refresh cycle so we
     // don't overwrite the locally-reordered state with stale DB data.
     if (reorderInFlightRef.current) return
     try {
@@ -4614,7 +4621,14 @@ export default function DashboardPage() {
           ...p,
           tags: parseTags(p.tags as string),
         }))
-        setProjects(parsed)
+        // Skip setProjects if nothing actually changed. Prevents unnecessary
+        // re-renders every 8s when the backend data is stable (the most
+        // common case when nothing is being started/stopped on the device).
+        const serialized = JSON.stringify(parsed)
+        if (serialized !== lastProjectsSerializedRef.current) {
+          lastProjectsSerializedRef.current = serialized
+          setProjects(parsed)
+        }
         setLastRefreshed(new Date().toISOString())
         // Publish projects for cross-component consumers (e.g. HermesBridgeToggle)
         try {
@@ -5549,7 +5563,6 @@ export default function DashboardPage() {
 
   // 注册 toast 点击处理器 — 点击有 detail 的 toast 打开错误详情弹窗
   React.useEffect(() => {
-    const { setToastClickHandler } = require('@/components/ui/toaster')
     if (setToastClickHandler) {
       setToastClickHandler((detail: string, title: string) => {
         setErrorDialog({ title, detail })
@@ -6390,8 +6403,10 @@ export default function DashboardPage() {
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1 text-red-500" />Stop All</Button>
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openBatchTagEditor}><Tags className="h-3 w-3 mr-1 text-amber-500" />Edit Tags</Button>
                 <AlertDialog>
-                  <AlertDialogTrigger render={<Button size="sm" variant="outline" className="h-7 text-xs text-destructive" />}>
-                    <Trash2 className="h-3 w-3 mr-1" />Delete All
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-xs text-destructive">
+                      <Trash2 className="h-3 w-3 mr-1" />Delete All
+                    </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
@@ -6440,8 +6455,10 @@ export default function DashboardPage() {
                   if (firstSelected) setMoveProjectDialog(firstSelected)
                 }}><ArrowRightLeft className="h-3 w-3 mr-1" />Move to Device</Button>
                 <AlertDialog>
-                  <AlertDialogTrigger render={<Button size="sm" variant="outline" className="h-7 text-xs border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20" />}>
-                    <Trash2 className="h-3 w-3 mr-1" />Delete Selected
+                  <AlertDialogTrigger asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-xs border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
+                      <Trash2 className="h-3 w-3 mr-1" />Delete Selected
+                    </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
