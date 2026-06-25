@@ -4759,13 +4759,12 @@ export default function DashboardPage() {
     }
   }, [projects, fetchGlobalActivity])
 
-  // Auto-refresh every 5 seconds to keep status up-to-date
-  React.useEffect(() => {
-    const interval = setInterval(() => {
-      fetchProjects()
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [fetchProjects])
+  // Auto-refresh: only the 8s interval below is needed. A second 5s poll
+  // existed previously and created a feeling of constant churn even when
+  // data was unchanged. Removed to halve background network traffic and
+  // reduce render pressure. The remaining interval is still paused when
+  // the tab is hidden, so this is plenty for keeping status fresh.
+  // (Kept intentionally as a comment to prevent re-introduction.)
 
   // Client-side notification queue for auto-generated notifications
   const autoNotifIdRef = React.useRef(0)
