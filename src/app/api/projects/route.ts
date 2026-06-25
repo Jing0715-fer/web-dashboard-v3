@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { batchCheckPorts } from '@/lib/process-manager';
+import { enrichEnvStatuses } from '@/lib/env-status';
 import { fetchRemoteProjects, type RemoteAgentConfig } from '@/lib/remote-agent';
 
 // GET /api/projects - List all projects with environments and status
@@ -14,20 +14,22 @@ export async function GET() {
       orderBy: [{ order: 'asc' }, { updatedAt: 'desc' }],
     });
 
-    // Batch check all local ports at once for efficiency
-    const allPorts = localProjects.flatMap(p => p.environments.map(e => e.port));
-    const activePorts = await batchCheckPorts(allPorts);
+    // P1-4: enrich + reconcile DB status with actual port state in one ss call.
+    // Stale "running" rows (DB says running but port not listening) get cleared.
+    const localEnvs = await enrichEnvStatuses(
+      localProjects.flatMap((p) => p.environments)
+    );
+    const localEnvsById = new Map(localEnvs.map((e) => [e.id, e]));
 
-    // Enrich local projects with running status
     const enrichedLocal = localProjects.map((project) => ({
       ...project,
       deviceName: null,
       deviceId: null,
       deviceStatus: null,
-      environments: project.environments.map((env) => ({
-        ...env,
-        status: activePorts.has(env.port) ? 'running' : 'stopped',
-      })),
+      environments: project.environments.map((env) => {
+        const reconciled = localEnvsById.get(env.id);
+        return reconciled ? { ...env, status: reconciled.status } : env;
+      }),
     }));
 
     // 2. Get remote projects from devices (try all non-offline devices, plus offline ones with a shorter timeout)
@@ -50,6 +52,7 @@ export async function GET() {
             ...p,
             deviceId: device.id,
             deviceName: device.name,
+            deviceIp: device.ip,
             deviceStatus: 'online' as const,
             environments: (p.environments || []).map((e: any) => ({
               ...e,
@@ -71,28 +74,131 @@ export async function GET() {
 
     const enrichedRemote = remoteResults.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 
-    // 3. Also include projects in local DB that have a deviceId (cached remote projects)
-    const cachedRemoteProjects = await db.project.findMany({
+    // Dedupe live remote projects by (deviceId, path). The Windows agent
+    // occasionally returns the same project twice — usually because the
+    // agent's local project registry has two rows for the same path
+    // (e.g. one from a stale manual registration + one from the auto-scan).
+    // Without this, the dashboard would render two cards for one project.
+    //
+    // Tiebreaker: when collapsing, prefer the row that carries
+    // environments. If both have none, first-wins. We also drop rows
+    // missing deviceId/path because they cannot be uniquely addressed
+    // for control actions.
+    const remoteByKey = new Map<string, any>();
+    for (const p of enrichedRemote as any[]) {
+      if (!p.deviceId || !p.path) continue;
+      const key = `${p.deviceId}::${p.path}`;
+      const existing = remoteByKey.get(key);
+      if (!existing) {
+        remoteByKey.set(key, p);
+        continue;
+      }
+      const existingHasEnv = (existing.environments?.length ?? 0) > 0;
+      const incomingHasEnv = (p.environments?.length ?? 0) > 0;
+      if (incomingHasEnv && !existingHasEnv) {
+        remoteByKey.set(key, p);
+      }
+    }
+    const dedupedRemote = Array.from(remoteByKey.values());
+
+    // 3. Persist live remote projects to local DB so start/stop routes can find them.
+    //    Use the agent's own id/deviceId so subsequent requests resolve the same rows.
+    for (const remote of dedupedRemote) {
+      try {
+        const envData = (remote.environments || []).map((e: any) => ({
+          id: e.id,
+          projectId: remote.id,
+          name: e.name,
+          cmd: e.cmd,
+          port: e.port,
+          envVars: typeof e.envVars === 'string' ? e.envVars : JSON.stringify(e.envVars || {}),
+          status: e.status || 'stopped',
+          pid: e.pid ?? null,
+        }));
+        // P2-1: wrap upsert + delete-then-create in a single transaction so a
+        // concurrent GET can't see an empty environments array mid-sync.
+        await db.$transaction(async (tx) => {
+          await tx.project.upsert({
+            where: { id: remote.id },
+            update: {
+              name: remote.name,
+              path: remote.path,
+              description: remote.description || '',
+              icon: remote.icon || 'folder',
+              tags: typeof remote.tags === 'string' ? remote.tags : JSON.stringify(remote.tags || []),
+              deviceId: remote.deviceId,
+            },
+            create: {
+              id: remote.id,
+              name: remote.name,
+              path: remote.path,
+              description: remote.description || '',
+              icon: remote.icon || 'folder',
+              tags: typeof remote.tags === 'string' ? remote.tags : JSON.stringify(remote.tags || []),
+              deviceId: remote.deviceId,
+              order: remote.order ?? 0,
+            },
+          });
+          // Sync environments: delete-then-create keeps them aligned with the agent.
+          await tx.environment.deleteMany({ where: { projectId: remote.id } });
+          if (envData.length > 0) {
+            await tx.environment.createMany({ data: envData });
+          }
+        });
+      } catch (e) {
+        // best-effort: don't fail the GET if a single remote project fails to persist
+        console.error('Failed to persist remote project', remote.id, e);
+      }
+    }
+
+    // 4. Also include projects in local DB that have a deviceId (cached remote projects
+    //    for devices that were offline / not reachable on this request).
+    //
+    // Dedupe key is `deviceId+path` instead of just `id`: when the Windows agent
+    // regenerates a project's ID (e.g. on first registration, or after a path
+    // change), the new ID lands in `enrichedRemote` while the old ID is still
+    // sitting in the local DB. Filtering by ID alone would leak the stale row
+    // as a duplicate card (the "two Foundry UI" bug). Filtering by path
+    // collapses both rows into one canonical entry — the live one wins.
+    const liveKeys = new Set(
+      dedupedRemote.map((p: any) => `${p.deviceId}::${p.path}`)
+    );
+    const allCachedRemoteProjects = await db.project.findMany({
       where: { deviceId: { not: null } },
       include: { environments: true, device: true },
     });
+    const cachedRemoteProjects = allCachedRemoteProjects.filter(
+      (p) => !liveKeys.has(`${p.deviceId}::${p.path}`)
+    );
 
-    // Add cached remote projects that weren't fetched from live agents
-    const liveDeviceIds = new Set(enrichedRemote.map(p => p.deviceId));
+    // Bug #3 fix: cached remotes had no port-state reconciliation, so a
+    // process that died on the device left a stale "running" row in our DB
+    // forever (visible to the user as a permanently-running project that
+    // never restarts). Run the same enrich pass as for local projects —
+    // `enrichEnvStatuses` will clear stale running rows when the port is
+    // not actually listening. For remote devices we can't kill the
+    // process from here (it's on the other host), so we just report
+    // reality and trust the next agent sync to re-create the row if it
+    // really is still running.
+    const cachedRemoteEnvs = await enrichEnvStatuses(
+      cachedRemoteProjects.flatMap((p) => p.environments)
+    );
+    const cachedEnvsById = new Map(cachedRemoteEnvs.map((e) => [e.id, e]));
+
     const cachedRemotes = cachedRemoteProjects
-      .filter(p => !liveDeviceIds.has(p.deviceId))
       .map(project => ({
         ...project,
         deviceName: project.device?.name || 'Unknown Device',
+        deviceIp: project.device?.ip || 'localhost',
         deviceStatus: project.device?.status || 'offline',
-        environments: project.environments.map((env) => ({
-          ...env,
-          status: env.status || 'stopped',
-        })),
+        environments: project.environments.map((env) => {
+          const reconciled = cachedEnvsById.get(env.id);
+          return reconciled ? { ...env, status: reconciled.status } : { ...env, status: env.status || 'stopped' };
+        }),
       }));
 
-    // 4. Combine and return
-    return NextResponse.json({ projects: [...enrichedLocal, ...enrichedRemote, ...cachedRemotes] });
+    // 5. Combine and return
+    return NextResponse.json({ projects: [...enrichedLocal, ...dedupedRemote, ...cachedRemotes] });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
