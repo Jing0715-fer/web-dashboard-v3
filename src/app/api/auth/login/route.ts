@@ -9,8 +9,10 @@ import {
   normalizeEmail,
   verifyPassword,
   toPublicUser,
-  buildSessionCookieForUser,
+  buildSessionCookie,
+  isSecureRequest,
   withSessionCookie,
+  createSessionToken,
   type UserRow,
 } from '@/lib/auth'
 
@@ -18,7 +20,7 @@ export const dynamic = 'force-dynamic'
 
 /**
  * POST /api/auth/login  body { email, password, remember? }
- *   → 200 { user: PublicUser }  + sets dash_session cookie (7d / 30d)
+ *   → 200 { user: PublicUser, sessionToken: string } + sets dash_session cookie (7d / 30d)
  *   → 401 { error: 'Invalid email or password' }
  *   → 403 { error, code: 'pending' | 'rejected', rejectionReason? }
  *   → 429 { error }  — 5 failed attempts within 15 minutes (per email|ip)
@@ -75,9 +77,14 @@ export async function POST(req: Request) {
     const now = new Date()
     await db.user.update({ where: { id: user.id }, data: { lastLoginAt: now } })
 
-    const cookie = await buildSessionCookieForUser(user.id, remember)
+    // Dual-channel session: the httpOnly cookie for same-origin access, plus
+    // the raw token in the body for the localStorage bearer channel (used when
+    // browsers block third-party cookies in the sandbox preview iframe).
+    const secure = isSecureRequest(req)
+    const sessionToken = await createSessionToken(user.id, remember)
+    const cookie = buildSessionCookie(sessionToken, remember, secure)
     return withSessionCookie(
-      NextResponse.json({ user: toPublicUser({ ...user, lastLoginAt: now }) }),
+      NextResponse.json({ user: toPublicUser({ ...user, lastLoginAt: now }), sessionToken }),
       cookie,
     )
   } catch (err) {

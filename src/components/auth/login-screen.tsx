@@ -13,6 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { GoogleStatus } from './auth-types'
+import { setSessionToken } from './session-token'
 
 const REMEMBER_KEY = 'dashboard-auth-remember'
 const EMAIL_KEY = 'dashboard-auth-email'
@@ -165,6 +166,11 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
           if (remember) { localStorage.setItem(REMEMBER_KEY, '1'); localStorage.setItem(EMAIL_KEY, email.trim()) }
           else { localStorage.removeItem(REMEMBER_KEY); localStorage.removeItem(EMAIL_KEY) }
         } catch { /* storage unavailable */ }
+        // Persist the bearer token (works where third-party cookies are
+        // blocked, e.g. the sandbox preview iframe) before flipping the UI.
+        if (typeof data.sessionToken === 'string' && data.sessionToken) {
+          setSessionToken(data.sessionToken)
+        }
         onAuthed()
         return
       }

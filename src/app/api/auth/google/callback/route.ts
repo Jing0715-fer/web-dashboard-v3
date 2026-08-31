@@ -9,6 +9,7 @@ import {
   normalizeEmail,
   createSessionToken,
   buildSessionCookie,
+  isSecureRequest,
   OAUTH_STATE_COOKIE,
 } from '@/lib/auth'
 
@@ -142,8 +143,8 @@ export async function GET(req: Request) {
     })
 
     const token = await createSessionToken(user.id)
-    const res = NextResponse.redirect(`${origin}/`, 302)
-    res.headers.append('set-cookie', buildSessionCookie(token))
+    const res = NextResponse.redirect(`${origin}/#dash_token=${encodeURIComponent(token)}`, 302)
+    res.headers.append('set-cookie', buildSessionCookie(token, false, isSecureRequest(req)))
     // consume the state cookie
     res.headers.append(
       'set-cookie',

@@ -3,6 +3,11 @@
 import * as React from 'react'
 import type { AuthContextValue, AuthStatus, PublicUser } from './auth-types'
 import { Zap } from 'lucide-react'
+import {
+  clearSessionToken,
+  consumeTokenFromHash,
+  installAuthFetchPatch,
+} from './session-token'
 
 interface SessionResponse {
   user: PublicUser | null
@@ -19,6 +24,9 @@ export function useAuth(): AuthContextValue {
 
 /**
  * Session provider.
+ * - Installs the bearer-token fetch patch first, so every API call (including
+ *   the initial session fetch) carries the localStorage token when the cookie
+ *   channel is unavailable (sandbox preview iframe blocks third-party cookies).
  * - Fetches GET /api/auth/session on mount (fetch/parse errors → signed out,
  *   so the login screen renders even while the backend is not deployed yet).
  * - Polls every 60s when the user is approved and every 10s while a user is
@@ -54,6 +62,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   React.useEffect(() => {
+    // Enable the localStorage bearer channel before the first API call —
+    // also consumes `/#dash_token=` set by the Google OAuth callback.
+    installAuthFetchPatch()
+    consumeTokenFromHash()
     void fetchSession(true)
   }, [fetchSession])
 
@@ -62,6 +74,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchSession])
 
   const logout = React.useCallback(async () => {
+    // Drop the localStorage token, then clear the server cookie.
+    clearSessionToken()
     try {
       await fetch('/api/auth/logout', { method: 'POST' })
     } catch {

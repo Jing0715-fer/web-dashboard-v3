@@ -298,17 +298,67 @@ export function getSessionCookieValue(req: NextRequest | Request): string | null
   return parseCookieHeader(cookieHeader)[SESSION_COOKIE] ?? null
 }
 
-export function buildSessionCookie(token: string, remember = false): string {
-  const maxAge = remember ? SESSION_TTL_REMEMBER_MS / 1000 : SESSION_TTL_MS / 1000
-  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`
+/**
+ * Extract the session token from a request, trying three channels:
+ *  1. the `dash_session` httpOnly cookie (same-origin / direct access),
+ *  2. an `Authorization: Bearer <token>` header (the localStorage channel
+ *     used when the app runs in the sandbox preview iframe, where browsers
+ *     block third-party cookies),
+ *  3. an `?auth_token=` query parameter (last-resort for consumers that
+ *     cannot set headers, e.g. EventSource-style endpoints).
+ */
+export function sessionTokenFromRequest(req: NextRequest | Request): string | null {
+  const cookieToken = getSessionCookieValue(req)
+  if (cookieToken) return cookieToken
+
+  const authHeader = req.headers.get('authorization')
+  if (authHeader && authHeader.toLowerCase().startsWith('bearer ')) {
+    const bearer = authHeader.slice(7).trim()
+    if (bearer) return bearer
+  }
+
+  try {
+    const queryToken = new URL(req.url).searchParams.get('auth_token')
+    if (queryToken) return queryToken
+  } catch {
+    /* not a parsable URL — ignore */
+  }
+  return null
 }
 
-export function buildSessionCookieForUser(userId: string, remember = false): Promise<string> {
-  return createSessionToken(userId, remember).then((token) => buildSessionCookie(token, remember))
+export function buildSessionCookie(token: string, remember = false, secure = false): string {
+  const maxAge = remember ? SESSION_TTL_REMEMBER_MS / 1000 : SESSION_TTL_MS / 1000
+  // `SameSite=Lax` works for same-origin access (localhost / direct). When the
+  // app is viewed through the sandbox preview (an HTTPS proxy embedding the app
+  // in a cross-site iframe), browsers reject Lax cookies — so we downgrade to
+  // `SameSite=None; Secure` whenever the request arrived over HTTPS. The
+  // localStorage bearer-token channel (see session-token.ts) covers the HTTP
+  // iframe case where even Secure cookies cannot be set.
+  const sameSite = secure ? 'None; Secure' : 'Lax'
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=${sameSite}; Max-Age=${maxAge}`
+}
+
+export function buildSessionCookieForUser(
+  userId: string,
+  remember = false,
+  secure = false,
+): Promise<string> {
+  return createSessionToken(userId, remember).then((token) => buildSessionCookie(token, remember, secure))
 }
 
 export function buildClearedSessionCookie(): string {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+}
+
+/** True when the request reached us over HTTPS (directly or via proxy). */
+export function isSecureRequest(req: NextRequest | Request): boolean {
+  const proto = req.headers.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase()
+  if (proto) return proto === 'https'
+  try {
+    return new URL(req.url).protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 /** Attach a session cookie to an existing NextResponse (used by OAuth redirects). */
@@ -326,7 +376,7 @@ export function withSessionCookie(response: NextResponse, cookie: string): NextR
  * frontend via `user.status` so it can render the approval screen.
  */
 export async function getSessionUser(req: NextRequest | Request): Promise<PublicUser | null> {
-  const token = getSessionCookieValue(req)
+  const token = sessionTokenFromRequest(req)
   if (!token) return null
   const payload = await verifySessionToken(token)
   if (!payload) return null
