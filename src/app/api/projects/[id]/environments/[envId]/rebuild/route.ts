@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { stopProcess, startProcess } from '@/lib/process-manager'
 import { startRepairJob } from '@/lib/llm-repair'
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision'
+import { logActivity } from '@/lib/activity'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
@@ -54,6 +55,7 @@ export async function POST(
     }
 
     // 1. Stop the process
+    const rebuildStartedAt = Date.now()
     await stopProcess(id, env.name, env.port)
 
     // 2. Run build command
@@ -67,6 +69,19 @@ export async function POST(
       const stderr = buildErr.stderr?.trim() || ''
       const stdout = buildErr.stdout?.trim() || ''
       const message = buildErr.message?.trim() || 'Unknown build error'
+
+      logActivity({
+        type: 'error',
+        level: 'error',
+        message: `Environment '${env.name}' rebuild failed`,
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        detail: `Build failed: ${message}${stderr ? ` — ${stderr.slice(-400)}` : ''}`,
+        durationMs: Date.now() - rebuildStartedAt,
+      })
+
       // Auto LLM repair for build failures
       let repair: { jobId: string; started: boolean } | undefined
       if (_req.nextUrl.searchParams.get('noRepair') !== '1') {
@@ -128,12 +143,38 @@ export async function POST(
         where: { id: envId },
         data: { status: 'running', pid: result.pid },
       })
+
+      logActivity({
+        type: 'rebuild',
+        level: 'success',
+        message: `Environment '${env.name}' rebuilt on port ${env.port}`,
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        detail: result.pid ? `pid: ${result.pid}` : undefined,
+        durationMs: Date.now() - rebuildStartedAt,
+      })
+
       return NextResponse.json({ ok: true, pid: result.pid })
     } else {
       await db.environment.update({
         where: { id: envId },
         data: { status: 'stopped', pid: null },
       })
+
+      logActivity({
+        type: 'error',
+        level: 'error',
+        message: `Environment '${env.name}' failed to start after rebuild`,
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        detail: result.error,
+        durationMs: Date.now() - rebuildStartedAt,
+      })
+
       // Auto LLM repair: build succeeded but the start command failed
       let repair: { jobId: string; started: boolean } | undefined
       if (_req.nextUrl.searchParams.get('noRepair') !== '1') {

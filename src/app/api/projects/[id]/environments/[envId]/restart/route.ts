@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { restartProcess } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { startRepairJob } from '@/lib/llm-repair';
+import { logActivity } from '@/lib/activity';
 
 export async function POST(
   _req: NextRequest,
@@ -41,6 +42,7 @@ export async function POST(
       // ignore
     }
 
+    const restartStartedAt = Date.now();
     const result = await restartProcess(
       id,
       env.name,
@@ -51,8 +53,36 @@ export async function POST(
     );
 
     if (result.success) {
+      await db.environment.update({
+        where: { id: envId },
+        data: { status: 'running', pid: result.pid },
+      });
+
+      logActivity({
+        type: 'restart',
+        level: 'success',
+        message: `Environment '${env.name}' restarted on port ${env.port}`,
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        detail: result.pid ? `pid: ${result.pid}` : undefined,
+        durationMs: Date.now() - restartStartedAt,
+      });
+
       return NextResponse.json({ ok: true, pid: result.pid });
     } else {
+      logActivity({
+        type: 'error',
+        level: 'error',
+        message: `Environment '${env.name}' failed to restart`,
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        detail: result.error,
+      });
+
       // Auto LLM repair on restart failure
       let repair: { jobId: string; started: boolean } | undefined;
       if (_req.nextUrl.searchParams.get('noRepair') !== '1') {

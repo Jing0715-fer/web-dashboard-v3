@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { logActivity } from '@/lib/activity';
 
 /**
  * Device mesh pairing — simple device interconnection.
@@ -136,6 +137,13 @@ export async function POST(req: NextRequest) {
       pendingPairs.set(code, entry);
       const host = hostFromReq(req);
       const proto = req.headers.get('x-forwarded-proto') || (host.includes('localhost') || host.includes('127.0.0.1') ? 'http' : 'http');
+
+      logActivity({
+        type: 'pair',
+        level: 'info',
+        message: 'Pairing code generated (valid 5 min)',
+      });
+
       return NextResponse.json({
         code,
         expiresAt: entry.expiresAt,
@@ -181,6 +189,16 @@ export async function POST(req: NextRequest) {
             status: 'online',
           },
         });
+        // Only log when a NEW device was registered — re-registrations
+        // (agent reconnects, key rotation) would spam the feed otherwise.
+        logActivity({
+          type: 'pair',
+          level: 'success',
+          message: `Device '${device.name}' registered`,
+          deviceId: device.id,
+          deviceName: device.name,
+          detail: `${device.ip}:${device.port}`,
+        });
       }
       // The code stays valid until expiry so several devices can join with
       // the same code within the 5-minute window.
@@ -225,6 +243,13 @@ export async function POST(req: NextRequest) {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
+          logActivity({
+            type: 'pair',
+            level: 'success',
+            message: `Joined '${name}' via pairing code`,
+            deviceName: name,
+            detail: `target: ${target}`,
+          });
           return NextResponse.json({ ok: true, deviceName: name, ip, port, target });
         }
         return NextResponse.json(

@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { startProcess, checkPortStatus } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { startRepairJob } from '@/lib/llm-repair';
+import { logActivity } from '@/lib/activity';
 
 // Companion projects that should be auto-started when the parent project starts.
 const COMPANION_AUTO_START: Record<string, string> = {
@@ -61,6 +62,17 @@ export async function POST(
         data: { status: 'running', pid: result.pid },
       });
 
+      logActivity({
+        type: 'start',
+        level: 'success',
+        message: `Environment '${env.name}' started on port ${env.port}`,
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        detail: result.pid ? `pid: ${result.pid}` : undefined,
+      });
+
       // Auto-start companion project (best-effort, never fails the parent request)
       const companionName = COMPANION_AUTO_START[env.project.name.toLowerCase()];
       let companionStarted: { name: string; ok: boolean; reason?: string } | null = null;
@@ -112,6 +124,18 @@ export async function POST(
         where: { id: envId },
         data: { status: 'stopped', pid: null },
       });
+
+      logActivity({
+        type: 'error',
+        level: 'error',
+        message: `Environment '${env.name}' failed to start`,
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        detail: result.error,
+      });
+
       // Auto LLM repair: kick off a background repair job on failure.
       // Suppress with ?noRepair=1 (used by internal retries).
       let repair: { jobId: string; started: boolean } | undefined;

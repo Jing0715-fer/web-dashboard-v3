@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { readProjectDir, checkPortStatus, batchCheckPorts } from '@/lib/process-manager';
 import { callLLM } from '@/lib/llm-providers';
+import { logActivity } from '@/lib/activity';
 
 const SYSTEM_PROMPT = 'You are a DevOps expert that analyzes project structures and generates startup configurations. Always respond with valid JSON only. Ensure all port numbers are different between environments and all IP addresses are valid.';
 
@@ -107,11 +108,21 @@ CRITICAL Rules:
     // Anthropic Messages API, or any OpenAI-compatible provider).
     let response: string;
     let providerUsed: string;
+    let modelUsed: string;
     try {
       const llm = await callLLM({ system: SYSTEM_PROMPT, prompt, temperature: 0.3 });
       response = llm.text;
       providerUsed = llm.provider;
+      modelUsed = llm.model;
     } catch (err: any) {
+      logActivity({
+        type: 'error',
+        level: 'error',
+        message: `LLM analysis failed for '${project.name}'`,
+        projectId: id,
+        projectName: project.name,
+        detail: err?.message || String(err),
+      });
       return NextResponse.json({
         error: `LLM call failed: ${err?.message || String(err)}`,
       }, { status: 500 });
@@ -128,6 +139,14 @@ CRITICAL Rules:
     try {
       analysis = JSON.parse(jsonStr.trim());
     } catch {
+      logActivity({
+        type: 'error',
+        level: 'error',
+        message: `LLM analysis failed for '${project.name}'`,
+        projectId: id,
+        projectName: project.name,
+        detail: 'Failed to parse LLM response as JSON',
+      });
       return NextResponse.json({
         error: 'Failed to parse LLM response',
         rawResponse: response.slice(0, 500),
@@ -170,6 +189,14 @@ CRITICAL Rules:
     }
 
     if (validatedEnvs.length === 0) {
+      logActivity({
+        type: 'error',
+        level: 'error',
+        message: `LLM analysis failed for '${project.name}'`,
+        projectId: id,
+        projectName: project.name,
+        detail: 'LLM did not generate any valid environment configurations',
+      });
       return NextResponse.json({
         error: 'LLM did not generate any valid environment configurations',
         rawResponse: response.slice(0, 500),
@@ -245,6 +272,15 @@ CRITICAL Rules:
     const updatedProject = await db.project.findUnique({
       where: { id },
       include: { environments: true },
+    });
+
+    logActivity({
+      type: 'analyze',
+      level: 'success',
+      message: `LLM analysis completed — ${validatedEnvs.length} environments`,
+      projectId: id,
+      projectName: project.name,
+      detail: `provider: ${providerUsed}, model: ${modelUsed}`,
     });
 
     return NextResponse.json({

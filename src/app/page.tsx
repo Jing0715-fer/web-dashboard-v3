@@ -15,7 +15,7 @@ import {
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap, MonitorSmartphone,
   Keyboard,
   Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate,
-  TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, User, Clipboard,
+  TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, Clipboard,
   SearchX,
   Cloud, Container, Wrench, Building, House, Box,
   EyeOff, KeyRound, Sparkles,
@@ -147,20 +147,23 @@ interface Notification {
 
 interface ActivityEvent {
   id: string
-  type: 'deploy' | 'start' | 'stop' | 'restart' | 'rebuild' | 'config_change' | 'error' | 'create'
+  type: 'deploy' | 'start' | 'stop' | 'restart' | 'rebuild' | 'config_change' | 'error' | 'create' | 'analyze' | 'repair' | 'pair' | 'delete' | string
   message: string
   timestamp: string
-  projectId: string
+  projectId?: string
+  projectName?: string
+  level?: string
   metadata?: Record<string, unknown>
 }
 
 interface LogEntry {
   id: string
-  timestamp: string
+  timestamp: string | null
   level: string
   source: string
   message: string
   projectId: string
+  envName?: string
 }
 
 interface GatewayStatus {
@@ -195,15 +198,6 @@ interface HealthCheckResult {
   overallStatus: string
   checkedAt: string
   results: Array<{ port: number; status: string; responseTime: number; lastChecked: string; details: string }>
-}
-
-interface Deployment {
-  id: string
-  version: number
-  timestamp: string
-  status: 'success' | 'failed' | 'rolling-back'
-  duration: string
-  deployedBy: string
 }
 
 type AlertSeverity = 'critical' | 'warning' | 'notice' | 'ok'
@@ -252,6 +246,10 @@ const ACTIVITY_ICONS: Record<string, React.ElementType> = {
   config_change: Settings,
   error: AlertCircle,
   create: Plus,
+  analyze: Sparkles,
+  repair: Wrench,
+  pair: Link2,
+  delete: Trash2,
 }
 
 const ACTIVITY_COLORS: Record<string, string> = {
@@ -263,6 +261,10 @@ const ACTIVITY_COLORS: Record<string, string> = {
   config_change: 'text-violet-500 bg-violet-100 dark:bg-violet-900/30',
   error: 'text-red-600 bg-red-100 dark:bg-red-900/30',
   create: 'text-cyan-500 bg-cyan-100 dark:bg-cyan-900/30',
+  analyze: 'text-sky-500 bg-sky-100 dark:bg-sky-900/30',
+  repair: 'text-amber-500 bg-amber-100 dark:bg-amber-900/30',
+  pair: 'text-teal-500 bg-teal-100 dark:bg-teal-900/30',
+  delete: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-900/30',
 }
 
 // RocketIcon for deploy
@@ -2105,6 +2107,9 @@ interface ProviderCatalogInfo {
 function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [provider, setProvider] = React.useState('zai')
   const [apiKey, setApiKey] = React.useState('')
+  const [keyMask, setKeyMask] = React.useState('')
+  const [hasApiKey, setHasApiKey] = React.useState(false)
+  const [savedProvider, setSavedProvider] = React.useState('')
   const [baseUrl, setBaseUrl] = React.useState('')
   const [model, setModel] = React.useState('')
   const [catalog, setCatalog] = React.useState<ProviderCatalogInfo[]>([])
@@ -2118,14 +2123,20 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
 
   const activeProfile = React.useMemo(() => catalog.find((p) => p.id === provider), [catalog, provider])
 
-  const fetchModels = React.useCallback(async (prov: string, key: string, base: string) => {
+  // The GET response only ever carries a masked key (••••xxxx). While the
+  // input still shows that mask, the real key stays server-side; live model
+  // fetches use useSavedKey=1 instead of round-tripping the secret.
+  const keyUnchanged = !!keyMask && apiKey === keyMask
+  const savedKeyUsable = hasApiKey && keyUnchanged && provider === savedProvider
+
+  const fetchModels = React.useCallback(async (prov: string, key: string, base: string, useSavedKey = false) => {
     if (!prov) return
     setFetchingModels(true)
     try {
       const params = new URLSearchParams({ provider: prov })
       if (key) params.set('apiKey', key)
-      if (base && prov === 'custom') params.set('baseUrl', base)
-      if (base && prov !== 'custom') params.set('baseUrl', base)
+      if (useSavedKey) params.set('useSavedKey', '1')
+      if (base) params.set('baseUrl', base)
       const r = await fetch(`/api/llm-config/models?${params.toString()}`)
       const data = await r.json()
       if (Array.isArray(data.models) && data.models.length > 0) {
@@ -2155,7 +2166,10 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
           .then((r) => r.json())
           .then((data) => {
             setProvider(data.provider || 'zai')
+            setSavedProvider(data.provider || 'zai')
             setApiKey(data.apiKey || '')
+            setKeyMask(data.apiKey || '')
+            setHasApiKey(!!data.hasApiKey)
             setBaseUrl(data.baseUrl || '')
             setModel(data.model || '')
             if (Array.isArray(data.catalog)) {
@@ -2163,7 +2177,13 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
               const profile = (data.catalog as ProviderCatalogInfo[]).find((p) => p.id === (data.provider || 'zai'))
               setModels(profile?.models ?? [])
             }
-            void fetchModels(data.provider || 'zai', data.apiKey || '', data.baseUrl || '')
+            // Live-fetch with the server-side key when one is saved (the
+            // secret never reaches the browser), else fall back to catalog.
+            if (data.hasApiKey && data.provider && data.provider !== 'zai') {
+              void fetchModels(data.provider, '', data.baseUrl || '', true)
+            } else {
+              void fetchModels(data.provider || 'zai', '', data.baseUrl || '')
+            }
           })
           .catch(() => {})
           .finally(() => setLoading(false))
@@ -2180,31 +2200,42 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
     setModels(profile?.models ?? [])
     setModelsLive(false)
     setModelNote('')
-    // live-fetch immediately when the key is already filled or no key is needed
+    // live-fetch immediately when a real (typed) key is filled or no key is needed
     const needsKey = profile?.requiresKey ?? true
-    if (provider === 'zai' && id !== 'zai' && apiKey) {
+    if (apiKey && !keyUnchanged) {
       void fetchModels(id, apiKey, profile?.baseURL || '')
+    } else if (savedKeyUsable && id === savedProvider) {
+      void fetchModels(id, '', profile?.baseURL || '', true)
     } else if (!needsKey) {
-      void fetchModels(id, apiKey, profile?.baseURL || '')
+      void fetchModels(id, '', profile?.baseURL || '')
     } else if (needsKey && !apiKey) {
       setModelNote('填入 API Key 后自动实时获取模型列表')
+    } else if (needsKey && keyUnchanged && id !== savedProvider) {
+      setModelNote('已保存的 Key 属于其它供应商 — 粘贴新 Key 后自动获取模型列表')
     }
   }
 
-  // Debounced live model fetch once the API key is filled (pdb-tracker pattern)
+  // Debounced live model fetch once a NEW API key is typed (pdb-tracker pattern).
+  // An untouched masked key resolves server-side via useSavedKey instead.
   React.useEffect(() => {
-    if (!open || !apiKey || provider === 'zai' || !catalog.length) return
-    const t = setTimeout(() => { void fetchModels(provider, apiKey, baseUrl) }, 900)
-    return () => clearTimeout(t)
+    if (!open || provider === 'zai' || !catalog.length) return
+    if (apiKey && !keyUnchanged) {
+      const t = setTimeout(() => { void fetchModels(provider, apiKey, baseUrl) }, 900)
+      return () => clearTimeout(t)
+    }
   }, [apiKey, open])
 
   const handleSave = async () => {
     setSaving(true)
     try {
+      // Only send the key when it actually changed — an untouched masked
+      // value round-trips as "undefined" so the server keeps the secret.
+      const body: Record<string, unknown> = { provider, baseUrl, model }
+      if (!keyUnchanged) body.apiKey = apiKey
       const res = await fetch('/api/llm-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, apiKey, baseUrl, model }),
+        body: JSON.stringify(body),
       })
       if (res.ok) {
         toast({ title: 'LLM 配置已保存', description: '项目分析、自动修复与 Agent 层已同步切换', variant: 'success' })
@@ -2274,7 +2305,7 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={activeProfile?.apiKeyEnv ? `如 ${activeProfile.apiKeyEnv} 的值` : 'sk-...'}
+                  placeholder={hasApiKey && keyUnchanged ? `已保存密钥（${keyMask}）— 输入新值可更换，清空则删除` : (activeProfile?.apiKeyEnv ? `如 ${activeProfile.apiKeyEnv} 的值` : 'sk-...')}
                 />
               </div>
             )}
@@ -2297,7 +2328,7 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50"
-                  onClick={() => fetchModels(provider, apiKey, baseUrl)}
+                  onClick={() => fetchModels(provider, keyUnchanged ? '' : apiKey, baseUrl, savedKeyUsable)}
                   disabled={fetchingModels}
                 >
                   {fetchingModels ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
@@ -2653,6 +2684,7 @@ function DetailSheet({
   const [localNetworkInfo, setLocalNetworkInfo] = React.useState<{ hostname: string; platform: string; arch: string; cpus: number } | null>(null)
   // Log viewer state
   const [logLevelFilter, setLogLevelFilter] = React.useState<string>('all')
+  const [logEnvFilter, setLogEnvFilter] = React.useState<string>('all')
   const [logSearchQuery, setLogSearchQuery] = React.useState('')
   const [logAutoScroll, setLogAutoScroll] = React.useState(true)
   const logContainerRef = React.useRef<HTMLDivElement>(null)
@@ -2668,11 +2700,6 @@ function DetailSheet({
   const [editingNotes, setEditingNotes] = React.useState(false)
   const [notesDraft, setNotesDraft] = React.useState(projectNotes)
   const [savingNotes, setSavingNotes] = React.useState(false)
-  // Deployment history state (Session 14)
-  const [deployments, setDeployments] = React.useState<Deployment[]>(() => {
-    try { return JSON.parse(localStorage.getItem(`deployments-${project?.id}`) || '[]') } catch { return [] }
-  })
-  const [deploying, setDeploying] = React.useState(false)
   const { toast } = useToast()
 
   // Fetch network info for local device display
@@ -2772,7 +2799,7 @@ function DetailSheet({
   }, [notesDraft, project])
 
   React.useEffect(() => {
-    if (project && activeTab === 'activity' && open) {
+    if (project && (activeTab === 'activity' || activeTab === 'deployments') && open) {
       const id = requestAnimationFrame(() => {
         setLoadingActivity(true)
         fetch(`/api/projects/${project.id}/activity`)
@@ -2789,9 +2816,10 @@ function DetailSheet({
     if (project && activeTab === 'logs' && open) {
       const id = requestAnimationFrame(() => {
         setLoadingLogs(true)
+        setLogEnvFilter('all')
         fetch(`/api/projects/${project.id}/logs`)
           .then((r) => r.json())
-          .then(setLogs)
+          .then((data: LogEntry[]) => { setLogs(Array.isArray(data) ? data : []) })
           .catch(() => {})
           .finally(() => setLoadingLogs(false))
       })
@@ -2906,6 +2934,14 @@ function DetailSheet({
 
   if (!project) return null
 
+  // Real build/repair/deploy history for the Deployments tab, derived from
+  // the persistent activity feed (no simulated deployments anymore).
+  const opsEvents = activity.filter((e) => e.type === 'rebuild' || e.type === 'repair' || e.type === 'deploy')
+
+  // Log lines available for the current env filter (source files carry real
+  // process output; lines without timestamps render '—').
+  const logEnvNames = Array.from(new Set(logs.map((l) => l.envName).filter((n): n is string => !!n)))
+
   // Defensive default: if environments is missing for any reason, render an
   // empty list rather than crashing. (Bug guard for any caller that forgets
   // to unwrap the { project } envelope from /api/projects/:id.)
@@ -2939,7 +2975,7 @@ function DetailSheet({
               <TabsTrigger value="environments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Environments</TabsTrigger>
               <TabsTrigger value="activity" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Activity</TabsTrigger>
               <TabsTrigger value="logs" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Logs</TabsTrigger>
-              <TabsTrigger value="deployments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Deployments</TabsTrigger>
+              <TabsTrigger value="deployments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Builds & Repairs</TabsTrigger>
               <TabsTrigger value="timeline" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Timeline</TabsTrigger>
             </TabsList>
           </div>
@@ -3733,8 +3769,26 @@ function DetailSheet({
                       </button>
                     ))}
                   </div>
+                  {logEnvNames.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      {['all', ...logEnvNames].map((env) => (
+                        <button
+                          key={env}
+                          type="button"
+                          onClick={() => setLogEnvFilter(env)}
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+                            logEnvFilter === env
+                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 ring-1 ring-teal-300 dark:ring-teal-700/50'
+                              : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                          }`}
+                        >
+                          {env === 'all' ? 'All envs' : env}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {(() => {
-                    const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
+                    const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (logEnvFilter === 'all' || log.envName === logEnvFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
                     return (
                       <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{filtered.length} logs</Badge>
                     )
@@ -3754,30 +3808,39 @@ function DetailSheet({
                     <Switch checked={logAutoScroll} onCheckedChange={setLogAutoScroll} className="scale-75" />
                   </div>
                   <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
-                    const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
-                    const text = filtered.map((log) => `[${new Date(log.timestamp).toLocaleTimeString()}] [${log.level.toUpperCase()}] ${log.source}: ${log.message}`).join('\n')
+                    const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (logEnvFilter === 'all' || log.envName === logEnvFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
+                    const text = filtered.map((log) => `[${log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—'}] [${log.level.toUpperCase()}] ${log.source}: ${log.message}`).join('\n')
                     navigator.clipboard.writeText(text)
                     toast({ title: 'Logs copied', variant: 'success' })
                   }}><Copy className="h-3 w-3" /></Button></TooltipTrigger><TooltipContent>Copy visible logs</TooltipContent></Tooltip></TooltipProvider>
                 </div>
-                {/* Log entries */}
+                {/* Log entries — real process output streamed from each environment's log file */}
                 <div className="rounded-lg bg-zinc-950 dark:bg-zinc-950 border border-zinc-800 overflow-hidden shadow-inner">
                   <div ref={logContainerRef} className="max-h-80 overflow-y-auto font-mono text-[11px] leading-5 custom-scrollbar">
                     {(() => {
-                      const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
+                      const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (logEnvFilter === 'all' || log.envName === logEnvFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
                       if (filtered.length === 0) {
+                        if (logs.length === 0) {
+                          return (
+                            <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
+                              <Terminal className="h-6 w-6 mb-2 opacity-40" />
+                              <p className="text-xs">No process logs yet</p>
+                              <p className="text-[10px] mt-1 text-zinc-600">Start an environment — its real stdout/stderr output will appear here.</p>
+                            </div>
+                          )
+                        }
                         return (
                           <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
                             <Filter className="h-6 w-6 mb-2 opacity-40" />
                             <p className="text-xs">No logs found</p>
-                            {(logLevelFilter !== 'all' || logSearchQuery) && <p className="text-[10px] mt-1">Try adjusting your filters</p>}
+                            {(logLevelFilter !== 'all' || logEnvFilter !== 'all' || logSearchQuery) && <p className="text-[10px] mt-1">Try adjusting your filters</p>}
                           </div>
                         )
                       }
                       return filtered.map((log, idx) => (
                         <div key={log.id} className={`flex gap-0 border-b border-zinc-800/50 hover:bg-zinc-800/40 transition-colors ${log.level === 'error' ? 'bg-red-950/20' : log.level === 'warn' ? 'bg-amber-950/10' : ''}`}>
                           <span className="px-2 py-0.5 text-zinc-600 select-none shrink-0 text-right w-8 border-r border-zinc-800/50">{idx + 1}</span>
-                          <span className="px-1.5 py-0.5 text-zinc-500 shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                          <span className="px-1.5 py-0.5 text-zinc-500 shrink-0">{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—'}</span>
                           <span className={`px-1.5 py-0.5 uppercase font-bold shrink-0 w-12 ${log.level === 'error' ? 'text-red-400' : log.level === 'warn' ? 'text-amber-400' : log.level === 'info' ? 'text-cyan-400' : 'text-zinc-500'}`}>{log.level}</span>
                           <span className="px-1.5 py-0.5 text-emerald-400/80 shrink-0 w-20 truncate">{log.source}</span>
                           <span className={`px-1.5 py-0.5 break-all ${log.level === 'error' ? 'text-red-300' : log.level === 'warn' ? 'text-amber-200' : 'text-zinc-300'}`}>{log.message}</span>
@@ -3791,7 +3854,7 @@ function DetailSheet({
             </motion.div>
           </TabsContent>
 
-          {/* ======================== DEPLOYMENTS TAB (Session 14) ======================== */}
+          {/* ======================== DEPLOYMENTS TAB — real rebuild/repair history ======================== */}
           <TabsContent value="deployments" className="p-4 mt-0 overflow-y-auto flex-1 min-h-0">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
@@ -3799,109 +3862,70 @@ function DetailSheet({
               transition={{ duration: 0.2, ease: 'easeOut' }}
             >
               <div className="space-y-4">
-                {/* Deploy button */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <GitBranch className="h-4 w-4 text-rose-500" />
-                    <span className="text-sm font-semibold">Deployment History</span>
-                    <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{deployments.length}</Badge>
-                  </div>
-                  <Button
-                    size="sm"
-                    className="btn-micro-click bg-rose-500 hover:bg-rose-600 text-white h-7 text-xs"
-                    disabled={deploying}
-                    onClick={() => {
-                      setDeploying(true)
-                      const version = deployments.length > 0 ? Math.max(...deployments.map((d) => d.version)) + 1 : 1
-                      const duration = `${(Math.random() * 30 + 5).toFixed(0)}s`
-                      setTimeout(() => {
-                        const success = Math.random() < 0.8
-                        const newDeploy: Deployment = {
-                          id: `dep_${Date.now()}`,
-                          version,
-                          timestamp: new Date().toISOString(),
-                          status: success ? 'success' : 'failed',
-                          duration,
-                          deployedBy: Math.random() > 0.3 ? 'You' : 'Auto-deploy',
-                        }
-                        const next = [newDeploy, ...deployments]
-                        setDeployments(next)
-                        localStorage.setItem(`deployments-${project.id}`, JSON.stringify(next))
-                        toast({ title: success ? 'Deployment successful' : 'Deployment failed', variant: success ? 'success' : 'destructive' })
-                        setDeploying(false)
-                      }, 2000)
-                    }}
-                  >
-                    {deploying ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Deploying...</> : <><Upload className="h-3 w-3 mr-1" />Deploy</>}
-                  </Button>
-                </div>
-
-                {/* Deployment timeline */}
-                {deployments.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <GitBranch className="h-10 w-10 text-muted-foreground/20 mb-3" />
-                    <p className="text-sm text-muted-foreground">No deployments yet</p>
-                    <p className="text-xs text-muted-foreground/70 mt-1">Click Deploy to create your first deployment</p>
-                  </div>
+                {loadingActivity ? (
+                  <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
                 ) : (
-                  <div className="space-y-0">
-                    {deployments.map((dep, idx) => (
-                      <div key={dep.id} className="relative pl-8 pb-4">
-                        {idx < deployments.length - 1 && <div className="deployment-timeline-line" />}
-                        <div className={`absolute left-1.5 top-1 h-5 w-5 rounded-full flex items-center justify-center ring-2 ${
-                          dep.status === 'success' ? 'bg-emerald-100 dark:bg-emerald-900/30 ring-emerald-300 dark:ring-emerald-700/50'
-                          : dep.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 ring-red-300 dark:ring-red-700/50'
-                          : 'bg-amber-100 dark:bg-amber-900/30 ring-amber-300 dark:ring-amber-700/50'
-                        }`}>
-                          {dep.status === 'success' ? <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
-                           : dep.status === 'failed' ? <XCircle className="h-3 w-3 text-red-600 dark:text-red-400" />
-                           : <RotateCw className="h-3 w-3 text-amber-600 dark:text-amber-400 animate-spin" />}
-                        </div>
-                        <div className="rounded-lg border bg-muted/20 px-3 py-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-xs font-bold">v{dep.version}</span>
-                              <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${
-                                dep.status === 'success' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300'
-                                : dep.status === 'failed' ? 'border-red-300 text-red-700 dark:border-red-600 dark:text-red-300'
-                                : 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300'
-                              }`}>{dep.status === 'rolling-back' ? 'Rolling Back' : dep.status}</Badge>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {dep.status === 'success' && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-5 text-[9px] text-amber-600 hover:text-amber-700 dark:text-amber-400 px-1.5 btn-micro-click"
-                                  onClick={() => {
-                                    const rollback: Deployment = {
-                                      id: `dep_${Date.now()}`,
-                                      version: dep.version,
-                                      timestamp: new Date().toISOString(),
-                                      status: 'rolling-back',
-                                      duration: '-',
-                                      deployedBy: 'You',
-                                    }
-                                    const next = [rollback, ...deployments]
-                                    setDeployments(next)
-                                    localStorage.setItem(`deployments-${project.id}`, JSON.stringify(next))
-                                    toast({ title: 'Rollback initiated', variant: 'warning' })
-                                  }}
-                                >
-                                  <RotateCw className="h-2.5 w-2.5 mr-0.5" />Rollback
-                                </Button>
-                              )}
-                              <span className="text-[10px] text-muted-foreground">{formatTimeAgo(dep.timestamp)}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
-                            <span className="flex items-center gap-0.5"><Clock className="h-2.5 w-2.5" />{dep.duration}</span>
-                            <span className="flex items-center gap-0.5"><User className="h-2.5 w-2.5" />{dep.deployedBy}</span>
-                          </div>
-                        </div>
+                  <>
+                    <div className="flex items-center gap-2">
+                      <GitBranch className="h-4 w-4 text-rose-500" />
+                      <span className="text-sm font-semibold">Build & Repair History</span>
+                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{opsEvents.length}</Badge>
+                      <span className="ml-auto text-[10px] text-muted-foreground">rebuild · auto-repair · applied analysis</span>
+                    </div>
+
+                    {opsEvents.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <GitBranch className="h-10 w-10 text-muted-foreground/20 mb-3" />
+                        <p className="text-sm text-muted-foreground">No build or repair events yet</p>
+                        <p className="text-xs text-muted-foreground/70 mt-1">Rebuild an environment or let a failed start trigger LLM auto-repair — the real history lands here.</p>
                       </div>
-                    ))}
-                  </div>
+                    ) : (
+                      <div className="space-y-0">
+                        {opsEvents.map((ev, idx) => {
+                          const failed = ev.level === 'error'
+                          const durMs = typeof ev.metadata?.durationMs === 'number' ? (ev.metadata.durationMs as number) : null
+                          const envName = (ev.metadata?.environmentName as string) || null
+                          const detail = (ev.metadata?.detail as string) || null
+                          const kindLabel = ev.type === 'rebuild' ? 'Rebuild' : ev.type === 'repair' ? 'LLM Auto-Repair' : 'Apply Analysis'
+                          return (
+                            <div key={ev.id} className="relative pl-8 pb-4">
+                              {idx < opsEvents.length - 1 && <div className="deployment-timeline-line" />}
+                              <div className={`absolute left-1.5 top-1 h-5 w-5 rounded-full flex items-center justify-center ring-2 ${
+                                failed ? 'bg-red-100 dark:bg-red-900/30 ring-red-300 dark:ring-red-700/50'
+                                : 'bg-emerald-100 dark:bg-emerald-900/30 ring-emerald-300 dark:ring-emerald-700/50'
+                              }`}>
+                                {failed ? <XCircle className="h-3 w-3 text-red-600 dark:text-red-400" /> : <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />}
+                              </div>
+                              <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className="font-mono text-xs font-bold shrink-0">{kindLabel}</span>
+                                    {envName && <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0">{envName}</Badge>}
+                                    <Badge variant="outline" className={`text-[9px] px-1.5 py-0 shrink-0 ${
+                                      failed ? 'border-red-300 text-red-700 dark:border-red-600 dark:text-red-300'
+                                      : 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300'
+                                    }`}>{failed ? 'failed' : 'success'}</Badge>
+                                  </div>
+                                  <span className="text-[10px] text-muted-foreground shrink-0">{formatTimeAgo(ev.timestamp)}</span>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mt-1">{ev.message}</p>
+                                {(durMs != null || detail) && (
+                                  <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground min-w-0">
+                                    {durMs != null && (
+                                      <span className="flex items-center gap-0.5 shrink-0"><Clock className="h-2.5 w-2.5" />{(durMs / 1000).toFixed(1)}s</span>
+                                    )}
+                                    {detail && (
+                                      <span className="truncate" title={detail}>{detail}</span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </motion.div>
@@ -5670,11 +5694,6 @@ export default function DashboardPage() {
         setDetailOpen(true)
       })
   }, [])
-
-  // Update project actions ref for keyboard shortcuts (moved after all handler definitions)
-  // This will be set up after handleEnvAction is defined
-  // placeholder - actual implementation is further down
-  const _projectActionsUpdateRef = React.useRef<(() => void) | null>(null)
 
   // Search results for dropdown
   const searchResults = React.useMemo(() => {
@@ -7619,6 +7638,7 @@ export default function DashboardPage() {
         onClose={closeHarnessWizard}
         onApplied={() => fetchProjects()}
         onStartEnv={(projectId, envId) => handleEnvAction(projectId, envId, 'start')}
+        onRetry={harnessSession ? () => startHarnessAnalysis(harnessSession.projectId, harnessSession.name, harnessSession.path) : undefined}
       />
 
       {/* Remote project auto-debug analysis (device-side loop, LLM via dashboard gateway) */}

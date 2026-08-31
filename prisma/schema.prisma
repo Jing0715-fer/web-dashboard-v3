@@ -62,3 +62,24 @@ model LlmConfig {
   model     String   @default("")
   updatedAt DateTime @updatedAt
 }
+
+// Snapshot-style activity feed (no foreign keys — deleting a project keeps
+// its history). Written fire-and-forget via src/lib/activity.ts.
+model ActivityEvent {
+  id          String   @id @default(cuid())
+  projectId   String?
+  projectName String?
+  envId       String?
+  envName     String?
+  deviceId    String?
+  deviceName  String?
+  type        String
+  message     String
+  detail      String?
+  level       String   @default("info") // info | success | warn | error
+  durationMs  Int?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([projectId, createdAt])
+}

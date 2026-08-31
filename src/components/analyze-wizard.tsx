@@ -34,6 +34,9 @@ interface SessionView {
   progress: ProgressItem[]
   result: any | null
   error: string | null
+  queuePosition?: number
+  queueLength?: number
+  restored?: boolean
 }
 
 const kindIcon: Record<ProgressItem['kind'], React.ReactNode> = {
@@ -85,11 +88,13 @@ export function AnalyzeWizard({
   onClose,
   onApplied,
   onStartEnv,
+  onRetry,
 }: {
   session: HarnessSessionState | null
   onClose: () => void
   onApplied: () => void
   onStartEnv: (projectId: string, envId: string) => void
+  onRetry?: () => void
 }) {
   const [view, setView] = React.useState<SessionView | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -229,6 +234,11 @@ export function AnalyzeWizard({
           <Badge variant={status === 'running' ? 'secondary' : done ? 'default' : 'destructive'} className="text-[11px] h-5">
             {status === 'running' ? '分析中' : done ? '已完成' : status === 'cancelled' ? '已取消' : '失败'}
           </Badge>
+          {status === 'running' && !!view?.queuePosition && view.queuePosition > 0 && (
+            <Badge variant="outline" className="text-[11px] h-5 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700/50">
+              排队中 · 第 {view.queuePosition} 位{view.queueLength ? ` / ${view.queueLength}` : ''}
+            </Badge>
+          )}
           <span>尝试 {attempt}/{maxAttempts}</span>
           <span className="flex items-center gap-1"><Gauge className="h-3 w-3" />{elapsed}s</span>
           <span className="ml-auto flex items-center gap-1"><Zap className="h-3 w-3 text-amber-500" />deepseek-harness</span>
@@ -320,7 +330,14 @@ export function AnalyzeWizard({
             <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />完成</Button>
           )}
           {failed && (
-            <Button size="sm" variant="outline" onClick={onClose}>关闭</Button>
+            <>
+              {onRetry && (
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={onRetry}>
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />重新分析
+                </Button>
+              )}
+              <Button size="sm" variant="outline" onClick={onClose}>关闭</Button>
+            </>
           )}
         </div>
       </DialogContent>

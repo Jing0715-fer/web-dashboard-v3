@@ -18,6 +18,7 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { startProcess, stopProcess, checkPortStatus, getLogs } from '@/lib/process-manager';
 import { callLLM, extractJson } from '@/lib/llm-providers';
+import { logActivity } from '@/lib/activity';
 
 const execp = promisify(exec);
 
@@ -112,14 +113,51 @@ export function startRepairJob(opts: StartRepairOptions): string {
   pruneOldJobs();
   void runRepair(job, opts)
     .catch((err) => {
-      job.status = 'failed';
-      job.error = String(err?.message || err);
-      job.finishedAt = Date.now();
+      finishJob(job, 'failed', String(err?.message || err));
     })
     .finally(() => {
       if (activeByEnv.get(opts.envId) === id) activeByEnv.delete(opts.envId);
     });
   return id;
+}
+
+// ====================== activity feed (fire-and-forget) ======================
+
+/** Finalize a job (status/error/finishedAt) and persist the lifecycle event. */
+function finishJob(job: RepairJob, status: 'success' | 'failed', error?: string): void {
+  job.status = status;
+  if (error !== undefined) job.error = error;
+  job.finishedAt = Date.now();
+  logRepairCompletion(job);
+}
+
+function logRepairCompletion(job: RepairJob): void {
+  const durationMs = job.finishedAt != null ? job.finishedAt - job.startedAt : undefined;
+  const envLabel = job.envName || job.envId;
+  const base = {
+    projectId: job.projectId,
+    projectName: job.projectName || undefined,
+    envId: job.envId,
+    envName: job.envName || undefined,
+    durationMs,
+  };
+  if (job.status === 'success') {
+    logActivity({
+      ...base,
+      type: 'repair',
+      level: 'success',
+      message: `LLM auto-repair succeeded for '${envLabel}'`,
+      detail: job.diagnosis ? String(job.diagnosis).slice(0, 300) : undefined,
+    });
+  } else {
+    logActivity({
+      ...base,
+      type: 'repair',
+      level: 'error',
+      message: `LLM auto-repair failed for '${envLabel}'`,
+      detail: job.error ? String(job.error).slice(0, 300) : undefined,
+    });
+  }
 }
 
 // ============================= helpers =============================
@@ -318,13 +356,24 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
       include: { project: true },
     });
     if (!env || env.projectId !== job.projectId || !env.project) {
-      job.status = 'failed';
-      job.error = 'Environment or project disappeared during repair';
-      job.finishedAt = Date.now();
+      finishJob(job, 'failed', 'Environment or project disappeared during repair');
       return;
     }
     job.projectName = env.project.name;
     job.envName = env.name;
+
+    if (round === 1) {
+      logActivity({
+        type: 'repair',
+        level: 'info',
+        message: `LLM auto-repair started for '${env.name}'`,
+        projectId: job.projectId,
+        projectName: env.project.name,
+        envId: job.envId,
+        envName: env.name,
+        detail: opts.initialError ? String(opts.initialError).slice(0, 300) : undefined,
+      });
+    }
 
     let envVars: Record<string, string> = {};
     try {
@@ -374,9 +423,7 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
     log(job, 'llm', `诊断: ${job.diagnosis}`);
 
     if (plan.giveUp === true) {
-      job.status = 'failed';
-      job.error = `LLM 判定无法自动修复: ${job.diagnosis}`;
-      job.finishedAt = Date.now();
+      finishJob(job, 'failed', `LLM 判定无法自动修复: ${job.diagnosis}`);
       return;
     }
 
@@ -436,17 +483,14 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
     // ---- 4. Retry ----
     const fresh = await db.environment.findUnique({ where: { id: job.envId } });
     if (!fresh) {
-      job.status = 'failed';
-      job.error = 'Environment disappeared during repair';
-      job.finishedAt = Date.now();
+      finishJob(job, 'failed', 'Environment disappeared during repair');
       return;
     }
     // Another actor (the user, another job) already got this env running
     // while the repair was thinking — treat as success instead of racing it.
     if (fresh.status === 'running') {
       log(job, 'success', `环境已处于运行状态（可能被手动启动），无需继续修复`);
-      job.status = 'success';
-      job.finishedAt = Date.now();
+      finishJob(job, 'success');
       return;
     }
     let freshEnvVars: Record<string, string> = {};
@@ -499,8 +543,7 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
         data: { status: 'running', pid: result.pid ?? null },
       });
       log(job, 'success', `修复成功 — 环境已在端口 ${fresh.port} 上运行 (pid ${result.pid})`);
-      job.status = 'success';
-      job.finishedAt = Date.now();
+      finishJob(job, 'success');
       return;
     }
 
@@ -508,8 +551,6 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
     log(job, 'error', `重试失败: ${tail(lastError, 300)}`);
   }
 
-  job.status = 'failed';
-  job.error = lastError;
-  job.finishedAt = Date.now();
+  finishJob(job, 'failed', lastError);
   log(job, 'error', `自动修复未能在 ${job.maxRounds} 轮内解决问题: ${tail(lastError, 200)}`);
 }

@@ -315,6 +315,50 @@ const db = new PrismaClient({
 
 console.log(`[Agent] Database: ${dbPath}`);
 
+// ======================== ACTIVITY EVENTS (DB-backed, fire-and-forget) ========================
+
+/**
+ * Persist an activity event. Fire-and-forget: never awaited by callers,
+ * never throws — every failure is swallowed (console-only) so activity
+ * logging can never break or block a request.
+ */
+function logActivity(input) {
+  try {
+    const data = {
+      type: String(input.type || 'info'),
+      message: String(input.message || ''),
+      level: String(input.level || 'info'),
+    };
+    if (input.projectId !== undefined) data.projectId = input.projectId || null;
+    if (input.projectName !== undefined) data.projectName = input.projectName || null;
+    if (input.envId !== undefined) data.envId = input.envId || null;
+    if (input.envName !== undefined) data.envName = input.envName || null;
+    if (input.detail !== undefined) data.detail = input.detail || null;
+    if (input.durationMs !== undefined) data.durationMs = input.durationMs;
+    db.activityEvent.create({ data }).catch(() => { /* swallow write errors */ });
+  } catch (e) {
+    // never throw out of activity logging
+  }
+}
+
+/** Serialize a DB ActivityEvent row into the dashboard-compatible shape. */
+function serializeActivityEvent(e) {
+  const ts = (e.createdAt instanceof Date) ? e.createdAt : new Date(e.createdAt);
+  const out = {
+    id: e.id,
+    type: e.type,
+    message: e.message,
+    timestamp: ts.toISOString(),
+  };
+  if (e.projectId) out.projectId = e.projectId;
+  const metadata = {};
+  if (e.envName) metadata.environmentName = e.envName;
+  if (e.detail) metadata.detail = e.detail;
+  if (e.durationMs !== null && e.durationMs !== undefined) metadata.durationMs = e.durationMs;
+  if (Object.keys(metadata).length > 0) out.metadata = metadata;
+  return out;
+}
+
 // ======================== LOG DIRECTORY (Cross-Platform) ========================
 
 // Windows: %APPDATA%\dashboard-agent-logs  or  %TEMP%\dashboard-agent-logs
@@ -611,9 +655,35 @@ function getLogs(projectId, envName) {
   }
 }
 
+/**
+ * Parse a leading "[ISO] " prefix from a log line.
+ * Returns { timestamp (ISO string or null), message } — when a real
+ * timestamp is found it is stripped from the message.
+ */
+function parseLogLine(line) {
+  const m = line.match(/^\[([^\]]+)\]\s?(.*)$/);
+  if (m) {
+    const parsed = Date.parse(m[1]);
+    if (!Number.isNaN(parsed)) {
+      return { timestamp: new Date(parsed).toISOString(), message: m[2] };
+    }
+  }
+  return { timestamp: null, message: line };
+}
+
+/** Infer a log level from the line content. */
+function inferLogLevel(text) {
+  if (/error|exception|failed|fatal|EADDRINUSE|Cannot find|crash/i.test(text)) return 'error';
+  if (/warn|warning|deprecated/i.test(text)) return 'warn';
+  return 'info';
+}
+
 // ======================== AUTH MIDDLEWARE ========================
 
 function verifyAuth(req) {
+  // X-API-Key header (alternative auth for CLI/curl usage)
+  const apiKeyHeader = req.headers['x-api-key'];
+  if (apiKeyHeader && apiKeyHeader === API_KEY) return true;
   const auth = req.headers['authorization'];
   if (!auth) return false;
   const token = auth.replace('Bearer ', '');
@@ -964,6 +1034,14 @@ const server = http.createServer(async (req, res) => {
         },
         include: { environments: true },
       });
+      logActivity({
+        projectId: project.id,
+        projectName: project.name,
+        type: 'create',
+        level: 'success',
+        message: `Project '${project.name}' created`,
+        detail: `Path: ${project.path}`,
+      });
       sendJSON(res, 200, { project });
       return;
     }
@@ -1011,6 +1089,13 @@ const server = http.createServer(async (req, res) => {
         },
         include: { environments: true },
       });
+      logActivity({
+        projectId: project.id,
+        projectName: project.name,
+        type: 'config_change',
+        level: 'info',
+        message: `Project '${project.name}' updated`,
+      });
       sendJSON(res, 200, { project });
       return;
     }
@@ -1027,6 +1112,13 @@ const server = http.createServer(async (req, res) => {
         await stopProcess(projectId, env.name, env.port);
       }
       await db.project.delete({ where: { id: projectId } });
+      logActivity({
+        projectId,
+        projectName: project.name,
+        type: 'delete',
+        level: 'info',
+        message: `Project '${project.name}' deleted`,
+      });
       sendJSON(res, 200, { ok: true });
       return;
     }
@@ -1146,6 +1238,16 @@ const server = http.createServer(async (req, res) => {
           status: 'stopped',
         },
       });
+      logActivity({
+        projectId,
+        projectName: project.name,
+        envId: env.id,
+        envName: env.name,
+        type: 'create',
+        level: 'success',
+        message: `Environment '${env.name}' created`,
+        detail: `Command: ${env.cmd} (port ${env.port})`,
+      });
       sendJSON(res, 200, { environment: env });
       return;
     }
@@ -1168,9 +1270,29 @@ const server = http.createServer(async (req, res) => {
       const result = await startProcess(projectId, env.name, env.cmd, env.project.path, envVars, env.port);
       if (result.success) {
         await db.environment.update({ where: { id: envId }, data: { status: 'running', pid: result.pid } });
+        logActivity({
+          projectId,
+          projectName: env.project.name,
+          envId,
+          envName: env.name,
+          type: 'start',
+          level: 'success',
+          message: `Environment '${env.name}' started on port ${env.port}`,
+          detail: result.pid ? `PID: ${result.pid}` : undefined,
+        });
         sendJSON(res, 200, { ok: true, pid: result.pid });
       } else {
         await db.environment.update({ where: { id: envId }, data: { status: 'stopped', pid: null } });
+        logActivity({
+          projectId,
+          projectName: env.project.name,
+          envId,
+          envName: env.name,
+          type: 'error',
+          level: 'error',
+          message: `Environment '${env.name}' failed to start`,
+          detail: result.error,
+        });
         sendJSON(res, 400, { ok: false, error: result.error });
       }
       return;
@@ -1182,11 +1304,23 @@ const server = http.createServer(async (req, res) => {
     if (stopMatch && req.method === 'POST') {
       const projectId = stopMatch[1];
       const envId = stopMatch[2];
-      const env = await db.environment.findUnique({ where: { id: envId } });
+      const env = await db.environment.findUnique({ where: { id: envId }, include: { project: true } });
       if (!env || env.projectId !== projectId) { sendJSON(res, 404, { error: 'Environment not found' }); return; }
 
       const result = await stopProcess(projectId, env.name, env.port);
       await db.environment.update({ where: { id: envId }, data: { status: 'stopped', pid: null } });
+      logActivity({
+        projectId,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        type: result.success ? 'stop' : 'error',
+        level: result.success ? 'info' : 'error',
+        message: result.success
+          ? `Environment '${env.name}' stopped`
+          : `Environment '${env.name}' failed to stop`,
+        detail: result.success ? undefined : result.error,
+      });
       sendJSON(res, 200, { ok: result.success, error: result.error });
       return;
     }
@@ -1203,6 +1337,7 @@ const server = http.createServer(async (req, res) => {
       });
       if (!env || env.projectId !== projectId) { sendJSON(res, 404, { error: 'Environment not found' }); return; }
 
+      const cycleStart = Date.now();
       await stopProcess(projectId, env.name, env.port);
       await new Promise(r => setTimeout(r, 500));
 
@@ -1212,9 +1347,30 @@ const server = http.createServer(async (req, res) => {
       const result = await startProcess(projectId, env.name, env.cmd, env.project.path, envVars, env.port);
       if (result.success) {
         await db.environment.update({ where: { id: envId }, data: { status: 'running', pid: result.pid } });
+        logActivity({
+          projectId,
+          projectName: env.project.name,
+          envId,
+          envName: env.name,
+          type: 'restart',
+          level: 'success',
+          message: `Environment '${env.name}' restarted`,
+          detail: `Now running on port ${env.port}${result.pid ? ` (PID: ${result.pid})` : ''}`,
+          durationMs: Date.now() - cycleStart,
+        });
         sendJSON(res, 200, { ok: true, pid: result.pid });
       } else {
         await db.environment.update({ where: { id: envId }, data: { status: 'stopped', pid: null } });
+        logActivity({
+          projectId,
+          projectName: env.project.name,
+          envId,
+          envName: env.name,
+          type: 'error',
+          level: 'error',
+          message: `Environment '${env.name}' failed to restart`,
+          detail: result.error,
+        });
         sendJSON(res, 400, { ok: false, error: result.error });
       }
       return;
@@ -1232,6 +1388,7 @@ const server = http.createServer(async (req, res) => {
       });
       if (!env || env.projectId !== projectId) { sendJSON(res, 404, { error: 'Environment not found' }); return; }
 
+      const cycleStart = Date.now();
       // Stop → wait → restart
       await stopProcess(projectId, env.name, env.port);
       await new Promise(r => setTimeout(r, 1000));
@@ -1242,9 +1399,30 @@ const server = http.createServer(async (req, res) => {
       const result = await startProcess(projectId, env.name, env.cmd, env.project.path, envVars, env.port);
       if (result.success) {
         await db.environment.update({ where: { id: envId }, data: { status: 'running', pid: result.pid } });
+        logActivity({
+          projectId,
+          projectName: env.project.name,
+          envId,
+          envName: env.name,
+          type: 'rebuild',
+          level: 'success',
+          message: `Environment '${env.name}' rebuilt`,
+          detail: `Now running on port ${env.port}${result.pid ? ` (PID: ${result.pid})` : ''}`,
+          durationMs: Date.now() - cycleStart,
+        });
         sendJSON(res, 200, { ok: true, pid: result.pid });
       } else {
         await db.environment.update({ where: { id: envId }, data: { status: 'stopped', pid: null } });
+        logActivity({
+          projectId,
+          projectName: env.project.name,
+          envId,
+          envName: env.name,
+          type: 'error',
+          level: 'error',
+          message: `Environment '${env.name}' failed to rebuild`,
+          detail: result.error,
+        });
         sendJSON(res, 400, { ok: false, error: result.error });
       }
       return;
@@ -1291,51 +1469,69 @@ const server = http.createServer(async (req, res) => {
     if (envMatch && req.method === 'DELETE') {
       const projectId = envMatch[1];
       const envId = envMatch[2];
-      const env = await db.environment.findUnique({ where: { id: envId } });
+      const env = await db.environment.findUnique({ where: { id: envId }, include: { project: true } });
       if (!env || env.projectId !== projectId) { sendJSON(res, 404, { error: 'Environment not found' }); return; }
       await stopProcess(projectId, env.name, env.port);
       await db.environment.delete({ where: { id: envId } });
+      logActivity({
+        projectId,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        type: 'delete',
+        level: 'info',
+        message: `Environment '${env.name}' deleted`,
+      });
       sendJSON(res, 200, { ok: true });
       return;
     }
 
     // ======================== GET /api/agent/projects/:id/activity ========================
+    // Real events from the DB (written fire-and-forget by logActivity in the
+    // mutation handlers above). Empty table → [].
 
     const activityMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/activity$/);
     if (activityMatch && req.method === 'GET') {
       const projectId = activityMatch[1];
-      const types = ['deploy', 'start', 'stop', 'restart', 'rebuild', 'config_change', 'error'];
-      const events = [];
-      const now = Date.now();
-      for (let i = 0; i < 10; i++) {
-        events.push({
-          id: `activity_${projectId}_${i}`,
-          type: types[Math.floor(Math.random() * types.length)],
-          message: `Remote activity event ${i + 1}`,
-          timestamp: new Date(now - i * 1800000).toISOString(),
-          projectId,
-        });
-      }
-      sendJSON(res, 200, events);
+      const events = await db.activityEvent.findMany({
+        where: { projectId },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+      sendJSON(res, 200, events.map(serializeActivityEvent));
       return;
     }
 
     // ======================== GET /api/agent/projects/:id/logs (project-level) ========================
+    // Real file logs: aggregate every environment's log file (written by the
+    // process manager) for this project. Lines keep file order (old → new)
+    // within each environment; timestamps are parsed from "[ISO] " prefixes
+    // when present, otherwise null.
 
     const projectLogsMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/logs$/);
     if (projectLogsMatch && req.method === 'GET') {
       const projectId = projectLogsMatch[1];
+      const project = await db.project.findUnique({
+        where: { id: projectId },
+        include: { environments: { orderBy: { createdAt: 'asc' } } },
+      });
       const logs = [];
-      const now = Date.now();
-      for (let i = 0; i < 20; i++) {
-        logs.push({
-          id: `log_${projectId}_${i}`,
-          timestamp: new Date(now - i * 15000).toISOString(),
-          level: ['info', 'warn', 'error'][Math.floor(Math.random() * 3)],
-          source: 'server',
-          message: `Remote log entry ${i + 1}`,
-          projectId,
-        });
+      if (project) {
+        for (const env of project.environments) {
+          const lines = getLogs(projectId, env.name);
+          lines.forEach((line, idx) => {
+            const { timestamp, message } = parseLogLine(line);
+            logs.push({
+              id: `${env.id}-${idx}`,
+              timestamp,
+              level: inferLogLevel(message),
+              source: env.name,
+              message,
+              projectId,
+              envName: env.name,
+            });
+          });
+        }
       }
       sendJSON(res, 200, logs);
       return;

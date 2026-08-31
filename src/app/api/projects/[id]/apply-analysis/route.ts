@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { checkPortStatus } from '@/lib/process-manager';
+import { logActivity } from '@/lib/activity';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -61,6 +62,16 @@ export async function POST(
       validatedEnvs.push({ name: sanitizedName, cmd: cmdStr, port: envPort, envVars: envVarsObj });
     }
     if (validatedEnvs.length === 0) {
+      logActivity({
+        type: 'error',
+        level: 'error',
+        message: `Failed to apply analysis to '${project.name}'`,
+        projectId: id,
+        projectName: project.name,
+        detail: droppedEnvs.length > 0
+          ? `No valid environments — dropped: ${droppedEnvs.map((d) => `${d.name} (${d.reason})`).join('; ')}`
+          : 'No valid environment configurations in the analysis result',
+      });
       return NextResponse.json({ error: 'No valid environment configurations in the analysis result', dropped: droppedEnvs }, { status: 400 });
     }
 
@@ -147,6 +158,17 @@ export async function POST(
     const updatedProject = await db.project.findUnique({
       where: { id },
       include: { environments: true },
+    });
+
+    logActivity({
+      type: 'deploy',
+      level: droppedEnvs.length > 0 ? 'warn' : 'success',
+      message: `Analysis applied — ${validatedEnvs.length} environments configured`,
+      projectId: id,
+      projectName: project.name,
+      detail: droppedEnvs.length > 0
+        ? `dropped: ${droppedEnvs.length} (${droppedEnvs.map((d) => `${d.name}: ${d.reason}`).join('; ')})`
+        : undefined,
     });
 
     return NextResponse.json({

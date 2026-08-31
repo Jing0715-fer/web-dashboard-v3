@@ -1,98 +1,32 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision'
+import { getLogs } from '@/lib/process-manager'
 
-const LOG_LEVELS = ['info', 'warn', 'error', 'debug'] as const
-const LOG_SOURCES = ['server', 'build', 'runtime', 'network', 'database', 'auth', 'api'] as const
+// GET /api/projects/[id]/logs
+// Local project → real process logs. The process manager writes one log file
+// per (projectId, envName) under /tmp/web-dashboard-logs; lines written by
+// the manager itself carry a "[<ISO timestamp>] " prefix (parsed out into
+// the timestamp field), raw stdout/stderr lines have no timestamp → null.
+// Remote project → proxy to agent.
 
-const LOG_MESSAGES: Record<string, string[]> = {
-  server: [
-    'Server started on port 3000',
-    'Hot reload triggered',
-    'Request processed in 45ms',
-    'WebSocket connection established',
-    'Graceful shutdown initiated',
-    'Worker process spawned',
-    'Memory usage: 128MB / 512MB',
-    'Health check passed',
-  ],
-  build: [
-    'Compiling /src/app/page.tsx',
-    'Build completed in 2.3s',
-    'Bundle size: 245KB (gzipped: 78KB)',
-    'Generating static pages (5/5)',
-    'TypeScript compilation successful',
-    'Build optimization complete',
-    'Asset optimization: 12 files processed',
-  ],
-  runtime: [
-    'API route /api/projects executed in 23ms',
-    'Cache hit for key: project-list',
-    'Cache miss for key: user-session',
-    'Database query completed in 5ms',
-    'Rate limit reached for IP 192.168.1.100',
-    'Session expired, refreshing token',
-  ],
-  network: [
-    'DNS lookup: api.example.com → 104.21.32.1',
-    'TLS handshake completed',
-    'Connection timeout to upstream server',
-    'Retry attempt 2/3 for failed request',
-    'Load balancer health check: OK',
-  ],
-  database: [
-    'Connection pool: 8/20 active connections',
-    'Migration applied: add_tags_column',
-    'Query optimization: index created on projects.path',
-    'Backup completed: 2.4MB',
-    'Slow query detected (450ms): SELECT * FROM projects',
-  ],
-  auth: [
-    'User authenticated: admin@example.com',
-    'Token refresh successful',
-    'Failed login attempt from 10.0.0.5',
-    'Session created for user_id: usr_123',
-    'Permission denied: insufficient role',
-  ],
-  api: [
-    'GET /api/projects → 200 (12ms)',
-    'POST /api/projects → 201 (34ms)',
-    'PUT /api/projects/abc → 200 (28ms)',
-    'DELETE /api/projects/abc → 200 (15ms)',
-    'Rate limit: 45/100 requests used',
-  ],
-}
-
-interface GeneratedLog {
+interface LocalLogEntry {
   id: string
-  timestamp: string
-  level: string
+  timestamp: string | null
+  level: 'error' | 'warn' | 'info'
   source: string
   message: string
   projectId: string
+  envName: string
 }
 
-function generateLogs(projectId: string) {
-  const logs: GeneratedLog[] = []
-  const now = Date.now()
+// Leading "[2025-01-02T03:04:05.678Z] " written by appendLog()
+const TIMESTAMP_PREFIX = /^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\]\s?/
 
-  for (let i = 0; i < 30; i++) {
-    const source = LOG_SOURCES[Math.floor(Math.random() * LOG_SOURCES.length)]
-    const messages = LOG_MESSAGES[source]
-    const message = messages[Math.floor(Math.random() * messages.length)]
-    const level = LOG_LEVELS[Math.floor(Math.random() * LOG_LEVELS.length)]
-
-    logs.push({
-      id: `log_${projectId}_${i}`,
-      timestamp: new Date(now - i * 15000 - Math.random() * 10000).toISOString(),
-      level,
-      source,
-      message,
-      projectId,
-    })
-  }
-
-  return logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+function inferLevel(line: string): 'error' | 'warn' | 'info' {
+  if (/error|exception|failed|fatal|EADDRINUSE|Cannot find|crash/i.test(line)) return 'error'
+  if (/warn|warning|deprecated/i.test(line)) return 'warn'
+  return 'info'
 }
 
 export async function GET(
@@ -120,7 +54,31 @@ export async function GET(
       return NextResponse.json(result.data, { status: result.status });
     }
 
-    const logs = generateLogs(id)
+    // Local project → read the real log files of every environment.
+    // Within one environment the file order is preserved (oldest → newest);
+    // environments are concatenated in project order (creation order).
+    const environments = await db.environment.findMany({
+      where: { projectId: id },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    const logs: LocalLogEntry[] = []
+    for (const env of environments) {
+      const lines = getLogs(id, env.name)
+      lines.forEach((line, lineIdx) => {
+        const tsMatch = line.match(TIMESTAMP_PREFIX)
+        logs.push({
+          id: `${env.id}-${lineIdx}`,
+          timestamp: tsMatch ? tsMatch[1] : null,
+          level: inferLevel(line),
+          source: env.name,
+          message: tsMatch ? line.slice(tsMatch[0].length) : line,
+          projectId: id,
+          envName: env.name,
+        })
+      })
+    }
+
     return NextResponse.json(logs)
   } catch (error) {
     console.error('Failed to fetch logs:', error)

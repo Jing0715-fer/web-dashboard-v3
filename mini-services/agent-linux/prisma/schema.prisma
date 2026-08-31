@@ -35,3 +35,21 @@ model Environment {
 
   @@index([projectId])
 }
+
+// Snapshot-style activity feed (no FK — events survive project/env deletion)
+model ActivityEvent {
+  id          String   @id @default(cuid())
+  projectId   String?
+  projectName String?
+  envId       String?
+  envName     String?
+  type        String
+  message     String
+  detail      String?
+  level       String   @default("info")
+  durationMs  Int?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([projectId, createdAt])
+}

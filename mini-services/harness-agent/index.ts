@@ -20,7 +20,7 @@
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { spawn, ChildProcess } from 'child_process';
-import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, appendFileSync, readlinkSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, appendFileSync, readlinkSync, writeFileSync, unlinkSync, rmSync } from 'fs';
 import { join, resolve, basename } from 'path';
 import { randomUUID } from 'crypto';
 import { zstdDecompressSync } from 'zlib';
@@ -36,6 +36,10 @@ const STALL_KILL_MS = 5 * 60 * 1000; // no activity at all → kill the attempt
 const MAX_ATTEMPTS = 3;
 const LOG_DIR = join(tmpdir(), 'harness-agent-logs');
 if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+/** Terminal-session snapshots, used to rebuild sessions after a restart. */
+const RESULTS_DIR = join(LOG_DIR, 'results');
+/** Attempt logs and dsh session dirs older than this are deleted. */
+const ARTIFACT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 console.log(`[harness-agent] dsh bin: ${DSH_BIN}`);
 console.log(`[harness-agent] DSH_HOME: ${DSH_HOME}`);
@@ -74,6 +78,10 @@ interface AnalysisSession {
   stalledAttempt: number | null;
   /** Warn-once flag for the 2-minute inactivity note. */
   stalledNote: boolean;
+  /** True for lightweight sessions rebuilt from RESULTS_DIR after a restart. */
+  restored?: boolean;
+  /** Wall-clock time the session reached a terminal state (persisted). */
+  finishedAt?: number;
 }
 
 const sessions = new Map<string, AnalysisSession>();
@@ -265,6 +273,12 @@ function cleanupAllSessions() {
     if (s.status === 'running') {
       killTree(s.child?.pid);
       setTimeout(() => killProjectOrphans(s, 'harness 退出清理'), 1000).unref?.();
+      // Leave a durable record so a wizard polling across the restart gets
+      // a definitive "failed" answer instead of a 404.
+      s.status = 'failed';
+      s.error = 'harness-agent 服务重启，分析被中断';
+      pushProgress(s, 'error', s.error);
+      persistResult(s);
     }
   }
 }
@@ -279,29 +293,138 @@ function parseConfigJson(text: string): any | null {
   if (start === -1 || end === -1 || end <= start) return null;
   try {
     const obj = JSON.parse(t.slice(start, end + 1));
+    // Only hard-reject a completely empty payload — everything else flows
+    // into sanitizeConfig, which collects issues instead of rejecting.
     if (!Array.isArray(obj.environments) || obj.environments.length === 0) return null;
-    const dev = obj.environments.find((e: any) => e && e.cmd && Number(e.port) > 0);
-    if (!dev) return null;
     return obj;
   } catch { return null; }
 }
 
+// ============================= config sanitization =============================
+
+/**
+ * Mirrors the dashboard apply-analysis allowlist: leading VAR=value
+ * assignments are stripped before the prefix comparison. Union of the
+ * harness task allowlist and apply-analysis's own list.
+ */
+const SAFE_CMD_PREFIXES = [
+  'npm', 'npx', 'node', 'bun', 'yarn', 'pnpm', 'python', 'python3', 'pip', 'pip3',
+  'uv', 'uvicorn', 'dotnet', 'java', 'go', 'make', 'sh', 'bash', 'deno', 'cargo',
+  'flask', 'gunicorn', 'django', 'php', 'ruby', 'rails', 'bundle', 'docker', './',
+];
+const stripEnvPrefix = (cmd: string) => cmd.replace(/^([A-Za-z_][A-Za-z0-9_]*=[^\s]*\s+)+/, '');
+
+/**
+ * Deep-validate an agent-produced config:
+ *   - envVars values coerced to strings (non-strings are flagged),
+ *   - environments with invalid ports (1024-65535 integer) or missing cmd
+ *     are DROPPED with an issue,
+ *   - duplicate ports: first one wins, later ones are dropped with an issue,
+ *   - non-allowlisted cmds are FLAGGED but kept (apply-analysis decides),
+ *   - missing dev / production environments are flagged (apply has fallbacks).
+ * Never hard-rejects unless nothing usable survives — issues surface in
+ * result.issues and as a note progress event so the wizard can show them.
+ */
+function sanitizeConfig(config: any): { config: any; issues: string[] } {
+  const issues: string[] = [];
+  const envsIn: any[] = Array.isArray(config?.environments) ? config.environments : [];
+  const envsOut: any[] = [];
+  const seenPorts = new Map<number, string>();
+  for (const raw of envsIn) {
+    if (!raw || typeof raw !== 'object') { issues.push('环境条目不是有效对象，已丢弃'); continue; }
+    const name = String(raw.name ?? '').trim() || '(unnamed)';
+    // envVars — every value coerced to a string.
+    const envVars: Record<string, string> = {};
+    if (raw.envVars && typeof raw.envVars === 'object' && !Array.isArray(raw.envVars)) {
+      for (const [k, v] of Object.entries(raw.envVars)) {
+        if (v === null || v === undefined) continue;
+        if (typeof v !== 'string') issues.push(`环境 ${name}: envVars.${k} 值非字符串（${typeof v}），已强转为字符串`);
+        envVars[k] = typeof v === 'string' ? v : String(v);
+      }
+    }
+    // port — integer in 1024..65535, otherwise the whole env is dropped.
+    const portNum = Number(raw.port);
+    if (!Number.isInteger(portNum) || portNum < 1024 || portNum > 65535) {
+      issues.push(`环境 ${name}: 端口 ${JSON.stringify(raw.port ?? null)} 无效（需 1024-65535 整数），已丢弃该环境`);
+      continue;
+    }
+    if (portNum === 3000) issues.push(`环境 ${name}: 端口 3000 为仪表盘保留端口，应用层可能拒绝`);
+    // cmd — required, otherwise the whole env is dropped.
+    const cmd = typeof raw.cmd === 'string' ? raw.cmd.trim() : '';
+    if (!cmd) { issues.push(`环境 ${name}: 缺少启动命令（cmd），已丢弃该环境`); continue; }
+    // duplicate ports — first one wins, later duplicates are dropped.
+    const dupOf = seenPorts.get(portNum);
+    if (dupOf !== undefined) {
+      issues.push(`环境 ${name}: 端口 ${portNum} 与环境 ${dupOf} 重复，已丢弃后者`);
+      continue;
+    }
+    seenPorts.set(portNum, name);
+    // cmd allowlist — flag but KEEP (apply-analysis makes the final call).
+    const baseCmd = stripEnvPrefix(cmd);
+    if (!SAFE_CMD_PREFIXES.some(p => baseCmd.startsWith(p))) {
+      issues.push(`环境 ${name}: 命令「${cmd.slice(0, 60)}」不在白名单前缀内，已保留待应用层裁决`);
+    }
+    envsOut.push({ ...raw, name, cmd, port: portNum, envVars });
+  }
+  const hasEnv = (n: string) => envsOut.some(e => String(e.name ?? '').toLowerCase() === n);
+  if (!hasEnv('dev')) issues.push('缺少名为 dev 的开发环境');
+  if (!hasEnv('production')) issues.push('缺少 production 环境（应用层将尝试合成兜底）');
+  return { config: { ...config, environments: envsOut }, issues };
+}
+
 // ============================= run orchestration =============================
 
-/** Serialize dsh runs — the LLM backend rate-limits concurrent agents hard. */
+/** FIFO of session ids waiting for their turn (attempt not yet spawned). */
+const runQueue: string[] = [];
+/** Session id currently holding the single run slot (spawned, not exited). */
+let activeRunId: string | null = null;
+
+/**
+ * Serialize dsh runs — the LLM backend rate-limits concurrent agents hard.
+ * The run slot is held from spawn until the dsh child exits (startAttempt
+ * resolves on exit/error), which is what makes queuePosition/queueLength
+ * honest: a session that has not started spawning yet counts as queued.
+ * A watchdog frees the slot after 2x the attempt timeout so a lost exit
+ * event can never wedge the queue forever.
+ */
 let runChain: Promise<void> = Promise.resolve();
-function enqueueRun(fn: () => void): Promise<void> {
-  const next = runChain.then(fn, fn);
+function enqueueRun(s: AnalysisSession, fn: () => void | Promise<void>): Promise<void> {
+  runQueue.push(s.id);
+  const run = async () => {
+    const idx = runQueue.indexOf(s.id);
+    if (idx !== -1) runQueue.splice(idx, 1);
+    activeRunId = s.id;
+    let watchdogTimer: any = null;
+    const watchdog = new Promise<void>((resolve) => {
+      watchdogTimer = setTimeout(() => {
+        if (activeRunId === s.id) {
+          console.error(`[harness-agent] run-slot watchdog fired for session ${s.id} — continuing the queue`);
+          activeRunId = null;
+        }
+        resolve();
+      }, ATTEMPT_TIMEOUT_MS * 2);
+      watchdogTimer.unref?.();
+    });
+    try {
+      await Promise.race([fn(), watchdog]);
+    } finally {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      if (activeRunId === s.id) activeRunId = null;
+    }
+  };
+  const next = runChain.then(run, run);
   runChain = next.catch(() => {});
   return next;
 }
 
 function runAttempt(s: AnalysisSession, feedback?: string) {
   // Serialize across sessions — one dsh agent at a time (LLM rate limits).
-  enqueueRun(() => startAttempt(s, feedback));
+  enqueueRun(s, () => startAttempt(s, feedback));
 }
 
-function startAttempt(s: AnalysisSession, feedback?: string) {
+function startAttempt(s: AnalysisSession, feedback?: string): Promise<void> {
+  // A session cancelled while still queued must never spawn a run.
+  if (s.cancelled) return Promise.resolve();
   s.attempt += 1;
   s.lastLogSize = 0;
   s.lastEventLine = 0;
@@ -352,45 +475,84 @@ function startAttempt(s: AnalysisSession, feedback?: string) {
     setTimeout(() => killProjectOrphans(s, '超时清扫'), 2500).unref?.();
   }, ATTEMPT_TIMEOUT_MS);
 
-  child.on('exit', (code) => {
-    clearTimeout(timeout);
-    s.child = null;
-    // Final sweep regardless of outcome — the task tells the agent to stop its
-    // servers, but a supervisor-side guarantee is worth more than a promise.
-    setTimeout(() => killProjectOrphans(s, '会话收尾校验'), 2000).unref?.();
-    if (s.cancelled) {
-      s.status = 'cancelled';
-      pushProgress(s, 'error', '已取消');
-      return;
-    }
-    pollDshLog(s);
-    const config = parseConfigJson(stdout);
-    if (config) {
+  // The run slot is held until the child is truly gone. 'error' (spawn
+  // failure) funnels through the same path so the queue can never wedge.
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const settle = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try {
+        handleAttemptExit(s, code, stdout);
+      } catch (err: any) {
+        console.error('[harness-agent] attempt exit handler failed:', err?.message || err);
+        s.status = 'failed';
+        s.error = `Attempt exit handler crashed: ${String(err?.message || err)}`;
+        persistResult(s);
+      }
+      resolve();
+    };
+    child.on('exit', (code: number | null) => settle(code));
+    child.on('error', (err: any) => {
+      try { pushProgress(s, 'error', `dsh 进程异常: ${String(err?.message || err).slice(0, 140)}`); } catch { /* ignore */ }
+      settle(null);
+    });
+  });
+}
+
+/** Shared exit path: evaluate output, sanitize, retry or finish, persist. */
+function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: string) {
+  s.child = null;
+  // Final sweep regardless of outcome — the task tells the agent to stop its
+  // servers, but a supervisor-side guarantee is worth more than a promise.
+  setTimeout(() => killProjectOrphans(s, '会话收尾校验'), 2000).unref?.();
+  if (s.cancelled) {
+    s.status = 'cancelled';
+    pushProgress(s, 'error', '已取消');
+    persistResult(s);
+    return;
+  }
+  pollDshLog(s);
+  const parsed = parseConfigJson(stdout);
+  let issueFeedback = '';
+  if (parsed) {
+    const { config, issues } = sanitizeConfig(parsed);
+    if ((config.environments?.length ?? 0) > 0) {
       s.result = {
         ...config,
+        issues,
         attempts: s.attempt,
         verified: true,
         finishedAt: Date.now(),
       };
       s.status = 'completed';
-      pushProgress(s, 'result', `分析成功（${s.attempt} 次尝试）：${config.environments?.length ?? 0} 个环境配置已生成并验证`);
+      pushProgress(s, 'result', `分析成功（${s.attempt} 次尝试）：${config.environments.length} 个环境配置已生成并验证`);
+      if (issues.length > 0) {
+        pushProgress(s, 'note', `配置校验提示（${issues.length} 项）：\n${issues.map(i => `· ${i}`).join('\n')}`);
+      }
+      persistResult(s);
       return;
     }
-    if (s.attempt < s.maxAttempts) {
-      const tail = stdout.trim().slice(-600) || '(no output)';
-      const stallNote = s.stalledAttempt === s.attempt
-        ? 'The previous attempt STALLED — no agent activity for 5 minutes and the supervisor killed it (likely a hung command or a blocking wait). Avoid long blocking sleeps; poll with short sleeps instead. '
-        : '';
-      pushProgress(s, 'error', `第 ${s.attempt} 次尝试未返回有效配置，准备重试`);
-      setTimeout(() => {
-        if (!s.cancelled && s.status === 'running') runAttempt(s, `${stallNote}The previous attempt exited with code ${code} and its final output was not a valid JSON config. Last output:\n${tail}`);
-      }, 1500);
-    } else {
-      s.status = 'failed';
-      s.error = `Agent 未能生成有效的启动配置（已尝试 ${s.attempt} 次）。最后输出: ${stdout.trim().slice(-400) || 'empty'}`;
-      pushProgress(s, 'error', s.error);
-    }
-  });
+    // Parsed, but sanitization dropped every environment — retry with the
+    // concrete validation problems instead of a generic "invalid output".
+    issueFeedback = `The returned JSON was structurally valid but failed validation and every environment was discarded. Fix these problems:\n${issues.map(i => `- ${i}`).join('\n')}\n`;
+  }
+  if (s.attempt < s.maxAttempts) {
+    const tail = stdout.trim().slice(-600) || '(no output)';
+    const stallNote = s.stalledAttempt === s.attempt
+      ? 'The previous attempt STALLED — no agent activity for 5 minutes and the supervisor killed it (likely a hung command or a blocking wait). Avoid long blocking sleeps; poll with short sleeps instead. '
+      : '';
+    pushProgress(s, 'error', `第 ${s.attempt} 次尝试未返回有效配置，准备重试`);
+    setTimeout(() => {
+      if (!s.cancelled && s.status === 'running') runAttempt(s, `${stallNote}${issueFeedback}The previous attempt exited with code ${code} and its final output was not a valid JSON config. Last output:\n${tail}`);
+    }, 1500);
+  } else {
+    s.status = 'failed';
+    s.error = `Agent 未能生成有效的启动配置（已尝试 ${s.attempt} 次）。${issueFeedback ? `校验问题：${issueFeedback.replace(/\n/g, ' ').slice(0, 300)} ` : ''}最后输出: ${stdout.trim().slice(-400) || 'empty'}`;
+    pushProgress(s, 'error', s.error);
+    persistResult(s);
+  }
 }
 
 function startAnalysis(path: string, name: string, usedPorts: number[], maxAttempts: number): AnalysisSession {
@@ -454,11 +616,185 @@ function startAnalysis(path: string, name: string, usedPorts: number[], maxAttem
       setTimeout(() => killProjectOrphans(s, '会话超时清扫'), 2500).unref?.();
       s.status = 'failed';
       s.error = 'Session timed out';
+      persistResult(s);
     }
-    setTimeout(() => sessions.delete(id), 60 * 60 * 1000);
+    setTimeout(() => {
+      sessions.delete(id);
+      deleteResultFile(id); // keep disk in sync with the in-memory store
+    }, 60 * 60 * 1000);
   }, 60 * 60 * 1000).unref?.();
 
   return s;
+}
+
+// ============================= result persistence =============================
+
+function summarizeAttempts(s: AnalysisSession): string[] {
+  try {
+    const per = new Map<number, string[]>();
+    for (const p of s.progress) {
+      if (p.kind === 'error' || p.kind === 'result') {
+        const arr = per.get(p.attempt) ?? [];
+        if (arr.length < 3) arr.push(p.text.slice(0, 160));
+        per.set(p.attempt, arr);
+      }
+    }
+    const out: string[] = [];
+    for (let a = 1; a <= Math.max(s.attempt, 1); a++) {
+      const notes = per.get(a);
+      if (notes && notes.length > 0) out.push(`attempt ${a}: ${notes.join(' | ')}`);
+    }
+    return out;
+  } catch { return []; }
+}
+
+/** Snapshot a terminal session to RESULTS_DIR for restart recovery. */
+function persistResult(s: AnalysisSession) {
+  try {
+    if (s.status === 'running') return;
+    mkdirSync(RESULTS_DIR, { recursive: true });
+    const finishedAt = Date.now();
+    s.finishedAt = finishedAt;
+    const payload: any = {
+      sessionId: s.id,
+      status: s.status,
+      projectPath: s.path,
+      projectName: s.name,
+      startedAt: s.createdAt,
+      finishedAt,
+      attempts: s.attempt,
+      maxAttempts: s.maxAttempts,
+      attemptsSummary: summarizeAttempts(s),
+    };
+    if (s.result !== null && s.result !== undefined) payload.result = s.result;
+    if (s.error) payload.error = s.error;
+    writeFileSync(join(RESULTS_DIR, `${s.id}.json`), JSON.stringify(payload, null, 2));
+  } catch (err: any) {
+    console.error('[harness-agent] persistResult failed:', err?.message || err);
+  }
+}
+
+function deleteResultFile(sessionId: string) {
+  try { unlinkSync(join(RESULTS_DIR, `${sessionId}.json`)); } catch { /* absent is fine */ }
+}
+
+/**
+ * Rebuild lightweight terminal sessions from RESULTS_DIR so the dashboard
+ * wizard keeps getting answers (instead of 404) after a harness restart.
+ * Restored sessions never re-enter the run queue and are invisible to the
+ * stall supervisor (no poller, lastActivityAt = finishedAt).
+ */
+function restoreSessionsFromDisk(): number {
+  let restored = 0;
+  try {
+    if (!existsSync(RESULTS_DIR)) return 0;
+    for (const file of readdirSync(RESULTS_DIR)) {
+      try {
+        if (!file.endsWith('.json')) continue;
+        const id = file.slice(0, -'.json'.length);
+        if (!/^[a-f0-9-]{8,}$/.test(id) || sessions.has(id)) continue;
+        const data = JSON.parse(readFileSync(join(RESULTS_DIR, file), 'utf8'));
+        const status = ['completed', 'failed', 'cancelled'].includes(data.status) ? data.status : 'failed';
+        const finishedAt = Number(data.finishedAt) || Date.now();
+        const attempts = Number(data.attempts) || 0;
+        const s: AnalysisSession = {
+          id,
+          path: String(data.projectPath || ''),
+          name: String(data.projectName || basename(String(data.projectPath || 'restored-session'))),
+          usedPorts: [],
+          status: status as AnalysisSession['status'],
+          createdAt: Number(data.startedAt) || finishedAt,
+          updatedAt: finishedAt,
+          attempt: attempts,
+          maxAttempts: Number(data.maxAttempts) || Math.max(attempts, 1),
+          progress: [{ ts: finishedAt, attempt: attempts, kind: 'note', text: `会话已从磁盘恢复（状态：${status}，${attempts} 次尝试）— 原始进度不再可用` }],
+          result: data.result ?? null,
+          error: data.error ?? null,
+          child: null,
+          cancelled: status === 'cancelled',
+          lastLogSize: 0,
+          lastEventLine: 0,
+          logFile: '',
+          poller: null,
+          lastActivityAt: finishedAt,
+          stalledAttempt: null,
+          stalledNote: false,
+          restored: true,
+        };
+        sessions.set(id, s);
+        restored += 1;
+      } catch { /* corrupt file — skip it */ }
+    }
+  } catch { /* never fatal */ }
+  return restored;
+}
+
+// ============================= disk hygiene =============================
+
+/**
+ * Delete attempt logs and dsh session directories older than 7 days.
+ * Only plain files in LOG_DIR (the results/ subtree is preserved) and dsh
+ * session directories (session-<uuid>) are ever removed; every step is
+ * best-effort so cleanup failure never affects the service.
+ */
+function cleanupOldArtifacts(): { logs: number; dshSessions: number } {
+  const removed = { logs: 0, dshSessions: 0 };
+  const cutoff = Date.now() - ARTIFACT_TTL_MS;
+  try {
+    for (const ent of readdirSync(LOG_DIR)) {
+      try {
+        const p = join(LOG_DIR, ent);
+        const st = statSync(p);
+        if (!st.isFile()) continue; // results/ and other dirs are untouched
+        if (st.mtimeMs < cutoff) { unlinkSync(p); removed.logs += 1; }
+      } catch { /* skip */ }
+    }
+  } catch { /* LOG_DIR unreadable — ignore */ }
+  try {
+    const root = join(DSH_HOME, 'sessions');
+    if (existsSync(root)) {
+      for (const slug of readdirSync(root)) {
+        try {
+          const slugDir = join(root, slug);
+          const slugStat = statSync(slugDir);
+          if (!slugStat.isDirectory()) continue;
+          for (const sub of readdirSync(slugDir)) {
+            try {
+              const sessDir = join(slugDir, sub);
+              const sessStat = statSync(sessDir);
+              if (!sessStat.isDirectory()) continue;
+              // Conservative freshness: newest mtime among the dir and its
+              // direct children (dsh appends to files without touching the
+              // directory mtime).
+              let newest = sessStat.mtimeMs;
+              try {
+                for (const f of readdirSync(sessDir)) {
+                  try { const fst = statSync(join(sessDir, f)); if (fst.mtimeMs > newest) newest = fst.mtimeMs; } catch { /* skip */ }
+                }
+              } catch { /* skip */ }
+              if (newest < cutoff) {
+                rmSync(sessDir, { recursive: true, force: true });
+                removed.dshSessions += 1;
+              }
+            } catch { /* skip */ }
+          }
+          // Remove the empty project shell only when it is itself older than
+          // the TTL (never race an in-flight session creation).
+          try {
+            if (slugStat.mtimeMs < cutoff && readdirSync(slugDir).length === 0) rmSync(slugDir, { recursive: true, force: true });
+          } catch { /* skip */ }
+        } catch { /* skip */ }
+      }
+    }
+  } catch { /* never fatal */ }
+  return removed;
+}
+
+function runArtifactCleanup() {
+  try {
+    const { logs, dshSessions } = cleanupOldArtifacts();
+    console.log(`[harness-agent] disk cleanup: removed ${logs} old attempt log(s), ${dshSessions} old dsh session dir(s) (TTL 7d)`);
+  } catch { /* never fatal */ }
 }
 
 // ============================= HTTP layer =============================
@@ -473,12 +809,20 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 function json(res: ServerResponse, status: number, data: any) {
+  const body = JSON.stringify(data);
+  // A route that already started writing (e.g. an SSE stream that errored
+  // mid-flight) must not attempt writeHead again — that second throw used to
+  // escape the async handler and kill the whole service.
+  if (res.headersSent) {
+    try { res.end(body); } catch { /* connection already gone */ }
+    return;
+  }
   res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-  res.end(JSON.stringify(data));
+  res.end(body);
 }
 
 function sessionView(s: AnalysisSession) {
-  return {
+  const view: any = {
     id: s.id,
     path: s.path,
     name: s.name,
@@ -491,6 +835,22 @@ function sessionView(s: AnalysisSession) {
     result: s.result,
     error: s.error,
   };
+  if (s.restored) view.restored = true;
+  // Queue visibility: a session that has not started spawning yet is queued.
+  // queuePosition = sessions ahead of it (waiting + the one running);
+  // queueLength = total sessions in the queue system right now.
+  if (s.status === 'running') {
+    const active = activeRunId !== null;
+    const pos = runQueue.indexOf(s.id);
+    if (pos !== -1) {
+      view.queuePosition = pos + (active ? 1 : 0);
+      view.queueLength = runQueue.length + (active ? 1 : 0);
+    } else if (activeRunId === s.id) {
+      view.queuePosition = 0;
+      view.queueLength = runQueue.length + 1;
+    }
+  }
+  return view;
 }
 
 const server = createServer(async (req, res) => {
@@ -503,6 +863,14 @@ const server = createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && (url === '/api/harness/health' || url === '/health')) {
       return json(res, 200, { status: 'ok', dsh: existsSync(DSH_BIN), sessions: sessions.size, port: PORT });
+    }
+
+    // Session list (additive convenience route, also aliased as /sessions).
+    if (req.method === 'GET' && (url === '/api/harness/sessions' || url === '/sessions')) {
+      const list = Array.from(sessions.values())
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .map(sessionView);
+      return json(res, 200, { sessions: list, count: list.length });
     }
 
     if (req.method === 'POST' && url === '/api/harness/analyze') {
@@ -527,7 +895,10 @@ const server = createServer(async (req, res) => {
         s.cancelled = true;
         killTree(s.child?.pid);
         setTimeout(() => killProjectOrphans(s, '取消清扫'), 2500).unref?.();
-        if (s.status === 'running') s.status = 'cancelled';
+        if (s.status === 'running') {
+          s.status = 'cancelled';
+          persistResult(s);
+        }
         return json(res, 200, sessionView(s));
       }
       if (action === '/events' && req.method === 'GET') {
@@ -549,8 +920,11 @@ const server = createServer(async (req, res) => {
             clearInterval(timer);
           }
         };
-        send();
+        // Start the interval BEFORE the initial flush: a terminal session
+        // (e.g. one restored from disk) ends the stream inside send(), which
+        // must be able to clear an already-initialized timer (TDZ crash fix).
         const timer = setInterval(send, 2000);
+        send();
         req.on('close', () => clearInterval(timer));
         return;
       }
@@ -562,6 +936,15 @@ const server = createServer(async (req, res) => {
     json(res, 500, { error: String(err?.message || err) });
   }
 });
+
+// Restart recovery + disk hygiene — both best-effort and never fatal.
+try {
+  const restoredCount = restoreSessionsFromDisk();
+  console.log(`[harness-agent] restored ${restoredCount} finished session(s) from ${RESULTS_DIR}`);
+} catch { /* ignore */ }
+runArtifactCleanup();
+const artifactCleanupTimer = setInterval(runArtifactCleanup, 3600_000);
+artifactCleanupTimer.unref?.();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[harness-agent] listening on http://0.0.0.0:${PORT}`);

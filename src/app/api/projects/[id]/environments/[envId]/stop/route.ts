@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { stopProcess } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
+import { logActivity } from '@/lib/activity';
 
 export async function POST(
   _req: NextRequest,
@@ -35,6 +36,17 @@ export async function POST(
     const result = await stopProcess(id, env.name, env.port);
 
     if (!result.success) {
+      logActivity({
+        type: 'error',
+        level: 'error',
+        message: `Environment '${env.name}' failed to stop`,
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        detail: result.error || 'Failed to stop the process',
+      });
+
       // The process could not be verified as stopped — surface the failure
       // with a non-200 status and DON'T flip the DB to "stopped" (that would
       // make the UI claim stopped while the process still runs).
@@ -48,6 +60,17 @@ export async function POST(
     await db.environment.update({
       where: { id: envId },
       data: { status: 'stopped', pid: null },
+    });
+
+    logActivity({
+      type: 'stop',
+      level: 'info',
+      message: `Environment '${env.name}' stopped`,
+      projectId: id,
+      projectName: env.project.name,
+      envId,
+      envName: env.name,
+      detail: `port: ${env.port}`,
     });
 
     return NextResponse.json({ ok: true });

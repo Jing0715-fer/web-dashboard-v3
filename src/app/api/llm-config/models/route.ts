@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { db } from '@/lib/db';
 import {
   getProviderProfile,
   endpointCandidates,
@@ -23,6 +24,10 @@ export async function GET(request: NextRequest) {
   const providerId = searchParams.get('provider') || '';
   const queryApiKey = searchParams.get('apiKey') || '';
   const queryBaseUrl = searchParams.get('baseUrl') || '';
+  // useSavedKey=1 → live-fetch with the key stored server-side. Lets the
+  // dialog refresh the model list without the secret ever reaching the
+  // browser (the key is masked in GET /api/llm-config now).
+  const useSavedKey = searchParams.get('useSavedKey') === '1';
 
   // zai uses the built-in z-ai SDK — return the catalog list directly.
   if (providerId === 'zai' || providerId === '') {
@@ -50,8 +55,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ models: [], error: 'Base URL is required for this provider' });
   }
 
-  // Ollama and other keyless local providers — fetch without auth.
-  const apiKey = queryApiKey || (profile?.requiresKey === false ? 'ollama' : '');
+  // Resolve the key: explicit query key (newly typed) > saved key from DB
+  // (useSavedKey) > keyless providers. Masked round-trips are ignored.
+  let apiKey = queryApiKey;
+  if (!apiKey && useSavedKey) {
+    try {
+      const saved = await db.llmConfig.findUnique({ where: { id: 'default' } });
+      if (saved?.apiKey && !saved.apiKey.includes('•')) apiKey = saved.apiKey;
+    } catch { /* best-effort — fall through to catalog */ }
+  }
+  if (!apiKey && profile?.requiresKey === false) apiKey = 'ollama';
   if (!apiKey) {
     return NextResponse.json({
       models: catalogModels,

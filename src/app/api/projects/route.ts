@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { enrichEnvStatuses } from '@/lib/env-status';
 import { fetchRemoteProjects, type RemoteAgentConfig } from '@/lib/remote-agent';
+import { logActivity } from '@/lib/activity';
 
 // GET /api/projects - List all projects with environments and status
 // Aggregates local projects (deviceId=null) and remote projects from devices
@@ -249,6 +250,15 @@ export async function POST(req: NextRequest) {
         deviceId: deviceId || null,
       },
       include: { environments: true },
+    });
+
+    logActivity({
+      type: 'create',
+      level: 'success',
+      message: `Project '${project.name}' created`,
+      projectId: project.id,
+      projectName: project.name,
+      detail: `path: ${project.path}`,
     });
 
     return NextResponse.json({ project }, { status: 201 });

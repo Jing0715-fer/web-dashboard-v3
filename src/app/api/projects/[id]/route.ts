@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { stopProcess, batchCheckPorts } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
+import { logActivity } from '@/lib/activity';
 
 // GET /api/projects/[id]
 export async function GET(
@@ -101,6 +102,20 @@ export async function PUT(
       include: { environments: true },
     });
 
+    logActivity({
+      type: 'config_change',
+      level: 'info',
+      message: `Project '${project.name}' updated`,
+      projectId: id,
+      projectName: project.name,
+      detail: [
+        name !== undefined ? `name → ${name}` : null,
+        description !== undefined ? 'description updated' : null,
+        icon !== undefined ? `icon → ${icon}` : null,
+        tags !== undefined ? 'tags updated' : null,
+      ].filter(Boolean).join(', ') || undefined,
+    });
+
     return NextResponse.json({ project });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
@@ -140,6 +155,17 @@ export async function DELETE(
     }
 
     await db.project.delete({ where: { id } });
+
+    // Snapshot event (no FK) — survives the project deletion above.
+    logActivity({
+      type: 'delete',
+      level: 'info',
+      message: `Project '${project.name}' deleted`,
+      projectId: id,
+      projectName: project.name,
+      detail: `path: ${project.path}`,
+    });
+
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });

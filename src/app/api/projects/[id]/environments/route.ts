@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { logActivity } from '@/lib/activity';
 
 // POST /api/projects/[id]/environments - Add environment
 export async function POST(
@@ -69,6 +70,17 @@ export async function POST(
         port: portNum,
         envVars: JSON.stringify(envVars || {}),
       },
+    });
+
+    logActivity({
+      type: 'create',
+      level: 'success',
+      message: `Environment '${name}' created`,
+      projectId: id,
+      projectName: project.name,
+      envId: environment.id,
+      envName: name,
+      detail: `cmd: ${cmd} · port: ${portNum}`,
     });
 
     return NextResponse.json({ environment }, { status: 201 });
