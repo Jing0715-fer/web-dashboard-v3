@@ -118,6 +118,22 @@ export function AnalyzeWizard({
           description: `${data.applied} 个环境已${autoStart ? '创建并启动' : '创建'}。`,
           variant: 'success',
         })
+        // Surface environments that failed validation instead of silently dropping them
+        if (Array.isArray(data.dropped) && data.dropped.length > 0) {
+          addToast({
+            title: `${data.dropped.length} 个环境配置未通过校验`,
+            description: data.dropped.map((d: any) => `${d.name}: ${d.reason}`).join('；').slice(0, 300),
+            variant: 'warning',
+          })
+        }
+        // The user's own project name wins; show the LLM's suggestion as FYI
+        if (data.suggestedName && session.name && data.suggestedName !== session.name) {
+          addToast({
+            title: 'Agent 建议的项目名',
+            description: `分析检测到包名「${data.suggestedName}」，已保留你命名的「${session.name}」，可在编辑中修改。`,
+            variant: 'default',
+          })
+        }
         onApplied()
         if (autoStart && data.project?.environments?.[0]) {
           onStartEnv(session.projectId, data.project.environments[0].id)

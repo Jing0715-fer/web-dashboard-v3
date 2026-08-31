@@ -479,22 +479,30 @@ function HealthScoreCircle({ score, size = 40 }: { score: number; size?: number 
   const circumference = radius * 2 * Math.PI
   const safeScore = typeof score === 'number' && !isNaN(score) ? score : 0
   const offset = circumference - (safeScore / 100) * circumference
+  // Number is rendered as an HTML overlay (not rotated SVG text): flex centering
+  // is pixel-exact regardless of font metrics — the old dominantBaseline="central"
+  // + double-rotation approach landed 1-2.6px off-center depending on digit count.
+  const numClass = size <= 28 ? 'text-[10px]' : size >= 40 ? 'text-[13px]' : 'text-[11px]'
 
   return (
-    <svg width={size} height={size} className="transform -rotate-90">
-      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-muted-foreground/20 dark:text-muted-foreground/20" />
-      <motion.circle
-        cx={size / 2} cy={size / 2} r={radius} fill="none"
-        stroke={healthStroke(safeScore)}
-        strokeWidth={strokeWidth}
-        strokeDasharray={circumference}
-        strokeDashoffset={circumference}
-        strokeLinecap="round"
-        animate={{ strokeDashoffset: offset, stroke: healthStroke(safeScore) }}
-        transition={{ duration: 0.8, ease: 'easeOut' }}
-      />
-      <text x={size / 2} y={size / 2} textAnchor="middle" dominantBaseline="central" className={`text-[10px] font-semibold ${healthColor(safeScore)}`} transform={`rotate(90, ${size / 2}, ${size / 2})`}>{safeScore}</text>
-    </svg>
+    <span className="relative inline-flex shrink-0" style={{ width: size, height: size }} aria-label={`Health score ${safeScore}`}>
+      <svg width={size} height={size} className="block -rotate-90" aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-muted-foreground/20 dark:text-muted-foreground/20" />
+        <motion.circle
+          cx={size / 2} cy={size / 2} r={radius} fill="none"
+          stroke={healthStroke(safeScore)}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference}
+          strokeLinecap="round"
+          animate={{ strokeDashoffset: offset, stroke: healthStroke(safeScore) }}
+          transition={{ duration: 0.8, ease: 'easeOut' }}
+        />
+      </svg>
+      <span className={`absolute inset-0 flex items-center justify-center ${numClass} font-semibold tabular-nums leading-none ${healthColor(safeScore)}`}>
+        {safeScore}
+      </span>
+    </span>
   )
 }
 
@@ -917,7 +925,7 @@ function SortableProjectCardImpl({
             {starred ? <Pin className="h-4 w-4 fill-current" /> : <Star className="h-4 w-4" />}
           </button>
           {starred && pinOrder != null && <span className="text-[8px] min-w-[14px] text-center px-0.5 py-0 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-semibold shrink-0">#{pinOrder}</span>}
-          <div className="flex h-7 w-7 items-center justify-center rounded-md border border-brand/25 bg-brand-soft shrink-0">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md border border-brand/25 bg-brand-soft shadow-xs shrink-0">
             <IconComp className="h-3.5 w-3.5 text-brand-strong" />
           </div>
           <div className="flex-1 min-w-0">
@@ -1100,7 +1108,11 @@ function SortableProjectCardImpl({
           </div>
         )}
 
-        <CardHeader className={`${headerPad} shrink-0`}>
+        {/* Decorations (subtle, data-driven) — brand hairline + ghost icon watermark */}
+        <span aria-hidden className="pointer-events-none absolute top-0 left-0 right-0 h-[2px] z-10 bg-gradient-to-r from-brand/50 via-brand/15 to-transparent" />
+        <IconComp aria-hidden strokeWidth={1} className="pointer-events-none absolute -right-2 -top-2 h-[76px] w-[76px] text-brand opacity-[0.06] dark:opacity-[0.08] group-hover:opacity-[0.13] dark:group-hover:opacity-[0.16] transition-opacity duration-300 z-0" />
+
+        <CardHeader className={`${headerPad} shrink-0 relative z-[1]`}>
           <div className="flex items-start gap-2 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
               <div {...attributes} {...listeners} data-dnd-drag-handle onClick={(e) => e.stopPropagation()} className="cursor-grab active:cursor-grabbing -my-0.5 p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/60 transition-colors shrink-0" title="Drag to reorder">
@@ -1109,7 +1121,7 @@ function SortableProjectCardImpl({
               {batchMode && (
                 <Checkbox checked={selected} onCheckedChange={() => onToggleSelect(project.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
               )}
-              <div className="flex h-7 w-7 items-center justify-center rounded-md border border-brand/25 bg-brand-soft shrink-0">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md border border-brand/25 bg-brand-soft shadow-xs shrink-0 relative z-[1]">
                 <IconComp className="h-3.5 w-3.5 text-brand-strong" />
               </div>
               <div className="min-w-0 flex-1">
@@ -1155,7 +1167,7 @@ function SortableProjectCardImpl({
           </div>
         </CardHeader>
 
-        <CardContent className={`${contentPad} flex-1 min-w-0`}>
+        <CardContent className={`${contentPad} flex-1 min-w-0 relative z-[1]`}>
           {project.description && (
             <p className="text-xs text-muted-foreground/80 dark:text-zinc-400 mb-2 truncate" title={project.description}>{highlightText(project.description, searchQuery)}</p>
           )}
@@ -1270,9 +1282,9 @@ function SortableProjectCardImpl({
           )}
         </CardContent>
 
-        {/* Action bar */}
-        <div className="border-t border-zinc-100 dark:border-zinc-800" />
-        <div className="px-4 sm:px-5 pb-3 pt-2 flex items-center justify-between min-w-0 rounded-b-xl">
+        {/* Action bar — tinted footer zone separates actions from content */}
+        <div className="relative z-[1] mt-auto border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/40 rounded-b-xl">
+          <div className="px-4 sm:px-5 pb-3 pt-2 flex items-center justify-between min-w-0">
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-[11px] font-medium px-2 py-0.5 gap-1.5 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 tabular-nums">
               <span className={`h-1.5 w-1.5 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-zinc-400 dark:bg-zinc-500'}`} />
@@ -1340,6 +1352,7 @@ function SortableProjectCardImpl({
                 <DropdownMenuItem className="text-destructive px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
           </div>
         </div>
 
@@ -4649,6 +4662,7 @@ function DeviceFormDialog({
 function ProjectCardSkeleton() {
   return (
     <div className="surface-card rounded-xl border border-zinc-200 dark:border-zinc-800 bg-card overflow-hidden relative skeleton-card">
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-brand/50 via-brand/15 to-transparent" />
       <div className="absolute inset-0 animate-shimmer pointer-events-none rounded-xl" />
       <div className="p-5 space-y-3">
         <div className="flex items-center gap-2">
@@ -4693,15 +4707,16 @@ function ProjectCardSkeleton() {
           </div>
         </div>
       </div>
-      <div className="h-px bg-border/30 dark:bg-zinc-700/30" />
-      <div className="px-4 py-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="h-5 w-20 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '300ms' }} />
-          <div className="h-3 w-10 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '350ms' }} />
-        </div>
-        <div className="flex gap-1">
-          <div className="h-7 w-14 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '350ms' }} />
-          <div className="h-7 w-7 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '400ms' }} />
+      <div className="border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/40 rounded-b-xl">
+        <div className="px-4 py-2.5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-5 w-20 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '300ms' }} />
+            <div className="h-3 w-10 rounded bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '350ms' }} />
+          </div>
+          <div className="flex gap-1">
+            <div className="h-7 w-14 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '350ms' }} />
+            <div className="h-7 w-7 rounded-md bg-muted/70 skeleton-shimmer-block" style={{ animationDelay: '400ms' }} />
+          </div>
         </div>
       </div>
     </div>
