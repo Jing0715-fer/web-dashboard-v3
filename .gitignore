@@ -62,3 +62,4 @@ worklog.md
 
 # local env
 .env
+mini-services/harness-agent/.dsh-home/
