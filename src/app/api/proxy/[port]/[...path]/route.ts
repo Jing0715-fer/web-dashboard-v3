@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireApprovedUser } from '@/lib/auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ port: string; path?: string[] }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   const { port: portStr, path: pathSegments } = await params
   const port = parseInt(portStr, 10)
 
@@ -63,6 +67,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ port: string; path?: string[] }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   const { port: portStr, path: pathSegments } = await params
   const port = parseInt(portStr, 10)
 
@@ -111,6 +118,9 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ port: string; path?: string[] }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   const { port: portStr, path: pathSegments } = await params
   const port = parseInt(portStr, 10)
 
@@ -159,6 +169,9 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ port: string; path?: string[] }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   const { port: portStr, path: pathSegments } = await params
   const port = parseInt(portStr, 10)
 
@@ -207,6 +220,9 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ port: string; path?: string[] }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   const { port: portStr, path: pathSegments } = await params
   const port = parseInt(portStr, 10)
 

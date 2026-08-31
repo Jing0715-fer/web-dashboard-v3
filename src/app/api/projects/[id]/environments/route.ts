@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
+import { requireApprovedUser } from '@/lib/auth';
 
 // POST /api/projects/[id]/environments - Add environment
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params;
     const body = await req.json();
@@ -94,6 +98,9 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params;
     const environments = await db.environment.findMany({

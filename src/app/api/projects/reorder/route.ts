@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireApprovedUser } from '@/lib/auth';
 
 // POST /api/projects/reorder - Persist drag-and-drop order
 // Body: { order: [{ id: string }, ...] }
 export async function POST(req: NextRequest) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const body = await req.json()
     const order: Array<{ id: string }> = Array.isArray(body?.order) ? body.order : []

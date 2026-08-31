@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireApprovedUser } from '@/lib/auth';
 
 type NotificationType = 'success' | 'warning' | 'error' | 'info'
 
@@ -225,7 +226,10 @@ function generateNotifications(
 // In-memory read state tracking (per server instance)
 const readState = new Map<string, boolean>()
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const projects = await db.project.findMany({
       include: { environments: true },
@@ -251,6 +255,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   try {
     const body = await request.json()
     const { id, markAll } = body

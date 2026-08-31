@@ -1,10 +1,14 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
+import { requireApprovedUser } from '@/lib/auth';
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_request);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params
 
@@ -34,6 +38,9 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params
     const body = await request.json()
@@ -91,6 +98,9 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_request);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params
 

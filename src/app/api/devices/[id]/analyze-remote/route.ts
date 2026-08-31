@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { proxyToAgent } from '@/lib/remote-agent';
 import { networkInterfaces } from 'os';
+import { requireApprovedUser } from '@/lib/auth';
 
 /**
  * Remote project auto-debug analysis — proxies to the device agent's
@@ -25,6 +26,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params;
     const device = await db.device.findUnique({ where: { id } });
@@ -55,6 +59,9 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params;
     const jobId = req.nextUrl.searchParams.get('jobId');

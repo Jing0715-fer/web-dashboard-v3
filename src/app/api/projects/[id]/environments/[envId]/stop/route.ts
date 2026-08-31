@@ -3,11 +3,15 @@ import { db } from '@/lib/db';
 import { stopProcess } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { logActivity } from '@/lib/activity';
+import { requireApprovedUser } from '@/lib/auth';
 
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; envId: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id, envId } = await params;
 

@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision'
 import { serializeActivityEvent, type SerializedActivityEvent } from '@/lib/activity'
+import { requireApprovedUser } from '@/lib/auth';
 
 // GET /api/projects/[id]/activity
 // Local project → real events from the ActivityEvent table (written
@@ -10,6 +11,9 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params
 

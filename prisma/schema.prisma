@@ -83,3 +83,34 @@ model ActivityEvent {
   @@index([createdAt])
   @@index([projectId, createdAt])
 }
+
+// ============ Authentication (Task 11-a) ============
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String
+  passwordHash      String?   // null for Google-only accounts
+  role              String    @default("user")     // 'admin' | 'user'
+  status            String    @default("pending")  // 'pending' | 'approved' | 'rejected'
+  provider          String    @default("credentials") // 'credentials' | 'google'
+  googleId          String?   @unique
+  avatarUrl         String?
+  rejectionReason   String?
+  passwordChangedAt DateTime?
+  lastLoginAt       DateTime?
+  approvedAt        DateTime?
+  approvedById      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([status])
+}
+
+// Key/value settings store (auth secret, Google OAuth credentials, …).
+// `value` is always a JSON string.
+model AppSetting {
+  key       String   @id
+  value     String   // JSON string
+  updatedAt DateTime @updatedAt
+}

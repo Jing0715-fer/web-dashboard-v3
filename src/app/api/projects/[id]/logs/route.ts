@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision'
 import { getLogs } from '@/lib/process-manager'
+import { requireApprovedUser } from '@/lib/auth';
 
 // GET /api/projects/[id]/logs
 // Local project → real process logs. The process manager writes one log file
@@ -33,6 +34,9 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params
 

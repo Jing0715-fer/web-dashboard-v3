@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApprovedUser } from '@/lib/auth';
 
 /**
  * Proxy to the local harness-agent service (deepseek-harness orchestration).
@@ -27,6 +28,9 @@ async function proxy(req: NextRequest, path: string) {
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   const { path } = await params;
   try {
     return await proxy(req, path.join('/'));
@@ -36,6 +40,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ path
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   const { path } = await params;
   try {
     return await proxy(req, path.join('/'));

@@ -3,12 +3,16 @@ import { db } from '@/lib/db';
 import { stopProcess, batchCheckPorts } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { logActivity } from '@/lib/activity';
+import { requireApprovedUser } from '@/lib/auth';
 
 // GET /api/projects/[id]
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params;
     const project = await db.project.findUnique({
@@ -66,6 +70,9 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params;
     const body = await req.json();
@@ -127,6 +134,9 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params;
 

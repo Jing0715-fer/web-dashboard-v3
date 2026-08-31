@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { stopProcess } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
+import { requireApprovedUser } from '@/lib/auth';
 
 // PUT /api/projects/[id]/environments/[envId]
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; envId: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id, envId } = await params;
     const body = await req.json();
@@ -77,6 +81,9 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; envId: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id, envId } = await params;
 

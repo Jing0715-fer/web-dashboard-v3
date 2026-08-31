@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { readProjectDir, checkPortStatus, batchCheckPorts } from '@/lib/process-manager';
 import { callLLM } from '@/lib/llm-providers';
 import { logActivity } from '@/lib/activity';
+import { requireApprovedUser } from '@/lib/auth';
 
 const SYSTEM_PROMPT = 'You are a DevOps expert that analyzes project structures and generates startup configurations. Always respond with valid JSON only. Ensure all port numbers are different between environments and all IP addresses are valid.';
 
@@ -14,6 +15,9 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params;
     const replace = req.nextUrl.searchParams.get('replace') === 'true';

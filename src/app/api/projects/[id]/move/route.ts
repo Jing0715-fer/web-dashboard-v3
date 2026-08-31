@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { stopProcess, batchCheckPorts } from '@/lib/process-manager';
+import { requireApprovedUser } from '@/lib/auth';
 
 // POST /api/projects/[id]/move - Move a project to a different device
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id } = await params;
     const body = await req.json();

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import fs from 'fs'
 import path from 'path'
+import { requireAdmin } from '@/lib/auth';
 
 interface ConfigEnvironment {
   name: string
@@ -25,7 +26,10 @@ interface ProjectsConfig {
   projects: ConfigProject[]
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Auth guard (Task 11-a)
+  const adminGuard = await requireAdmin(req);
+  if (adminGuard.error) return adminGuard.error;
   try {
     const projectCount = await db.project.count()
     const environmentCount = await db.environment.count()
@@ -48,7 +52,10 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(req: Request) {
+  // Auth guard (Task 11-a)
+  const adminGuard = await requireAdmin(req);
+  if (adminGuard.error) return adminGuard.error;
   try {
     const configPath = path.join(process.cwd(), 'projects.config.json')
 

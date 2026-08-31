@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import os from 'os'
 import { execSync } from 'child_process'
+import { requireApprovedUser } from '@/lib/auth';
 
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400)
@@ -57,6 +58,9 @@ function getDiskUsage(): { total: number; used: number; free: number; percentage
 }
 
 export async function GET(_req: NextRequest) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_req);
+  if (authGuard.error) return authGuard.error;
   try {
     // Real system data
     const totalMem = os.totalmem()

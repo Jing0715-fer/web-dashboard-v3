@@ -2,13 +2,17 @@ import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision'
 import { serializeActivityEvent, type SerializedActivityEvent } from '@/lib/activity'
+import { requireApprovedUser } from '@/lib/auth';
 
 // GET /api/activity — global activity feed.
 // Merges locally persisted ActivityEvent rows (written by the mutation
 // routes) with events proxied from remote devices' own activity endpoints,
 // then returns the newest 50 overall. Remote events keep their own shape
 // (their agent serializes them) and are passed through as-is.
-export async function GET() {
+export async function GET(req: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const [localEvents, projects] = await Promise.all([
       db.activityEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 50 }),

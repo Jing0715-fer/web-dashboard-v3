@@ -15,11 +15,15 @@ import {
   providerAuthHeaders,
   PROVIDER_CATALOG,
 } from '@/lib/llm-providers';
+import { requireApprovedUser } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   const { searchParams } = new URL(request.url);
   const providerId = searchParams.get('provider') || '';
   const queryApiKey = searchParams.get('apiKey') || '';
@@ -143,6 +147,9 @@ export async function GET(request: NextRequest) {
 }
 
 /** Convenience: expose the full provider catalog ids. */
-export async function POST() {
+export async function POST(req: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   return NextResponse.json({ providers: PROVIDER_CATALOG.map((p) => p.id) });
 }

@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import os from 'os'
+import { requireApprovedUser } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const networkInterfaces = os.networkInterfaces()
     const ips: Array<{ interface: string; address: string; family: string }> = []

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { proxyToAgent } from '@/lib/remote-agent';
+import { requireApprovedUser } from '@/lib/auth';
 
 /**
  * POST /api/mesh/apply-remote
@@ -11,6 +12,9 @@ import { proxyToAgent } from '@/lib/remote-agent';
  * Body: { device: {id, ip, port, apiKey}, path, name, analysis, autoStart }
  */
 export async function POST(req: NextRequest) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const body = await req.json();
     const { device, path: projectPath, name, analysis, autoStart } = body || {};

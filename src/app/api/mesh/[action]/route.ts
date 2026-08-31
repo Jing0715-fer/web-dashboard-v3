@@ -5,6 +5,7 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { logActivity } from '@/lib/activity';
+import { requireApprovedUser } from '@/lib/auth';
 
 /**
  * Device mesh pairing — simple device interconnection.
@@ -120,6 +121,14 @@ async function detectLocalAgent(): Promise<LocalAgentInfo | null> {
 export async function POST(req: NextRequest) {
   const url = new URL(req.url);
   const action = url.pathname.split('/').pop();
+
+  // Auth guard (Task 11-a): 'pair' and 'join' are UI actions and require an
+  // approved session. 'register' stays OPEN — remote device CLIs call it
+  // with apiKey + pair code, no cookies available.
+  if (action === 'pair' || action === 'join') {
+    const authGuard = await requireApprovedUser(req);
+    if (authGuard.error) return authGuard.error;
+  }
 
   try {
     if (action === 'pair') {
@@ -273,6 +282,13 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const action = url.pathname.split('/').pop();
+
+  // Auth guard (Task 11-a): UI status endpoints require an approved session.
+  if (action === 'pair' || action === 'local-agent') {
+    const authGuard = await requireApprovedUser(req);
+    if (authGuard.error) return authGuard.error;
+  }
+
   if (action === 'pair') {
     for (const [k, v] of pendingPairs) {
       if (v.expiresAt < Date.now()) pendingPairs.delete(k);

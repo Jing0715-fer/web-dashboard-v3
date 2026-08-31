@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import { publicCatalog } from '@/lib/llm-providers'
+import { requireAdmin, requireApprovedUser } from '@/lib/auth';
 
 /**
  * Mask an API key for display: keep only the last 4 characters.
@@ -23,7 +24,10 @@ function isMaskedKey(key: string): boolean {
   return key.includes('•') || /^\*{4}/.test(key)
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     let config = await db.llmConfig.findUnique({ where: { id: 'default' } })
 
@@ -52,6 +56,9 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  // Auth guard (Task 11-a)
+  const adminGuard = await requireAdmin(request);
+  if (adminGuard.error) return adminGuard.error;
   try {
     const body = await request.json()
     const { provider, apiKey, baseUrl, model } = body

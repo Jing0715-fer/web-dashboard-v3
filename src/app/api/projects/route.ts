@@ -3,10 +3,14 @@ import { db } from '@/lib/db';
 import { enrichEnvStatuses } from '@/lib/env-status';
 import { fetchRemoteProjects, type RemoteAgentConfig } from '@/lib/remote-agent';
 import { logActivity } from '@/lib/activity';
+import { requireApprovedUser } from '@/lib/auth';
 
 // GET /api/projects - List all projects with environments and status
 // Aggregates local projects (deviceId=null) and remote projects from devices
-export async function GET() {
+export async function GET(req: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     // 1. Get local projects (deviceId = null)
     const localProjects = await db.project.findMany({
@@ -230,6 +234,9 @@ export async function GET() {
 
 // POST /api/projects - Create a new project (local or remote)
 export async function POST(req: NextRequest) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const body = await req.json();
     const { path, name, description, icon, deviceId } = body;

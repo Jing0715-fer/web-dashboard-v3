@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { db } from '@/lib/db';
+import { requireApprovedUser } from '@/lib/auth';
 
 const execAsync = promisify(exec);
 
@@ -22,6 +23,9 @@ function buildEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 }
 
 export async function POST(req: NextRequest) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { projectId } = await req.json();
     if (!projectId) {

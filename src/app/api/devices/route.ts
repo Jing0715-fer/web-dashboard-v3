@@ -1,8 +1,12 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { requireApprovedUser } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const devices = await db.device.findMany({
       include: {
@@ -29,6 +33,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   try {
     const body = await request.json()
     const { name, ip, port, apiKey } = body

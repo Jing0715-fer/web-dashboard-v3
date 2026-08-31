@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { requireApprovedUser } from '@/lib/auth';
 
 interface ParsedProject {
   name: string
@@ -148,6 +149,9 @@ function inferDescription(name: string): string {
 }
 
 export async function POST(request: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   try {
     const body = await request.json()
     const { content } = body as { content: string }

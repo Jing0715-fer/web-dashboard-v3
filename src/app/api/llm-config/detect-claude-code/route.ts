@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { requireApprovedUser } from '@/lib/auth';
 
 const execFileAsync = promisify(execFile);
 
@@ -17,7 +18,10 @@ interface DetectedConfig {
 }
 
 // GET /api/llm-config/detect-claude-code - Detect Claude Code CLI configuration
-export async function GET() {
+export async function GET(req: Request) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(req);
+  if (authGuard.error) return authGuard.error;
   try {
     const results: DetectedConfig = {
       found: false,

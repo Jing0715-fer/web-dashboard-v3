@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRepairJob } from '@/lib/llm-repair';
+import { requireApprovedUser } from '@/lib/auth';
 
 /**
  * GET /api/repair-jobs/[jobId]
@@ -9,6 +10,9 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ jobId: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { jobId } = await params;
     const job = getRepairJob(jobId);

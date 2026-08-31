@@ -4,6 +4,7 @@ import { startProcess, checkPortStatus } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { startRepairJob } from '@/lib/llm-repair';
 import { logActivity } from '@/lib/activity';
+import { requireApprovedUser } from '@/lib/auth';
 
 // Companion projects that should be auto-started when the parent project starts.
 const COMPANION_AUTO_START: Record<string, string> = {
@@ -14,6 +15,9 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; envId: string }> }
 ) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(_req);
+  if (authGuard.error) return authGuard.error;
   try {
     const { id, envId } = await params;
 

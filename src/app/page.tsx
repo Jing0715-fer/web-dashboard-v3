@@ -19,6 +19,7 @@ import {
   SearchX,
   Cloud, Container, Wrench, Building, House, Box,
   EyeOff, KeyRound, Sparkles,
+  UserPlus,
 } from 'lucide-react'
 
 import {
@@ -59,6 +60,13 @@ import { RemoteProjectDialog } from '@/components/remote-project-dialog'
 import { MeshPairingDialog } from '@/components/mesh-pairing'
 import { JoinMeshDialog } from '@/components/mesh-join'
 import { useToast, addToast } from '@/hooks/use-toast'
+import { AuthProvider, useAuth, AuthLoadingSplash } from '@/components/auth/auth-provider'
+import { LoginScreen } from '@/components/auth/login-screen'
+import { AccountStatusScreen } from '@/components/auth/account-status-screen'
+import { UserMenu } from '@/components/auth/user-menu'
+import { ChangePasswordDialog } from '@/components/auth/change-password-dialog'
+import { UserManagementDialog } from '@/components/auth/user-management-dialog'
+import type { DashboardSession } from '@/components/auth/auth-types'
 import { setToastClickHandler } from '@/components/ui/toaster'
 
 // ======================== CUSTOM DnD SENSOR ========================
@@ -250,6 +258,7 @@ const ACTIVITY_ICONS: Record<string, React.ElementType> = {
   repair: Wrench,
   pair: Link2,
   delete: Trash2,
+  user: UserPlus,
 }
 
 const ACTIVITY_COLORS: Record<string, string> = {
@@ -265,6 +274,7 @@ const ACTIVITY_COLORS: Record<string, string> = {
   repair: 'text-amber-500 bg-amber-100 dark:bg-amber-900/30',
   pair: 'text-teal-500 bg-teal-100 dark:bg-teal-900/30',
   delete: 'text-zinc-500 bg-zinc-100 dark:bg-zinc-900/30',
+  user: 'text-fuchsia-500 bg-fuchsia-100 dark:bg-fuchsia-900/30',
 }
 
 // RocketIcon for deploy
@@ -4798,9 +4808,14 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 }
 
 // ======================== MAIN PAGE COMPONENT ========================
+// Gated by auth (see DashboardPage/AuthGate at the bottom of this file):
+// renders only for authenticated + approved users.
 
-export default function DashboardPage() {
+function DashboardInner({ session }: { session: DashboardSession }) {
   // State
+  const [userMgmtOpen, setUserMgmtOpen] = React.useState(false)
+  const [changePwOpen, setChangePwOpen] = React.useState(false)
+  const [adminPendingCount, setAdminPendingCount] = React.useState(0)
   const [projects, setProjects] = React.useState<Project[]>([])
   const [notifications, setNotifications] = React.useState<Notification[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -6542,6 +6557,13 @@ export default function DashboardPage() {
             <Separator orientation="vertical" className="h-5 mx-0.5 hidden sm:block" />
 
             <ThemeToggle />
+            <UserMenu
+              user={session.user}
+              onLogout={session.logout}
+              pendingCount={session.user.role === 'admin' ? adminPendingCount : 0}
+              onOpenUserManagement={() => setUserMgmtOpen(true)}
+              onOpenChangePassword={() => setChangePwOpen(true)}
+            />
             <ThemeCustomizer />
 
             {/* Settings dropdown: Gateway, LLM, Export, Sync */}
@@ -6553,9 +6575,11 @@ export default function DashboardPage() {
                 <DropdownMenuItem onClick={() => setSystemMonitorOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
                   <Server className="h-3.5 w-3.5 mr-2.5" />系统状态 / System Status
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setLlmOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
-                  <Bot className="h-3.5 w-3.5 mr-2.5" />LLM Configuration
-                </DropdownMenuItem>
+                {session.user.role === 'admin' && (
+                  <DropdownMenuItem onClick={() => setLlmOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
+                    <Bot className="h-3.5 w-3.5 mr-2.5" />LLM Configuration
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => setDepGraphOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
                   <GitFork className="h-3.5 w-3.5 mr-2.5" />Dependency Map
                 </DropdownMenuItem>
@@ -8460,8 +8484,37 @@ export default function DashboardPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Auth dialogs: user management (admin) + change password */}
+      <UserManagementDialog
+        open={userMgmtOpen}
+        onClose={() => setUserMgmtOpen(false)}
+        onPendingChange={setAdminPendingCount}
+      />
+      <ChangePasswordDialog open={changePwOpen} onClose={() => setChangePwOpen(false)} />
+
       {/* Toast container */}
       <ToastContainer />
     </div>
   )
+}
+
+// ======================== AUTH GATE ========================
+// Wraps the whole dashboard: session is fetched by <AuthProvider>, and this
+// gate decides which surface renders — login screen, pending/rejected screen,
+// or the full dashboard (only for approved users).
+
+export default function DashboardPage() {
+  return (
+    <AuthProvider>
+      <AuthGate />
+    </AuthProvider>
+  )
+}
+
+function AuthGate() {
+  const { user, status, showSeedHint, refresh, logout } = useAuth()
+  if (status === 'loading') return <AuthLoadingSplash />
+  if (!user) return <LoginScreen onAuthed={() => { void refresh() }} seedHint={showSeedHint} />
+  if (user.status !== 'approved') return <AccountStatusScreen user={user} onLogout={() => { void logout() }} />
+  return <DashboardInner session={{ user, refresh: () => { void refresh() }, logout: () => { void logout() } }} />
 }

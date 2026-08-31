@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as fs from 'fs';
+import { requireApprovedUser } from '@/lib/auth';
 
 // GET /api/openclaw/dashboard-url - Get the OpenClaw dashboard URL with token
 // Uses the same-origin /openclaw proxy path to bypass browser secure context restrictions
 export async function GET(request: NextRequest) {
+  // Auth guard (Task 11-a)
+  const authGuard = await requireApprovedUser(request);
+  if (authGuard.error) return authGuard.error;
   try {
     // Try to get the token from openclaw.json
     const configPath = process.env.HOME + '/.openclaw/openclaw.json';
