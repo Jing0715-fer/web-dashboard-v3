@@ -1108,9 +1108,8 @@ function SortableProjectCardImpl({
           </div>
         )}
 
-        {/* Decorations (subtle, data-driven) — brand hairline + ghost icon watermark */}
+        {/* Decorations (subtle, data-driven) — brand hairline */}
         <span aria-hidden className="pointer-events-none absolute top-0 left-0 right-0 h-[2px] z-10 bg-gradient-to-r from-brand/50 via-brand/15 to-transparent" />
-        <IconComp aria-hidden strokeWidth={1} className="pointer-events-none absolute -right-2 -top-2 h-[76px] w-[76px] text-brand opacity-[0.06] dark:opacity-[0.08] group-hover:opacity-[0.13] dark:group-hover:opacity-[0.16] transition-opacity duration-300 z-0" />
 
         <CardHeader className={`${headerPad} shrink-0 relative z-[1]`}>
           <div className="flex items-start gap-2 min-w-0">
@@ -4807,6 +4806,24 @@ export default function DashboardPage() {
   const [llmOpen, setLlmOpen] = React.useState(false)
   const [repairJobId, setRepairJobId] = React.useState<string | null>(null)
   const [harnessSession, setHarnessSession] = React.useState<HarnessSessionState | null>(null)
+
+  // Restore an in-flight analysis wizard after an HMR remount / reload —
+  // otherwise a completed-but-unapplied analysis is lost and the user has
+  // no way to reach its result.
+  React.useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('dashboard-harness-wizard')
+      if (raw) {
+        const sess = JSON.parse(raw)
+        if (sess && sess.sessionId && sess.projectId) setHarnessSession(sess)
+      }
+    } catch { try { sessionStorage.removeItem('dashboard-harness-wizard') } catch {} }
+  }, [])
+
+  const closeHarnessWizard = React.useCallback(() => {
+    setHarnessSession(null)
+    try { sessionStorage.removeItem('dashboard-harness-wizard') } catch {}
+  }, [])
   const [remoteProjectOpen, setRemoteProjectOpen] = React.useState(false)
   const [meshPairingOpen, setMeshPairingOpen] = React.useState(false)
   const [meshJoinOpen, setMeshJoinOpen] = React.useState(false)
@@ -5483,7 +5500,10 @@ export default function DashboardPage() {
       })
       if (res.ok) {
         const data = await res.json()
-        setHarnessSession({ sessionId: data.sessionId, projectId, name, path })
+        const sess = { sessionId: data.sessionId, projectId, name, path }
+        setHarnessSession(sess)
+        // Survive HMR remounts / accidental reloads — see the restore effect above.
+        try { sessionStorage.setItem('dashboard-harness-wizard', JSON.stringify(sess)) } catch {}
         addToast({ title: 'Agent 已启动', description: 'deepseek-harness 正在分析项目并自动调试启动配置…', variant: 'success' })
       } else {
         const err = await res.json()
@@ -7596,7 +7616,7 @@ export default function DashboardPage() {
       {/* deepseek-harness agent analysis wizard (live progress + one-click start) */}
       <AnalyzeWizard
         session={harnessSession}
-        onClose={() => setHarnessSession(null)}
+        onClose={closeHarnessWizard}
         onApplied={() => fetchProjects()}
         onStartEnv={(projectId, envId) => handleEnvAction(projectId, envId, 'start')}
       />

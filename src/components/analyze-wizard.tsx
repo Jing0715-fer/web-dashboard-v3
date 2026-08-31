@@ -46,6 +46,34 @@ const kindIcon: Record<ProgressItem['kind'], React.ReactNode> = {
   note: <Search className="h-3.5 w-3.5 text-muted-foreground" />,
 }
 
+// ---- phase-aware progress estimation -------------------------------------
+// The old bar was a pure event-count ramp (jumpy, plateaued at an arbitrary
+// cap). Instead, map the agent's observable actions to workflow phases and
+// creep slowly inside the current phase, so the bar always tells the user
+// WHERE in the pipeline the agent is and never freezes or jumps backwards.
+const PHASE_MARKERS: Array<{ re: RegExp; pct: number; label: string }> = [
+  { re: /(^|\s)(npm|bun|yarn|pnpm) (install|ci|add)|pip install|go mod download|go build|cargo build|bundle install|composer install/i, pct: 22, label: '安装依赖' },
+  { re: /(npm|bun|yarn|pnpm) run (dev|start)\s|(\bnode|\bdeno|\bpython3?)\s+[\w./-]+\.(js|mjs|cjs|ts|py)|uvicorn|gunicorn|flask run|rails s|php artisan serve/i, pct: 42, label: '启动 dev 服务' },
+  { re: /curl|http_code|127\.0\.0\.1|localhost:|nc -z|ss -ltn/i, pct: 56, label: '验证端口' },
+  { re: /(npm|bun|yarn|pnpm) run build\s|next build|vite build|webpack|\btsc\b/i, pct: 72, label: '构建 production' },
+  { re: /NODE_ENV=production|(npm|bun|yarn|pnpm) run start\s/i, pct: 86, label: '验证 production' },
+]
+
+function phaseEstimate(items: ProgressItem[], attempt: number, elapsed: number): { pct: number; label: string } {
+  const current = items.filter(p => p.attempt === attempt)
+  let pct = current.length > 0 ? 6 : 2
+  let label = '探索项目结构'
+  for (const p of current) {
+    for (const m of PHASE_MARKERS) {
+      if (m.re.test(p.text) && m.pct > pct) { pct = m.pct; label = m.label }
+    }
+  }
+  // slow creep inside the current phase so the bar never freezes while a
+  // long install/build runs
+  const creep = Math.min(9, elapsed * 0.04)
+  return { pct: Math.min(pct + creep, 95), label }
+}
+
 /**
  * AnalyzeWizard — live progress of the deepseek-harness agent analyzing a
  * project: installs dependencies, generates the startup command and
@@ -69,6 +97,7 @@ export function AnalyzeWizard({
   const [applied, setApplied] = React.useState(false)
   const [elapsed, setElapsed] = React.useState(0)
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const phaseRef = React.useRef<{ attempt: number; pct: number }>({ attempt: 0, pct: 0 })
 
   const sessionId = session?.sessionId
 
@@ -84,6 +113,11 @@ export function AnalyzeWizard({
           const data = await res.json()
           if (!stop) { setView(data); setError(null) }
           if (data.status !== 'running') return
+        } else if (res.status === 404) {
+          // Session is gone (harness-agent restarted / GC'd) — stop polling
+          // with a clear failed state instead of spinning forever.
+          if (!stop) setView({ id: sessionId, status: 'failed', attempt: 1, maxAttempts: 1, progress: [], result: null, error: '分析会话已不存在（服务可能已重启）' })
+          return
         } else if (!stop) {
           setError('无法连接 harness-agent 服务')
         }
@@ -108,7 +142,7 @@ export function AnalyzeWizard({
       const res = await fetch(`/api/projects/${session.projectId}/apply-analysis`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analysis: view.result, autoStart }),
+        body: JSON.stringify({ analysis: view.result }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -164,11 +198,17 @@ export function AnalyzeWizard({
   const maxAttempts = view?.maxAttempts ?? 3
   const done = status === 'completed'
   const failed = status === 'failed' || status === 'cancelled'
-  const pct = done ? 100 : failed ? 100 : Math.min(92, 8 + progressItems.length * 2.4)
+
+  // Monotonic per attempt: max() is idempotent, so mutating the ref during
+  // render is safe even under StrictMode double-render.
+  const est = phaseEstimate(progressItems, attempt, elapsed)
+  if (phaseRef.current.attempt !== attempt) phaseRef.current = { attempt, pct: 0 }
+  const pct = done || failed ? 100 : Math.max(phaseRef.current.pct, est.pct)
+  phaseRef.current.pct = pct
   const envs = view?.result?.environments ?? []
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o && status === 'running') { /* require explicit cancel */ } }}>
+    <Dialog open onOpenChange={(o) => { if (!o && status !== 'running') onClose() }}>
       <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
@@ -194,7 +234,12 @@ export function AnalyzeWizard({
           <span className="ml-auto flex items-center gap-1"><Zap className="h-3 w-3 text-amber-500" />deepseek-harness</span>
         </div>
 
-        <Progress value={pct} className="h-1.5" />
+        <div className="flex items-center gap-2.5">
+          <Progress value={pct} className="h-1.5 flex-1" />
+          {status === 'running' && (
+            <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums w-24 text-right truncate" title={est.label}>{est.label}</span>
+          )}
+        </div>
 
         {/* live progress feed */}
         <div ref={scrollRef} className="flex-1 min-h-0 max-h-72 overflow-y-auto rounded-lg border bg-muted/30 p-3 space-y-1.5">

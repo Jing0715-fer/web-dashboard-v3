@@ -8,10 +8,11 @@ import { join } from 'path';
  * POST /api/projects/[id]/apply-analysis
  * Applies a completed harness-agent analysis result to the project:
  * validates/sanitizes the LLM-generated config (same rules as the classic
- * analyze route) and upserts environments. Optionally auto-starts the dev env.
+ * analyze route) and upserts environments. The start itself is driven
+ * client-side (it goes through the normal start API for progress UI and
+ * pending-state handling), so there is no server-side autoStart flag here.
  *
- * Body: { analysis: {projectName, description, icon, environments[], summary},
- *         autoStart?: boolean }
+ * Body: { analysis: {projectName, description, icon, environments[], summary} }
  */
 export async function POST(
   req: NextRequest,
@@ -21,7 +22,6 @@ export async function POST(
     const { id } = await params;
     const body = await req.json();
     const analysis = body?.analysis;
-    const autoStart = body?.autoStart === true;
 
     const project = await db.project.findUnique({
       where: { id },

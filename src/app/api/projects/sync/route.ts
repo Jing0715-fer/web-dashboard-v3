@@ -168,7 +168,12 @@ export async function POST(request: Request) {
       )
     }
 
-    const results = []
+    // Path alone is not a unique key (compound deviceId+path is), so implement
+    // the upsert as findFirst + update/create — Prisma compound uniques cannot
+    // match on a null deviceId.
+    interface SyncedEnv { id: string; name: string; port: number; status: string }
+    interface SyncedProject { id: string; name: string; path: string; environments: SyncedEnv[] }
+    const results: SyncedProject[] = []
 
     for (const proj of parsedProjects) {
       const displayName = toDisplayName(proj.name)
@@ -176,22 +181,27 @@ export async function POST(request: Request) {
       const tags = inferTags(proj.name)
       const description = inferDescription(proj.name)
 
-      // Upsert: if project with same path exists, update it; otherwise create
-      const upserted = await db.project.upsert({
-        where: { path: proj.path },
-        update: {
-          name: displayName,
-          description,
-          icon,
-          tags: JSON.stringify(tags),
-        },
-        create: {
-          name: displayName,
-          path: proj.path,
-          description,
-          icon,
-          tags: JSON.stringify(tags),
-          environments: {
+      const existing = await db.project.findFirst({
+        where: { path: proj.path, deviceId: null },
+        select: { id: true },
+      })
+      const shared = {
+        name: displayName,
+        description,
+        icon,
+        tags: JSON.stringify(tags),
+      }
+      const upserted = existing
+        ? await db.project.update({
+            where: { id: existing.id },
+            data: shared,
+            include: { environments: true },
+          })
+        : await db.project.create({
+          data: {
+            ...shared,
+            path: proj.path,
+            environments: {
             create: [
               {
                 name: 'development',
@@ -209,9 +219,9 @@ export async function POST(request: Request) {
               },
             ],
           },
-        },
-        include: { environments: true },
-      })
+          },
+          include: { environments: true },
+        })
 
       results.push(upserted)
     }

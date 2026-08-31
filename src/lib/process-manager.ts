@@ -235,13 +235,14 @@ function isCommandSafe(cmd: string): boolean {
   ];
   
   // Check if command starts with a safe prefix.
-  // Skip leading VAR=value env prefixes (e.g. "DATABASE_URL=... bun run start").
+  // Skip ALL leading VAR=value env prefixes (e.g. "NODE_ENV=production PORT=4211 node …").
+  // LLM-generated commands frequently carry several assignments; skipping only
+  // one made valid verified commands fail the whitelist at start time.
   // The value may contain '/' (e.g. file paths) — we must NOT split the value on '/'.
-  let firstToken = trimmed.split(/\s+/)[0] || '';
-  if (/^[A-Z_][A-Z0-9_]*=/.test(firstToken)) {
-    const tokens = trimmed.split(/\s+/);
-    firstToken = tokens[1] || '';
-  }
+  const tokens = trimmed.split(/\s+/);
+  let idx = 0;
+  while (idx < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[idx])) idx++;
+  let firstToken = tokens[idx] || '';
   firstToken = firstToken.split('/').pop() || '';
   const startsSafe = safePrefixes.some(prefix => {
     const prefixBase = prefix.split('/').pop() || prefix;
@@ -334,6 +335,10 @@ export async function startProcess(
     }
 
     const env: NodeJS.ProcessEnv = {
+      // Next's global.d.ts declares NODE_ENV as required on ProcessEnv; the
+      // parent always has it in dev/prod. Placed BEFORE envVars so a project's
+      // own NODE_ENV (e.g. production) still wins.
+      NODE_ENV: process.env.NODE_ENV,
       ...sanitizedParentEnv,
       ...envVars,
       PORT: String(port),

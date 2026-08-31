@@ -149,7 +149,7 @@ function buildChildEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
     if (v === undefined) continue;
     env[k] = v;
   }
-  return { ...env, ...extra };
+  return { ...env, ...extra } as NodeJS.ProcessEnv;
 }
 
 const SAFE_REPAIR_PREFIXES = [

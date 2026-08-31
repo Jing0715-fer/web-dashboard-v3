@@ -6,7 +6,9 @@ interface Toast {
   id: string
   title: string
   description?: string
-  variant?: 'default' | 'destructive' | 'success'
+  // 'warning' / 'info' / 'success' are semantic labels for callers; the
+  // Toaster maps anything non-destructive to the default visual style.
+  variant?: 'default' | 'destructive' | 'success' | 'warning' | 'info'
   detail?: string  // 完整错误信息，点击 toast 时展示
 }
 

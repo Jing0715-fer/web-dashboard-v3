@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getResponse } from 'next/dist/server/web/spec-extension/response';
 
 // Middleware to proxy /openclaw/* requests to OpenClaw
 export function middleware(request: NextRequest) {

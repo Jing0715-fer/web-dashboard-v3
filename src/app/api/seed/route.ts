@@ -76,7 +76,9 @@ export async function POST() {
     await db.project.deleteMany()
 
     // Create each project with its environments
-    const createdProjects = []
+    interface SeededEnv { id: string; name: string; port: number; status: string }
+    interface SeededProject { id: string; name: string; path: string; environments: SeededEnv[] }
+    const createdProjects: SeededProject[] = []
     for (const project of config.projects) {
       const created = await db.project.create({
         data: {

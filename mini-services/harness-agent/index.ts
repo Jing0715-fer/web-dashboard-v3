@@ -20,7 +20,7 @@
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { spawn, ChildProcess } from 'child_process';
-import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, appendFileSync } from 'fs';
+import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, appendFileSync, readlinkSync } from 'fs';
 import { join, resolve, basename } from 'path';
 import { randomUUID } from 'crypto';
 import { zstdDecompressSync } from 'zlib';
@@ -32,6 +32,7 @@ const DSH_HOME = resolve(process.cwd(), '.dsh-home');
 const PATCH_PATH = resolve(process.cwd(), 'task-patch.yml');
 const GATEWAY_KEY = 'local-gateway-key';
 const ATTEMPT_TIMEOUT_MS = 8 * 60 * 1000; // per dsh run
+const STALL_KILL_MS = 5 * 60 * 1000; // no activity at all → kill the attempt
 const MAX_ATTEMPTS = 3;
 const LOG_DIR = join(tmpdir(), 'harness-agent-logs');
 if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
@@ -67,6 +68,12 @@ interface AnalysisSession {
   logFile: string;
   poller: any | null;
   lastEventLine: number;
+  /** Last time we saw ANY sign of life: stdout/stderr bytes, log growth, progress events. */
+  lastActivityAt: number;
+  /** Attempt number that was killed for stalling (fed back into the retry prompt). */
+  stalledAttempt: number | null;
+  /** Warn-once flag for the 2-minute inactivity note. */
+  stalledNote: boolean;
 }
 
 const sessions = new Map<string, AnalysisSession>();
@@ -142,6 +149,7 @@ function pollDshLog(s: AnalysisSession) {
     try { size = statSync(file).size; } catch { return; }
     if (size <= s.lastLogSize && size !== 0) return;
     s.lastLogSize = size;
+    s.lastActivityAt = Date.now(); // log file grew → the agent is alive
     let text = '';
     try { text = readZstdFrames(file); } catch { return; }
     const lines = text.split('\n').filter(l => l.trim());
@@ -196,6 +204,9 @@ Steps you MUST complete:
 {"projectName":"...","description":"one sentence","icon":"one of folder,globe,code,database,smartphone,shopping-cart,layout,palette,cpu,book-open,music,gamepad-2,bar-chart,shield,camera,map,cloud,terminal,rocket,puzzle,package,zap,laptop,atom,flame,server","summary":"what you did, problems found and fixed, production verification result","environments":[{"name":"dev","cmd":"the verified command","port":NUMBER,"envVars":{"KEY":"value"}},{"name":"production","cmd":"the production command (build && start when possible)","port":NUMBER,"envVars":{"NODE_ENV":"production","KEY":"value"}}]}
 
 Rules:
+- BUDGET DISCIPLINE (a supervisor kills runs that go silent): keep exploration MINIMAL — read package.json and the main entry file(s), at most ~8 files total. NEVER read node_modules, lockfiles, test files, or docs. Aim for ≤ 35 tool calls overall.
+- Time budget: dev boot wait ≤ 90s (poll the port every few seconds instead of one long sleep), production build ≤ 3 min, overall target ≤ 6 minutes. If you are running out of budget, STOP exploring and return your best current valid JSON immediately — a partially verified config is far better than a timeout.
+- If a port you chose is occupied, either kill the occupying process or move to the next free port. Do NOT retry the same port in a loop.
 - The environments array MUST contain BOTH the verified "dev" entry AND a "production" entry, using DIFFERENT ports (e.g. dev=4001, production=4002).
 - The production command must be a single shell command; combine build+start with && (e.g. "npm run build && npm run start"). Use bun run instead of npm run if the project uses bun.
 - envVars values must be strings. Include HOST=0.0.0.0 and PORT as string when the server needs them; production envVars must include NODE_ENV=production.
@@ -211,6 +222,51 @@ function killTree(pid: number | undefined) {
     if (platform() === 'win32') spawn('taskkill', ['/PID', String(pid), '/T', '/F']);
     else spawn('sh', ['-c', `kill -TERM -${pid} 2>/dev/null; kill -TERM ${pid} 2>/dev/null; sleep 1; kill -KILL -${pid} 2>/dev/null; kill -KILL ${pid} 2>/dev/null`]);
   } catch { /* best effort */ }
+}
+
+/**
+ * Zombie sweep: kill any leftover process whose CWD is exactly the analyzed
+ * project directory. The dsh agent starts servers (npm run dev …) as background
+ * jobs; if it is killed mid-run (timeout/cancel/stall) those jobs survive
+ * killTree and keep ports occupied, which derails the retry attempt. Sweeping
+ * by /proc/<pid>/cwd catches them regardless of how they were spawned.
+ */
+function killProjectOrphans(s: AnalysisSession, why: string): number {
+  try {
+    if (platform() === 'win32') return 0;
+    const myCwd = process.cwd();
+    // Safety: never sweep a directory that contains the harness itself (would
+    // kill the dashboard / harness-agent / their node_modules workers).
+    if (myCwd === s.path || myCwd.startsWith(s.path + '/')) return 0;
+    const victims: number[] = [];
+    for (const ent of readdirSync('/proc')) {
+      if (!/^\d+$/.test(ent)) continue;
+      const pid = Number(ent);
+      if (pid === process.pid) continue;
+      try {
+        const cwd = readlinkSync(join('/proc', ent, 'cwd'));
+        if (cwd === s.path) victims.push(pid);
+      } catch { continue; } // exited or not ours
+    }
+    if (victims.length === 0) return 0;
+    pushProgress(s, 'note', `清理 ${victims.length} 个遗留进程（${why}）：PID ${victims.slice(0, 6).join(', ')}${victims.length > 6 ? '…' : ''}`);
+    for (const pid of victims) { try { process.kill(pid, 'SIGTERM'); } catch {} }
+    const hard = setTimeout(() => {
+      for (const pid of victims) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    }, 1500);
+    hard.unref?.();
+    return victims.length;
+  } catch { return 0; }
+}
+
+/** Best-effort cleanup of every live session (used on harness shutdown). */
+function cleanupAllSessions() {
+  for (const s of sessions.values()) {
+    if (s.status === 'running') {
+      killTree(s.child?.pid);
+      setTimeout(() => killProjectOrphans(s, 'harness 退出清理'), 1000).unref?.();
+    }
+  }
 }
 
 function parseConfigJson(text: string): any | null {
@@ -249,6 +305,11 @@ function startAttempt(s: AnalysisSession, feedback?: string) {
   s.attempt += 1;
   s.lastLogSize = 0;
   s.lastEventLine = 0;
+  s.lastActivityAt = Date.now();
+  s.stalledNote = false;
+  // Clear orphans from a previous attempt before spawning a new run — a
+  // leftover dev server holding the port is the #1 cause of retry failures.
+  killProjectOrphans(s, `第 ${s.attempt} 次尝试前清扫`);
   pushProgress(s, 'start', `第 ${s.attempt}/${s.maxAttempts} 次分析启动（deepseek-harness agent）`);
 
   const task = buildTask(s, feedback);
@@ -265,15 +326,20 @@ function startAttempt(s: AnalysisSession, feedback?: string) {
       DSH_PERMISSION_MODE: 'danger-full-access',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
+    // Process-group leader: killTree(-PGID) then reliably reaps dsh AND every
+    // job it spawned (npm/node servers), instead of just the dsh process.
+    detached: true,
   });
   s.child = child;
 
   let stdout = '';
   child.stdout!.on('data', (c: Buffer) => {
     stdout += c.toString();
+    s.lastActivityAt = Date.now();
     try { appendFileSync(logFile, c); } catch {}
   });
   child.stderr!.on('data', (c: Buffer) => {
+    s.lastActivityAt = Date.now();
     try { appendFileSync(logFile, c); } catch {}
     const line = c.toString().trim();
     if (line && !line.startsWith('dsh: ')) pushProgress(s, 'note', line.slice(0, 140));
@@ -282,11 +348,16 @@ function startAttempt(s: AnalysisSession, feedback?: string) {
   const timeout = setTimeout(() => {
     pushProgress(s, 'error', '本次尝试超时，正在终止…');
     killTree(child.pid);
+    // dsh background jobs can outlive the tree kill — sweep by project cwd.
+    setTimeout(() => killProjectOrphans(s, '超时清扫'), 2500).unref?.();
   }, ATTEMPT_TIMEOUT_MS);
 
   child.on('exit', (code) => {
     clearTimeout(timeout);
     s.child = null;
+    // Final sweep regardless of outcome — the task tells the agent to stop its
+    // servers, but a supervisor-side guarantee is worth more than a promise.
+    setTimeout(() => killProjectOrphans(s, '会话收尾校验'), 2000).unref?.();
     if (s.cancelled) {
       s.status = 'cancelled';
       pushProgress(s, 'error', '已取消');
@@ -307,9 +378,12 @@ function startAttempt(s: AnalysisSession, feedback?: string) {
     }
     if (s.attempt < s.maxAttempts) {
       const tail = stdout.trim().slice(-600) || '(no output)';
+      const stallNote = s.stalledAttempt === s.attempt
+        ? 'The previous attempt STALLED — no agent activity for 5 minutes and the supervisor killed it (likely a hung command or a blocking wait). Avoid long blocking sleeps; poll with short sleeps instead. '
+        : '';
       pushProgress(s, 'error', `第 ${s.attempt} 次尝试未返回有效配置，准备重试`);
       setTimeout(() => {
-        if (!s.cancelled && s.status === 'running') runAttempt(s, `The previous attempt exited with code ${code} and its final output was not a valid JSON config. Last output:\n${tail}`);
+        if (!s.cancelled && s.status === 'running') runAttempt(s, `${stallNote}The previous attempt exited with code ${code} and its final output was not a valid JSON config. Last output:\n${tail}`);
       }, 1500);
     } else {
       s.status = 'failed';
@@ -340,24 +414,44 @@ function startAnalysis(path: string, name: string, usedPorts: number[], maxAttem
     lastEventLine: 0,
     logFile: '',
     poller: null,
+    lastActivityAt: Date.now(),
+    stalledAttempt: null,
+    stalledNote: false,
   };
   sessions.set(id, s);
   pushProgress(s, 'note', `项目: ${name} (${path})`);
   runAttempt(s);
 
-  // Live progress poller — tails the dsh session event log.
+  // Live progress poller — tails the dsh session event log, and doubles as
+  // the stall supervisor: an agent with no log growth, no stdout and no
+  // progress events for 5 minutes is considered hung.
   s.poller = setInterval(() => {
     if (s.status !== 'running') {
       clearInterval(s.poller);
       return;
     }
     try { pollDshLog(s); } catch { /* ignore */ }
+    const idleMs = Date.now() - s.lastActivityAt;
+    if (s.child && idleMs > STALL_KILL_MS) {
+      s.stalledAttempt = s.attempt;
+      pushProgress(s, 'error', `Agent 已 ${Math.round(STALL_KILL_MS / 60000)} 分钟无任何活动，判定卡死，终止本次尝试`);
+      killTree(s.child.pid);
+      setTimeout(() => killProjectOrphans(s, '卡死清扫'), 2500).unref?.();
+    } else if (idleMs > 120_000) {
+      if (!s.stalledNote) {
+        s.stalledNote = true;
+        pushProgress(s, 'note', '（两分钟无新事件 — agent 可能正在执行安装/构建等耗时命令，继续等待）');
+      }
+    } else if (idleMs < 60_000) {
+      s.stalledNote = false; // activity resumed — allow a future warn
+    }
   }, 2500);
 
   // Session GC after 1 hour.
   setTimeout(() => {
     if (s.status === 'running') {
       killTree(s.child?.pid);
+      setTimeout(() => killProjectOrphans(s, '会话超时清扫'), 2500).unref?.();
       s.status = 'failed';
       s.error = 'Session timed out';
     }
@@ -432,6 +526,7 @@ const server = createServer(async (req, res) => {
       if (action === '/cancel' && req.method === 'POST') {
         s.cancelled = true;
         killTree(s.child?.pid);
+        setTimeout(() => killProjectOrphans(s, '取消清扫'), 2500).unref?.();
         if (s.status === 'running') s.status = 'cancelled';
         return json(res, 200, sessionView(s));
       }
@@ -472,3 +567,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[harness-agent] listening on http://0.0.0.0:${PORT}`);
   console.log(`[harness-agent] dsh available: ${existsSync(DSH_BIN)}`);
 });
+
+// Don't leave dsh runs + project servers behind when the harness stops.
+process.on('SIGTERM', () => { cleanupAllSessions(); process.exit(0); });
+process.on('SIGINT', () => { cleanupAllSessions(); process.exit(0); });

@@ -63,8 +63,17 @@ const LOG_MESSAGES: Record<string, string[]> = {
   ],
 }
 
+interface GeneratedLog {
+  id: string
+  timestamp: string
+  level: string
+  source: string
+  message: string
+  projectId: string
+}
+
 function generateLogs(projectId: string) {
-  const logs = []
+  const logs: GeneratedLog[] = []
   const now = Date.now()
 
   for (let i = 0; i < 30; i++) {

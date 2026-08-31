@@ -18,8 +18,12 @@ function randomElement<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
+type ProjectWithEnvs = Awaited<ReturnType<typeof db.project.findMany>>[number] & {
+  environments: Array<{ id: string; name: string; status: string; port: number; pid: number | null }>
+}
+
 function generateNotifications(
-  projects: Awaited<ReturnType<typeof db.project.findMany>>
+  projects: ProjectWithEnvs[]
 ): Notification[] {
   const notifications: Notification[] = []
   let idCounter = 0
@@ -120,8 +124,10 @@ function generateNotifications(
       usedProjectIds.add(project.id)
     }
 
-    // Occasionally add a config change or restart notification
-    if (Math.random() > 0.6 && notifications.length < 10) {
+    // Occasionally add a config change or restart notification.
+    // Guard on envs.length: a freshly-added project (pre-analysis) has zero
+    // environments and randomElement([]) would return undefined.
+    if (envs.length > 0 && Math.random() > 0.6 && notifications.length < 10) {
       const templates = [
         {
           type: 'info' as NotificationType,
