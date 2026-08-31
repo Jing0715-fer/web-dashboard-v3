@@ -1,0 +1,18 @@
+{
+  "name": "dashboard-agent-linux",
+  "version": "1.2.0",
+  "private": true,
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js",
+    "start:dev": "node agent.js --port 3100 --apiKey dev-test-key",
+    "setup": "node setup.js",
+    "postinstall": "prisma generate || echo [postinstall] prisma generate skipped - run manually if needed",
+    "dev": "DATABASE_URL=file:./db/agent.db node agent.js --port 3101 --apiKey remote-device-3101-key --name dev-laptop-2"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.11.1",
+    "better-sqlite3": "^12.10.0",
+    "prisma": "^6.11.1"
+  }
+}
