@@ -328,6 +328,7 @@ export const dialogs = {
   'dlg.detail.notesSaved': '备注已保存',
   'dlg.detail.notesSaveFailed': '保存备注失败',
   'dlg.detail.portUpdated': '端口已更新',
+  'dlg.detail.portSaveFailed': '保存端口失败',
   'dlg.detail.copied': '{label} 已复制！',
   'dlg.detail.envVarsSaved': '环境变量已保存',
   'dlg.detail.envVarsSaveFailed': '保存环境变量失败',

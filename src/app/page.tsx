@@ -3149,8 +3149,18 @@ function DetailSheet({
       })
       if (res.ok) {
         toast({ title: t('dlg.detail.portUpdated'), variant: 'success' })
+        onRefresh?.()
+      } else {
+        const err = await res.json().catch(() => ({} as { error?: string }))
+        toast({
+          title: t('dlg.detail.portSaveFailed'),
+          description: err.error || t('dlg.common.serverError'),
+          variant: 'destructive',
+        })
       }
-    } catch { /* ignore */ }
+    } catch {
+      toast({ title: t('dlg.detail.portSaveFailed'), variant: 'destructive' })
+    }
     setEditingPort(null)
   }
 

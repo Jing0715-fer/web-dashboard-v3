@@ -332,6 +332,7 @@ export const dialogs = {
   'dlg.detail.notesSaved': 'Notes saved',
   'dlg.detail.notesSaveFailed': 'Failed to save notes',
   'dlg.detail.portUpdated': 'Port updated',
+  'dlg.detail.portSaveFailed': 'Failed to save port',
   'dlg.detail.copied': '{label} copied!',
   'dlg.detail.envVarsSaved': 'Environment variables saved',
   'dlg.detail.envVarsSaveFailed': 'Failed to save env vars',
