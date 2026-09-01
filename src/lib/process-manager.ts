@@ -395,9 +395,17 @@ export async function startProcess(
       lines.forEach(line => appendLog(key, line));
     });
 
+    // Recent stderr kept in memory for immediate error reporting — the on-disk
+    // log file may contain lines from previous runs of this environment, so
+    // extracting the failure reason from it can surface stale errors.
+    const recentErr: string[] = [];
     child.stderr?.on('data', (data: Buffer) => {
       const lines = data.toString().split('\n').filter(Boolean);
-      lines.forEach(line => appendLog(key, `[stderr] ${line}`));
+      lines.forEach(line => {
+        appendLog(key, `[stderr] ${line}`);
+        recentErr.push(line);
+        if (recentErr.length > 30) recentErr.shift();
+      });
     });
 
     child.on('error', (err) => {
@@ -415,28 +423,51 @@ export async function startProcess(
 
     processes.set(key, child);
 
-    // Wait for the process to initialize, then check if it's still alive
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // ---- Real startup verification -------------------------------------
+    // Success is ONLY reported when the process is still alive AND actually
+    // listening on the expected port. Previously this waited a fixed 2s and
+    // returned success even when the port never came up — the UI then showed
+    // "started" for processes that had already crashed or never bound.
+    const VERIFY_TIMEOUT_MS = (() => {
+      const n = parseInt(process.env.START_VERIFY_TIMEOUT_MS || '', 10);
+      return Number.isFinite(n) && n > 0 ? n : 30_000;
+    })();
+    const POLL_MS = 750;
+    const deadline = Date.now() + VERIFY_TIMEOUT_MS;
 
-    if (child.exitCode !== null) {
-      // Process already exited - get the error from logs
-      const logs = getLogs(projectId, envName);
-      const errorLines = logs.filter(l => l.includes('[stderr]') || l.includes('Error') || l.includes('error') || l.includes('ENOENT') || l.includes('not found'));
-      const errorMsg = errorLines.length > 0
-        ? errorLines.slice(-3).map(l => l.replace('[stderr] ', '')).join('; ')
-        : 'Process exited immediately. Check logs for details.';
-      return { success: false, error: errorMsg };
+    const describeExit = (): string => {
+      const exitNote = `Process exited with code ${child.exitCode ?? 'null'}${child.signalCode ? ` (signal ${child.signalCode})` : ''}`;
+      const errTail = recentErr.slice(-6).join('\n').trim();
+      return errTail ? `${exitNote}. ${errTail}` : `${exitNote}. Run "View Logs" for the full output.`;
+    };
+
+    while (true) {
+      // Crashed / exited before the port came up → immediate, honest failure.
+      if (child.exitCode !== null || (child.killed && child.signalCode)) {
+        appendLog(key, `[${new Date().toISOString()}] [FAIL] ${describeExit()}`);
+        return { success: false, error: describeExit() };
+      }
+
+      if (await checkPortStatus(port)) {
+        appendLog(key, `[${new Date().toISOString()}] [OK] Port ${port} is listening (verified, pid ${child.pid})`);
+        return { success: true, pid: child.pid || undefined };
+      }
+
+      if (Date.now() >= deadline) {
+        const elapsed = Math.round(VERIFY_TIMEOUT_MS / 1000);
+        const errTail = recentErr.slice(-6).join('\n').trim();
+        const reason = errTail
+          ? `Port ${port} did not become active within ${elapsed}s — the process has not started listening. Recent output:\n${errTail}`
+          : `Port ${port} did not become active within ${elapsed}s — the process is running but not listening on it. It may still be compiling/building; check the logs and retry later.`;
+        appendLog(key, `[${new Date().toISOString()}] [FAIL] ${reason}`);
+        // Kill the half-started process so a retry (manual or LLM repair) does
+        // not race a zombie that may grab the port a minute later.
+        try { child.kill('SIGTERM'); } catch { /* already gone */ }
+        return { success: false, error: reason };
+      }
+
+      await new Promise(resolve => setTimeout(resolve, POLL_MS));
     }
-
-    // Check if port is now in use
-    const portActive = await checkPortStatus(port);
-    if (portActive) {
-      appendLog(key, `[${new Date().toISOString()}] [OK] Port ${port} is now active`);
-    } else {
-      appendLog(key, `[${new Date().toISOString()}] [WAIT] Port ${port} is not yet active (process may still be starting)`);
-    }
-
-    return { success: true, pid: child.pid || undefined };
   } catch (err: any) {
     appendLog(key, `[${new Date().toISOString()}] Failed to start: ${err.message}`);
     return { success: false, error: err.message };

@@ -26,8 +26,18 @@ export type RepairKind = 'start' | 'rebuild';
 
 export interface RepairStep {
   ts: number;
-  level: 'info' | 'command' | 'output' | 'llm' | 'success' | 'error' | 'warn';
+  level: 'info' | 'command' | 'output' | 'llm' | 'success' | 'error' | 'warn' | 'approval' | 'approved' | 'denied';
   msg: string;
+  /** Repair round this step belongs to (0 = pre-round setup). Lets the
+   *  dialog render "Round N" dividers between diagnosis/fix attempts. */
+  round?: number;
+}
+
+export interface PendingApproval {
+  cmd: string;
+  ts: number;
+  /** Epoch-ms when the server auto-denies if nobody answers (ts + 10min). */
+  expiresAt: number;
 }
 
 export interface RepairJob {
@@ -45,18 +55,29 @@ export interface RepairJob {
   finishedAt?: number;
   round: number;
   maxRounds: number;
+  /** Non-null while the job is paused waiting for a human to approve (or
+   *  deny) a command that failed the safe-allowlist check. The dialog polls
+   *  this and renders an approve/deny panel. */
+  pendingApproval?: PendingApproval | null;
 }
 
 // In-memory job registry. Stored on globalThis because Next.js dev mode
 // instantiates lib modules per route bundle — a plain module-level Map would
 // not be shared between the route that creates jobs and the one that polls them.
-const globalForRepair = globalThis as unknown as { __llmRepairJobs?: Map<string, RepairJob>; __llmRepairActiveByEnv?: Map<string, string> };
+const globalForRepair = globalThis as unknown as {
+  __llmRepairJobs?: Map<string, RepairJob>;
+  __llmRepairActiveByEnv?: Map<string, string>;
+  __llmRepairApprovals?: Map<string, (approved: boolean) => void>;
+};
 const jobs: Map<string, RepairJob> = globalForRepair.__llmRepairJobs ?? new Map();
 globalForRepair.__llmRepairJobs = jobs;
 // envId → active (running) job id. Prevents duplicate concurrent repair jobs
 // for the same environment (double-start races + orphaned duplicate processes).
 const activeByEnv: Map<string, string> = globalForRepair.__llmRepairActiveByEnv ?? new Map();
 globalForRepair.__llmRepairActiveByEnv = activeByEnv;
+// jobId → resolver for the pending manual-approval request.
+const approvals: Map<string, (approved: boolean) => void> = globalForRepair.__llmRepairApprovals ?? new Map();
+globalForRepair.__llmRepairApprovals = approvals;
 let jobSeq = 0;
 
 export function getRepairJob(id: string): RepairJob | null {
@@ -163,8 +184,45 @@ function logRepairCompletion(job: RepairJob): void {
 // ============================= helpers =============================
 
 function log(job: RepairJob, level: RepairStep['level'], msg: string) {
-  job.steps.push({ ts: Date.now(), level, msg: String(msg).slice(0, 500) });
+  job.steps.push({ ts: Date.now(), level, msg: String(msg).slice(0, 500), round: job.round });
   if (job.steps.length > 400) job.steps.splice(0, job.steps.length - 400);
+}
+
+// ====================== manual approval gate ======================
+
+/** How long a job waits for a human decision before auto-denying. Background
+ *  jobs (dialog closed with "keep running") must never hang forever. */
+const APPROVAL_TIMEOUT_MS = 10 * 60_000;
+
+/** Pause the job until resolveRepairApproval() is called (or the timeout
+ *  auto-denies). The pending command is exposed on job.pendingApproval for
+ *  the polling dialog to render an approve/deny panel. */
+function requestApproval(job: RepairJob, cmd: string): Promise<boolean> {
+  job.pendingApproval = { cmd, ts: Date.now(), expiresAt: Date.now() + APPROVAL_TIMEOUT_MS };
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const settle = (v: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      approvals.delete(job.id);
+      if (job.pendingApproval) job.pendingApproval = null;
+      resolve(v);
+    };
+    const timer = setTimeout(() => settle(false), APPROVAL_TIMEOUT_MS);
+    approvals.set(job.id, settle);
+  });
+}
+
+/** Resolve a pending approval request (called from the approve API route).
+ *  Returns false when the job / request no longer exists. */
+export function resolveRepairApproval(jobId: string, approved: boolean): boolean {
+  const job = jobs.get(jobId);
+  if (!job || !job.pendingApproval) return false;
+  const settle = approvals.get(jobId);
+  if (!settle) return false;
+  settle(approved);
+  return true;
 }
 
 function tail(text: string, max = 400): string {
@@ -276,7 +334,7 @@ function readTopLevelFiles(projectPath: string): string {
 // ============================= LLM repair prompt =============================
 
 const REPAIR_SYSTEM =
-  'You are a senior DevOps repair agent. You receive a failing project environment (a start command or a production build that failed) together with its logs and configuration. You diagnose the root cause and reply with ONLY a valid JSON object (no markdown fences, no prose) describing a minimal fix plan. You are precise, minimal and never propose destructive commands.';
+  'You are a senior DevOps repair agent. You receive a failing project environment (a start command or a production build that failed) together with its logs and configuration. You diagnose the root cause and reply with ONLY a valid JSON object (no markdown fences, no prose) describing a minimal fix plan. You are precise and minimal, preferring non-destructive commands; when a destructive command (e.g. clearing a corrupted build cache) is genuinely required, propose it — a human will review and approve it before it runs.';
 
 function buildRepairPrompt(ctx: {
   kind: RepairKind;
@@ -328,7 +386,8 @@ This is repair round ${ctx.round} of ${ctx.maxRounds}. Reply with ONLY this JSON
 }
 
 Rules:
-- Commands run with the project directory as cwd. Never use cd, rm -rf, sudo, or anything destructive.
+- Commands run with the project directory as cwd. Prefer minimal, non-destructive fixes (install a missing dependency, patch a config with sed).
+- Destructive commands (e.g. 'rm -rf .next' for a stale build cache, 'rm -rf node_modules' for a corrupted install) are permitted but will be held for human approval before execution — propose one ONLY when it is genuinely the right fix. Never use sudo or cd.
 - Typical fixes: missing dependency → install it; syntax/config error → patch the file with sed; wrong command → provide the corrected "cmd"; port conflict → provide a different "port".
 - Never occupy port 3000 (reserved for the dashboard itself).
 - If the failure is clearly not fixable by commands (e.g. requires a rewrite), set giveUp=true with an explanation in diagnosis.
@@ -428,13 +487,22 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
     }
 
     // ---- 2. Execute the repair commands ----
+    // Commands that pass the safe-allowlist check run automatically. Anything
+    // else (rm -rf on a stale build dir, cd-chains, …) is NOT silently
+    // skipped — the job pauses and surfaces the command for manual approval
+    // in the repair dialog; denying (or a 10-minute timeout) skips it.
     const commands: string[] = Array.isArray(plan.commands) ? plan.commands.slice(0, 6) : [];
     for (const cmd of commands) {
       const c = String(cmd || '').trim();
       if (!c) continue;
       if (!isRepairCommandSafe(c)) {
-        log(job, 'warn', `跳过不安全命令: ${c}`);
-        continue;
+        log(job, 'approval', c);
+        const approved = await requestApproval(job, c);
+        if (!approved) {
+          log(job, 'denied', c);
+          continue;
+        }
+        log(job, 'approved', c);
       }
       log(job, 'command', `$ ${c}`);
       try {
@@ -453,6 +521,9 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
 
     // ---- 3. Apply configuration updates ----
     const updates: Record<string, unknown> = {};
+    if (typeof plan.cmd === 'string' && plan.cmd.trim() && !isStartCmdSafe(plan.cmd)) {
+      log(job, 'warn', `替换启动命令未通过安全校验，已忽略: ${String(plan.cmd).slice(0, 120)}`);
+    }
     if (typeof plan.cmd === 'string' && isStartCmdSafe(plan.cmd) && plan.cmd.trim() !== env.cmd) {
       updates.cmd = plan.cmd.trim();
       log(job, 'info', `更新启动命令: ${updates.cmd}`);

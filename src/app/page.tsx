@@ -19,6 +19,7 @@ import {
   SearchX,
   Cloud, Container, Wrench, Building, House, Box,
   EyeOff, KeyRound, Sparkles,
+  ShieldAlert, ShieldCheck, ShieldX, Minimize2,
   UserPlus,
 } from 'lucide-react'
 
@@ -2427,7 +2428,8 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
 
 // ======================== LLM AUTO-REPAIR DIALOG ========================
 
-interface RepairStepInfo { ts: number; level: string; msg: string }
+interface RepairStepInfo { ts: number; level: string; msg: string; round?: number }
+interface RepairPendingApprovalInfo { cmd: string; ts: number; expiresAt: number }
 interface RepairJobInfo {
   id: string
   projectId: string
@@ -2443,21 +2445,70 @@ interface RepairJobInfo {
   finishedAt?: number
   round: number
   maxRounds: number
+  pendingApproval?: RepairPendingApprovalInfo | null
 }
 
-function RepairDialog({ jobId, onClose, onFinished }: {
+const REPAIR_LOG_STYLES: Record<string, string> = {
+  info: 'text-zinc-500 dark:text-zinc-400',
+  command: 'text-teal-600 dark:text-teal-300',
+  output: 'text-zinc-400 dark:text-zinc-500 text-[11px] whitespace-pre-wrap',
+  llm: 'text-violet-600 dark:text-violet-300',
+  success: 'text-emerald-600 dark:text-emerald-400 font-medium',
+  error: 'text-red-600 dark:text-red-400',
+  warn: 'text-amber-600 dark:text-amber-400',
+  approval: 'text-amber-600 dark:text-amber-300 font-medium',
+  approved: 'text-emerald-600 dark:text-emerald-300',
+  denied: 'text-zinc-400 dark:text-zinc-500',
+}
+
+function formatRepairClock(ts: number): string {
+  const d = new Date(ts)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+function formatRepairDuration(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const m = Math.floor(s / 60)
+  return m > 0 ? `${m}m ${String(s % 60).padStart(2, '0')}s` : `${s}s`
+}
+
+function formatRepairCountdown(ms: number): string {
+  const s = Math.max(0, Math.ceil(ms / 1000))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded, onJobUpdate }: {
   jobId: string | null
-  onClose: () => void
+  /** Dialog visibility. The job keeps polling even while hidden (background
+   *  mode) so approvals can wake the user and completion fires its toast. */
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onFinished: (job: RepairJobInfo) => void
+  /** Fired when the job pauses for a manual approval while the dialog is hidden. */
+  onApprovalNeeded: () => void
+  /** Latest job snapshot on every poll (lets the parent decide close semantics). */
+  onJobUpdate?: (job: RepairJobInfo | null) => void
 }) {
   const t = useT()
+  const { toast } = useToast()
   const [job, setJob] = React.useState<RepairJobInfo | null>(null)
   const [notFound, setNotFound] = React.useState(false)
+  const [responding, setResponding] = React.useState(false)
+  const [now, setNow] = React.useState(() => Date.now())
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const finishedRef = React.useRef(false)
+  const approvalNotifiedRef = React.useRef(false)
+  const openRef = React.useRef(open)
+  openRef.current = open
 
   React.useEffect(() => {
-    if (!jobId) { setJob(null); setNotFound(false); finishedRef.current = false; return }
+    if (!jobId) {
+      setJob(null); setNotFound(false)
+      finishedRef.current = false
+      approvalNotifiedRef.current = false
+      return
+    }
     let stop = false
     let timer: ReturnType<typeof setTimeout> | null = null
     const poll = async () => {
@@ -2466,51 +2517,146 @@ function RepairDialog({ jobId, onClose, onFinished }: {
         const r = await fetch(`/api/repair-jobs/${jobId}`)
         if (r.ok) {
           const data: RepairJobInfo = await r.json()
-          if (!stop) setJob(data)
+          if (stop) return
+          setJob(data)
+          onJobUpdate?.(data)
+          if (!data.pendingApproval) {
+            approvalNotifiedRef.current = false
+          } else if (!openRef.current && !approvalNotifiedRef.current) {
+            // The job is paused on a dangerous command but nobody is watching —
+            // ask the parent to re-open the dialog (fires once per request).
+            approvalNotifiedRef.current = true
+            onApprovalNeeded()
+          }
           if (data.status === 'success' || data.status === 'failed') {
             if (!finishedRef.current) { finishedRef.current = true; onFinished(data) }
             return
           }
         } else if (r.status === 404) {
           setNotFound(true)
+          onJobUpdate?.(null)
           return
         }
       } catch { /* keep polling */ }
-      if (!stop) timer = setTimeout(poll, 2000)
+      if (!stop) timer = setTimeout(poll, 1500)
     }
-    poll()
+    void poll()
     return () => { stop = true; if (timer) clearTimeout(timer) }
-  }, [jobId, onFinished])
+  }, [jobId, onFinished, onApprovalNeeded, onJobUpdate])
+
+  // 1s heartbeat while the job runs — drives the elapsed timer and the
+  // approval countdown. Stops as soon as the job settles.
+  React.useEffect(() => {
+    if (!jobId || job?.status !== 'running') return
+    const iv = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(iv)
+  }, [jobId, job?.status])
 
   React.useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [job?.steps.length])
+  }, [job?.steps.length, job?.pendingApproval?.ts])
 
-  const levelStyle: Record<string, string> = {
-    info: 'text-muted-foreground',
-    command: 'text-teal-600 dark:text-teal-400 font-mono',
-    output: 'text-muted-foreground/70 font-mono text-[11px] whitespace-pre-wrap break-all',
-    llm: 'text-violet-600 dark:text-violet-400',
-    success: 'text-emerald-600 dark:text-emerald-400 font-medium',
-    error: 'text-red-600 dark:text-red-400',
-    warn: 'text-amber-600 dark:text-amber-400',
+  const respondApproval = async (approved: boolean) => {
+    if (!jobId || responding) return
+    setResponding(true)
+    try {
+      const r = await fetch(`/api/repair-jobs/${jobId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved }),
+      })
+      if (!r.ok) {
+        toast({ title: t('dlg.repair.approvalGone'), variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: t('dlg.repair.approvalGone'), variant: 'destructive' })
+    } finally {
+      setResponding(false)
+      // Pull the fresh job state immediately so the log reflects the decision
+      // (approved / skipped) without waiting for the next scheduled poll.
+      try {
+        const r = await fetch(`/api/repair-jobs/${jobId}`)
+        if (r.ok) {
+          const data: RepairJobInfo = await r.json()
+          setJob(data)
+          onJobUpdate?.(data)
+        }
+      } catch { /* the next poll will catch up */ }
+    }
   }
 
   const envLabel = (name: string) => name === 'development' ? 'dev' : name === 'production' ? 'prod' : name
+  const isRunning = job?.status === 'running'
+  const pending = job?.pendingApproval ?? null
+  const remaining = pending ? Math.max(0, pending.expiresAt - now) : 0
+  const elapsed = job ? (job.status === 'running' ? now : (job.finishedAt ?? now)) - job.startedAt : 0
+  const progressPct = !job ? 30
+    : job.status !== 'running' ? 100
+    : Math.min(88, ((job.round - 1) / job.maxRounds) * 100 + 30)
+  const barColor = !job || isRunning ? 'bg-amber-400 animate-pulse' : job.status === 'success' ? 'bg-emerald-500' : 'bg-red-500'
+
+  // Steps grouped by repair round — a divider row marks each new round.
+  const renderedSteps: React.ReactNode[] = []
+  let prevRound: number | undefined
+  if (job) {
+    for (let i = 0; i < job.steps.length; i++) {
+      const s = job.steps[i]
+      // Round 0 = pre-round setup steps (initial failure notice) — no divider.
+      if (s.round != null && s.round > 0 && s.round !== prevRound) {
+        renderedSteps.push(
+          <div key={`rd-${s.round}-${i}`} className="flex items-center gap-2.5 py-2">
+            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+              {t('dlg.repair.round', { round: s.round, max: job.maxRounds })}
+            </span>
+            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+          </div>
+        )
+        prevRound = s.round
+      }
+      renderedSteps.push(
+        <div key={`st-${i}`} className="flex gap-2.5">
+          <span className="shrink-0 select-none tabular-nums text-zinc-400/60 dark:text-zinc-600">{formatRepairClock(s.ts)}</span>
+          <span className={`min-w-0 break-all whitespace-pre-wrap leading-relaxed ${REPAIR_LOG_STYLES[s.level] || REPAIR_LOG_STYLES.info}`}>
+            {s.level === 'command' && <span className="select-none text-teal-600/70 dark:text-teal-500/70">$ </span>}
+            {s.level === 'approval' && <ShieldAlert className="mr-1 inline h-3 w-3 -mt-0.5 text-amber-500" />}
+            {s.level === 'approved' && <ShieldCheck className="mr-1 inline h-3 w-3 -mt-0.5 text-emerald-500" />}
+            {s.level === 'denied' && <ShieldX className="mr-1 inline h-3 w-3 -mt-0.5 text-zinc-400" />}
+            {s.msg}
+          </span>
+        </div>
+      )
+    }
+  }
 
   return (
-    <Dialog open={!!jobId} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Wrench className="h-5 w-5 text-amber-500" />
-            {t('dlg.repair.title')}
-            {job && (
-              <Badge variant={job.status === 'running' ? 'secondary' : job.status === 'success' ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
-                {job.status === 'running' ? t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds }) : job.status === 'success' ? t('dlg.repair.statusSuccess') : t('dlg.repair.statusFailed')}
-              </Badge>
-            )}
+          <DialogTitle className="flex items-center gap-2.5">
+            <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+              <Wrench className="h-5 w-5" />
+              {isRunning && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+                </span>
+              )}
+            </span>
+            <span className="flex flex-col items-start leading-tight">
+              <span className="flex items-center gap-2">
+                {t('dlg.repair.title')}
+                {job && (
+                  <Badge variant={job.status === 'running' ? 'secondary' : job.status === 'success' ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
+                    {job.status === 'running' ? t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds }) : job.status === 'success' ? t('dlg.repair.statusSuccess') : t('dlg.repair.statusFailed')}
+                  </Badge>
+                )}
+              </span>
+              <span className="text-xs font-normal text-muted-foreground">
+                {job ? `${job.projectName} · ${envLabel(job.envName)} · ${job.kind === 'rebuild' ? 'rebuild' : 'start'}` : t('dlg.repair.creating')}
+              </span>
+            </span>
           </DialogTitle>
           <DialogDescription>
             {job
@@ -2518,43 +2664,135 @@ function RepairDialog({ jobId, onClose, onFinished }: {
               : t('dlg.repair.creating')}
           </DialogDescription>
         </DialogHeader>
+
+        {/* round progress bar */}
+        <div className="h-1 overflow-hidden rounded-full bg-muted">
+          <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${progressPct}%` }} />
+        </div>
+
         {notFound ? (
           <div className="text-center py-8 text-muted-foreground text-sm">{t('dlg.repair.notFound')}</div>
         ) : !job ? (
-          <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-amber-500" /></div>
+          <div className="flex items-center justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-amber-500" /></div>
         ) : (
           <div className="space-y-3">
             {job.diagnosis && (
-              <div className="rounded-lg border border-violet-200 dark:border-violet-900/50 bg-violet-50/60 dark:bg-violet-950/20 p-3 text-xs text-violet-800 dark:text-violet-300 leading-relaxed">
-                <span className="font-semibold">{t('dlg.repair.diagnosis')}</span>{job.diagnosis}
+              <div className="flex gap-3 rounded-xl border border-violet-200/80 dark:border-violet-900/50 bg-violet-50/60 dark:bg-violet-950/20 p-3.5">
+                <div className="h-fit shrink-0 rounded-lg bg-violet-500/15 p-1.5">
+                  <Bot className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">{t('dlg.repair.diagnosis')}</p>
+                  <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-violet-900 dark:text-violet-200">{job.diagnosis}</p>
+                </div>
               </div>
             )}
-            <div ref={scrollRef} className="max-h-72 overflow-y-auto rounded-lg border bg-muted/30 dark:bg-black/20 p-3 space-y-1.5">
-              {job.steps.map((s, i) => (
-                <div key={i} className={`text-xs leading-relaxed break-all ${levelStyle[s.level] || ''}`}>
-                  {s.level === 'command' ? <span className="select-none">$ </span> : null}
-                  {s.msg}
+
+            {pending && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-xl border border-amber-300/80 dark:border-amber-700/60 bg-amber-50/80 dark:bg-amber-950/30 p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="shrink-0 rounded-lg bg-amber-400/20 dark:bg-amber-500/15 p-2">
+                    <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">{t('dlg.repair.approvalTitle')}</p>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] text-amber-700 tabular-nums dark:bg-amber-900/50 dark:text-amber-300">
+                        <Clock className="h-2.5 w-2.5" />{t('dlg.repair.autoDenyIn', { time: formatRepairCountdown(remaining) })}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/80">{t('dlg.repair.approvalDesc')}</p>
+                  </div>
                 </div>
-              ))}
-              {job.status === 'running' && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />{t('dlg.repair.waiting')}
+                <div className="mt-3 whitespace-pre-wrap break-all rounded-lg border border-amber-400/25 bg-zinc-950 px-3 py-2.5 font-mono text-xs text-amber-200 dark:text-amber-300">
+                  <span className="select-none text-amber-500/70">$ </span>{pending.cmd}
                 </div>
-              )}
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <Button size="sm" disabled={responding} onClick={() => void respondApproval(true)} className="flex-1 bg-emerald-600 text-white hover:bg-emerald-500">
+                    {responding ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                    {t('dlg.repair.approve')}
+                  </Button>
+                  <Button size="sm" variant="outline" disabled={responding} onClick={() => void respondApproval(false)} className="flex-1 border-amber-300 text-amber-700 hover:bg-amber-100/60 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-900/30">
+                    <ShieldX className="h-3.5 w-3.5" />
+                    {t('dlg.repair.deny')}
+                  </Button>
+                </div>
+              </motion.div>
+            )}
+
+            <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+              <div className="flex items-center gap-1.5 border-b border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
+                <span className="ml-2 inline-flex items-center gap-1.5 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+                  <Terminal className="h-3 w-3" />{t('dlg.repair.logTitle')}
+                </span>
+                {isRunning && (
+                  <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    {t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds })}
+                  </span>
+                )}
+              </div>
+              <div ref={scrollRef} className="max-h-80 space-y-1 overflow-y-auto p-3 font-mono text-xs">
+                {job.steps.length === 0 && (
+                  <div className="space-y-2 py-2">
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="h-3 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800/60" style={{ width: `${76 - i * 22}%` }} />
+                    ))}
+                  </div>
+                )}
+                {renderedSteps}
+                {isRunning && (
+                  <div className="flex items-center gap-2.5 pt-1 text-zinc-400 dark:text-zinc-500">
+                    <span className="flex gap-1">
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400" style={{ animationDelay: '150ms' }} />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400" style={{ animationDelay: '300ms' }} />
+                    </span>
+                    <span className="text-[11px]">{pending ? t('dlg.repair.waitingApproval') : t('dlg.repair.waiting')}</span>
+                  </div>
+                )}
+              </div>
             </div>
+
+            {job.status === 'success' && (
+              <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                {t('dlg.repair.successNote')}
+              </div>
+            )}
             {job.status === 'failed' && job.error && (
-              <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/20 p-3 text-xs text-red-700 dark:text-red-300 break-all">
-                <span className="font-semibold">{t('dlg.repair.failedTitle')}</span>{job.error}
+              <div className="rounded-xl border border-red-200 bg-red-50/60 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+                <p className="mb-1 flex items-center gap-1.5 font-semibold">
+                  <XCircle className="h-3.5 w-3.5 shrink-0" />{t('dlg.repair.failedTitle')}
+                </p>
+                <p className="break-all whitespace-pre-wrap">{job.error}</p>
               </div>
             )}
           </div>
         )}
-        <DialogFooter>
-          {(!job || job.status === 'running') ? (
-            <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.repair.background')}</Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.common.close')}</Button>
-          )}
+        <DialogFooter className="items-center gap-2 sm:justify-between">
+          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+            {job ? `${t('dlg.repair.elapsed')} ${formatRepairDuration(elapsed)}` : ''}
+          </span>
+          <div className="flex gap-2">
+            {(!job || isRunning) ? (
+              <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+                <Minimize2 className="h-3.5 w-3.5" />
+                {t('dlg.repair.background')}
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+                {t('dlg.common.close')}
+              </Button>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -4903,6 +5141,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [systemMonitorOpen, setSystemMonitorOpen] = React.useState(false)
   const [llmOpen, setLlmOpen] = React.useState(false)
   const [repairJobId, setRepairJobId] = React.useState<string | null>(null)
+  const [repairDialogOpen, setRepairDialogOpen] = React.useState(false)
   const [harnessSession, setHarnessSession] = React.useState<HarnessSessionState | null>(null)
 
   // Restore an in-flight analysis wizard after an HMR remount / reload —
@@ -5974,6 +6213,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         }
         if (repairJobIdFromResponse) {
           setRepairJobId(repairJobIdFromResponse)
+          setRepairDialogOpen(true)
           toast({
             title: action === 'rebuild' ? t('dlg.toast.repairAutoRebuild') : t('dlg.toast.repairAutoStart'),
             description: t('dlg.toast.repairAutoDesc', { project: project?.name ?? '', env: envLabel }),
@@ -6042,6 +6282,47 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     fetchProjects()
   }, [toast, t, fetchProjects, addAutoNotification])
 
+  // ---- LLM repair dialog plumbing -------------------------------------
+  // The repair dialog can be backgrounded while a job keeps running. These
+  // refs + callbacks let the dialog keep polling while hidden, re-open itself
+  // when the LLM proposes a command that needs manual approval, and clean up
+  // the job id once nothing is left to show.
+  const repairJobRef = React.useRef<RepairJobInfo | null>(null)
+  const repairDialogOpenRef = React.useRef(false)
+  repairDialogOpenRef.current = repairDialogOpen
+
+  const handleRepairJobUpdate = React.useCallback((data: RepairJobInfo | null) => {
+    repairJobRef.current = data
+  }, [])
+
+  // The repair job paused for a manual approval while the dialog was hidden —
+  // re-open it and surface a toast so the decision is not missed.
+  const handleRepairApprovalNeeded = React.useCallback(() => {
+    if (repairDialogOpenRef.current) return
+    setRepairDialogOpen(true)
+    toast({
+      title: t('dlg.repair.approvalNeededTitle'),
+      description: t('dlg.repair.approvalNeededDesc'),
+      variant: 'warning',
+    })
+  }, [toast, t])
+
+  const handleRepairFinishedNotified = React.useCallback((job: RepairJobInfo) => {
+    handleRepairFinished(job)
+    // Dialog hidden → nothing left to show; drop the id so the poller stops.
+    if (!repairDialogOpenRef.current) setRepairJobId(null)
+  }, [handleRepairFinished])
+
+  const handleRepairDialogOpenChange = React.useCallback((open: boolean) => {
+    setRepairDialogOpen(open)
+    // Closing the dialog: while the job still runs we keep the id (background
+    // mode keeps polling and can wake the user for approvals); once the job
+    // has settled there is nothing left to poll → clear it.
+    if (!open && repairJobRef.current?.status !== 'running') {
+      setRepairJobId(null)
+    }
+  }, [])
+
   const handleSyncFromConfig = React.useCallback(async () => {
     if (!confirm(t('dlg.toast.syncConfirm'))) {
       return
@@ -6101,6 +6382,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       if (lastRepairJobId) {
         // LLM auto-repair is running in the background — show live progress
         setRepairJobId(lastRepairJobId)
+        setRepairDialogOpen(true)
         toast({
           title: t('dlg.toast.repairAutoRebuild'),
           description: t('dlg.toast.repairAutoDesc2', { project: project.name }),
@@ -7754,7 +8036,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
       {/* LLM config */}
       <LlmConfigDialog open={llmOpen} onClose={() => setLlmOpen(false)} />
-      <RepairDialog jobId={repairJobId} onClose={() => setRepairJobId(null)} onFinished={handleRepairFinished} />
+      <RepairDialog
+        jobId={repairJobId}
+        open={repairDialogOpen}
+        onOpenChange={handleRepairDialogOpenChange}
+        onFinished={handleRepairFinishedNotified}
+        onApprovalNeeded={handleRepairApprovalNeeded}
+        onJobUpdate={handleRepairJobUpdate}
+      />
 
       {/* deepseek-harness agent analysis wizard (live progress + one-click start) */}
       <AnalyzeWizard

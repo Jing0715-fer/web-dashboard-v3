@@ -4,6 +4,7 @@ import './globals.css'
 import { ThemeProvider } from '@/components/theme-provider'
 import { I18nProvider, type Lang } from '@/lib/i18n'
 import { LANG_COOKIE } from '@/lib/i18n/constants'
+import { Toaster } from '@/components/ui/toaster'
 
 export const metadata: Metadata = {
   title: 'Web Dashboard',
@@ -41,6 +42,9 @@ export default async function RootLayout({
         >
           <I18nProvider initialLang={initialLang}>
             {children}
+            {/* Toast renderer — the use-toast store is global, but without
+                this mount every toast() call was a silent no-op. */}
+            <Toaster />
           </I18nProvider>
         </ThemeProvider>
       </body>
