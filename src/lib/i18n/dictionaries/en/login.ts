@@ -1,0 +1,76 @@
+/**
+ * English dictionary — login / registration screen (task 17 scope).
+ */
+export const login = {
+  // ---- brand panel ----
+  'login.brand': 'Dashboard',
+  'login.subtitle': 'Multi-device project dashboard — environments, logs and repair tooling in one place.',
+  'login.feature.multiDevice.title': 'Multi-device control',
+  'login.feature.multiDevice.desc': 'Local and remote machines from one surface.',
+  'login.feature.oneClick.title': 'One-click environment start',
+  'login.feature.oneClick.desc': 'Start, stop and restart project environments.',
+  'login.feature.llm.title': 'LLM analysis & auto-repair',
+  'login.feature.llm.desc': 'Automated analysis and failure self-healing.',
+  // ---- headings ----
+  'login.welcomeBack': 'Welcome back',
+  'login.createAccount': 'Create your account',
+  'login.signinSubtitle': 'Sign in to continue to your dashboard.',
+  'login.registerSubtitle': 'Register to request access to the dashboard.',
+  'login.tab.signin': 'Sign in',
+  'login.tab.register': 'Register',
+  // ---- google ----
+  'login.google.continue': 'Continue with Google',
+  'login.google.notConfigured': 'Google sign-in is not configured. Ask an admin to configure it (Settings → User Management → Google Sign-in).',
+  'login.google.notConfiguredShort': 'Not configured — ask an admin to enable Google sign-in',
+  // ---- form fields ----
+  'login.divider': 'or continue with email',
+  'login.email': 'Email',
+  'login.emailPlaceholder': 'you@example.com',
+  'login.password': 'Password',
+  'login.rememberMe': 'Remember me',
+  'login.signin': 'Sign in',
+  'login.signingIn': 'Signing in…',
+  'login.showPassword': 'Show password',
+  'login.hidePassword': 'Hide password',
+  // ---- sign-in errors ----
+  'login.error.enterCredentials': 'Please enter your email and password.',
+  'login.error.invalid': 'Invalid email or password.',
+  'login.error.pending.title': 'Your registration is awaiting admin approval.',
+  'login.error.pending.detail': 'You will be able to sign in once an administrator approves your account.',
+  'login.error.rejected.title': 'Your access has been rejected.',
+  'login.error.rejected.reason': 'Reason: {reason}',
+  'login.error.tooMany': 'Too many attempts — please wait a moment and try again.',
+  'login.error.network': 'Network error — could not reach the server.',
+  'login.error.fallback': 'Sign-in failed.',
+  // ---- seed hint (split so the credentials keep their <code> styling) ----
+  'login.seedHintPrefix': 'Default admin:',
+  'login.seedHintSuffix': 'change the password after first sign-in.',
+  // ---- google oauth redirect errors ----
+  'login.googleError.emailConflict': 'This email is registered with a password account. Sign in with email and password instead.',
+  'login.googleError.stateMismatch': 'Sign-in session expired, try again.',
+  'login.googleError.rejected': 'Your access has been rejected.',
+  'login.googleError.default': 'Google sign-in failed.',
+  // ---- register form ----
+  'login.register.name': 'Name',
+  'login.register.namePlaceholder': 'Your name',
+  'login.register.email': 'Email',
+  'login.register.password': 'Password',
+  'login.register.passwordPlaceholder': 'At least 8 characters',
+  'login.register.confirm': 'Confirm password',
+  'login.register.confirmPlaceholder': 'Repeat your password',
+  'login.register.createAccount': 'Create account',
+  'login.register.submitting': 'Submitting…',
+  'login.register.error.name': 'Name must be 2–40 characters.',
+  'login.register.error.email': 'Enter a valid email address.',
+  'login.register.error.password': 'At least 8 characters, including a letter and a digit.',
+  'login.register.error.confirm': 'Passwords do not match.',
+  'login.register.error.exists': 'This email is already registered.',
+  'login.register.error.tooMany': 'Too many attempts — please wait a moment and try again.',
+  'login.register.error.failed': 'Registration failed.',
+  'login.register.success.title': 'Application submitted',
+  'login.register.success.desc': 'An administrator will review your registration. Once approved you can sign in with these credentials.',
+  'login.register.back': 'Back to sign in',
+  'login.register.notice': 'New accounts require administrator approval before first sign-in.',
+  // ---- footer ----
+  'login.footer': 'Dashboard · internal tooling',
+}

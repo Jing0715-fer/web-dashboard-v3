@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { addToast } from '@/hooks/use-toast'
+import { useT, type I18nContextValue } from '@/lib/i18n'
 
 export interface HarnessSessionState {
   sessionId: string
@@ -55,17 +56,17 @@ const kindIcon: Record<ProgressItem['kind'], React.ReactNode> = {
 // creep slowly inside the current phase, so the bar always tells the user
 // WHERE in the pipeline the agent is and never freezes or jumps backwards.
 const PHASE_MARKERS: Array<{ re: RegExp; pct: number; label: string }> = [
-  { re: /(^|\s)(npm|bun|yarn|pnpm) (install|ci|add)|pip install|go mod download|go build|cargo build|bundle install|composer install/i, pct: 22, label: '安装依赖' },
-  { re: /(npm|bun|yarn|pnpm) run (dev|start)\s|(\bnode|\bdeno|\bpython3?)\s+[\w./-]+\.(js|mjs|cjs|ts|py)|uvicorn|gunicorn|flask run|rails s|php artisan serve/i, pct: 42, label: '启动 dev 服务' },
-  { re: /curl|http_code|127\.0\.0\.1|localhost:|nc -z|ss -ltn/i, pct: 56, label: '验证端口' },
-  { re: /(npm|bun|yarn|pnpm) run build\s|next build|vite build|webpack|\btsc\b/i, pct: 72, label: '构建 production' },
-  { re: /NODE_ENV=production|(npm|bun|yarn|pnpm) run start\s/i, pct: 86, label: '验证 production' },
+  { re: /(^|\s)(npm|bun|yarn|pnpm) (install|ci|add)|pip install|go mod download|go build|cargo build|bundle install|composer install/i, pct: 22, label: 'dlg.analyze.phase.deps' },
+  { re: /(npm|bun|yarn|pnpm) run (dev|start)\s|(\bnode|\bdeno|\bpython3?)\s+[\w./-]+\.(js|mjs|cjs|ts|py)|uvicorn|gunicorn|flask run|rails s|php artisan serve/i, pct: 42, label: 'dlg.analyze.phase.dev' },
+  { re: /curl|http_code|127\.0\.0\.1|localhost:|nc -z|ss -ltn/i, pct: 56, label: 'dlg.analyze.phase.verify' },
+  { re: /(npm|bun|yarn|pnpm) run build\s|next build|vite build|webpack|\btsc\b/i, pct: 72, label: 'dlg.analyze.phase.build' },
+  { re: /NODE_ENV=production|(npm|bun|yarn|pnpm) run start\s/i, pct: 86, label: 'dlg.analyze.phase.prod' },
 ]
 
 function phaseEstimate(items: ProgressItem[], attempt: number, elapsed: number): { pct: number; label: string } {
   const current = items.filter(p => p.attempt === attempt)
   let pct = current.length > 0 ? 6 : 2
-  let label = '探索项目结构'
+  let label = 'dlg.analyze.phase.explore'
   for (const p of current) {
     for (const m of PHASE_MARKERS) {
       if (m.re.test(p.text) && m.pct > pct) { pct = m.pct; label = m.label }
@@ -96,6 +97,7 @@ export function AnalyzeWizard({
   onStartEnv: (projectId: string, envId: string) => void
   onRetry?: () => void
 }) {
+  const t = useT()
   const [view, setView] = React.useState<SessionView | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [applying, setApplying] = React.useState(false)
@@ -121,13 +123,13 @@ export function AnalyzeWizard({
         } else if (res.status === 404) {
           // Session is gone (harness-agent restarted / GC'd) — stop polling
           // with a clear failed state instead of spinning forever.
-          if (!stop) setView({ id: sessionId, status: 'failed', attempt: 1, maxAttempts: 1, progress: [], result: null, error: '分析会话已不存在（服务可能已重启）' })
+          if (!stop) setView({ id: sessionId, status: 'failed', attempt: 1, maxAttempts: 1, progress: [], result: null, error: t('dlg.analyze.sessionGone') })
           return
         } else if (!stop) {
-          setError('无法连接 harness-agent 服务')
+          setError(t('dlg.analyze.noHarness'))
         }
       } catch (e: any) {
-        if (!stop) setError(e?.message || '网络错误')
+        if (!stop) setError(e?.message || t('dlg.analyze.networkError'))
       }
       if (!stop) { setElapsed(Math.floor((Date.now() - started) / 1000)); timer = window.setTimeout(tick, 2500) }
     }
@@ -153,14 +155,14 @@ export function AnalyzeWizard({
         const data = await res.json()
         setApplied(true)
         addToast({
-          title: '配置已应用',
-          description: `${data.applied} 个环境已${autoStart ? '创建并启动' : '创建'}。`,
+          title: t('dlg.analyze.appliedToast'),
+          description: t(autoStart ? 'dlg.analyze.appliedStarted' : 'dlg.analyze.appliedCreated', { count: data.applied }),
           variant: 'success',
         })
         // Surface environments that failed validation instead of silently dropping them
         if (Array.isArray(data.dropped) && data.dropped.length > 0) {
           addToast({
-            title: `${data.dropped.length} 个环境配置未通过校验`,
+            title: t('dlg.analyze.dropped', { count: data.dropped.length }),
             description: data.dropped.map((d: any) => `${d.name}: ${d.reason}`).join('；').slice(0, 300),
             variant: 'warning',
           })
@@ -168,8 +170,8 @@ export function AnalyzeWizard({
         // The user's own project name wins; show the LLM's suggestion as FYI
         if (data.suggestedName && session.name && data.suggestedName !== session.name) {
           addToast({
-            title: 'Agent 建议的项目名',
-            description: `分析检测到包名「${data.suggestedName}」，已保留你命名的「${session.name}」，可在编辑中修改。`,
+            title: t('dlg.analyze.suggested'),
+            description: t('dlg.analyze.suggestedDesc', { suggested: data.suggestedName, name: session.name }),
             variant: 'default',
           })
         }
@@ -180,14 +182,14 @@ export function AnalyzeWizard({
         if (autoStart) onClose()
       } else {
         const err = await res.json()
-        addToast({ title: '应用失败', description: err.error || '服务器错误', variant: 'destructive' })
+        addToast({ title: t('dlg.analyze.applyFailed'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
       }
     } catch (e: any) {
-      addToast({ title: '应用失败', description: e?.message || '网络错误', variant: 'destructive' })
+      addToast({ title: t('dlg.analyze.applyFailed'), description: e?.message || t('dlg.analyze.networkError'), variant: 'destructive' })
     } finally {
       setApplying(false)
     }
-  }, [session, view, onApplied, onStartEnv, onClose])
+  }, [session, view, onApplied, onStartEnv, onClose, t])
 
   const cancel = React.useCallback(async () => {
     if (!sessionId) return
@@ -220,7 +222,7 @@ export function AnalyzeWizard({
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-violet-500 text-white shrink-0">
               <Bot className="h-4 w-4" />
             </span>
-            Agent 分析 · {session.name}
+            {t('dlg.analyze.title', { name: session.name })}
             {status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-sky-500" />}
             {done && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
             {failed && <XCircle className="h-4 w-4 text-red-500" />}
@@ -232,22 +234,22 @@ export function AnalyzeWizard({
 
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <Badge variant={status === 'running' ? 'secondary' : done ? 'default' : 'destructive'} className="text-[11px] h-5">
-            {status === 'running' ? '分析中' : done ? '已完成' : status === 'cancelled' ? '已取消' : '失败'}
+            {status === 'running' ? t('dlg.analyze.status.running') : done ? t('dlg.analyze.status.completed') : status === 'cancelled' ? t('dlg.analyze.status.cancelled') : t('dlg.analyze.status.failed')}
           </Badge>
           {status === 'running' && !!view?.queuePosition && view.queuePosition > 0 && (
             <Badge variant="outline" className="text-[11px] h-5 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700/50">
-              排队中 · 第 {view.queuePosition} 位{view.queueLength ? ` / ${view.queueLength}` : ''}
+              {t('dlg.analyze.queued', { pos: view.queuePosition })}{view.queueLength ? ` / ${view.queueLength}` : ''}
             </Badge>
           )}
-          <span>尝试 {attempt}/{maxAttempts}</span>
-          <span className="flex items-center gap-1"><Gauge className="h-3 w-3" />{elapsed}s</span>
+          <span>{t('dlg.analyze.attempt', { attempt, max: maxAttempts })}</span>
+          <span className="flex items-center gap-1"><Gauge className="h-3 w-3" />{t('dlg.analyze.elapsed', { count: elapsed })}</span>
           <span className="ml-auto flex items-center gap-1"><Zap className="h-3 w-3 text-amber-500" />deepseek-harness</span>
         </div>
 
         <div className="flex items-center gap-2.5">
           <Progress value={pct} className="h-1.5 flex-1" />
           {status === 'running' && (
-            <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums w-24 text-right truncate" title={est.label}>{est.label}</span>
+            <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums w-24 text-right truncate" title={t(est.label as Parameters<typeof t>[0])}>{t(est.label as Parameters<typeof t>[0])}</span>
           )}
         </div>
 
@@ -256,7 +258,7 @@ export function AnalyzeWizard({
           {progressItems.length === 0 && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 justify-center">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              正在启动 agent（加载 deepseek-harness 运行时）…
+              {t('dlg.analyze.startingAgent')}
             </div>
           )}
           <AnimatePresence initial={false}>
@@ -293,7 +295,7 @@ export function AnalyzeWizard({
           <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-2">
             <div className="text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-              <span>{view.result.summary || '分析完成'}</span>
+              <span>{view.result.summary || t('dlg.analyze.summaryFallback')}</span>
             </div>
             <div className="space-y-1">
               {envs.map((e: any, i: number) => (
@@ -310,33 +312,33 @@ export function AnalyzeWizard({
         <div className="flex items-center gap-2 justify-end pt-1">
           {status === 'running' && (
             <>
-              <span className="text-[11px] text-muted-foreground mr-auto">agent 会自动安装依赖、启动并验证服务，失败时自动调试重试</span>
-              <Button variant="outline" size="sm" onClick={cancel}>取消分析</Button>
+              <span className="text-[11px] text-muted-foreground mr-auto">{t('dlg.analyze.hint')}</span>
+              <Button variant="outline" size="sm" onClick={cancel}>{t('dlg.analyze.cancel')}</Button>
             </>
           )}
           {done && !applied && (
             <>
               <Button variant="outline" size="sm" onClick={() => apply(false)} disabled={applying}>
                 {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-                仅保存配置
+                {t('dlg.analyze.saveOnly')}
               </Button>
               <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => apply(true)} disabled={applying}>
                 {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
-                一键启动
+                {t('dlg.analyze.startNow')}
               </Button>
             </>
           )}
           {applied && (
-            <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />完成</Button>
+            <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.analyze.done')}</Button>
           )}
           {failed && (
             <>
               {onRetry && (
                 <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={onRetry}>
-                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />重新分析
+                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />{t('dlg.analyze.retry')}
                 </Button>
               )}
-              <Button size="sm" variant="outline" onClick={onClose}>关闭</Button>
+              <Button size="sm" variant="outline" onClick={onClose}>{t('dlg.common.close')}</Button>
             </>
           )}
         </div>

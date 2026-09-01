@@ -1,13 +1,15 @@
 'use client'
 
 import * as React from 'react'
-import { Users, KeyRound, LogOut, Loader2 } from 'lucide-react'
+import { Users, KeyRound, LogOut, Loader2, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { PublicUser } from './auth-types'
+import { SessionsDialog } from './sessions-dialog'
+import { useT } from '@/lib/i18n'
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -27,6 +29,8 @@ export interface UserMenuProps {
 
 export function UserMenu({ user, onLogout, onOpenUserManagement, onOpenChangePassword, pendingCount = 0 }: UserMenuProps) {
   const [signingOut, setSigningOut] = React.useState(false)
+  const [sessionsOpen, setSessionsOpen] = React.useState(false)
+  const t = useT()
   const isAdmin = user.role === 'admin'
   const showPendingBadge = isAdmin && pendingCount > 0
 
@@ -37,11 +41,12 @@ export function UserMenu({ user, onLogout, onOpenUserManagement, onOpenChangePas
   }
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Account menu"
+          aria-label={t('auth.menu.account')}
           className="relative rounded-full h-8 w-8 cursor-pointer transition hover:ring-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 shrink-0"
         >
           {user.avatarUrl ? (
@@ -54,7 +59,7 @@ export function UserMenu({ user, onLogout, onOpenUserManagement, onOpenChangePas
           {showPendingBadge && (
             <span
               className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-[3px] flex items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white ring-2 ring-background leading-none pointer-events-none"
-              aria-label={`${pendingCount} pending registration${pendingCount === 1 ? '' : 's'}`}
+              aria-label={t('auth.pendingBadge.aria', { count: pendingCount })}
             >
               {pendingCount > 9 ? '9+' : pendingCount}
             </span>
@@ -76,11 +81,11 @@ export function UserMenu({ user, onLogout, onOpenUserManagement, onOpenChangePas
             <p className="text-xs text-muted-foreground truncate leading-tight mt-0.5">{user.email}</p>
             <div className="flex items-center gap-1.5 mt-1.5">
               <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                {user.provider === 'google' ? 'Google' : 'Email'}
+                {user.provider === 'google' ? t('auth.badge.google') : t('auth.badge.email')}
               </span>
               {isAdmin && (
                 <span className="inline-flex items-center rounded-full border border-emerald-200/70 bg-emerald-50/80 dark:border-emerald-900/60 dark:bg-emerald-950/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
-                  Admin
+                  {t('auth.badge.admin')}
                 </span>
               )}
             </div>
@@ -90,7 +95,7 @@ export function UserMenu({ user, onLogout, onOpenUserManagement, onOpenChangePas
         {isAdmin && (
           <DropdownMenuItem onClick={onOpenUserManagement} className="px-2.5 py-2 text-sm rounded-md cursor-pointer">
             <Users className="h-3.5 w-3.5 mr-2.5" />
-            <span className="flex-1">User Management</span>
+            <span className="flex-1">{t('auth.menu.userManagement')}</span>
             {pendingCount > 0 && (
               <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">
                 {pendingCount > 9 ? '9+' : pendingCount}
@@ -101,9 +106,13 @@ export function UserMenu({ user, onLogout, onOpenUserManagement, onOpenChangePas
         {user.provider === 'credentials' && (
           <DropdownMenuItem onClick={onOpenChangePassword} className="px-2.5 py-2 text-sm rounded-md cursor-pointer">
             <KeyRound className="h-3.5 w-3.5 mr-2.5" />
-            Change Password
+            {t('auth.menu.changePassword')}
           </DropdownMenuItem>
         )}
+        <DropdownMenuItem onClick={() => setSessionsOpen(true)} className="px-2.5 py-2 text-sm rounded-md cursor-pointer">
+          <ShieldCheck className="h-3.5 w-3.5 mr-2.5" />
+          {t('sessions.menuLabel')}
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={handleSignOut}
@@ -111,9 +120,20 @@ export function UserMenu({ user, onLogout, onOpenUserManagement, onOpenChangePas
           className="px-2.5 py-2 text-sm rounded-md cursor-pointer text-red-600 dark:text-red-400 focus:text-red-600 dark:focus:text-red-400 focus:bg-red-50 dark:focus:bg-red-950/40"
         >
           {signingOut ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5 mr-2.5" />}
-          Sign out
+          {t('auth.menu.signOut')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+
+    {/* Active sessions manager (Task 19) — lives inside the dropdown's parent
+        so it survives the menu closing. onForceLogout reuses the sign-out flow
+        for the case where our session was revoked from another device. */}
+    <SessionsDialog
+      open={sessionsOpen}
+      onOpenChange={setSessionsOpen}
+      isAdmin={isAdmin}
+      onForceLogout={() => { void onLogout() }}
+    />
+  </>
   )
 }

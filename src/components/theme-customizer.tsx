@@ -6,6 +6,7 @@ import { Palette, Sun, Moon, Monitor, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { useT } from '@/lib/i18n'
 
 const STORAGE_KEY = 'dashboard-accent'
 
@@ -56,6 +57,7 @@ const MODES = [
 export function ThemeCustomizer() {
   const { theme, setTheme, resolvedTheme } = useTheme()
   const { accent, setAccent } = useAccent()
+  const t = useT()
   const [mounted, setMounted] = React.useState(false)
   React.useEffect(() => setMounted(true), [])
 
@@ -70,7 +72,7 @@ export function ThemeCustomizer() {
           size="icon"
           data-theme-customizer
           className="relative"
-          title="Appearance — theme & accent color"
+          title={t('topbar.appearance.trigger')}
         >
           <Palette className="h-4 w-4" />
           {/* live accent dot */}
@@ -79,13 +81,14 @@ export function ThemeCustomizer() {
             className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-background ring-1 ring-border"
             style={{ backgroundColor: activeSwatch }}
           />
-          <span className="sr-only">Customize appearance</span>
+          <span className="sr-only">{t('topbar.appearance.customize')}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-60 p-3" sideOffset={8}>
-        <p className="text-[11px] font-medium text-muted-foreground mb-2">Appearance</p>
-        <div className="grid grid-cols-3 gap-1 mb-4" role="radiogroup" aria-label="Color mode">
+        <p className="text-[11px] font-medium text-muted-foreground mb-2">{t('topbar.appearance.title')}</p>
+        <div className="grid grid-cols-3 gap-1 mb-4" role="radiogroup" aria-label={t('topbar.appearance.title')}>
           {MODES.map((m) => {
+            const modeLabel = m.id === 'light' ? t('topbar.appearance.light') : m.id === 'dark' ? t('topbar.appearance.dark') : t('topbar.appearance.system')
             const active = mounted && theme === m.id
             return (
               <button
@@ -102,23 +105,24 @@ export function ThemeCustomizer() {
                 )}
               >
                 <m.icon className="h-3.5 w-3.5" />
-                {m.label}
+                {modeLabel}
               </button>
             )
           })}
         </div>
-        <p className="text-[11px] font-medium text-muted-foreground mb-2">Accent color</p>
-        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Accent color">
+        <p className="text-[11px] font-medium text-muted-foreground mb-2">{t('topbar.appearance.accent')}</p>
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('topbar.appearance.accent')}>
           {ACCENT_PRESETS.map((a) => {
             const active = accent === a.id
             const swatch = mounted ? (resolvedTheme === 'dark' ? a.dark : a.light) : a.light
+            const accentLabel = t(`accent.${a.id}` as Parameters<typeof t>[0])
             return (
               <button
                 key={a.id}
                 type="button"
                 role="radio"
                 aria-checked={active}
-                title={a.label}
+                title={accentLabel}
                 onClick={() => setAccent(a.id)}
                 className={cn(
                   'relative h-7 w-7 rounded-full cursor-pointer transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
@@ -127,13 +131,13 @@ export function ThemeCustomizer() {
                 style={{ backgroundColor: swatch, ...(active ? { '--tw-ring-color': swatch } as React.CSSProperties : {}) }}
               >
                 {active && <Check className="absolute inset-0 m-auto h-3.5 w-3.5 text-white drop-shadow" />}
-                <span className="sr-only">{a.label}</span>
+                <span className="sr-only">{accentLabel}</span>
               </button>
             )
           })}
         </div>
         <p className="mt-3 text-[10px] text-muted-foreground leading-relaxed">
-          Applies to buttons, tags, highlights and focus rings. Saved to this browser.
+          {t('topbar.appearance.hint')}
         </p>
       </PopoverContent>
     </Popover>

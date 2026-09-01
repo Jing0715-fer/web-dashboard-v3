@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { LanguageToggle } from '@/components/language-toggle'
+import { useT, type I18nContextValue } from '@/lib/i18n'
 import type { GoogleStatus } from './auth-types'
 import { setSessionToken } from './session-token'
 
@@ -22,16 +24,17 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 interface FormError { tone: 'destructive' | 'warning'; title: string; detail?: string }
 
-function googleAuthError(code: string): FormError {
+/** Map a Google OAuth error code to its dictionary key. */
+function googleAuthErrorKey(code: string): string {
   switch (code) {
     case 'email_conflict':
-      return { tone: 'destructive', title: 'This email is registered with a password account. Sign in with email and password instead.' }
+      return 'login.googleError.emailConflict'
     case 'state_mismatch':
-      return { tone: 'warning', title: 'Sign-in session expired, try again.' }
+      return 'login.googleError.stateMismatch'
     case 'rejected':
-      return { tone: 'destructive', title: 'Your access has been rejected.' }
+      return 'login.googleError.rejected'
     default:
-      return { tone: 'destructive', title: 'Google sign-in failed.' }
+      return 'login.googleError.default'
   }
 }
 
@@ -71,6 +74,7 @@ function FieldError({ message }: { message?: string }) {
 
 /** Google sign-in button + configuration status chip. */
 function GoogleSignInButton({ status }: { status: GoogleStatus | null }) {
+  const t = useT()
   const loading = status === null
   const configured = !!status?.configured
   const button = (
@@ -86,7 +90,7 @@ function GoogleSignInButton({ status }: { status: GoogleStatus | null }) {
       ) : (
         <GoogleLogo className="h-4 w-4 shrink-0" />
       )}
-      <span className="ml-2.5">Continue with Google</span>
+      <span className="ml-2.5">{t('login.google.continue')}</span>
       {configured && status?.clientIdMasked && (
         <span className="ml-auto hidden sm:inline text-[10px] font-mono text-muted-foreground/70 truncate max-w-[110px]">{status.clientIdMasked}</span>
       )}
@@ -104,24 +108,25 @@ function GoogleSignInButton({ status }: { status: GoogleStatus | null }) {
               <span className="block w-full cursor-not-allowed">{button}</span>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-[280px] text-xs leading-relaxed">
-              Google sign-in is not configured. Ask an admin to configure it (Settings → User Management → Google Sign-in).
+              {t('login.google.notConfigured')}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
       )}
       {!loading && !configured && (
-        <p className="text-[11px] text-muted-foreground/80 text-center">Not configured — ask an admin to enable Google sign-in</p>
+        <p className="text-[11px] text-muted-foreground/80 text-center">{t('login.google.notConfiguredShort')}</p>
       )}
     </div>
   )
 }
 
 function Divider() {
+  const t = useT()
   return (
     <div className="relative my-5" aria-hidden="true">
       <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border/60" /></div>
       <div className="relative flex justify-center">
-        <span className="bg-background px-3 text-[11px] uppercase tracking-wider text-muted-foreground">or continue with email</span>
+        <span className="bg-background px-3 text-[11px] uppercase tracking-wider text-muted-foreground">{t('login.divider')}</span>
       </div>
     </div>
   )
@@ -130,6 +135,7 @@ function Divider() {
 // ======================== SIGN IN FORM ========================
 
 function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: boolean }) {
+  const t = useT()
   const [email, setEmail] = React.useState('')
   const [password, setPassword] = React.useState('')
   const [showPassword, setShowPassword] = React.useState(false)
@@ -149,7 +155,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
     e.preventDefault()
     if (submitting) return
     if (!email.trim() || !password) {
-      setError({ tone: 'destructive', title: 'Please enter your email and password.' })
+      setError({ tone: 'destructive', title: t('login.error.enterCredentials') })
       return
     }
     setSubmitting(true)
@@ -176,19 +182,23 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
       }
       if (res.status === 403) {
         if (data.code === 'pending') {
-          setError({ tone: 'warning', title: 'Your registration is awaiting admin approval.', detail: 'You will be able to sign in once an administrator approves your account.' })
+          setError({ tone: 'warning', title: t('login.error.pending.title'), detail: t('login.error.pending.detail') })
         } else if (data.code === 'rejected') {
-          setError({ tone: 'destructive', title: 'Your access has been rejected.', detail: data.rejectionReason ? `Reason: ${data.rejectionReason}` : undefined })
+          setError({
+            tone: 'destructive',
+            title: t('login.error.rejected.title'),
+            detail: data.rejectionReason ? t('login.error.rejected.reason', { reason: String(data.rejectionReason) }) : undefined,
+          })
         } else {
-          setError({ tone: 'destructive', title: data.error || 'Sign-in failed.' })
+          setError({ tone: 'destructive', title: data.error || t('login.error.fallback') })
         }
       } else if (res.status === 429) {
-        setError({ tone: 'warning', title: data.error || 'Too many attempts — please wait a moment and try again.' })
+        setError({ tone: 'warning', title: data.error || t('login.error.tooMany') })
       } else {
-        setError({ tone: 'destructive', title: data.error || 'Invalid email or password.' })
+        setError({ tone: 'destructive', title: data.error || t('login.error.invalid') })
       }
     } catch {
-      setError({ tone: 'destructive', title: 'Network error — could not reach the server.' })
+      setError({ tone: 'destructive', title: t('login.error.network') })
     } finally {
       setSubmitting(false)
     }
@@ -200,7 +210,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
       <Divider />
       <div className="space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="signin-email">Email</Label>
+          <Label htmlFor="signin-email">{t('login.email')}</Label>
           <Input
             id="signin-email"
             type="email"
@@ -214,7 +224,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
         </div>
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <Label htmlFor="signin-password">Password</Label>
+            <Label htmlFor="signin-password">{t('login.password')}</Label>
           </div>
           <div className="relative">
             <Input
@@ -230,7 +240,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
             <button
               type="button"
               onClick={() => setShowPassword((v) => !v)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}
               className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               tabIndex={0}
             >
@@ -245,7 +255,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
             onCheckedChange={(v) => setRemember(v === true)}
             disabled={submitting}
           />
-          <Label htmlFor="signin-remember" className="text-sm font-normal text-muted-foreground cursor-pointer">Remember me</Label>
+          <Label htmlFor="signin-remember" className="text-sm font-normal text-muted-foreground cursor-pointer">{t('login.rememberMe')}</Label>
         </div>
         {error && <ErrorAlert error={error} />}
         <Button
@@ -254,13 +264,13 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
           className="h-11 w-full bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold shadow-sm transition-colors"
         >
           {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-          {submitting ? 'Signing in…' : 'Sign in'}
+          {submitting ? t('login.signingIn') : t('login.signin')}
         </Button>
         {seedHint && (
           <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-3.5 py-2.5 text-xs text-muted-foreground leading-relaxed">
             <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
-              Default admin: <code className="font-mono">admin@dashboard.local</code> · <code className="font-mono">admin123456</code> — change the password after first sign-in.
+              {t('login.seedHintPrefix')} <code className="font-mono">admin@dashboard.local</code> · <code className="font-mono">admin123456</code> — {t('login.seedHintSuffix')}
             </span>
           </div>
         )}
@@ -288,19 +298,20 @@ function GoogleGate() {
 interface RegisterFields { name: string; email: string; password: string; confirm: string }
 type RegisterErrors = Partial<Record<keyof RegisterFields, string>>
 
-function validateRegister(f: RegisterFields): RegisterErrors {
+function validateRegister(f: RegisterFields, t: I18nContextValue['t']): RegisterErrors {
   const errors: RegisterErrors = {}
   const name = f.name.trim()
-  if (name.length < 2 || name.length > 40) errors.name = 'Name must be 2–40 characters.'
-  if (!EMAIL_RE.test(f.email.trim())) errors.email = 'Enter a valid email address.'
+  if (name.length < 2 || name.length > 40) errors.name = t('login.register.error.name')
+  if (!EMAIL_RE.test(f.email.trim())) errors.email = t('login.register.error.email')
   if (f.password.length < 8 || !/[A-Za-z]/.test(f.password) || !/\d/.test(f.password)) {
-    errors.password = 'At least 8 characters, including a letter and a digit.'
+    errors.password = t('login.register.error.password')
   }
-  if (f.confirm !== f.password) errors.confirm = 'Passwords do not match.'
+  if (f.confirm !== f.password) errors.confirm = t('login.register.error.confirm')
   return errors
 }
 
 function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
+  const t = useT()
   const [fields, setFields] = React.useState<RegisterFields>({ name: '', email: '', password: '', confirm: '' })
   const [errors, setErrors] = React.useState<RegisterErrors>({})
   const [submitting, setSubmitting] = React.useState(false)
@@ -318,7 +329,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (submitting) return
-    const validation = validateRegister(fields)
+    const validation = validateRegister(fields, t)
     setErrors(validation)
     if (Object.keys(validation).length > 0) return
     setSubmitting(true)
@@ -335,14 +346,14 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         return
       }
       if (res.status === 409) {
-        setServerError({ tone: 'destructive', title: 'This email is already registered.' })
+        setServerError({ tone: 'destructive', title: t('login.register.error.exists') })
       } else if (res.status === 429) {
-        setServerError({ tone: 'warning', title: data.error || 'Too many attempts — please wait a moment and try again.' })
+        setServerError({ tone: 'warning', title: data.error || t('login.register.error.tooMany') })
       } else {
-        setServerError({ tone: 'destructive', title: data.error || 'Registration failed.' })
+        setServerError({ tone: 'destructive', title: data.error || t('login.register.error.failed') })
       }
     } catch {
-      setServerError({ tone: 'destructive', title: 'Network error — could not reach the server.' })
+      setServerError({ tone: 'destructive', title: t('login.error.network') })
     } finally {
       setSubmitting(false)
     }
@@ -359,12 +370,12 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 ring-4 ring-emerald-100 dark:ring-emerald-900/40 mb-4">
           <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
         </div>
-        <h3 className="text-lg font-semibold">Application submitted</h3>
+        <h3 className="text-lg font-semibold">{t('login.register.success.title')}</h3>
         <p className="mt-2 text-sm text-muted-foreground leading-relaxed max-w-[300px]">
-          An administrator will review your registration. Once approved you can sign in with these credentials.
+          {t('login.register.success.desc')}
         </p>
         <Button variant="outline" onClick={onBackToSignIn} className="mt-6 h-11 px-6 text-sm">
-          Back to sign in
+          {t('login.register.back')}
         </Button>
       </motion.div>
     )
@@ -373,12 +384,12 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-4">
       <div className="space-y-1.5">
-        <Label htmlFor="register-name">Name</Label>
+        <Label htmlFor="register-name">{t('login.register.name')}</Label>
         <Input
           id="register-name"
           type="text"
           autoComplete="name"
-          placeholder="Your name"
+          placeholder={t('login.register.namePlaceholder')}
           value={fields.name}
           onChange={set('name')}
           disabled={submitting}
@@ -388,7 +399,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <FieldError message={errors.name} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="register-email">Email</Label>
+        <Label htmlFor="register-email">{t('login.register.email')}</Label>
         <Input
           id="register-email"
           type="email"
@@ -403,13 +414,13 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <FieldError message={errors.email} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="register-password">Password</Label>
+        <Label htmlFor="register-password">{t('login.register.password')}</Label>
         <div className="relative">
           <Input
             id="register-password"
             type={showPassword ? 'text' : 'password'}
             autoComplete="new-password"
-            placeholder="At least 8 characters"
+            placeholder={t('login.register.passwordPlaceholder')}
             value={fields.password}
             onChange={set('password')}
             disabled={submitting}
@@ -419,7 +430,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
           <button
             type="button"
             onClick={() => setShowPassword((v) => !v)}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            aria-label={showPassword ? t('login.hidePassword') : t('login.showPassword')}
             className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             tabIndex={0}
           >
@@ -429,13 +440,13 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <FieldError message={errors.password} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="register-confirm">Confirm password</Label>
+        <Label htmlFor="register-confirm">{t('login.register.confirm')}</Label>
         <div className="relative">
           <Input
             id="register-confirm"
             type={showConfirm ? 'text' : 'password'}
             autoComplete="new-password"
-            placeholder="Repeat your password"
+            placeholder={t('login.register.confirmPlaceholder')}
             value={fields.confirm}
             onChange={set('confirm')}
             disabled={submitting}
@@ -445,7 +456,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
           <button
             type="button"
             onClick={() => setShowConfirm((v) => !v)}
-            aria-label={showConfirm ? 'Hide password' : 'Show password'}
+            aria-label={showConfirm ? t('login.hidePassword') : t('login.showPassword')}
             className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             tabIndex={0}
           >
@@ -461,10 +472,10 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         className="h-11 w-full bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold shadow-sm transition-colors"
       >
         {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-        {submitting ? 'Submitting…' : 'Create account'}
+        {submitting ? t('login.register.submitting') : t('login.register.createAccount')}
       </Button>
       <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
-        New accounts require administrator approval before first sign-in.
+        {t('login.register.notice')}
       </p>
     </form>
   )
@@ -473,6 +484,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
 // ======================== LOGIN SCREEN ========================
 
 export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: boolean }) {
+  const t = useT()
   const [tab, setTab] = React.useState<'signin' | 'register'>('signin')
   const [googleError, setGoogleError] = React.useState<string | null>(null)
 
@@ -491,14 +503,18 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
   }, [])
 
   const features = [
-    { icon: MonitorSmartphone, title: 'Multi-device control', desc: 'Local and remote machines from one surface.' },
-    { icon: PlayCircle, title: 'One-click environment start', desc: 'Start, stop and restart project environments.' },
-    { icon: Sparkles, title: 'LLM analysis & auto-repair', desc: 'Automated analysis and failure self-healing.' },
+    { icon: MonitorSmartphone, title: t('login.feature.multiDevice.title'), desc: t('login.feature.multiDevice.desc') },
+    { icon: PlayCircle, title: t('login.feature.oneClick.title'), desc: t('login.feature.oneClick.desc') },
+    { icon: Sparkles, title: t('login.feature.llm.title'), desc: t('login.feature.llm.desc') },
   ]
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="relative min-h-screen flex flex-col">
       <div className="page-backdrop" aria-hidden="true" />
+      {/* Standalone language switcher (task 17) — top-right corner */}
+      <div className="absolute top-4 right-4 z-20 flex items-center gap-1">
+        <LanguageToggle />
+      </div>
       <main className="flex-1 flex items-center justify-center px-4 py-10 sm:px-6">
         <div className="w-full max-w-4xl lg:grid lg:grid-cols-[1fr_minmax(0,26rem)] lg:gap-14 items-center">
           {/* ---------- LEFT brand panel (lg+) ---------- */}
@@ -507,10 +523,10 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/40 ring-1 ring-primary/30 ring-inset">
                 <Zap className="h-5 w-5" />
               </div>
-              <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+              <h1 className="text-2xl font-bold tracking-tight">{t('login.brand')}</h1>
             </div>
             <p className="text-base text-muted-foreground leading-relaxed -mt-4">
-              Multi-device project dashboard — environments, logs and repair tooling in one place.
+              {t('login.subtitle')}
             </p>
             <ul className="space-y-5">
               {features.map((f) => (
@@ -540,24 +556,24 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
                 <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/40 ring-1 ring-primary/30 ring-inset">
                   <Zap className="h-4 w-4" />
                 </div>
-                <span className="text-base font-bold">Dashboard</span>
+                <span className="text-base font-bold">{t('login.brand')}</span>
               </div>
 
               <h2 className="text-xl font-semibold tracking-tight">
-                {tab === 'signin' ? 'Welcome back' : 'Create your account'}
+                {tab === 'signin' ? t('login.welcomeBack') : t('login.createAccount')}
               </h2>
               <p className="text-sm text-muted-foreground mt-1 mb-5">
-                {tab === 'signin' ? 'Sign in to continue to your dashboard.' : 'Register to request access to the dashboard.'}
+                {tab === 'signin' ? t('login.signinSubtitle') : t('login.registerSubtitle')}
               </p>
 
               <Tabs value={tab} onValueChange={(v) => setTab(v as 'signin' | 'register')}>
                 <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-2 mb-5">
-                  <TabsTrigger value="signin" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">Sign in</TabsTrigger>
-                  <TabsTrigger value="register" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">Register</TabsTrigger>
+                  <TabsTrigger value="signin" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('login.tab.signin')}</TabsTrigger>
+                  <TabsTrigger value="register" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('login.tab.register')}</TabsTrigger>
                 </TabsList>
                 {googleError && (
                   <div className="mb-4">
-                    <ErrorAlert error={googleAuthError(googleError)} />
+                    <ErrorAlert error={{ tone: 'destructive', title: t(googleAuthErrorKey(googleError) as Parameters<typeof t>[0]) }} />
                   </div>
                 )}
                 {tab === 'signin' ? (
@@ -571,7 +587,7 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
         </div>
       </main>
       <footer className="mt-auto pb-5 pt-2 text-center text-[11px] text-muted-foreground/70">
-        Dashboard · internal tooling
+        {t('login.footer')}
       </footer>
     </div>
   )

@@ -55,6 +55,8 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from '@/components/ui/h
 import { proxyToAgent } from '@/lib/remote-agent'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { ThemeCustomizer } from '@/components/theme-customizer'
+import { LanguageToggle } from '@/components/language-toggle'
+import { useI18n, useT, type I18nContextValue } from '@/lib/i18n'
 import { AnalyzeWizard, HarnessSessionState } from '@/components/analyze-wizard'
 import { RemoteProjectDialog } from '@/components/remote-project-dialog'
 import { MeshPairingDialog } from '@/components/mesh-pairing'
@@ -359,9 +361,10 @@ function getHealthTrend(projectId: string, currentScore: number): HealthTrend {
 }
 
 function HealthTrendIcon({ trend }: { trend: HealthTrend }) {
-  if (trend === 'up') return <span className="health-trend-icon inline-flex items-center text-emerald-500 text-[9px] leading-none ml-0.5" title="Health improving">▲</span>
-  if (trend === 'down') return <span className="health-trend-icon inline-flex items-center text-red-400 text-[9px] leading-none ml-0.5" title="Health declining">▼</span>
-  return <span className="health-trend-icon inline-flex items-center text-zinc-300 dark:text-zinc-600 text-[9px] leading-none ml-0.5" title="Health stable">◆</span>
+  const t = useT()
+  if (trend === 'up') return <span className="health-trend-icon inline-flex items-center text-emerald-500 text-[9px] leading-none ml-0.5" title={t('surf.trendUp')}>▲</span>
+  if (trend === 'down') return <span className="health-trend-icon inline-flex items-center text-red-400 text-[9px] leading-none ml-0.5" title={t('surf.trendDown')}>▼</span>
+  return <span className="health-trend-icon inline-flex items-center text-zinc-300 dark:text-zinc-600 text-[9px] leading-none ml-0.5" title={t('surf.trendStable')}>◆</span>
 }
 
 function healthStroke(score: number): string {
@@ -432,9 +435,18 @@ function SeverityGroup({ label, color, dot, count, children }: { label: string; 
   )
 }
 
-function formatTimeAgo(dateStr: string): string {
+function formatTimeAgo(dateStr: string, t?: I18nContextValue['t']): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
+  if (t) {
+    // localized units (task 18): renders via the active dictionary
+    if (mins < 1) return t('time.now')
+    if (mins < 60) return t('time.minutesAgo', { count: mins })
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return t('time.hoursAgo', { count: hours })
+    const days = Math.floor(hours / 24)
+    return t('time.daysAgo', { count: days })
+  }
   if (mins < 1) return 'just now'
   if (mins < 60) return `${mins}m ago`
   const hours = Math.floor(mins / 60)
@@ -486,6 +498,7 @@ function AnimatedCounter({ target, duration = 1200 }: { target: number; duration
 // ======================== HEALTH SCORE CIRCLE ========================
 
 function HealthScoreCircle({ score, size = 40 }: { score: number; size?: number }) {
+  const t = useT()
   const strokeWidth = 3
   const radius = (size - strokeWidth) / 2
   const circumference = radius * 2 * Math.PI
@@ -497,7 +510,7 @@ function HealthScoreCircle({ score, size = 40 }: { score: number; size?: number 
   const numClass = size <= 28 ? 'text-[10px]' : size >= 40 ? 'text-[13px]' : 'text-[11px]'
 
   return (
-    <span className="relative inline-flex shrink-0" style={{ width: size, height: size }} aria-label={`Health score ${safeScore}`}>
+    <span className="relative inline-flex shrink-0" style={{ width: size, height: size }} aria-label={t('surf.healthScore', { score: safeScore })}>
       <svg width={size} height={size} className="block -rotate-90" aria-hidden="true">
         <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="currentColor" strokeWidth={strokeWidth} className="text-muted-foreground/20 dark:text-muted-foreground/20" />
         <motion.circle
@@ -532,6 +545,7 @@ function HealthScoreHoverCard({
   totalEnvs: number
   updatedAt: string
 }) {
+  const t = useT()
   const [open, setOpen] = React.useState(false)
 
   return (
@@ -552,22 +566,22 @@ function HealthScoreHoverCard({
         onMouseLeave={() => setOpen(false)}
       >
         <div className="space-y-2.5">
-          <div className="font-semibold text-sm">Project Stats</div>
+          <div className="font-semibold text-sm">{t('card.preview.stats')}</div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Health Score</span>
+            <span className="text-muted-foreground">{t('card.preview.healthScore')}</span>
             <span className={`font-medium ${healthColor(score)}`}>{score}%</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Uptime</span>
+            <span className="text-muted-foreground">{t('card.preview.uptime')}</span>
             <span className="font-medium">{totalEnvs > 0 ? Math.round((runningEnvs / totalEnvs) * 100) : 0}%</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Running Envs</span>
+            <span className="text-muted-foreground">{t('card.preview.runningEnvs')}</span>
             <span className="font-medium text-emerald-600 dark:text-emerald-400">{runningEnvs}/{totalEnvs}</span>
           </div>
           {/* Status breakdown bar */}
           <div className="space-y-1">
-            <span className="text-muted-foreground text-[10px]">Status Breakdown</span>
+            <span className="text-muted-foreground text-[10px]">{t('card.preview.statusBreakdown')}</span>
             <div className="h-2 rounded-full bg-muted overflow-hidden flex">
               {totalEnvs > 0 && runningEnvs > 0 && (
                 <div className="bg-emerald-500 h-full rounded-l-full transition-all" style={{ width: `${(runningEnvs / totalEnvs) * 100}%` }} />
@@ -577,14 +591,14 @@ function HealthScoreHoverCard({
               )}
             </div>
             <div className="flex items-center gap-3 text-[10px]">
-              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Running ({runningEnvs})</span>
-              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-red-400" /> Stopped ({totalEnvs - runningEnvs})</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {t('card.preview.runningCount', { count: runningEnvs })}</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-red-400" /> {t('card.preview.stoppedCount', { count: totalEnvs - runningEnvs })}</span>
             </div>
           </div>
           <Separator />
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Last Updated</span>
-            <span className="font-medium">{formatTimeAgo(updatedAt)}</span>
+            <span className="text-muted-foreground">{t('card.preview.lastUpdated')}</span>
+            <span className="font-medium">{formatTimeAgo(updatedAt, t)}</span>
           </div>
         </div>
       </PopoverContent>
@@ -600,6 +614,7 @@ function ProjectQuickPreview({
   project: Project
   children: React.ReactNode
 }) {
+  const t = useT()
   const [open, setOpen] = React.useState(false)
   const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const health = calculateHealthScore(project)
@@ -655,7 +670,7 @@ function ProjectQuickPreview({
             <div className="h-4 w-px bg-border" />
             <div className="flex items-center gap-1">
               <span className={`h-2 w-2 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-red-400'}`} />
-              <span className="text-xs text-muted-foreground">{runningEnvs}/{totalEnvs} running</span>
+              <span className="text-xs text-muted-foreground">{t('card.preview.runningFraction', { running: runningEnvs, total: totalEnvs })}</span>
             </div>
           </div>
           {/* Health bar */}
@@ -666,17 +681,17 @@ function ProjectQuickPreview({
             />
           </div>
           <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>Updated {formatTimeAgo(project.updatedAt)}</span>
+            <span>{t('card.preview.updatedAgo', { time: formatTimeAgo(project.updatedAt, t) })}</span>
           </div>
           <div className="flex items-center gap-1.5 pt-1">
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium ring-1 ring-emerald-200/50 dark:ring-emerald-800/30">
-              <Play className="h-3 w-3" />Start
+              <Play className="h-3 w-3" />{t('card.chipStart')}
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-[11px] font-medium ring-1 ring-red-200/50 dark:ring-red-800/30">
-              <Square className="h-3 w-3" />Stop
+              <Square className="h-3 w-3" />{t('card.chipStop')}
             </span>
             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-muted/50 text-muted-foreground text-[11px] font-medium ring-1 ring-border/30">
-              <ExternalLink className="h-3 w-3" />Open
+              <ExternalLink className="h-3 w-3" />{t('card.chipOpen')}
             </span>
           </div>
         </div>
@@ -793,14 +808,17 @@ const OP_PROGRESS_LABELS: Record<string, string> = {
   rebuild: 'Rebuilding',
 }
 
-function EnvOpPending({ action }: { action: string }) {
+function EnvOpPending({ action, t }: { action: string; t?: I18nContextValue['t'] }) {
+  const op = t && ['start', 'stop', 'restart', 'rebuild'].includes(action)
+    ? t(`dlg.op.${action}` as Parameters<typeof t>[0])
+    : OP_PROGRESS_LABELS[action] ?? action
   return (
     <span
       className="inline-flex items-center gap-1.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap"
-      title={`${OP_PROGRESS_LABELS[action] ?? action} in progress — please wait`}
+      title={t ? t('dlg.op.inProgressTitle', { op }) : `${OP_PROGRESS_LABELS[action] ?? action} in progress — please wait`}
     >
       <Loader2 className="h-3 w-3 animate-spin" />
-      {OP_PROGRESS_LABELS[action] ?? action}…
+      {op}…
     </span>
   )
 }
@@ -842,6 +860,7 @@ function SortableProjectCardImpl({
   pendingOps?: Record<string, string>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
+  const t = useT()
   const [expanded, setExpanded] = React.useState(false)
   const needsExpand = (project.environments || []).length > 3
   const style = {
@@ -922,7 +941,7 @@ function SortableProjectCardImpl({
           onClick={() => onSelect(project)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onSelect(project) } }}
         >
-          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={(e) => e.stopPropagation()} title="Drag to reorder">
+          <div {...attributes} {...listeners} data-dnd-drag-handle className="cursor-grab active:cursor-grabbing p-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={(e) => e.stopPropagation()} title={t('card.dragToReorder')}>
             <GripVertical className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
           </div>
           {batchMode && (
@@ -955,7 +974,7 @@ function SortableProjectCardImpl({
               </Badge>
               {project.name === 'Hermes Web' && <HermesBridgeToggle />}
             </div>
-            <button type="button" className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate text-left cursor-pointer hover:text-foreground dark:hover:text-zinc-200 transition-colors" title={`${project.path} — Click to copy`} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(project.path); addToast({ title: 'Path copied', description: project.path, variant: 'success' }) }}>{highlightText(project.path, searchQuery)}</button>
+            <button type="button" className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate text-left cursor-pointer hover:text-foreground dark:hover:text-zinc-200 transition-colors" title={t('card.pathTooltip', { path: project.path })} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(project.path); addToast({ title: t('dlg.toast.pathCopied'), description: project.path, variant: 'success' }) }}>{highlightText(project.path, searchQuery)}</button>
           </div>
           <div className="hidden sm:flex items-center gap-1.5 justify-end max-w-[200px] overflow-hidden">
             {tags.slice(0, 3).map((tag) => (
@@ -966,13 +985,13 @@ function SortableProjectCardImpl({
           <div className="hidden md:flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
             {(project.environments || []).slice(0, 3).map((env) => (
               <div key={env.id} className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors`}
-                title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
+                title={env.pid ? t('card.envRowTitlePid', { env: envLabel(env.name), port: env.port, status: env.status, pid: env.pid }) : t('card.envRowTitle', { env: envLabel(env.name), port: env.port, status: env.status })}
               >
                 <AnimatedStatusDot status={env.status} />
                 {env.name === 'development' ? <span className="text-[10px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium shrink-0">dev</span> : env.name === 'production' ? <span className="text-[10px] leading-4 px-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium shrink-0">prod</span> : <span className="text-[10px] text-muted-foreground dark:text-zinc-300 max-w-[40px] truncate">{envLabel(env.name)}</span>}
-                {env.name === 'development' && env.status === 'running' && <span className="font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium shrink-0" title="Hot Module Replacement — auto-reloads on file changes">HMR</span>}
-                {env.name === 'production' && <span className="font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium shrink-0" title="Production build — requires rebuild to apply changes">Build</span>}
-                {pendingOps[env.id] ? <EnvOpPending action={pendingOps[env.id]} /> : (<>
+                {env.name === 'development' && env.status === 'running' && <span className="font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium shrink-0" title={t('card.hmrTitle')}>HMR</span>}
+                {env.name === 'production' && <span className="font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium shrink-0" title={t('card.buildTitle')}>Build</span>}
+                {pendingOps[env.id] ? <EnvOpPending action={pendingOps[env.id]} t={t} /> : (<>
                 {env.status === 'running' && (
                   <a
                     href={getOpenUrl(env.port)}
@@ -980,22 +999,22 @@ function SortableProjectCardImpl({
                     rel="noopener noreferrer"
                     className="inline-flex items-center justify-center rounded-md h-4 w-4 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                     onClick={(e) => e.stopPropagation()}
-                    title={`Open ${envLabel(env.name)} (${env.port})`}
+                    title={t('card.openEnv', { env: envLabel(env.name), port: env.port })}
                   >
                     <ExternalLink className="h-2.5 w-2.5" />
                   </a>
                 )}
                 {env.status === 'running' && (
-                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'restart') }} title={`Restart ${envLabel(env.name)}`}><RotateCw className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>Restart {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'restart') }} title={t('card.restartEnv', { env: envLabel(env.name) })}><RotateCw className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>{t('card.restartEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                 )}
                 {env.name !== 'development' && (
-                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'rebuild') }} title={`Rebuild ${envLabel(env.name)}`}><Hammer className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>Rebuild {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'rebuild') }} title={t('card.rebuildEnv', { env: envLabel(env.name) })}><Hammer className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>{t('card.rebuildEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                 )}
                 {/* Start/Stop at rightmost position */}
                 {env.status === 'running' ? (
-                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer shrink-0 ml-0.5" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer shrink-0 ml-0.5" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={t('card.stopEnv', { env: envLabel(env.name) })}><Square className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>{t('card.stopEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                 ) : (
-                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer shrink-0 ml-0.5" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer shrink-0 ml-0.5" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={t('card.startEnv', { env: envLabel(env.name) })}><Play className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>{t('card.startEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                 )}
                 </>)}
               </div>
@@ -1020,8 +1039,8 @@ function SortableProjectCardImpl({
                 onClick={(e) => e.stopPropagation()}
               >
                 <ExternalLink className="h-3 w-3" />
-                <span className="text-[11px] font-medium hidden sm:inline">Open</span>
-              </a></TooltipTrigger><TooltipContent>Open project in browser</TooltipContent></Tooltip></TooltipProvider>
+                <span className="text-[11px] font-medium hidden sm:inline">{t('surf.open')}</span>
+              </a></TooltipTrigger><TooltipContent>{t('surf.openInBrowser')}</TooltipContent></Tooltip></TooltipProvider>
             )}
 
             {/* Re-fetch Environments — surfaced prominently when the project
@@ -1030,8 +1049,8 @@ function SortableProjectCardImpl({
             {totalEnvs === 0 && onReanalyze && (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 px-2.5 bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer gap-1.5 text-[11px] font-medium transition-colors" onClick={() => onReanalyze(project)}>
                 <RefreshCw className="h-3 w-3" />
-                <span className="text-[11px] hidden sm:inline whitespace-nowrap">Re-fetch Env</span>
-              </button></TooltipTrigger><TooltipContent>Detect dev/prod environments from package.json</TooltipContent></Tooltip></TooltipProvider>
+                <span className="text-[11px] hidden sm:inline whitespace-nowrap">{t('surf.refetchEnv')}</span>
+              </button></TooltipTrigger><TooltipContent>{t('surf.refetchEnvHint')}</TooltipContent></Tooltip></TooltipProvider>
             )}
 
             {/* Start All / Stop All - prominent rightmost button. Hidden when
@@ -1039,34 +1058,34 @@ function SortableProjectCardImpl({
             {(project.environments || []).some((e) => e.status === 'running') ? (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" disabled={projectBusy} className="inline-flex items-center justify-center rounded-md h-7 px-2.5 border border-zinc-200 dark:border-zinc-700 bg-card hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50/60 dark:hover:bg-red-950/30 cursor-pointer gap-1.5 text-zinc-600 dark:text-zinc-300 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}>
                 <Square className="h-3 w-3 fill-current" />
-                <span className="text-[11px] hidden sm:inline whitespace-nowrap">Stop All</span>
-              </button></TooltipTrigger><TooltipContent>{projectBusy ? '操作进行中，请稍候' : 'Stop all running environments'}</TooltipContent></Tooltip></TooltipProvider>
+                <span className="text-[11px] hidden sm:inline whitespace-nowrap">{t('surf.stopAll')}</span>
+              </button></TooltipTrigger><TooltipContent>{projectBusy ? t('card.busyTooltip') : t('card.stopAllRunning')}</TooltipContent></Tooltip></TooltipProvider>
             ) : totalEnvs > 0 ? (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" disabled={projectBusy} className="inline-flex items-center justify-center rounded-md h-7 px-2.5 bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer gap-1.5 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status !== 'running').forEach((env) => onEnvAction(project.id, env.id, 'start')) }}>
                 <Play className="h-3 w-3 fill-current" />
-                <span className="text-[11px] hidden sm:inline whitespace-nowrap">Start All</span>
-              </button></TooltipTrigger><TooltipContent>{projectBusy ? '操作进行中，请稍候' : 'Start all stopped environments'}</TooltipContent></Tooltip></TooltipProvider>
+                <span className="text-[11px] hidden sm:inline whitespace-nowrap">{t('surf.startAll')}</span>
+              </button></TooltipTrigger><TooltipContent>{projectBusy ? t('card.busyTooltip') : t('card.startAllStopped')}</TooltipContent></Tooltip></TooltipProvider>
             ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors"><MoreVertical className="h-3.5 w-3.5" /></button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
-                <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />{t('surf.duplicate')}</DropdownMenuItem>
                 {!project.deviceId && onMoveToDevice && (
-                  <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Move to Device</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />{t('surf.moveToDevice')}</DropdownMenuItem>
                 )}
                 {onReanalyze && (
-                  <DropdownMenuItem onClick={() => onReanalyze(project)} className="px-2.5 py-2 text-sm rounded-md"><RefreshCw className="h-3.5 w-3.5 mr-2.5" />Re-fetch Environments</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onReanalyze(project)} className="px-2.5 py-2 text-sm rounded-md"><RefreshCw className="h-3.5 w-3.5 mr-2.5" />{t('surf.refetchEnvs')}</DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 {(project.environments || []).some((e) => e.status === 'running') && (
-                  <DropdownMenuItem onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />Copy Proxy URL</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />{t('surf.copyProxy')}</DropdownMenuItem>
                 )}
-                <DropdownMenuItem disabled={projectBusy} onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'restart')) }} className="px-2.5 py-2 text-sm rounded-md"><RotateCw className="h-3.5 w-3.5 mr-2.5" />Restart All</DropdownMenuItem>
-                <DropdownMenuItem disabled={projectBusy} onClick={() => { if (projectBusy) return; onRebuildConfirm(project) }} className="px-2.5 py-2 text-sm rounded-md"><Hammer className="h-3.5 w-3.5 mr-2.5" />Rebuild All</DropdownMenuItem>
+                <DropdownMenuItem disabled={projectBusy} onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'restart')) }} className="px-2.5 py-2 text-sm rounded-md"><RotateCw className="h-3.5 w-3.5 mr-2.5" />{t('surf.restartAll')}</DropdownMenuItem>
+                <DropdownMenuItem disabled={projectBusy} onClick={() => { if (projectBusy) return; onRebuildConfirm(project) }} className="px-2.5 py-2 text-sm rounded-md"><Hammer className="h-3.5 w-3.5 mr-2.5" />{t('surf.rebuildAll')}</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-destructive px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</DropdownMenuItem>
+                <DropdownMenuItem className="text-destructive px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />{t('dlg.common.delete')}</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1074,22 +1093,22 @@ function SortableProjectCardImpl({
           </ContextMenuTrigger>
           <ContextMenuContent className="min-w-[180px] p-1.5 text-sm">
             {(project.environments || []).some((e) => e.status === 'running') && (
-              <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />Open in Browser</ContextMenuItem>
+              <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.openBrowser')}</ContextMenuItem>
             )}
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</ContextMenuItem>
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</ContextMenuItem>
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</ContextMenuItem>
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />Unpin</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />Pin to Top</>}</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.duplicate')}</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.unpin')}</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pinToTop')}</>}</ContextMenuItem>
             {(project.environments || []).every((e) => e.status !== 'running') && (
-              <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />Start All Environments</ContextMenuItem>
+              <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.startAll')}</ContextMenuItem>
             )}
             {(project.environments || []).some((e) => e.status === 'running') && (
-              <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />Stop All Environments</ContextMenuItem>
+              <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.stopAll')}</ContextMenuItem>
             )}
             <ContextMenuSeparator />
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCompare?.(project)}><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Compare</ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCompare?.(project)}><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.compare')}</ContextMenuItem>
             <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</ContextMenuItem>
+            <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />{t('dlg.common.delete')}</ContextMenuItem>
           </ContextMenuContent>
         </ContextMenu>
       </div>
@@ -1115,7 +1134,7 @@ function SortableProjectCardImpl({
         {/* Hermes Bridge toggle is rendered in the bottom action row, not the card top */}
 
         {rebuilding && (
-          <div className="absolute top-0 left-0 right-0 h-[3px] overflow-hidden rounded-t-xl z-20 bg-zinc-100 dark:bg-zinc-800" role="progressbar" aria-label="Rebuild in progress">
+          <div className="absolute top-0 left-0 right-0 h-[3px] overflow-hidden rounded-t-xl z-20 bg-zinc-100 dark:bg-zinc-800" role="progressbar" aria-label={t('surf.rebuildInProgress')}>
             <div className="h-full w-1/3 bg-zinc-900 dark:bg-zinc-100 rounded-full progress-indeterminate" />
           </div>
         )}
@@ -1126,7 +1145,7 @@ function SortableProjectCardImpl({
         <CardHeader className={`${headerPad} shrink-0 relative z-[1]`}>
           <div className="flex items-start gap-2 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
-              <div {...attributes} {...listeners} data-dnd-drag-handle onClick={(e) => e.stopPropagation()} className="cursor-grab active:cursor-grabbing -my-0.5 p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/60 transition-colors shrink-0" title="Drag to reorder">
+              <div {...attributes} {...listeners} data-dnd-drag-handle onClick={(e) => e.stopPropagation()} className="cursor-grab active:cursor-grabbing -my-0.5 p-1 rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/60 transition-colors shrink-0" title={t('card.dragToReorder')}>
                 <GripVertical className="h-3.5 w-3.5" />
               </div>
               {batchMode && (
@@ -1152,7 +1171,7 @@ function SortableProjectCardImpl({
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-                  <button type="button" className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate min-w-0 text-left cursor-pointer hover:text-foreground dark:hover:text-zinc-200 transition-colors" title={`${project.path} — Click to copy`} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(project.path); addToast({ title: 'Path copied', description: project.path, variant: 'success' }) }}>
+                  <button type="button" className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate min-w-0 text-left cursor-pointer hover:text-foreground dark:hover:text-zinc-200 transition-colors" title={t('card.pathTooltip', { path: project.path })} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(project.path); addToast({ title: t('dlg.toast.pathCopied'), description: project.path, variant: 'success' }) }}>
                     {highlightText(project.path, searchQuery)}
                   </button>
                   {totalEnvs > 0 && (
@@ -1185,7 +1204,7 @@ function SortableProjectCardImpl({
           <div className={envRowGap}>
             {(project.environments || []).slice(0, 3).map((env, envIdx) => (
               <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg ${envRowPad} hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors ${envIdx < Math.min((project.environments || []).length, 3) - 1 ? 'border-b border-zinc-100 dark:border-zinc-800/60 pb-1.5' : ''}`}
-                title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
+                title={env.pid ? t('card.envRowTitlePid', { env: envLabel(env.name), port: env.port, status: env.status, pid: env.pid }) : t('card.envRowTitle', { env: envLabel(env.name), port: env.port, status: env.status })}
               >
                 <div className="flex items-center gap-1.5 min-w-0 shrink">
                   <AnimatedStatusDot status={env.status} />
@@ -1194,12 +1213,12 @@ function SortableProjectCardImpl({
                   {project.name === 'Hermes Web' && env.name === 'development' && (
                     <HermesBridgeToggle />
                   )}
-                  {env.name === 'development' && env.status === 'running' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title="Hot Module Replacement — auto-reloads on file changes">HMR</span>}
-                  {env.name === 'production' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title="Production build — requires rebuild to apply changes">Build</span>}
+                  {env.name === 'development' && env.status === 'running' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.hmrTitle')}>HMR</span>}
+                  {env.name === 'production' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.buildTitle')}>Build</span>}
                 </div>
                 <div className="flex items-center gap-1 sm:gap-1 shrink-0">
-                  {pendingOps[env.id] ? <EnvOpPending action={pendingOps[env.id]} /> : (<>
-                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors tabular-nums px-0.5 cursor-pointer" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(env.port)); addToast({ title: 'Port copied', description: `Port ${env.port}`, variant: 'success' }) }} title="Click to copy port">:{env.port}</button></TooltipTrigger><TooltipContent>Click to copy port</TooltipContent></Tooltip></TooltipProvider>
+                  {pendingOps[env.id] ? <EnvOpPending action={pendingOps[env.id]} t={t} /> : (<>
+                  <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors tabular-nums px-0.5 cursor-pointer" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(env.port)); addToast({ title: t('dlg.toast.portCopied'), description: t('dlg.toast.portCopiedDesc', { port: env.port }), variant: 'success' }) }} title={t('card.clickToCopyPort')}>:{env.port}</button></TooltipTrigger><TooltipContent>{t('card.clickToCopyPort')}</TooltipContent></Tooltip></TooltipProvider>
                   {env.status === 'running' && (
                     <a
                       href={getOpenUrl(env.port)}
@@ -1207,23 +1226,23 @@ function SortableProjectCardImpl({
                       rel="noopener noreferrer"
                       className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                       onClick={(e) => e.stopPropagation()}
-                      title={`Open ${envLabel(env.name)} (${env.port})`}
+                      title={t('card.openEnv', { env: envLabel(env.name), port: env.port })}
                     >
                       <ExternalLink className="h-2.5 w-2.5" />
                     </a>
                   )}
                   {env.status === 'running' && (
-                    <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'restart') }} title={`Restart ${envLabel(env.name)}`}><RotateCw className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>Restart {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                    <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'restart') }} title={t('card.restartEnv', { env: envLabel(env.name) })}><RotateCw className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>{t('card.restartEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                   )}
                   {env.name !== 'development' && (
-                    <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'rebuild') }} title={`Rebuild ${envLabel(env.name)}`}><Hammer className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>Rebuild {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                    <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'rebuild') }} title={t('card.rebuildEnv', { env: envLabel(env.name) })}><Hammer className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>{t('card.rebuildEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                   )}
 
                   {/* Start/Stop at rightmost position */}
                   {env.status === 'running' ? (
-                    <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                    <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={t('card.stopEnv', { env: envLabel(env.name) })}><Square className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>{t('card.stopEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                   ) : (
-                    <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-zinc-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                    <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-zinc-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={t('card.startEnv', { env: envLabel(env.name) })}><Play className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>{t('card.startEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                   )}
                   </>)}
                 </div>
@@ -1241,32 +1260,32 @@ function SortableProjectCardImpl({
                   <div className="space-y-2">
                     {(project.environments || []).slice(3).map((env, envIdx) => (
                       <div key={env.id} className={`flex items-center justify-between text-xs group/env min-w-0 gap-1.5 rounded-lg px-2 sm:px-2.5 py-2 sm:py-2.5 hover:bg-zinc-100/60 dark:hover:bg-zinc-800/50 transition-colors ${envIdx < (project.environments || []).length - 3 - 1 ? 'border-b border-zinc-100 dark:border-zinc-800/60 pb-2 sm:pb-3' : ''}`}
-                        title={`${envLabel(env.name)} — port :${env.port} — ${env.status}${env.pid ? ` — PID ${env.pid}` : ''}`}
+                        title={env.pid ? t('card.envRowTitlePid', { env: envLabel(env.name), port: env.port, status: env.status, pid: env.pid }) : t('card.envRowTitle', { env: envLabel(env.name), port: env.port, status: env.status })}
                       >
                         <div className="flex items-center gap-1.5 min-w-0 shrink">
                           <AnimatedStatusDot status={env.status} />
                           {env.name === 'development' ? <span className="shrink-0 text-[10px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium">dev</span> : env.name === 'production' ? <span className="shrink-0 text-[10px] leading-4 px-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium">prod</span> : <span className="text-muted-foreground dark:text-zinc-300 truncate max-w-[60px] text-[10px]">{envLabel(env.name)}</span>}
-                          {env.name === 'development' && env.status === 'running' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title="Hot Module Replacement — auto-reloads on file changes">HMR</span>}
-                          {env.name === 'production' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title="Production build — requires rebuild to apply changes">Build</span>}
+                          {env.name === 'development' && env.status === 'running' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.hmrTitle')}>HMR</span>}
+                          {env.name === 'production' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.buildTitle')}>Build</span>}
                         </div>
                         <div className="flex items-center gap-1 sm:gap-1 shrink-0">
-                          {pendingOps[env.id] ? <EnvOpPending action={pendingOps[env.id]} /> : (<>
-                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors tabular-nums px-0.5 cursor-pointer" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(env.port)); addToast({ title: 'Port copied', description: `Port ${env.port}`, variant: 'success' }) }} title="Click to copy port">:{env.port}</button></TooltipTrigger><TooltipContent>Click to copy port</TooltipContent></Tooltip></TooltipProvider>
+                          {pendingOps[env.id] ? <EnvOpPending action={pendingOps[env.id]} t={t} /> : (<>
+                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors tabular-nums px-0.5 cursor-pointer" onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(String(env.port)); addToast({ title: t('dlg.toast.portCopied'), description: t('dlg.toast.portCopiedDesc', { port: env.port }), variant: 'success' }) }} title={t('card.clickToCopyPort')}>:{env.port}</button></TooltipTrigger><TooltipContent>{t('card.clickToCopyPort')}</TooltipContent></Tooltip></TooltipProvider>
                           {env.status === 'running' && (
-                            <a href={getOpenUrl(env.port)} target="_blank" rel="noopener noreferrer" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={(e) => e.stopPropagation()} title={`Open ${envLabel(env.name)} (${env.port})`}>
+                            <a href={getOpenUrl(env.port)} target="_blank" rel="noopener noreferrer" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" onClick={(e) => e.stopPropagation()} title={t('card.openEnv', { env: envLabel(env.name), port: env.port })}>
                               <ExternalLink className="h-2.5 w-2.5" />
                             </a>
                           )}
                           {env.status === 'running' && (
-                            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'restart') }} title={`Restart ${envLabel(env.name)}`}><RotateCw className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>Restart {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'restart') }} title={t('card.restartEnv', { env: envLabel(env.name) })}><RotateCw className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>{t('card.restartEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                           )}
                           {env.name !== 'development' && (
-                            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'rebuild') }} title={`Rebuild ${envLabel(env.name)}`}><Hammer className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>Rebuild {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="hidden sm:inline-flex items-center justify-center rounded-md h-5 w-5 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'rebuild') }} title={t('card.rebuildEnv', { env: envLabel(env.name) })}><Hammer className="h-2.5 w-2.5" /></button></TooltipTrigger><TooltipContent>{t('card.rebuildEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                           )}
                           {env.status === 'running' ? (
-                            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={`Stop ${envLabel(env.name)}`}><Square className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>Stop {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-zinc-500 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'stop') }} title={t('card.stopEnv', { env: envLabel(env.name) })}><Square className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>{t('card.stopEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                           ) : (
-                            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-zinc-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={`Start ${envLabel(env.name)}`}><Play className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>Start {envLabel(env.name)}</TooltipContent></Tooltip></TooltipProvider>
+                            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-5 w-5 sm:h-5 sm:w-5 text-zinc-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer shrink-0" onClick={(e) => { e.stopPropagation(); onEnvAction(project.id, env.id, 'start') }} title={t('card.startEnv', { env: envLabel(env.name) })}><Play className="h-2.5 w-2.5 fill-current" /></button></TooltipTrigger><TooltipContent>{t('card.startEnv', { env: envLabel(env.name) })}</TooltipContent></Tooltip></TooltipProvider>
                           )}
                           </>)}
                         </div>
@@ -1277,7 +1296,7 @@ function SortableProjectCardImpl({
               )}
             </AnimatePresence>
             {!expanded && (project.environments || []).length > 3 && (
-              <p className="text-[10px] text-muted-foreground">+{(project.environments || []).length - 3} more</p>
+              <p className="text-[10px] text-muted-foreground">{t('surf.moreEnvs', { count: (project.environments || []).length - 3 })}</p>
             )}
           </div>
 
@@ -1288,7 +1307,7 @@ function SortableProjectCardImpl({
               className="mt-1 flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
             >
-              {expanded ? <><ChevronUp className="h-3 w-3" />Show less</> : <><ChevronDown className="h-3 w-3" />Show more</>}
+              {expanded ? <><ChevronUp className="h-3 w-3" />{t('surf.showLess')}</> : <><ChevronDown className="h-3 w-3" />{t('surf.showMore')}</>}
             </button>
           )}
         </CardContent>
@@ -1299,10 +1318,10 @@ function SortableProjectCardImpl({
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-[11px] font-medium px-2 py-0.5 gap-1.5 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 tabular-nums">
               <span className={`h-1.5 w-1.5 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-zinc-400 dark:bg-zinc-500'}`} />
-              {runningEnvs}/{totalEnvs} running
+              {t('card.preview.runningFraction', { running: runningEnvs, total: totalEnvs })}
             </Badge>
             {project.name === 'Hermes Web' && <HermesBridgeToggle />}
-            <span className="text-[10px] text-muted-foreground dark:text-zinc-400 hidden sm:inline" title={new Date(project.createdAt).toLocaleString()}>{formatTimeAgo(project.createdAt)}</span>
+            <span className="text-[10px] text-muted-foreground dark:text-zinc-400 hidden sm:inline" title={new Date(project.createdAt).toLocaleString()}>{formatTimeAgo(project.createdAt, t)}</span>
           </div>
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
             {(project.environments || []).some((e) => e.status === 'running') && (
@@ -1314,8 +1333,8 @@ function SortableProjectCardImpl({
                 onClick={(e) => e.stopPropagation()}
               >
                 <ExternalLink className="h-3 w-3" />
-                <span className="text-[11px] font-medium hidden sm:inline">Open</span>
-              </a></TooltipTrigger><TooltipContent>Open project in browser</TooltipContent></Tooltip></TooltipProvider>
+                <span className="text-[11px] font-medium hidden sm:inline">{t('surf.open')}</span>
+              </a></TooltipTrigger><TooltipContent>{t('surf.openInBrowser')}</TooltipContent></Tooltip></TooltipProvider>
             )}
 
             {/* Re-fetch Environments — surfaced prominently when the project
@@ -1324,8 +1343,8 @@ function SortableProjectCardImpl({
             {totalEnvs === 0 && onReanalyze && (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 px-2.5 bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer gap-1.5 text-[11px] font-medium transition-colors" onClick={() => onReanalyze(project)}>
                 <RefreshCw className="h-3 w-3" />
-                <span className="text-[11px] hidden sm:inline whitespace-nowrap">Re-fetch Env</span>
-              </button></TooltipTrigger><TooltipContent>Detect dev/prod environments from package.json</TooltipContent></Tooltip></TooltipProvider>
+                <span className="text-[11px] hidden sm:inline whitespace-nowrap">{t('surf.refetchEnv')}</span>
+              </button></TooltipTrigger><TooltipContent>{t('surf.refetchEnvHint')}</TooltipContent></Tooltip></TooltipProvider>
             )}
 
             {/* Start All / Stop All - prominent rightmost button. Hidden when
@@ -1333,34 +1352,34 @@ function SortableProjectCardImpl({
             {(project.environments || []).some((e) => e.status === 'running') ? (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" disabled={projectBusy} className="inline-flex items-center justify-center rounded-md h-7 px-2.5 border border-zinc-200 dark:border-zinc-700 bg-card hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50/60 dark:hover:bg-red-950/30 cursor-pointer gap-1.5 text-zinc-600 dark:text-zinc-300 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}>
                 <Square className="h-3 w-3 fill-current" />
-                <span className="text-[11px] hidden sm:inline whitespace-nowrap">Stop All</span>
-              </button></TooltipTrigger><TooltipContent>{projectBusy ? '操作进行中，请稍候' : 'Stop all running environments'}</TooltipContent></Tooltip></TooltipProvider>
+                <span className="text-[11px] hidden sm:inline whitespace-nowrap">{t('surf.stopAll')}</span>
+              </button></TooltipTrigger><TooltipContent>{projectBusy ? t('card.busyTooltip') : t('card.stopAllRunning')}</TooltipContent></Tooltip></TooltipProvider>
             ) : totalEnvs > 0 ? (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" disabled={projectBusy} className="inline-flex items-center justify-center rounded-md h-7 px-2.5 bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer gap-1.5 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status !== 'running').forEach((env) => onEnvAction(project.id, env.id, 'start')) }}>
                 <Play className="h-3 w-3 fill-current" />
-                <span className="text-[11px] hidden sm:inline whitespace-nowrap">Start All</span>
-              </button></TooltipTrigger><TooltipContent>{projectBusy ? '操作进行中，请稍候' : 'Start all stopped environments'}</TooltipContent></Tooltip></TooltipProvider>
+                <span className="text-[11px] hidden sm:inline whitespace-nowrap">{t('surf.startAll')}</span>
+              </button></TooltipTrigger><TooltipContent>{projectBusy ? t('card.busyTooltip') : t('card.startAllStopped')}</TooltipContent></Tooltip></TooltipProvider>
             ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors"><MoreVertical className="h-3.5 w-3.5" /></button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
-                <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />View Details</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />{t('surf.duplicate')}</DropdownMenuItem>
                 {!project.deviceId && onMoveToDevice && (
-                  <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Move to Device</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onMoveToDevice(project)} className="px-2.5 py-2 text-sm rounded-md"><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />{t('surf.moveToDevice')}</DropdownMenuItem>
                 )}
                 {onReanalyze && (
-                  <DropdownMenuItem onClick={() => onReanalyze(project)} className="px-2.5 py-2 text-sm rounded-md"><RefreshCw className="h-3.5 w-3.5 mr-2.5" />Re-fetch Environments</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onReanalyze(project)} className="px-2.5 py-2 text-sm rounded-md"><RefreshCw className="h-3.5 w-3.5 mr-2.5" />{t('surf.refetchEnvs')}</DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
                 {(project.environments || []).some((e) => e.status === 'running') && (
-                  <DropdownMenuItem onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />Copy Proxy URL</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) navigator.clipboard.writeText(`${window.location.origin}/api/proxy/${port}/`) }} className="px-2.5 py-2 text-sm rounded-md"><Link2 className="h-3.5 w-3.5 mr-2.5" />{t('surf.copyProxy')}</DropdownMenuItem>
                 )}
-                <DropdownMenuItem disabled={projectBusy} onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'restart')) }} className="px-2.5 py-2 text-sm rounded-md"><RotateCw className="h-3.5 w-3.5 mr-2.5" />Restart All</DropdownMenuItem>
-                <DropdownMenuItem disabled={projectBusy} onClick={() => { if (projectBusy) return; onRebuildConfirm(project) }} className="px-2.5 py-2 text-sm rounded-md"><Hammer className="h-3.5 w-3.5 mr-2.5" />Rebuild All</DropdownMenuItem>
+                <DropdownMenuItem disabled={projectBusy} onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'restart')) }} className="px-2.5 py-2 text-sm rounded-md"><RotateCw className="h-3.5 w-3.5 mr-2.5" />{t('surf.restartAll')}</DropdownMenuItem>
+                <DropdownMenuItem disabled={projectBusy} onClick={() => { if (projectBusy) return; onRebuildConfirm(project) }} className="px-2.5 py-2 text-sm rounded-md"><Hammer className="h-3.5 w-3.5 mr-2.5" />{t('surf.rebuildAll')}</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-destructive px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete</DropdownMenuItem>
+                <DropdownMenuItem className="text-destructive px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />{t('dlg.common.delete')}</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1371,29 +1390,29 @@ function SortableProjectCardImpl({
         </ContextMenuTrigger>
         <ContextMenuContent className="min-w-[220px] p-1.5 text-sm">
           {/* Actions section */}
-          <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Actions</div>
+          <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">{t('card.ctx.actions')}</div>
           {(project.environments || []).some((e) => e.status === 'running') && (
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />Open in Browser <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.openBrowser')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
           )}
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />View Details <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />Edit Project <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">e</kbd></ContextMenuItem>
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />Unpin</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />Pin to Top</>}</ContextMenuItem>
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />Duplicate Project</ContextMenuItem>
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { navigator.clipboard.writeText(project.path); addToast({ title: 'Path copied', variant: 'success' }) }}><Clipboard className="h-3.5 w-3.5 mr-2.5" />Copy Path</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">e</kbd></ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.unpin')}</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pinToTop')}</>}</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.duplicate')}</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { navigator.clipboard.writeText(project.path); addToast({ title: t('dlg.toast.pathCopied'), variant: 'success' }) }}><Clipboard className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.copyPath')}</ContextMenuItem>
           <ContextMenuSeparator />
           {/* Environment section */}
-          <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">Environment</div>
+          <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">{t('card.ctx.environment')}</div>
           {(project.environments || []).every((e) => e.status !== 'running') && (
-            <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />Start All Environments <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">s</kbd></ContextMenuItem>
+            <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.startAll')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">s</kbd></ContextMenuItem>
           )}
           {(project.environments || []).some((e) => e.status === 'running') && (
-            <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />Stop All Environments <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">x</kbd></ContextMenuItem>
+            <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.stopAll')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">x</kbd></ContextMenuItem>
           )}
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCompare?.(project)}><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />Compare</ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCompare?.(project)}><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.compare')}</ContextMenuItem>
           <ContextMenuSeparator />
           {/* Dangerous section */}
-          <div className="px-2 py-1 text-[9px] font-semibold text-red-500/60 uppercase tracking-wider">Dangerous</div>
-          <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />Delete Project <kbd className="ml-auto text-[9px] text-red-400/60 bg-red-50 dark:bg-red-900/20 px-1 rounded">Del</kbd></ContextMenuItem>
+          <div className="px-2 py-1 text-[9px] font-semibold text-red-500/60 uppercase tracking-wider">{t('card.ctx.dangerous')}</div>
+          <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.delete')} <kbd className="ml-auto text-[9px] text-red-400/60 bg-red-50 dark:bg-red-900/20 px-1 rounded">Del</kbd></ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
     </div>
@@ -1424,6 +1443,7 @@ function CommandPalette({
   onOpenDeviceManagement: () => void
   onFilterByDevice: (deviceId: string | null) => void
 }) {
+  const t = useT()
   const [query, setQuery] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement>(null)
 
@@ -1434,19 +1454,19 @@ function CommandPalette({
   }, [])
 
   const commands = [
-    { id: 'add', label: 'Add New Project', icon: Plus, category: 'Actions', action: onAddProject, shortcut: '⌘N' },
-    { id: 'refresh', label: 'Refresh Data', icon: RefreshCw, category: 'Actions', action: onRefresh, shortcut: '⌘⇧R' },
-    { id: 'toggle-view', label: 'Toggle Grid/List View', icon: LayoutGrid, category: 'Actions', action: onToggleView, shortcut: 'G G/L' },
-    { id: 'gateway', label: 'Open Gateway Monitor', icon: Server, category: 'Actions', action: () => {}, shortcut: '' },
-    { id: 'llm', label: 'Configure LLM Settings', icon: Bot, category: 'Actions', action: () => {}, shortcut: '' },
-    { id: 'device-mgmt', label: 'Go to Device Management', icon: Monitor, category: 'Actions', action: onOpenDeviceManagement, shortcut: '⌘D' },
+    { id: 'add', label: t('dlg.cmd.addProject'), icon: Plus, category: t('dlg.cmd.catActions'), action: onAddProject, shortcut: '⌘N' },
+    { id: 'refresh', label: t('dlg.cmd.refresh'), icon: RefreshCw, category: t('dlg.cmd.catActions'), action: onRefresh, shortcut: '⌘⇧R' },
+    { id: 'toggle-view', label: t('dlg.cmd.toggleView'), icon: LayoutGrid, category: t('dlg.cmd.catActions'), action: onToggleView, shortcut: 'G G/L' },
+    { id: 'gateway', label: t('dlg.cmd.gateway'), icon: Server, category: t('dlg.cmd.catActions'), action: () => {}, shortcut: '' },
+    { id: 'llm', label: t('dlg.cmd.llm'), icon: Bot, category: t('dlg.cmd.catActions'), action: () => {}, shortcut: '' },
+    { id: 'device-mgmt', label: t('dlg.cmd.deviceMgmt'), icon: Monitor, category: t('dlg.cmd.catActions'), action: onOpenDeviceManagement, shortcut: '⌘D' },
   ]
 
   const projectItems = projects.map((p) => ({
     id: `project-${p.id}`,
     label: p.name,
     icon: Folder,
-    category: 'Projects',
+    category: t('dlg.cmd.catProjects'),
     action: () => onSelectProject(p),
   }))
 
@@ -1454,22 +1474,22 @@ function CommandPalette({
     ...devices.map((d) => [
       {
         id: `device-health-${d.id}`,
-        label: `Check Health: ${d.name}`,
+        label: t('dlg.cmd.checkHealth', { name: d.name }),
         icon: Activity,
-        category: 'Devices',
+        category: t('dlg.cmd.catDevices'),
         action: () => {
           fetch(`http://${d.ip}:${d.port}/api/agent/health`, {
             headers: { 'Authorization': `Bearer ${d.apiKey}` },
           })
-            .then((r) => addToast({ title: `${d.name} is ${r.ok ? 'online' : 'offline'}`, variant: r.ok ? 'success' : 'destructive' }))
-            .catch(() => addToast({ title: `${d.name} is unreachable`, variant: 'destructive' }))
+            .then((r) => addToast({ title: r.ok ? t('dlg.cmd.deviceOnline', { name: d.name }) : t('dlg.cmd.deviceOffline', { name: d.name }), variant: r.ok ? 'success' : 'destructive' }))
+            .catch(() => addToast({ title: t('dlg.cmd.deviceUnreachable', { name: d.name }), variant: 'destructive' }))
         },
       },
       {
         id: `device-filter-${d.id}`,
-        label: `Filter by ${d.name}`,
+        label: t('dlg.cmd.filterBy', { name: d.name }),
         icon: Filter,
-        category: 'Devices',
+        category: t('dlg.cmd.catDevices'),
         action: () => onFilterByDevice(d.id),
       },
     ]).flat(),
@@ -1491,14 +1511,14 @@ function CommandPalette({
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type a command or search projects..."
+            placeholder={t('dlg.cmd.placeholder')}
             className="flex-1 py-3 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">ESC</kbd>
         </div>
         <div className="max-h-72 overflow-y-auto p-1">
           {filtered.length === 0 && (
-            <div className="py-6 text-center text-sm text-muted-foreground">No results found.</div>
+            <div className="py-6 text-center text-sm text-muted-foreground">{t('dlg.cmd.noResults')}</div>
           )}
           {categories.map((cat) => (
             <div key={cat}>
@@ -1527,31 +1547,32 @@ function CommandPalette({
 // ======================== KEYBOARD SHORTCUTS DIALOG ========================
 
 function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT()
   const shortcuts = [
-    { keys: '⌘/Ctrl + K', description: 'Focus search' },
-    { keys: '⌘/Ctrl + N', description: 'Add new project' },
-    { keys: '⌘/Ctrl + Shift + A', description: 'Add new project (global)' },
-    { keys: '⌘/Ctrl + Shift + R', description: 'Refresh data' },
-    { keys: '⌘/Ctrl + P', description: 'Command palette' },
-    { keys: '⌘/Ctrl + D', description: 'Device management' },
-    { keys: 'G then G', description: 'Grid view' },
-    { keys: 'G then L', description: 'List view' },
-    { keys: '↑ / ↓', description: 'Navigate between project cards' },
-    { keys: 'Home / End', description: 'First / last project card' },
-    { keys: 'Enter', description: 'Open project details (on hover/focus)' },
-    { keys: 'e', description: 'Edit project (on hover)' },
-    { keys: 's', description: 'Start all envs (on hover)' },
-    { keys: 'x', description: 'Stop all envs (on hover)' },
-    { keys: 'Delete', description: 'Delete project (on hover)' },
-    { keys: 'Escape', description: 'Close dialog / sheet' },
-    { keys: '?', description: 'Show shortcuts' },
+    { keys: '⌘/Ctrl + K', description: t('dlg.shortcuts.focusSearch') },
+    { keys: '⌘/Ctrl + N', description: t('dlg.shortcuts.addProject') },
+    { keys: '⌘/Ctrl + Shift + A', description: t('dlg.shortcuts.addProjectGlobal') },
+    { keys: '⌘/Ctrl + Shift + R', description: t('dlg.shortcuts.refreshData') },
+    { keys: '⌘/Ctrl + P', description: t('dlg.shortcuts.commandPalette') },
+    { keys: '⌘/Ctrl + D', description: t('dlg.shortcuts.deviceMgmt') },
+    { keys: 'G then G', description: t('dlg.shortcuts.gridView') },
+    { keys: 'G then L', description: t('dlg.shortcuts.listView') },
+    { keys: '↑ / ↓', description: t('dlg.shortcuts.navigateCards') },
+    { keys: 'Home / End', description: t('dlg.shortcuts.firstLast') },
+    { keys: 'Enter', description: t('dlg.shortcuts.openDetails') },
+    { keys: 'e', description: t('dlg.shortcuts.editProject') },
+    { keys: 's', description: t('dlg.shortcuts.startEnvs') },
+    { keys: 'x', description: t('dlg.shortcuts.stopEnvs') },
+    { keys: 'Delete', description: t('dlg.shortcuts.deleteProject') },
+    { keys: 'Escape', description: t('dlg.shortcuts.closeDialog') },
+    { keys: '?', description: t('dlg.shortcuts.showShortcuts') },
   ]
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Keyboard Shortcuts</DialogTitle>
-          <DialogDescription>Use these shortcuts to navigate faster.</DialogDescription>
+          <DialogTitle>{t('dlg.shortcuts.title')}</DialogTitle>
+          <DialogDescription>{t('dlg.shortcuts.desc')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           {shortcuts.map((s) => (
@@ -1575,6 +1596,7 @@ function NotificationDetailDialog({
   open: boolean
   onClose: () => void
 }) {
+  const t = useT()
   if (!notification) return null
   const iconMap = { success: CheckCircle2, warning: AlertTriangle, error: XCircle, info: Info }
   const colorMap = {
@@ -1595,12 +1617,12 @@ function NotificationDetailDialog({
           <DialogDescription>{notification.message}</DialogDescription>
         </DialogHeader>
         <div className="space-y-2 text-sm">
-          <div className="flex justify-between"><span className="text-muted-foreground">Type</span><Badge variant="outline" className="capitalize">{notification.type}</Badge></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Time</span><span>{new Date(notification.timestamp).toLocaleString()}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.type')}</span><Badge variant="outline" className="capitalize">{t(`dlg.notifDetail.type.${notification.type}` as Parameters<typeof t>[0])}</Badge></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.time')}</span><span>{new Date(notification.timestamp).toLocaleString()}</span></div>
           {notification.projectName && (
-            <div className="flex justify-between"><span className="text-muted-foreground">Project</span><span>{notification.projectName}</span></div>
+            <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.project')}</span><span>{notification.projectName}</span></div>
           )}
-          <div className="flex justify-between"><span className="text-muted-foreground">Status</span><Badge variant={notification.read ? 'secondary' : 'default'}>{notification.read ? 'Read' : 'Unread'}</Badge></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.status')}</span><Badge variant={notification.read ? 'secondary' : 'default'}>{notification.read ? t('dlg.notifDetail.read') : t('dlg.notifDetail.unread')}</Badge></div>
         </div>
       </DialogContent>
     </Dialog>
@@ -1653,6 +1675,7 @@ function ProjectFormDialog({
   mode: 'add' | 'edit'
   devices: Device[]
 }) {
+  const t = useT()
   // Initialize from props - key on parent component resets this when dialog opens
   const [name, setName] = React.useState(() => mode === 'edit' && project ? project.name : '')
   const [path, setPath] = React.useState(() => mode === 'edit' && project ? project.path : '')
@@ -1676,21 +1699,21 @@ function ProjectFormDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md flex flex-col p-0 max-h-[calc(100vh-2rem)] gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
-          <DialogTitle>{mode === 'add' ? 'Add New Project' : 'Edit Project'}</DialogTitle>
-          <DialogDescription>{mode === 'add' ? 'Create a new project to manage.' : 'Update project details.'}</DialogDescription>
+          <DialogTitle>{mode === 'add' ? t('dlg.projectForm.addTitle') : t('dlg.projectForm.editTitle')}</DialogTitle>
+          <DialogDescription>{mode === 'add' ? t('dlg.projectForm.addDesc') : t('dlg.projectForm.editDesc')}</DialogDescription>
         </DialogHeader>
         <form id="project-form" onSubmit={handleSubmit} className="space-y-3 px-6 pb-6 overflow-y-auto flex-1 min-h-0">
           {/* Templates - only shown when adding a new project */}
           {mode === 'add' && (
             <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5" />Templates</Label>
+              <Label className="flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5" />{t('dlg.projectForm.templates')}</Label>
               <div className="grid grid-cols-5 gap-1.5">
                 {([
-                  { label: 'Web App', icon: Globe, tpl: { name: 'Web App', icon: 'globe', tags: ['Frontend', 'Fullstack'], description: 'Modern web application' } },
-                  { label: 'API Server', icon: Server, tpl: { name: 'API Server', icon: 'server', tags: ['Backend', 'API'], description: 'RESTful API server' } },
-                  { label: 'ML Project', icon: CpuIcon, tpl: { name: 'ML Project', icon: 'cpu', tags: ['ML/AI', 'Backend'], description: 'Machine learning project' } },
-                  { label: 'Mobile App', icon: Smartphone, tpl: { name: 'Mobile App', icon: 'smartphone', tags: ['Mobile', 'Fullstack'], description: 'Cross-platform mobile application' } },
-                  { label: 'DevOps', icon: Terminal, tpl: { name: 'DevOps', icon: 'terminal', tags: ['DevOps', 'Automation'], description: 'DevOps automation pipeline' } },
+                  { label: t('dlg.projectForm.tpl.web'), icon: Globe, tpl: { name: 'Web App', icon: 'globe', tags: ['Frontend', 'Fullstack'], description: t('dlg.projectForm.tpl.webDesc') } },
+                  { label: t('dlg.projectForm.tpl.api'), icon: Server, tpl: { name: 'API Server', icon: 'server', tags: ['Backend', 'API'], description: t('dlg.projectForm.tpl.apiDesc') } },
+                  { label: t('dlg.projectForm.tpl.ml'), icon: CpuIcon, tpl: { name: 'ML Project', icon: 'cpu', tags: ['ML/AI', 'Backend'], description: t('dlg.projectForm.tpl.mlDesc') } },
+                  { label: t('dlg.projectForm.tpl.mobile'), icon: Smartphone, tpl: { name: 'Mobile App', icon: 'smartphone', tags: ['Mobile', 'Fullstack'], description: t('dlg.projectForm.tpl.mobileDesc') } },
+                  { label: t('dlg.projectForm.tpl.devops'), icon: Terminal, tpl: { name: 'DevOps', icon: 'terminal', tags: ['DevOps', 'Automation'], description: t('dlg.projectForm.tpl.devopsDesc') } },
                 ] as const).map(({ label, icon: TplIcon, tpl }) => (
                   <button
                     key={label}
@@ -1706,19 +1729,19 @@ function ProjectFormDialog({
             </div>
           )}
           <div className="space-y-1">
-            <Label htmlFor="proj-name">Name *</Label>
-            <Input id="proj-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="My Project" />
+            <Label htmlFor="proj-name">{t('dlg.projectForm.name')}</Label>
+            <Input id="proj-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('dlg.projectForm.namePlaceholder')} />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="proj-path">Path *</Label>
+            <Label htmlFor="proj-path">{t('dlg.projectForm.path')}</Label>
             <Input id="proj-path" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/projects/my-project" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="proj-desc">Description</Label>
-            <Textarea id="proj-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Project description..." rows={2} />
+            <Label htmlFor="proj-desc">{t('dlg.projectForm.description')}</Label>
+            <Textarea id="proj-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('dlg.projectForm.descPlaceholder')} rows={2} />
           </div>
           <div className="space-y-1">
-            <Label>Icon</Label>
+            <Label>{t('dlg.projectForm.icon')}</Label>
             <div className="grid grid-cols-4 gap-2">
               {Object.entries(ICON_MAP).map(([key, Ic]) => (
                 <button
@@ -1740,7 +1763,7 @@ function ProjectFormDialog({
             </div>
           </div>
           <div className="space-y-1">
-            <Label>Tags</Label>
+            <Label>{t('dlg.projectForm.tags')}</Label>
             <div className="flex flex-wrap gap-1.5">
               {TAG_OPTIONS.map((tag) => (
                 <button
@@ -1755,13 +1778,13 @@ function ProjectFormDialog({
             </div>
           </div>
           <div className="space-y-1">
-            <Label>Device</Label>
+            <Label>{t('dlg.projectForm.device')}</Label>
             <Select value={selectedDeviceId ?? 'local'} onValueChange={(v) => setSelectedDeviceId(v === 'local' ? null : v)}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="This machine (local)" />
+                <SelectValue placeholder={t('dlg.common.thisMachine')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="local">This machine (local)</SelectItem>
+                <SelectItem value="local">{t('dlg.common.thisMachine')}</SelectItem>
                 {devices.map((device) => (
                   <SelectItem key={device.id} value={device.id}>
                     <span className="inline-flex items-center gap-2">
@@ -1775,9 +1798,9 @@ function ProjectFormDialog({
           </div>
         </form>
         <DialogFooter className="px-6 pt-4 pb-6 border-t shrink-0 bg-background">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
           <Button type="submit" form="project-form" disabled={!name.trim() || !path.trim()} className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleSubmit}>
-            {mode === 'add' ? 'Create' : 'Update'}
+            {mode === 'add' ? t('dlg.common.create') : t('dlg.common.update')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1796,6 +1819,7 @@ function EnvFormDialog({
   env?: Environment | null
   mode: 'add' | 'edit'
 }) {
+  const t = useT()
   // Initialize from props - key on parent component resets this when dialog opens
   const [name, setName] = React.useState(() => mode === 'edit' && env ? env.name : '')
   const [cmd, setCmd] = React.useState(() => mode === 'edit' && env ? env.cmd : '')
@@ -1831,24 +1855,24 @@ function EnvFormDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{mode === 'add' ? 'Add Environment' : 'Edit Environment'}</DialogTitle>
-          <DialogDescription>{mode === 'add' ? 'Create a new environment.' : 'Update environment settings.'}</DialogDescription>
+          <DialogTitle>{mode === 'add' ? t('dlg.envForm.addTitle') : t('dlg.envForm.editTitle')}</DialogTitle>
+          <DialogDescription>{mode === 'add' ? t('dlg.envForm.addDesc') : t('dlg.envForm.editDesc')}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="space-y-1">
-            <Label htmlFor="env-name">Name *</Label>
+            <Label htmlFor="env-name">{t('dlg.envForm.name')}</Label>
             <Input id="env-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="development" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="env-cmd">Command *</Label>
+            <Label htmlFor="env-cmd">{t('dlg.envForm.cmd')}</Label>
             <Input id="env-cmd" value={cmd} onChange={(e) => setCmd(e.target.value)} placeholder="npm run dev" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="env-port">Port *</Label>
+            <Label htmlFor="env-port">{t('dlg.envForm.port')}</Label>
             <Input id="env-port" type="number" value={port} onChange={(e) => setPort(e.target.value)} placeholder="3000" />
           </div>
           <div className="space-y-2">
-            <Label>Environment Variables</Label>
+            <Label>{t('dlg.envForm.envVars')}</Label>
             <div className="space-y-1 max-h-32 overflow-y-auto">
               {Object.entries(envVars).map(([key, val]) => (
                 <div key={key} className="flex items-center gap-1">
@@ -1865,9 +1889,9 @@ function EnvFormDialog({
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
             <Button type="submit" disabled={!name.trim() || !cmd.trim() || !port} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              {mode === 'add' ? 'Create' : 'Update'}
+              {mode === 'add' ? t('dlg.common.create') : t('dlg.common.update')}
             </Button>
           </DialogFooter>
         </form>
@@ -1925,6 +1949,7 @@ function CircularGauge({ value, size = 100, label, color = '#10b981' }: { value:
 }
 
 function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT()
   const [status, setStatus] = React.useState<GatewayStatus | null>(null)
   const [networkInfo, setNetworkInfo] = React.useState<{ hostname: string; platform: string; arch: string; cpus: number } | null>(null)
   const [runningServices, setRunningServices] = React.useState<Array<{ name: string; port: number; pid: number | null; device: string }>>([])
@@ -1973,9 +1998,9 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Monitor className="h-5 w-5 text-emerald-600" />
-            System Resource Monitor
+            {t('dlg.systemMonitor.title')}
           </DialogTitle>
-          <DialogDescription>Real-time system resource monitoring. Auto-refreshes every 10 seconds.</DialogDescription>
+          <DialogDescription>{t('dlg.systemMonitor.desc')}</DialogDescription>
         </DialogHeader>
         {loading && !status ? (
           <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
@@ -1986,27 +2011,27 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
               <div className="p-4 rounded-xl border bg-gradient-to-br from-amber-50/50 to-orange-50/30 dark:from-amber-950/20 dark:to-orange-950/10">
                 <div className="flex items-center gap-2 mb-3">
                   <Gauge className="h-4 w-4 text-amber-500" />
-                  <span className="text-sm font-semibold">CPU Usage</span>
+                  <span className="text-sm font-semibold">{t('dlg.systemMonitor.cpuUsage')}</span>
                 </div>
                 <div className="flex items-center justify-center">
-                  <CircularGauge value={status.cpuUsage.percentage} size={88} label="CPU" color={cpuColor(status.cpuUsage.percentage)} />
+                  <CircularGauge value={status.cpuUsage.percentage} size={88} label={t('dlg.systemMonitor.cpu')} color={cpuColor(status.cpuUsage.percentage)} />
                 </div>
                 <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                  <div className="flex justify-between"><span>Cores</span><span className="font-medium text-foreground">{status.cpuUsage.cores}</span></div>
-                  <div className="flex justify-between"><span>Load Avg</span><span className="font-medium text-foreground font-mono">{status.cpuUsage.loadAverage.map((l) => l.toFixed(2)).join(', ')}</span></div>
+                  <div className="flex justify-between"><span>{t('dlg.systemMonitor.cores')}</span><span className="font-medium text-foreground">{status.cpuUsage.cores}</span></div>
+                  <div className="flex justify-between"><span>{t('dlg.systemMonitor.loadAvg')}</span><span className="font-medium text-foreground font-mono">{status.cpuUsage.loadAverage.map((l) => l.toFixed(2)).join(', ')}</span></div>
                 </div>
               </div>
               <div className="p-4 rounded-xl border bg-gradient-to-br from-teal-50/50 to-cyan-50/30 dark:from-teal-950/20 dark:to-cyan-950/10">
                 <div className="flex items-center gap-2 mb-3">
                   <MemoryStick className="h-4 w-4 text-teal-500" />
-                  <span className="text-sm font-semibold">Memory Usage</span>
+                  <span className="text-sm font-semibold">{t('dlg.systemMonitor.memUsage')}</span>
                 </div>
                 <div className="flex items-center justify-center">
-                  <CircularGauge value={status.memoryUsage.percentage} size={88} label="Memory" color={memColor(status.memoryUsage.percentage)} />
+                  <CircularGauge value={status.memoryUsage.percentage} size={88} label={t('dlg.systemMonitor.memory')} color={memColor(status.memoryUsage.percentage)} />
                 </div>
                 <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                  <div className="flex justify-between"><span>Used / Total</span><span className="font-medium text-foreground">{status.memoryUsage.used}MB / {status.memoryUsage.total}MB</span></div>
-                  <div className="flex justify-between"><span>Process RSS</span><span className="font-medium text-foreground">{status.processMemory?.rss ?? '—'} MB</span></div>
+                  <div className="flex justify-between"><span>{t('dlg.systemMonitor.usedTotal')}</span><span className="font-medium text-foreground">{status.memoryUsage.used}MB / {status.memoryUsage.total}MB</span></div>
+                  <div className="flex justify-between"><span>{t('dlg.systemMonitor.processRss')}</span><span className="font-medium text-foreground">{status.processMemory?.rss ?? '—'} MB</span></div>
                 </div>
               </div>
             </div>
@@ -2015,13 +2040,13 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
             <div className="p-4 rounded-xl border bg-gradient-to-br from-cyan-50/50 to-sky-50/30 dark:from-cyan-950/20 dark:to-sky-950/10">
               <div className="flex items-center gap-2 mb-3">
                 <Wifi className="h-4 w-4 text-cyan-500" />
-                <span className="text-sm font-semibold">Network</span>
+                <span className="text-sm font-semibold">{t('dlg.systemMonitor.network')}</span>
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="flex justify-between"><span className="text-muted-foreground">Hostname</span><span className="font-medium">{networkInfo?.hostname ?? '—'}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Platform</span><span className="font-medium">{networkInfo?.platform ?? '—'}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Architecture</span><span className="font-medium">{networkInfo?.arch ?? '—'}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Gateway</span><span className="font-medium">:{status.gatewayPort}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.hostname')}</span><span className="font-medium">{networkInfo?.hostname ?? '—'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.platform')}</span><span className="font-medium">{networkInfo?.platform ?? '—'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.architecture')}</span><span className="font-medium">{networkInfo?.arch ?? '—'}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.gateway')}</span><span className="font-medium">:{status.gatewayPort}</span></div>
               </div>
             </div>
 
@@ -2029,11 +2054,11 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
             <div className="p-4 rounded-xl border bg-gradient-to-br from-emerald-50/50 to-teal-50/30 dark:from-emerald-950/20 dark:to-teal-950/10">
               <div className="flex items-center gap-2 mb-2">
                 <Clock className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm font-semibold">Uptime</span>
+                <span className="text-sm font-semibold">{t('dlg.systemMonitor.uptime')}</span>
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="flex justify-between"><span className="text-muted-foreground">Gateway</span><span className="font-medium">{status.uptime}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">System</span><span className="font-medium">{status.systemUptime}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.gateway')}</span><span className="font-medium">{status.uptime}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.system')}</span><span className="font-medium">{status.systemUptime}</span></div>
               </div>
             </div>
 
@@ -2041,12 +2066,12 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
             <div className="p-4 rounded-xl border bg-gradient-to-br from-emerald-50/50 to-teal-50/30 dark:from-emerald-950/20 dark:to-teal-950/10">
               <div className="flex items-center gap-2 mb-2">
                 <Server className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm font-semibold">运行中的服务</span>
-                <Badge variant="secondary" className="text-[10px] ml-auto">{runningServices.length} running</Badge>
+                <span className="text-sm font-semibold">{t('dlg.systemMonitor.services')}</span>
+                <Badge variant="secondary" className="text-[10px] ml-auto">{t('dlg.systemMonitor.servicesCount', { count: runningServices.length })}</Badge>
               </div>
               <div className="space-y-1.5">
                 {runningServices.length === 0 && (
-                  <div className="text-xs text-muted-foreground py-2">当前没有运行中的环境</div>
+                  <div className="text-xs text-muted-foreground py-2">{t('dlg.systemMonitor.noServices')}</div>
                 )}
                 {runningServices.map((svc) => (
                   <div key={`${svc.device}-${svc.name}`} className="flex items-center justify-between p-2 rounded border text-xs">
@@ -2068,31 +2093,31 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
             <div className="p-4 rounded-xl border bg-gradient-to-br from-violet-50/50 to-purple-50/30 dark:from-violet-950/20 dark:to-purple-950/10">
               <div className="flex items-center gap-2 mb-3">
                 <BarChart3 className="h-4 w-4 text-violet-500" />
-                <span className="text-sm font-semibold">Disk Usage</span>
+                <span className="text-sm font-semibold">{t('dlg.systemMonitor.diskUsage')}</span>
               </div>
               <div className="space-y-2">
                 <div className="space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">Usage</span>
+                    <span className="text-muted-foreground">{t('dlg.systemMonitor.usage')}</span>
                     <span className="font-medium">{status.diskUsage?.percentage ?? 0}%</span>
                   </div>
                   <Progress value={status.diskUsage?.percentage ?? 0} className="h-2" />
                 </div>
                 <div className="flex justify-between text-[10px] text-muted-foreground">
-                  <span>Used: {status.diskUsage?.used ?? 0}MB / {status.diskUsage?.total ?? 0}MB</span>
-                  <span>Free: {status.diskUsage?.free ?? 0}MB</span>
+                  <span>{t('dlg.systemMonitor.used', { used: status.diskUsage?.used ?? 0, total: status.diskUsage?.total ?? 0 })}</span>
+                  <span>{t('dlg.systemMonitor.free', { count: status.diskUsage?.free ?? 0 })}</span>
                 </div>
               </div>
             </div>
 
             {/* Footer */}
             <div className="flex items-center justify-between">
-              <Button variant="outline" size="sm" onClick={fetchStatus}><RefreshCw className="h-3.5 w-3.5 mr-1" />Refresh</Button>
-              <span className="text-[10px] text-muted-foreground">Last checked: {formatTimeAgo(status.lastChecked)}</span>
+              <Button variant="outline" size="sm" onClick={fetchStatus}><RefreshCw className="h-3.5 w-3.5 mr-1" />{t('dlg.common.refresh')}</Button>
+              <span className="text-[10px] text-muted-foreground">{t('dlg.systemMonitor.lastChecked', { time: formatTimeAgo(status.lastChecked, t) })}</span>
             </div>
           </div>
         ) : (
-          <div className="text-center py-8 text-muted-foreground">Failed to load system status.</div>
+          <div className="text-center py-8 text-muted-foreground">{t('dlg.systemMonitor.loadFailed')}</div>
         )}
       </DialogContent>
     </Dialog>
@@ -2115,6 +2140,7 @@ interface ProviderCatalogInfo {
 }
 
 function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT()
   const [provider, setProvider] = React.useState('zai')
   const [apiKey, setApiKey] = React.useState('')
   const [keyMask, setKeyMask] = React.useState('')
@@ -2153,19 +2179,19 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
         setModels(data.models)
         setModelsLive(!!data.live)
         setModelNote(data.live
-          ? `已实时获取 ${data.models.length} 个模型`
-          : (data.warning || data.error || data.note || '内置目录模型'))
+          ? t('dlg.llm.modelsLive', { count: data.models.length })
+          : (data.warning || data.error || data.note || t('dlg.llm.modelsCatalog')))
       } else {
         setModels([])
         setModelsLive(false)
-        setModelNote(data.error || data.warning || '未获取到模型列表')
+        setModelNote(data.error || data.warning || t('dlg.llm.noModels'))
       }
     } catch {
-      setModelNote('获取模型列表失败 — 请检查网络 / Base URL')
+      setModelNote(t('dlg.llm.fetchFailed'))
     } finally {
       setFetchingModels(false)
     }
-  }, [])
+  }, [t])
 
   React.useEffect(() => {
     if (open) {
@@ -2219,9 +2245,9 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
     } else if (!needsKey) {
       void fetchModels(id, '', profile?.baseURL || '')
     } else if (needsKey && !apiKey) {
-      setModelNote('填入 API Key 后自动实时获取模型列表')
+      setModelNote(t('dlg.llm.keyHint'))
     } else if (needsKey && keyUnchanged && id !== savedProvider) {
-      setModelNote('已保存的 Key 属于其它供应商 — 粘贴新 Key 后自动获取模型列表')
+      setModelNote(t('dlg.llm.keyOtherProvider'))
     }
   }
 
@@ -2248,11 +2274,11 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
         body: JSON.stringify(body),
       })
       if (res.ok) {
-        toast({ title: 'LLM 配置已保存', description: '项目分析、自动修复与 Agent 层已同步切换', variant: 'success' })
+        toast({ title: t('dlg.llm.savedToast'), description: t('dlg.llm.savedToastDesc'), variant: 'success' })
         onClose()
       }
     } catch {
-      toast({ title: 'Failed to save config', variant: 'destructive' })
+      toast({ title: t('dlg.llm.saveFailed'), variant: 'destructive' })
     }
     setSaving(false)
   }
@@ -2265,18 +2291,18 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-emerald-600" />
-            LLM 配置
+            {t('dlg.llm.title')}
           </DialogTitle>
-          <DialogDescription>选择供应商并填入 API Key — 项目分析、失败自动修复与 Agent 层均使用此配置。</DialogDescription>
+          <DialogDescription>{t('dlg.llm.desc')}</DialogDescription>
         </DialogHeader>
         {loading ? (
           <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
         ) : (
           <div className="space-y-3.5">
             <div className="space-y-1">
-              <Label>供应商</Label>
+              <Label>{t('dlg.llm.provider')}</Label>
               <Select value={provider} onValueChange={handleProviderChange}>
-                <SelectTrigger><SelectValue placeholder="选择供应商" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t('dlg.llm.providerPlaceholder')} /></SelectTrigger>
                 <SelectContent className="max-h-72">
                   {catalog.map((p) => (
                     <SelectItem key={p.id} value={p.id}>
@@ -2286,7 +2312,7 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                   ))}
                   <SelectItem value="custom">
                     <span className="font-mono text-[10px] font-bold text-muted-foreground mr-2">CU</span>
-                    自定义 (OpenAI 兼容)
+                    {t('dlg.llm.custom')}
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -2296,7 +2322,7 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
               <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/70 dark:bg-emerald-950/20 p-3 text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-2">
                 <Sparkles className="h-4 w-4 shrink-0 mt-0.5" />
                 <div>
-                  Z.ai 使用内置 SDK（免费），<span className="font-semibold">无需 API Key</span>。模型列表见下方，直接保存即可。
+                  {t('dlg.llm.zaiHintBefore')} <span className="font-semibold">{t('dlg.llm.zaiHintNoKey')}</span>{t('dlg.llm.zaiHintAfter')}
                 </div>
               </div>
             )}
@@ -2304,10 +2330,10 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
             {!isZai && (
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <Label>API Key</Label>
+                  <Label>{t('dlg.llm.apiKey')}</Label>
                   {activeProfile?.docsUrl && (
                     <a href={activeProfile.docsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline">
-                      <KeyRound className="h-3 w-3" />获取 Key<ExternalLink className="h-2.5 w-2.5" />
+                      <KeyRound className="h-3 w-3" />{t('dlg.llm.getKey')}<ExternalLink className="h-2.5 w-2.5" />
                     </a>
                   )}
                 </div>
@@ -2315,26 +2341,26 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={hasApiKey && keyUnchanged ? `已保存密钥（${keyMask}）— 输入新值可更换，清空则删除` : (activeProfile?.apiKeyEnv ? `如 ${activeProfile.apiKeyEnv} 的值` : 'sk-...')}
+                  placeholder={hasApiKey && keyUnchanged ? t('dlg.llm.savedKeyPlaceholder', { mask: keyMask }) : (activeProfile?.apiKeyEnv ? t('dlg.llm.keyEnvPlaceholder', { env: activeProfile.apiKeyEnv }) : 'sk-...')}
                 />
               </div>
             )}
 
             {!isZai && (
               <div className="space-y-1">
-                <Label>Base URL</Label>
+                <Label>{t('dlg.llm.baseUrl')}</Label>
                 <Input
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                   placeholder={provider === 'custom' ? 'https://your-provider.com/v1' : activeProfile?.baseURL || 'https://api.openai.com/v1'}
                 />
-                {provider === 'custom' && <p className="text-[11px] text-muted-foreground">兼容 OpenAI /chat/completions 协议的任意端点</p>}
+                {provider === 'custom' && <p className="text-[11px] text-muted-foreground">{t('dlg.llm.baseUrlHint')}</p>}
               </div>
             )}
 
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <Label>模型</Label>
+                <Label>{t('dlg.llm.model')}</Label>
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50"
@@ -2342,13 +2368,13 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                   disabled={fetchingModels}
                 >
                   {fetchingModels ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                  {fetchingModels ? '获取中…' : '实时获取模型列表'}
+                  {fetchingModels ? t('dlg.llm.fetching') : t('dlg.llm.fetchLive')}
                 </button>
               </div>
               <Input
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                placeholder={activeProfile?.defaultModel || 'model id（可直接输入或从下方选择）'}
+                placeholder={activeProfile?.defaultModel || t('dlg.llm.modelPlaceholder')}
                 list="llm-model-options"
               />
               <datalist id="llm-model-options">
@@ -2380,9 +2406,9 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>取消</Button>
+          <Button variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
           <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-            {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}保存
+            {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}{t('dlg.common.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2415,6 +2441,7 @@ function RepairDialog({ jobId, onClose, onFinished }: {
   onClose: () => void
   onFinished: (job: RepairJobInfo) => void
 }) {
+  const t = useT()
   const [job, setJob] = React.useState<RepairJobInfo | null>(null)
   const [notFound, setNotFound] = React.useState(false)
   const scrollRef = React.useRef<HTMLDivElement>(null)
@@ -2469,28 +2496,28 @@ function RepairDialog({ jobId, onClose, onFinished }: {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wrench className="h-5 w-5 text-amber-500" />
-            AI 自动修复
+            {t('dlg.repair.title')}
             {job && (
               <Badge variant={job.status === 'running' ? 'secondary' : job.status === 'success' ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
-                {job.status === 'running' ? `修复中 · 第 ${job.round}/${job.maxRounds} 轮` : job.status === 'success' ? '已修复' : '未能修复'}
+                {job.status === 'running' ? t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds }) : job.status === 'success' ? t('dlg.repair.statusSuccess') : t('dlg.repair.statusFailed')}
               </Badge>
             )}
           </DialogTitle>
           <DialogDescription>
             {job
-              ? `${job.projectName} · ${envLabel(job.envName)} · ${job.kind === 'rebuild' ? 'Rebuild' : '启动'}失败 — LLM 诊断并自动执行修复命令后重试`
-              : '正在创建修复任务…'}
+              ? t(job.kind === 'rebuild' ? 'dlg.repair.descRebuild' : 'dlg.repair.descStart', { project: job.projectName, env: envLabel(job.envName) })
+              : t('dlg.repair.creating')}
           </DialogDescription>
         </DialogHeader>
         {notFound ? (
-          <div className="text-center py-8 text-muted-foreground text-sm">修复任务不存在（可能属于上一个服务进程）。请重新触发操作。</div>
+          <div className="text-center py-8 text-muted-foreground text-sm">{t('dlg.repair.notFound')}</div>
         ) : !job ? (
           <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-amber-500" /></div>
         ) : (
           <div className="space-y-3">
             {job.diagnosis && (
               <div className="rounded-lg border border-violet-200 dark:border-violet-900/50 bg-violet-50/60 dark:bg-violet-950/20 p-3 text-xs text-violet-800 dark:text-violet-300 leading-relaxed">
-                <span className="font-semibold">LLM 诊断：</span>{job.diagnosis}
+                <span className="font-semibold">{t('dlg.repair.diagnosis')}</span>{job.diagnosis}
               </div>
             )}
             <div ref={scrollRef} className="max-h-72 overflow-y-auto rounded-lg border bg-muted/30 dark:bg-black/20 p-3 space-y-1.5">
@@ -2502,22 +2529,22 @@ function RepairDialog({ jobId, onClose, onFinished }: {
               ))}
               {job.status === 'running' && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />LLM 处理中，等待下一步…
+                  <Loader2 className="h-3 w-3 animate-spin" />{t('dlg.repair.waiting')}
                 </div>
               )}
             </div>
             {job.status === 'failed' && job.error && (
               <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/20 p-3 text-xs text-red-700 dark:text-red-300 break-all">
-                <span className="font-semibold">未能自动修复：</span>{job.error}
+                <span className="font-semibold">{t('dlg.repair.failedTitle')}</span>{job.error}
               </div>
             )}
           </div>
         )}
         <DialogFooter>
           {(!job || job.status === 'running') ? (
-            <Button variant="outline" size="sm" onClick={onClose}>后台继续</Button>
+            <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.repair.background')}</Button>
           ) : (
-            <Button variant="outline" size="sm" onClick={onClose}>关闭</Button>
+            <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.common.close')}</Button>
           )}
         </DialogFooter>
       </DialogContent>
@@ -2528,6 +2555,7 @@ function RepairDialog({ jobId, onClose, onFinished }: {
 // ======================== ENHANCED ACTIVITY TIMELINE ========================
 
 function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
+  const t = useT()
   const [filter, setFilter] = React.useState<'all' | 'deploys' | 'startstop' | 'errors'>('all')
 
   const filteredActivity = React.useMemo(() => {
@@ -2543,10 +2571,10 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
     const today = new Date().setHours(0, 0, 0, 0)
     const yesterday = today - 86400000
     const groups: { label: string; events: ActivityEvent[] }[] = [
-      { label: 'Just now', events: [] },
-      { label: 'Today', events: [] },
-      { label: 'Yesterday', events: [] },
-      { label: 'Earlier', events: [] },
+      { label: t('dlg.activity.justNow'), events: [] },
+      { label: t('dlg.activity.today'), events: [] },
+      { label: t('dlg.activity.yesterday'), events: [] },
+      { label: t('dlg.activity.earlier'), events: [] },
     ]
     for (const event of filteredActivity) {
       const ts = new Date(event.timestamp).getTime()
@@ -2557,7 +2585,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
       else groups[3].events.push(event)
     }
     return groups.filter((g) => g.events.length > 0)
-  }, [filteredActivity])
+  }, [filteredActivity, t])
 
   const getEventMeta = (event: ActivityEvent): string | null => {
     const meta = event.metadata
@@ -2575,14 +2603,14 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
   }
 
   const filterButtons: { key: typeof filter; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'deploys', label: 'Deploys' },
-    { key: 'startstop', label: 'Start/Stop' },
-    { key: 'errors', label: 'Errors' },
+    { key: 'all', label: t('dlg.activity.filterAll') },
+    { key: 'deploys', label: t('dlg.activity.filterDeploys') },
+    { key: 'startstop', label: t('dlg.activity.filterStartStop') },
+    { key: 'errors', label: t('dlg.activity.filterErrors') },
   ]
 
   if (activity.length === 0) {
-    return <div className="text-center py-8 text-muted-foreground text-sm">No activity recorded yet.</div>
+    return <div className="text-center py-8 text-muted-foreground text-sm">{t('dlg.activity.noActivity')}</div>
   }
 
   return (
@@ -2603,7 +2631,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
             {btn.label}
           </button>
         ))}
-        <span className="text-[10px] text-muted-foreground ml-auto">{filteredActivity.length} events</span>
+        <span className="text-[10px] text-muted-foreground ml-auto">{t('dlg.activity.eventsCount', { count: filteredActivity.length })}</span>
       </div>
 
       {/* Grouped timeline */}
@@ -2635,7 +2663,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
                       <div>
                         <p className="text-sm">{event.message}</p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <p className="text-[10px] text-muted-foreground">{formatTimeAgo(event.timestamp)}</p>
+                          <p className="text-[10px] text-muted-foreground">{formatTimeAgo(event.timestamp, t)}</p>
                           {meta && (
                             <span className="text-[9px] px-1.5 py-0 rounded-full bg-muted/60 dark:bg-white/5 text-muted-foreground dark:text-zinc-400 font-medium">{meta}</span>
                           )}
@@ -2669,6 +2697,7 @@ function DetailSheet({
   onOpenDeviceManagement?: () => void
   onReanalyze?: (p: Project) => void
 }) {
+  const t = useT()
   const [activeTab, setActiveTab] = React.useState('overview')
   const [activity, setActivity] = React.useState<ActivityEvent[]>([])
   const [logs, setLogs] = React.useState<LogEntry[]>([])
@@ -2739,15 +2768,15 @@ function DetailSheet({
         body: JSON.stringify({ tags: JSON.stringify(tagDraft) }),
       })
       if (res.ok) {
-        toast({ title: 'Tags updated', variant: 'success' })
+        toast({ title: t('dlg.detail.tagsUpdated'), variant: 'success' })
         setEditingTags(false)
         onRefresh?.()
       } else {
         const err = await res.json()
-        toast({ title: 'Failed to update tags', description: err.error || 'Server error', variant: 'destructive' })
+        toast({ title: t('dlg.detail.tagsUpdateFailed'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to update tags', variant: 'destructive' })
+      toast({ title: t('dlg.detail.tagsUpdateFailed'), variant: 'destructive' })
     } finally {
       setSavingTags(false)
     }
@@ -2780,15 +2809,15 @@ function DetailSheet({
         body: JSON.stringify({ description: descDraft }),
       })
       if (res.ok) {
-        toast({ title: 'Description updated', variant: 'success' })
+        toast({ title: t('dlg.detail.descUpdated'), variant: 'success' })
         setEditingDescription(false)
         onRefresh?.()
       } else {
         const err = await res.json()
-        toast({ title: 'Failed to update description', description: err.error || 'Server error', variant: 'destructive' })
+        toast({ title: t('dlg.detail.descUpdateFailed'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to update description', variant: 'destructive' })
+      toast({ title: t('dlg.detail.descUpdateFailed'), variant: 'destructive' })
     } finally {
       setSavingDesc(false)
     }
@@ -2801,12 +2830,12 @@ function DetailSheet({
       localStorage.setItem(`project-notes-${project.id}`, notesDraft)
       setProjectNotes(notesDraft)
       setEditingNotes(false)
-      addToast({ title: 'Notes saved', variant: 'success' })
+      addToast({ title: t('dlg.detail.notesSaved'), variant: 'success' })
     } catch {
-      addToast({ title: 'Failed to save notes', variant: 'destructive' })
+      addToast({ title: t('dlg.detail.notesSaveFailed'), variant: 'destructive' })
     }
     setSavingNotes(false)
-  }, [notesDraft, project])
+  }, [notesDraft, project, t])
 
   React.useEffect(() => {
     if (project && (activeTab === 'activity' || activeTab === 'deployments') && open) {
@@ -2854,10 +2883,10 @@ function DetailSheet({
       if (res.ok) {
         const data = await res.json()
         setHealthResult(data)
-        toast({ title: 'Health check complete', description: `Overall: ${data.overallStatus}`, variant: data.overallStatus === 'healthy' ? 'success' : 'destructive' })
+        toast({ title: t('dlg.detail.healthCheckDone'), description: t('dlg.detail.overall', { status: data.overallStatus }), variant: data.overallStatus === 'healthy' ? 'success' : 'destructive' })
       }
     } catch { /* ignore */ }
-  }, [project, toast])
+  }, [project, toast, t])
 
   const savePort = async (envId: string, newPort: number) => {
     if (!project) return
@@ -2868,7 +2897,7 @@ function DetailSheet({
         body: JSON.stringify({ port: newPort }),
       })
       if (res.ok) {
-        toast({ title: 'Port updated', variant: 'success' })
+        toast({ title: t('dlg.detail.portUpdated'), variant: 'success' })
       }
     } catch { /* ignore */ }
     setEditingPort(null)
@@ -2876,7 +2905,7 @@ function DetailSheet({
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text)
-    toast({ title: `${label} copied!`, variant: 'success' })
+    toast({ title: t('dlg.detail.copied', { label }), variant: 'success' })
   }
 
   const startEditingEnvVars = (envId: string, currentVars: string) => {
@@ -2896,16 +2925,16 @@ function DetailSheet({
         body: JSON.stringify({ envVars: envVarDraft }),
       })
       if (res.ok) {
-        toast({ title: 'Environment variables saved', variant: 'success' })
+        toast({ title: t('dlg.detail.envVarsSaved'), variant: 'success' })
         setEditingEnvVars(null)
         // Refresh the project data so the detail sheet shows updated env vars
         onRefresh?.()
       } else {
         const err = await res.json()
-        toast({ title: 'Failed to save env vars', description: err.error || 'Server error', variant: 'destructive' })
+        toast({ title: t('dlg.detail.envVarsSaveFailed'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to save env vars', variant: 'destructive' })
+      toast({ title: t('dlg.detail.envVarsSaveFailed'), variant: 'destructive' })
     } finally {
       setSavingEnvVars(false)
     }
@@ -2973,7 +3002,7 @@ function DetailSheet({
               <SheetDescription className="truncate text-xs">{project.path}</SheetDescription>
             </div>
             <Badge variant={status === 'running' ? 'default' : 'secondary'} className={`shrink-0 ${status === 'running' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' : ''}`}>
-              {status}
+              {status === 'running' ? t('dlg.detail.statusRunning') : status === 'mixed' ? t('dlg.depGraph.mixed') : t('dlg.detail.statusStopped')}
             </Badge>
           </div>
         </SheetHeader>
@@ -2981,12 +3010,12 @@ function DetailSheet({
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <div className="border-b px-4 shrink-0">
             <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-2">
-              <TabsTrigger value="overview" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Overview</TabsTrigger>
-              <TabsTrigger value="environments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Environments</TabsTrigger>
-              <TabsTrigger value="activity" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Activity</TabsTrigger>
-              <TabsTrigger value="logs" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Logs</TabsTrigger>
-              <TabsTrigger value="deployments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Builds & Repairs</TabsTrigger>
-              <TabsTrigger value="timeline" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">Timeline</TabsTrigger>
+              <TabsTrigger value="overview" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabOverview')}</TabsTrigger>
+              <TabsTrigger value="environments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabEnvironments')}</TabsTrigger>
+              <TabsTrigger value="activity" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabActivity')}</TabsTrigger>
+              <TabsTrigger value="logs" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabLogs')}</TabsTrigger>
+              <TabsTrigger value="deployments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabDeployments')}</TabsTrigger>
+              <TabsTrigger value="timeline" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabTimeline')}</TabsTrigger>
             </TabsList>
           </div>
 
@@ -3007,11 +3036,11 @@ function DetailSheet({
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDescCollapsed(!descCollapsed) } }}
               >
                 <div className="h-1 w-3 rounded-full bg-emerald-500" />
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1">Description</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1">{t('dlg.detail.description')}</h4>
                 <div className="flex-1" />
                 {!editingDescription && !descCollapsed && (
                   <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); startEditingDescription() }}>
-                    <Edit3 className="h-2.5 w-2.5 mr-0.5" />Edit
+                    <Edit3 className="h-2.5 w-2.5 mr-0.5" />{t('dlg.common.edit')}
                   </Button>
                 )}
                 <span className="text-muted-foreground">
@@ -3032,15 +3061,15 @@ function DetailSheet({
                         <Textarea
                           value={descDraft}
                           onChange={(e) => setDescDraft(e.target.value)}
-                          placeholder="Add a description..."
+                          placeholder={t('dlg.detail.descPlaceholder')}
                           className="text-sm min-h-[80px] resize-none"
                           autoFocus
                         />
                         <div className="flex items-center gap-1.5 justify-end">
-                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingDescription(false)} disabled={savingDesc}>Cancel</Button>
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingDescription(false)} disabled={savingDesc}>{t('dlg.common.cancel')}</Button>
                           <Button size="sm" className="h-6 text-xs bg-primary hover:bg-primary/90 text-primary-foreground" onClick={saveDescription} disabled={savingDesc}>
                             {savingDesc && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                            Save
+                            {t('dlg.common.save')}
                           </Button>
                         </div>
                       </div>
@@ -3048,7 +3077,7 @@ function DetailSheet({
                       project.description ? (
                         <p className="text-sm">{project.description}</p>
                       ) : (
-                        <p className="text-sm text-muted-foreground italic">No description</p>
+                        <p className="text-sm text-muted-foreground italic">{t('dlg.detail.noDescription')}</p>
                       )
                     )}
                   </motion.div>
@@ -3065,7 +3094,7 @@ function DetailSheet({
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDeviceCollapsed(!deviceCollapsed) } }}
               >
                 <div className="h-1 w-3 rounded-full bg-emerald-500" />
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Device</h4>
+                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">{t('dlg.detail.device')}</h4>
                 <div className="flex-1" />
                 <span className="text-muted-foreground">
                   {deviceCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -3092,7 +3121,7 @@ function DetailSheet({
                             </span>
                             <span className="text-sm font-medium">{project.deviceName}</span>
                             <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${project.deviceStatus === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400'}`}>
-                              {project.deviceStatus === 'online' ? 'Online' : 'Offline'}
+                              {project.deviceStatus === 'online' ? t('dlg.common.online') : t('dlg.common.offline')}
                             </Badge>
                           </div>
                           {(() => {
@@ -3100,16 +3129,16 @@ function DetailSheet({
                             if (!device) return null
                             return (
                               <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-5">
-                                <span>IP:Port</span>
+                                <span>{t('dlg.detail.ipPort')}</span>
                                 <span className="font-mono text-foreground dark:text-zinc-200">{device.ip}:{device.port}</span>
-                                <span>Last Seen</span>
-                                <span className="font-mono text-foreground dark:text-zinc-200">{device.lastSeen ? formatTimeAgo(device.lastSeen) : 'Never'}</span>
+                                <span>{t('dlg.detail.lastSeen')}</span>
+                                <span className="font-mono text-foreground dark:text-zinc-200">{device.lastSeen ? formatTimeAgo(device.lastSeen, t) : t('dlg.common.never')}</span>
                               </div>
                             )
                           })()}
                           <div className="flex items-center gap-2">
                             <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => { onOpenDeviceManagement?.(); onClose() }}>
-                              <ExternalLink className="h-2.5 w-2.5 mr-0.5" />Go to Device
+                              <ExternalLink className="h-2.5 w-2.5 mr-0.5" />{t('dlg.detail.goToDevice')}
                             </Button>
                           </div>
                         </div>
@@ -3117,14 +3146,14 @@ function DetailSheet({
                         <div className="space-y-1.5">
                           <div className="flex items-center gap-2">
                             <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                            <span className="text-sm font-medium">This Machine</span>
-                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300">Local</Badge>
+                            <span className="text-sm font-medium">{t('dlg.detail.thisMachine')}</span>
+                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300">{t('dlg.detail.localBadge')}</Badge>
                           </div>
                           {localNetworkInfo && (
                             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-6">
-                              <span>Hostname</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.hostname}</span>
-                              <span>Platform</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.platform} {localNetworkInfo.arch}</span>
-                              <span>CPU Cores</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.cpus}</span>
+                              <span>{t('dlg.detail.hostname')}</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.hostname}</span>
+                              <span>{t('dlg.detail.platform')}</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.platform} {localNetworkInfo.arch}</span>
+                              <span>{t('dlg.detail.cpuCores')}</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.cpus}</span>
                             </div>
                           )}
                         </div>
@@ -3136,14 +3165,14 @@ function DetailSheet({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="p-3 rounded-lg border">
-                <div className="text-xs text-muted-foreground">Path</div>
+                <div className="text-xs text-muted-foreground">{t('dlg.detail.path')}</div>
                 <div className="flex items-center gap-1 mt-0.5">
                   <span className="text-sm font-mono truncate">{project.path}</span>
-                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(project.path, 'Path')}><Copy className="h-3 w-3" /></Button>
+                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(project.path, t('dlg.detail.path'))}><Copy className="h-3 w-3" /></Button>
                 </div>
               </div>
               <div className="p-3 rounded-lg border">
-                <div className="text-xs text-muted-foreground">Created</div>
+                <div className="text-xs text-muted-foreground">{t('dlg.detail.created')}</div>
                 <div className="text-sm mt-0.5">{new Date(project.createdAt).toLocaleDateString()}</div>
               </div>
             </div>
@@ -3157,12 +3186,12 @@ function DetailSheet({
               >
                 <div className="h-1 w-3 rounded-full bg-emerald-500" />
                 <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">
-                  Tags{tagsCollapsed && tags.length > 0 ? ` (${tags.length})` : ''}
+                  {t('dlg.detail.tags')}{tagsCollapsed && tags.length > 0 ? ` (${tags.length})` : ''}
                 </h4>
                 <div className="flex-1" />
                 {!editingTags && !tagsCollapsed && (
                   <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); startEditingTags() }}>
-                    <Edit3 className="h-2.5 w-2.5 mr-0.5" />Edit
+                    <Edit3 className="h-2.5 w-2.5 mr-0.5" />{t('dlg.common.edit')}
                   </Button>
                 )}
                 <span className="text-muted-foreground">
@@ -3189,17 +3218,17 @@ function DetailSheet({
                               </button>
                             </Badge>
                           ))}
-                          {tagDraft.length === 0 && <span className="text-xs text-muted-foreground italic">No tags selected</span>}
+                          {tagDraft.length === 0 && <span className="text-xs text-muted-foreground italic">{t('dlg.detail.noTagsSelected')}</span>}
                         </div>
                         <Popover open={tagSearchOpen} onOpenChange={setTagSearchOpen}>
                           <PopoverTrigger asChild>
                             <Button variant="outline" size="sm" className="h-6 text-[10px] w-full justify-start">
-                              <Tag className="h-2.5 w-2.5 mr-1" />Add tag...
+                              <Tag className="h-2.5 w-2.5 mr-1" />{t('dlg.detail.addTag')}
                             </Button>
                           </PopoverTrigger>
                           <PopoverContent className="w-56 p-2" align="start">
                             <Input
-                              placeholder="Search tags..."
+                              placeholder={t('dlg.detail.searchTags')}
                               value={tagSearchQuery}
                               onChange={(e) => setTagSearchQuery(e.target.value)}
                               className="h-7 text-xs mb-1.5"
@@ -3220,16 +3249,16 @@ function DetailSheet({
                                 ))
                               }
                               {TAG_OPTIONS.filter((t) => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) && !tagDraft.includes(t.name)).length === 0 && (
-                                <p className="text-[10px] text-muted-foreground text-center py-2">No more tags available</p>
+                                <p className="text-[10px] text-muted-foreground text-center py-2">{t('dlg.detail.noMoreTags')}</p>
                               )}
                             </div>
                           </PopoverContent>
                         </Popover>
                         <div className="flex items-center gap-1.5 justify-end">
-                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingTags(false)} disabled={savingTags}>Cancel</Button>
+                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingTags(false)} disabled={savingTags}>{t('dlg.common.cancel')}</Button>
                           <Button size="sm" className="h-6 text-xs bg-primary hover:bg-primary/90 text-primary-foreground" onClick={saveTags} disabled={savingTags}>
                             {savingTags && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-                            Save
+                            {t('dlg.common.save')}
                           </Button>
                         </div>
                       </div>
@@ -3237,7 +3266,7 @@ function DetailSheet({
                       <div className="flex flex-wrap gap-1">
                         {tags.length > 0 ? tags.map((tag) => (
                           <Badge key={tag} variant="secondary" className={`cursor-default ${getTagColor(tag)}`}>{tag}</Badge>
-                        )) : <span className="text-xs text-muted-foreground">No tags</span>}
+                        )) : <span className="text-xs text-muted-foreground">{t('dlg.detail.noTags')}</span>}
                       </div>
                     )}
                   </motion.div>
@@ -3255,12 +3284,12 @@ function DetailSheet({
               >
                 <div className="flex items-center gap-2">
                   <Edit3 className="h-3.5 w-3.5 text-amber-500" />
-                  <h4 className="text-sm font-semibold">Notes</h4>
+                  <h4 className="text-sm font-semibold">{t('dlg.detail.notes')}</h4>
                 </div>
                 <div className="flex items-center gap-2">
                   {projectNotes && (
                     <Badge variant="secondary" className="text-[9px] bg-amber-100/60 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                      {projectNotes.length} chars
+                      {t('dlg.detail.chars', { count: projectNotes.length })}
                     </Badge>
                   )}
                   {editingNotes ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
@@ -3279,16 +3308,16 @@ function DetailSheet({
                       <Textarea
                         value={notesDraft}
                         onChange={(e) => setNotesDraft(e.target.value)}
-                        placeholder="Add notes, annotations, or reminders for this project..."
+                        placeholder={t('dlg.detail.notesPlaceholder')}
                         className="min-h-[80px] text-xs resize-y"
                       />
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground">{notesDraft.length} characters</span>
+                        <span className="text-[10px] text-muted-foreground">{t('dlg.detail.characters', { count: notesDraft.length })}</span>
                         <div className="flex gap-1.5">
-                          <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => { setNotesDraft(projectNotes); setEditingNotes(false) }}>Cancel</Button>
+                          <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => { setNotesDraft(projectNotes); setEditingNotes(false) }}>{t('dlg.common.cancel')}</Button>
                           <Button size="sm" className="h-6 text-[10px] bg-amber-600 hover:bg-amber-700 text-white" onClick={handleSaveNotes} disabled={savingNotes}>
                             {savingNotes && <Loader2 className="h-2.5 w-2.5 mr-1 animate-spin" />}
-                            Save Notes
+                            {t('dlg.detail.saveNotes')}
                           </Button>
                         </div>
                       </div>
@@ -3303,7 +3332,7 @@ function DetailSheet({
               )}
               {!editingNotes && !projectNotes && (
                 <div className="px-3 pb-3 pt-0">
-                  <p className="text-[10px] text-muted-foreground/60 italic">No notes yet. Click to add.</p>
+                  <p className="text-[10px] text-muted-foreground/60 italic">{t('dlg.detail.noNotes')}</p>
                 </div>
               )}
             </div>
@@ -3317,7 +3346,7 @@ function DetailSheet({
               >
                 <div className="h-1 w-3 rounded-full bg-emerald-500" />
                 <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">
-                  Environments Summary{envSummaryCollapsed && envs.length > 0 ? ` (${envs.length})` : ''}
+                  {t('dlg.detail.envSummary')}{envSummaryCollapsed && envs.length > 0 ? ` (${envs.length})` : ''}
                 </h4>
                 <div className="flex-1" />
                 {!envSummaryCollapsed && (
@@ -3325,15 +3354,15 @@ function DetailSheet({
                     <button
                       type="button"
                       className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() => { const ports = envs.map((e) => String(e.port)).join(', '); navigator.clipboard.writeText(ports); toast({ title: 'Ports copied', description: ports, variant: 'success' }) }}
-                      title="Copy all ports"
-                    ><Copy className="h-2.5 w-2.5" />Copy All Ports</button>
+                      onClick={() => { const ports = envs.map((e) => String(e.port)).join(', '); navigator.clipboard.writeText(ports); toast({ title: t('dlg.detail.portsCopied'), description: ports, variant: 'success' }) }}
+                      title={t('dlg.detail.copyAllPortsTitle')}
+                    ><Copy className="h-2.5 w-2.5" />{t('dlg.detail.copyAllPorts')}</button>
                     <button
                       type="button"
                       className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                       onClick={() => { envs.filter((e) => e.status === 'running').forEach((env) => { let url: string; if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) { url = `/api/proxy/${env.port}/` } else { const host = currentHost || 'localhost'; url = `http://${host}:${env.port}` } window.open(url, '_blank') }) }}
-                      title="Open all running URLs"
-                    ><ExternalLink className="h-2.5 w-2.5" />Open All Running</button>
+                      title={t('dlg.detail.openAllRunningTitle')}
+                    ><ExternalLink className="h-2.5 w-2.5" />{t('dlg.detail.openAllRunning')}</button>
                   </div>
                 )}
                 <span className="text-muted-foreground">
@@ -3357,7 +3386,7 @@ function DetailSheet({
                             <span>{env.name}</span>
                           </div>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <button className="font-mono hover:text-foreground transition-colors" onClick={() => copyToClipboard(String(env.port), `Port :${env.port}`)}>:{env.port}</button>
+                            <button className="font-mono hover:text-foreground transition-colors" onClick={() => copyToClipboard(String(env.port), `:${env.port}`)}>:{env.port}</button>
                             {env.pid && <span>PID {env.pid}</span>}
                             {env.status === 'running' && (
                               <a
@@ -3378,7 +3407,7 @@ function DetailSheet({
                           </div>
                         </div>
                       ))}
-                      {envs.length === 0 && <span className="text-xs text-muted-foreground">No environments</span>}
+                      {envs.length === 0 && <span className="text-xs text-muted-foreground">{t('dlg.detail.noEnvironments')}</span>}
                     </div>
                   </motion.div>
                 )}
@@ -3387,7 +3416,7 @@ function DetailSheet({
             {/* Access URLs Section */}
             {envs.some((e) => e.status === 'running') && (
               <div>
-                <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">Access URLs</h4></div>
+                <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">{t('dlg.detail.accessUrls')}</h4></div>
                 <div className="space-y-1.5">
                   {envs.filter((e) => e.status === 'running').map((env) => {
                     const envName = env.name === 'development' ? 'dev' : env.name === 'production' ? 'prod' : env.name
@@ -3401,24 +3430,24 @@ function DetailSheet({
                         <div className="space-y-1 pl-3.5">
                           {/* Localhost */}
                           <div className="flex items-center gap-1.5 text-xs">
-                            <span className="text-[9px] text-muted-foreground w-10 shrink-0">Local</span>
+                            <span className="text-[9px] text-muted-foreground w-10 shrink-0">{t('dlg.detail.local')}</span>
                             <a href={`http://localhost:${env.port}`} target="_blank" rel="noopener noreferrer" className="text-emerald-600 dark:text-emerald-400 hover:underline font-mono truncate">http://localhost:{env.port}</a>
-                            <button type="button" className="shrink-0 h-3.5 w-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground" onClick={() => copyToClipboard(`http://localhost:${env.port}`, 'URL copied')}><Copy className="h-2.5 w-2.5" /></button>
+                            <button type="button" className="shrink-0 h-3.5 w-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground" onClick={() => copyToClipboard(`http://localhost:${env.port}`, t('dlg.detail.urlCopied'))}><Copy className="h-2.5 w-2.5" /></button>
                           </div>
                           {/* LAN */}
                           {lanIp && (
                             <div className="flex items-center gap-1.5 text-xs">
-                              <span className="text-[9px] text-muted-foreground w-10 shrink-0">LAN</span>
+                              <span className="text-[9px] text-muted-foreground w-10 shrink-0">{t('dlg.detail.lan')}</span>
                               <a href={`http://${lanIp}:${env.port}`} target="_blank" rel="noopener noreferrer" className="text-emerald-600 dark:text-emerald-400 hover:underline font-mono truncate">http://{lanIp}:{env.port}</a>
-                              <button type="button" className="shrink-0 h-3.5 w-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground" onClick={() => copyToClipboard(`http://${lanIp}:${env.port}`, 'URL copied')}><Copy className="h-2.5 w-2.5" /></button>
+                              <button type="button" className="shrink-0 h-3.5 w-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground" onClick={() => copyToClipboard(`http://${lanIp}:${env.port}`, t('dlg.detail.urlCopied'))}><Copy className="h-2.5 w-2.5" /></button>
                             </div>
                           )}
                           {/* Proxy (ngrok) */}
                           <div className="flex items-center gap-1.5 text-xs">
-                            <span className="text-[9px] text-muted-foreground w-10 shrink-0">Proxy</span>
+                            <span className="text-[9px] text-muted-foreground w-10 shrink-0">{t('dlg.detail.proxy')}</span>
                             <a href={`/api/proxy/${env.port}/`} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-teal-400 hover:underline font-mono truncate">/api/proxy/{env.port}/</a>
-                            <button type="button" className="shrink-0 h-3.5 w-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground" onClick={() => { const url = `${window.location.origin}/api/proxy/${env.port}/`; copyToClipboard(url, 'Proxy URL copied') }}><Copy className="h-2.5 w-2.5" /></button>
-                            <span className="text-[9px] text-muted-foreground italic">via ngrok</span>
+                            <button type="button" className="shrink-0 h-3.5 w-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground" onClick={() => { const url = `${window.location.origin}/api/proxy/${env.port}/`; copyToClipboard(url, t('dlg.detail.proxyUrlCopied')) }}><Copy className="h-2.5 w-2.5" /></button>
+                            <span className="text-[9px] text-muted-foreground italic">{t('dlg.detail.viaNgrok')}</span>
                           </div>
                         </div>
                       </div>
@@ -3427,19 +3456,18 @@ function DetailSheet({
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-1.5">
                   <Link2 className="h-3 w-3 inline mr-0.5" />
-                  Proxy route forwards requests through the dashboard — works with a single ngrok tunnel. 
-                  Note: some SPA apps may not work fully via proxy due to path rewriting.
+                  {t('dlg.detail.proxyNote')}
                 </p>
               </div>
             )}
             <Button variant="outline" size="sm" onClick={runHealthCheck} className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white border-0">
-              <Activity className="h-3.5 w-3.5 mr-1" /> Run Health Check
+              <Activity className="h-3.5 w-3.5 mr-1" /> {t('dlg.detail.runHealthCheck')}
             </Button>
             {healthResult && (
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
                   <Badge variant={healthResult.overallStatus === 'healthy' ? 'default' : 'destructive'} className={healthResult.overallStatus === 'healthy' ? 'bg-emerald-100 text-emerald-800' : ''}>
-                    {healthResult.overallStatus}
+                    {healthResult.overallStatus === 'healthy' ? t('dlg.detail.statusHealthy') : t('dlg.detail.statusUnhealthy')}
                   </Badge>
                   <span className="text-xs text-muted-foreground">{new Date(healthResult.checkedAt).toLocaleTimeString()}</span>
                 </div>
@@ -3447,7 +3475,7 @@ function DetailSheet({
                   <div key={r.port} className="flex items-center justify-between p-2 rounded border text-xs">
                     <div className="flex items-center gap-2">
                       <span className={r.status === 'healthy' ? 'text-emerald-500' : 'text-red-500'}>:{r.port}</span>
-                      <span className="capitalize">{r.status}</span>
+                      <span className="capitalize">{r.status === 'healthy' ? t('dlg.detail.statusHealthy') : t('dlg.detail.statusUnhealthy')}</span>
                     </div>
                     <span className="text-muted-foreground">{r.responseTime}ms</span>
                   </div>
@@ -3470,21 +3498,21 @@ function DetailSheet({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {envs.filter((e) => e.status !== 'running').length > 0 && (
                     <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { envs.filter((e) => e.status !== 'running').forEach((e) => onEnvAction(project.id, e.id, 'start')) }}>
-                      <Play className="h-3 w-3 mr-1 text-emerald-500" />Start All Stopped ({envs.filter((e) => e.status !== 'running').length})
+                      <Play className="h-3 w-3 mr-1 text-emerald-500" />{t('dlg.detail.startAllStopped', { count: envs.filter((e) => e.status !== 'running').length })}
                     </Button>
                   )}
                   {envs.filter((e) => e.status === 'running').length > 0 && (
                     <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { envs.filter((e) => e.status === 'running').forEach((e) => onEnvAction(project.id, e.id, 'stop')) }}>
-                      <Square className="h-3 w-3 mr-1 text-red-500" />Stop All Running ({envs.filter((e) => e.status === 'running').length})
+                      <Square className="h-3 w-3 mr-1 text-red-500" />{t('dlg.detail.stopAllRunning', { count: envs.filter((e) => e.status === 'running').length })}
                     </Button>
                   )}
                   {envs.some((e) => e.status === 'running') && (
                     <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { envs.forEach((e) => { if (e.status === 'running') onEnvAction(project.id, e.id, 'restart') }) }}>
-                      <RotateCw className="h-3 w-3 mr-1 text-amber-500" />Restart All ({envs.filter((e) => e.status === 'running').length})
+                      <RotateCw className="h-3 w-3 mr-1 text-amber-500" />{t('dlg.detail.restartAll', { count: envs.filter((e) => e.status === 'running').length })}
                     </Button>
                   )}
-                  <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { const ports = envs.map((e) => `:${e.port}`).join(', '); navigator.clipboard.writeText(ports); toast({ title: 'Ports copied', description: ports, variant: 'success' }) }}>
-                    <Copy className="h-3 w-3 mr-1 text-teal-500" />Copy All Ports
+                  <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { const ports = envs.map((e) => `:${e.port}`).join(', '); navigator.clipboard.writeText(ports); toast({ title: t('dlg.detail.portsCopied'), description: ports, variant: 'success' }) }}>
+                    <Copy className="h-3 w-3 mr-1 text-teal-500" />{t('dlg.detail.copyPorts')}
                   </Button>
                 </div>
               </div>
@@ -3519,12 +3547,12 @@ function DetailSheet({
                         <button
                           className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors px-1 rounded"
                           onClick={() => { setEditingPort(env.id); setPortValue(String(env.port)) }}
-                          title="Click to edit port"
+                          title={t('dlg.detail.editPortTitle')}
                         >
                           :{env.port}
                         </button>
                       )}
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(`:${env.port}`, `Port :${env.port}`)}><Copy className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(`:${env.port}`, `:${env.port}`)}><Copy className="h-3 w-3" /></Button>
                       {env.status === 'running' ? (
                         <>
                           <TooltipProvider><Tooltip><TooltipTrigger asChild><a
@@ -3539,15 +3567,15 @@ function DetailSheet({
                             rel="noopener noreferrer"
                             onClick={(e: React.MouseEvent) => e.stopPropagation()}
                             className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer text-emerald-500 dark:text-emerald-400"
-                          ><ExternalLink className="h-3 w-3" /></a></TooltipTrigger><TooltipContent>Open in browser</TooltipContent></Tooltip></TooltipProvider>
-                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-red-500" onClick={() => onEnvAction(project.id, env.id, 'stop')}><Square className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>Stop</TooltipContent></Tooltip></TooltipProvider>
-                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-amber-500" onClick={() => onEnvAction(project.id, env.id, 'restart')}><RotateCw className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>Restart</TooltipContent></Tooltip></TooltipProvider>
+                          ><ExternalLink className="h-3 w-3" /></a></TooltipTrigger><TooltipContent>{t('dlg.detail.openBrowser')}</TooltipContent></Tooltip></TooltipProvider>
+                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-red-500" onClick={() => onEnvAction(project.id, env.id, 'stop')}><Square className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.stop')}</TooltipContent></Tooltip></TooltipProvider>
+                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-amber-500" onClick={() => onEnvAction(project.id, env.id, 'restart')}><RotateCw className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.restart')}</TooltipContent></Tooltip></TooltipProvider>
                         </>
                       ) : (
-                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-emerald-500" onClick={() => onEnvAction(project.id, env.id, 'start')}><Play className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>Start</TooltipContent></Tooltip></TooltipProvider>
+                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-emerald-500" onClick={() => onEnvAction(project.id, env.id, 'start')}><Play className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.run')}</TooltipContent></Tooltip></TooltipProvider>
                       )}
                       {env.name !== 'development' && (
-                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-teal-500" onClick={() => onEnvAction(project.id, env.id, 'rebuild')}><Hammer className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>Rebuild</TooltipContent></Tooltip></TooltipProvider>
+                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-teal-500" onClick={() => onEnvAction(project.id, env.id, 'rebuild')}><Hammer className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.rebuild')}</TooltipContent></Tooltip></TooltipProvider>
                       )}
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpandedEnv(isExpanded ? null : env.id)}>
                         <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
@@ -3562,14 +3590,14 @@ function DetailSheet({
                       className="border-t px-3 pb-3 pt-2 space-y-2"
                     >
                       <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div><span className="text-muted-foreground">Command:</span> <span className="font-mono">{env.cmd}</span></div>
-                        <div><span className="text-muted-foreground">PID:</span> {env.pid || 'N/A'}</div>
-                        <div><span className="text-muted-foreground">Status:</span> <span className={env.status === 'running' ? 'text-emerald-600' : 'text-red-500'}>{env.status}</span></div>
-                        <div><span className="text-muted-foreground">Created:</span> {new Date(env.createdAt).toLocaleDateString()}</div>
+                        <div><span className="text-muted-foreground">{t('dlg.detail.command')}</span> <span className="font-mono">{env.cmd}</span></div>
+                        <div><span className="text-muted-foreground">{t('dlg.detail.pid')}</span> {env.pid || 'N/A'}</div>
+                        <div><span className="text-muted-foreground">{t('dlg.detail.status')}</span> <span className={env.status === 'running' ? 'text-emerald-600' : 'text-red-500'}>{env.status === 'running' ? t('dlg.detail.statusRunning') : t('dlg.detail.statusStopped')}</span></div>
+                        <div><span className="text-muted-foreground">{t('dlg.detail.createdAt')}</span> {new Date(env.createdAt).toLocaleDateString()}</div>
                       </div>
                       <div>
                         <div className="flex items-center justify-between mb-1">
-                          <div className="text-xs text-muted-foreground">Environment Variables</div>
+                          <div className="text-xs text-muted-foreground">{t('dlg.detail.envVars')}</div>
                           {editingEnvVars !== env.id ? (
                             <Button
                               variant="ghost"
@@ -3578,7 +3606,7 @@ function DetailSheet({
                               onClick={() => startEditingEnvVars(env.id, env.envVars)}
                             >
                               <Edit3 className="h-2.5 w-2.5" />
-                              Edit
+                              {t('dlg.common.edit')}
                             </Button>
                           ) : (
                             <div className="flex items-center gap-1">
@@ -3589,7 +3617,7 @@ function DetailSheet({
                                 onClick={() => setEditingEnvVars(null)}
                                 disabled={savingEnvVars}
                               >
-                                Cancel
+                                {t('dlg.common.cancel')}
                               </Button>
                               <Button
                                 variant="ghost"
@@ -3599,7 +3627,7 @@ function DetailSheet({
                                 disabled={savingEnvVars}
                               >
                                 {savingEnvVars ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
-                                Save
+                                {t('dlg.common.save')}
                               </Button>
                             </div>
                           )}
@@ -3633,7 +3661,7 @@ function DetailSheet({
                               </div>
                             ))}
                             {Object.entries(envVarDraft).length === 0 && (
-                              <div className="text-xs text-muted-foreground text-center py-1">No variables — add one below</div>
+                              <div className="text-xs text-muted-foreground text-center py-1">{t('dlg.detail.noVars')}</div>
                             )}
                             {/* Add new pair */}
                             <div className="flex items-center gap-1.5 text-xs pt-1 border-t border-border/30">
@@ -3678,7 +3706,7 @@ function DetailSheet({
                                 <span className="text-foreground">{v}</span>
                                 <Button variant="ghost" size="icon" className="h-4 w-4 ml-auto" onClick={() => copyToClipboard(`${k}=${v}`, k)}><Copy className="h-2.5 w-2.5" /></Button>
                               </div>
-                            )) : <span className="text-xs text-muted-foreground">No environment variables set</span>}
+                            )) : <span className="text-xs text-muted-foreground">{t('dlg.detail.noVarsSet')}</span>}
                           </div>
                         )}
                       </div>
@@ -3697,7 +3725,7 @@ function DetailSheet({
                                 <div className={`h-full rounded-full transition-all ${env.status === 'running' ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} style={{ width: `${cpuPercent}%` }} />
                               </div>
                               <div className="flex items-center justify-between text-[10px]">
-                                <span className="text-muted-foreground">Memory</span>
+                                <span className="text-muted-foreground">{t('dlg.detail.memory')}</span>
                                 <span className="font-medium">{memPercent}%</span>
                               </div>
                               <div className="h-1 rounded-full bg-muted overflow-hidden">
@@ -3715,7 +3743,7 @@ function DetailSheet({
             {envs.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
                 <Layers className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm mb-3">No environments yet</p>
+                <p className="text-sm mb-3">{t('dlg.detail.noEnvsYet')}</p>
                 {project && onReanalyze && (
                   <Button
                     type="button"
@@ -3725,7 +3753,7 @@ function DetailSheet({
                     onClick={() => onReanalyze(project)}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
-                    Detect environments
+                    {t('dlg.detail.detectEnvs')}
                   </Button>
                 )}
               </div>
@@ -3775,7 +3803,7 @@ function DetailSheet({
                             : 'bg-muted/50 text-muted-foreground hover:bg-muted'
                         }`}
                       >
-                        {level.charAt(0).toUpperCase() + level.slice(1)}
+                        {t(`dlg.detail.logLevel.${level}` as Parameters<typeof t>[0])}
                       </button>
                     ))}
                   </div>
@@ -3792,7 +3820,7 @@ function DetailSheet({
                               : 'bg-muted/50 text-muted-foreground hover:bg-muted'
                           }`}
                         >
-                          {env === 'all' ? 'All envs' : env}
+                          {env === 'all' ? t('dlg.detail.allEnvs') : env}
                         </button>
                       ))}
                     </div>
@@ -3800,7 +3828,7 @@ function DetailSheet({
                   {(() => {
                     const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (logEnvFilter === 'all' || log.envName === logEnvFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
                     return (
-                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{filtered.length} logs</Badge>
+                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{t('dlg.detail.logsCount', { count: filtered.length })}</Badge>
                     )
                   })()}
                   <div className="flex-1" />
@@ -3809,20 +3837,20 @@ function DetailSheet({
                     <Input
                       value={logSearchQuery}
                       onChange={(e) => setLogSearchQuery(e.target.value)}
-                      placeholder="Search logs..."
+                      placeholder={t('dlg.detail.searchLogs')}
                       className="h-6 text-[10px] pl-6 w-32"
                     />
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[9px] text-muted-foreground">Auto-scroll</span>
+                    <span className="text-[9px] text-muted-foreground">{t('dlg.detail.autoScroll')}</span>
                     <Switch checked={logAutoScroll} onCheckedChange={setLogAutoScroll} className="scale-75" />
                   </div>
                   <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
                     const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (logEnvFilter === 'all' || log.envName === logEnvFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
                     const text = filtered.map((log) => `[${log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—'}] [${log.level.toUpperCase()}] ${log.source}: ${log.message}`).join('\n')
                     navigator.clipboard.writeText(text)
-                    toast({ title: 'Logs copied', variant: 'success' })
-                  }}><Copy className="h-3 w-3" /></Button></TooltipTrigger><TooltipContent>Copy visible logs</TooltipContent></Tooltip></TooltipProvider>
+                    toast({ title: t('dlg.detail.logsCopied'), variant: 'success' })
+                  }}><Copy className="h-3 w-3" /></Button></TooltipTrigger><TooltipContent>{t('dlg.detail.copyLogs')}</TooltipContent></Tooltip></TooltipProvider>
                 </div>
                 {/* Log entries — real process output streamed from each environment's log file */}
                 <div className="rounded-lg bg-zinc-950 dark:bg-zinc-950 border border-zinc-800 overflow-hidden shadow-inner">
@@ -3834,16 +3862,16 @@ function DetailSheet({
                           return (
                             <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
                               <Terminal className="h-6 w-6 mb-2 opacity-40" />
-                              <p className="text-xs">No process logs yet</p>
-                              <p className="text-[10px] mt-1 text-zinc-600">Start an environment — its real stdout/stderr output will appear here.</p>
+                              <p className="text-xs">{t('dlg.detail.noProcessLogs')}</p>
+                              <p className="text-[10px] mt-1 text-zinc-600">{t('dlg.detail.noProcessLogsHint')}</p>
                             </div>
                           )
                         }
                         return (
                           <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
                             <Filter className="h-6 w-6 mb-2 opacity-40" />
-                            <p className="text-xs">No logs found</p>
-                            {(logLevelFilter !== 'all' || logEnvFilter !== 'all' || logSearchQuery) && <p className="text-[10px] mt-1">Try adjusting your filters</p>}
+                            <p className="text-xs">{t('dlg.detail.noLogsFound')}</p>
+                            {(logLevelFilter !== 'all' || logEnvFilter !== 'all' || logSearchQuery) && <p className="text-[10px] mt-1">{t('dlg.detail.adjustFilters')}</p>}
                           </div>
                         )
                       }
@@ -3878,16 +3906,16 @@ function DetailSheet({
                   <>
                     <div className="flex items-center gap-2">
                       <GitBranch className="h-4 w-4 text-rose-500" />
-                      <span className="text-sm font-semibold">Build & Repair History</span>
+                      <span className="text-sm font-semibold">{t('dlg.detail.buildRepairHistory')}</span>
                       <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{opsEvents.length}</Badge>
-                      <span className="ml-auto text-[10px] text-muted-foreground">rebuild · auto-repair · applied analysis</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground">{t('dlg.detail.opsHint')}</span>
                     </div>
 
                     {opsEvents.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
                         <GitBranch className="h-10 w-10 text-muted-foreground/20 mb-3" />
-                        <p className="text-sm text-muted-foreground">No build or repair events yet</p>
-                        <p className="text-xs text-muted-foreground/70 mt-1">Rebuild an environment or let a failed start trigger LLM auto-repair — the real history lands here.</p>
+                        <p className="text-sm text-muted-foreground">{t('dlg.detail.noBuildEvents')}</p>
+                        <p className="text-xs text-muted-foreground/70 mt-1">{t('dlg.detail.noBuildEventsHint')}</p>
                       </div>
                     ) : (
                       <div className="space-y-0">
@@ -3896,7 +3924,7 @@ function DetailSheet({
                           const durMs = typeof ev.metadata?.durationMs === 'number' ? (ev.metadata.durationMs as number) : null
                           const envName = (ev.metadata?.environmentName as string) || null
                           const detail = (ev.metadata?.detail as string) || null
-                          const kindLabel = ev.type === 'rebuild' ? 'Rebuild' : ev.type === 'repair' ? 'LLM Auto-Repair' : 'Apply Analysis'
+                          const kindLabel = ev.type === 'rebuild' ? t('dlg.detail.kindRebuild') : ev.type === 'repair' ? t('dlg.detail.kindRepair') : t('dlg.detail.kindApply')
                           return (
                             <div key={ev.id} className="relative pl-8 pb-4">
                               {idx < opsEvents.length - 1 && <div className="deployment-timeline-line" />}
@@ -3914,9 +3942,9 @@ function DetailSheet({
                                     <Badge variant="outline" className={`text-[9px] px-1.5 py-0 shrink-0 ${
                                       failed ? 'border-red-300 text-red-700 dark:border-red-600 dark:text-red-300'
                                       : 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300'
-                                    }`}>{failed ? 'failed' : 'success'}</Badge>
+                                    }`}>{failed ? t('dlg.detail.failed') : t('dlg.detail.success')}</Badge>
                                   </div>
-                                  <span className="text-[10px] text-muted-foreground shrink-0">{formatTimeAgo(ev.timestamp)}</span>
+                                  <span className="text-[10px] text-muted-foreground shrink-0">{formatTimeAgo(ev.timestamp, t)}</span>
                                 </div>
                                 <p className="text-[11px] text-muted-foreground mt-1">{ev.message}</p>
                                 {(durMs != null || detail) && (
@@ -4000,14 +4028,15 @@ function getTimelineDotColor(status: string): string {
   return 'bg-amber-500 ring-amber-300 dark:ring-amber-700/50'
 }
 
-function getTimelineStatusLabel(oldStatus: string, newStatus: string): { text: string; className: string } {
-  if (oldStatus === 'stopped' && newStatus === 'running') return { text: 'Started', className: 'text-emerald-600 dark:text-emerald-400' }
-  if (oldStatus === 'running' && newStatus === 'stopped') return { text: 'Stopped', className: 'text-red-600 dark:text-red-400' }
-  if (oldStatus === 'running' && newStatus === 'running') return { text: 'Restarted', className: 'text-amber-600 dark:text-amber-400' }
+function getTimelineStatusLabel(oldStatus: string, newStatus: string, t?: I18nContextValue['t']): { text: string; className: string } {
+  if (oldStatus === 'stopped' && newStatus === 'running') return { text: t ? t('dlg.timeline.started') : 'Started', className: 'text-emerald-600 dark:text-emerald-400' }
+  if (oldStatus === 'running' && newStatus === 'stopped') return { text: t ? t('dlg.timeline.stopped') : 'Stopped', className: 'text-red-600 dark:text-red-400' }
+  if (oldStatus === 'running' && newStatus === 'running') return { text: t ? t('dlg.timeline.restarted') : 'Restarted', className: 'text-amber-600 dark:text-amber-400' }
   return { text: `${oldStatus} → ${newStatus}`, className: 'text-muted-foreground' }
 }
 
 function ProjectStatusTimeline({ project }: { project: Project }) {
+  const t = useT()
   const [timelineEvents, setTimelineEvents] = React.useState<TimelineEvent[]>([])
 
   React.useEffect(() => {
@@ -4035,7 +4064,6 @@ function ProjectStatusTimeline({ project }: { project: Project }) {
       return next
     })
   }, [project.id])
-
   // Record env action events to timeline
   React.useEffect(() => {
     const handler = (e: CustomEvent) => {
@@ -4064,7 +4092,7 @@ function ProjectStatusTimeline({ project }: { project: Project }) {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-cyan-500" />
-          <span className="text-sm font-semibold">Status Timeline</span>
+          <span className="text-sm font-semibold">{t('dlg.timeline.title')}</span>
           <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{timelineEvents.length}</Badge>
         </div>
         <Button
@@ -4075,25 +4103,25 @@ function ProjectStatusTimeline({ project }: { project: Project }) {
             const sample = generateSampleTimeline(project)
             setTimelineEvents(sample)
             try { localStorage.setItem(`project-timeline-${project.id}`, JSON.stringify(sample)) } catch { /* ignore */ }
-            addToast({ title: 'Timeline refreshed', variant: 'success' })
+            addToast({ title: t('dlg.timeline.refreshed'), variant: 'success' })
           }}
         >
-          <RefreshCw className="h-3 w-3 mr-1" />Regenerate
+          <RefreshCw className="h-3 w-3 mr-1" />{t('dlg.timeline.regenerate')}
         </Button>
       </div>
 
       {timelineEvents.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <Clock className="h-10 w-10 text-muted-foreground/20 mb-3" />
-          <p className="text-sm text-muted-foreground">No timeline events yet</p>
-          <p className="text-xs text-muted-foreground/70 mt-1">Events will appear when environments are started, stopped, or restarted</p>
+          <p className="text-sm text-muted-foreground">{t('dlg.timeline.noEvents')}</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">{t('dlg.timeline.noEventsHint')}</p>
         </div>
       ) : (
         <div className="relative pl-7 space-y-0">
           {/* Vertical line */}
           <div className="absolute left-[9px] top-2 bottom-2 w-px bg-border/40 dark:bg-zinc-700/40" />
           {timelineEvents.map((event, idx) => {
-            const label = getTimelineStatusLabel(event.oldStatus, event.newStatus)
+            const label = getTimelineStatusLabel(event.oldStatus, event.newStatus, t)
             return (
               <div key={event.id} className="relative pb-4 group/tl">
                 {/* Dot */}
@@ -4109,17 +4137,17 @@ function ProjectStatusTimeline({ project }: { project: Project }) {
                         <span className="font-mono ml-0.5">:{event.envPort}</span>
                       </span>
                     </div>
-                    <span className="text-[10px] text-muted-foreground shrink-0">{formatTimeAgo(event.timestamp)}</span>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{formatTimeAgo(event.timestamp, t)}</span>
                   </div>
                   <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/70">
                     <span className="flex items-center gap-0.5">
                       <span className={`h-1.5 w-1.5 rounded-full ${event.oldStatus === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                      {event.oldStatus}
+                      {event.oldStatus === 'running' ? t('dlg.detail.statusRunning') : t('dlg.detail.statusStopped')}
                     </span>
                     <span>→</span>
                     <span className="flex items-center gap-0.5">
                       <span className={`h-1.5 w-1.5 rounded-full ${event.newStatus === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                      {event.newStatus}
+                      {event.newStatus === 'running' ? t('dlg.detail.statusRunning') : t('dlg.detail.statusStopped')}
                     </span>
                     <span className="text-muted-foreground/50 ml-1">{new Date(event.timestamp).toLocaleString()}</span>
                   </div>
@@ -4139,6 +4167,7 @@ function ProjectStatusTimeline({ project }: { project: Project }) {
 // ======================== GLOBAL STATUS PANEL ========================
 
 function GlobalStatusPanel({ projects }: { projects: Project[] }) {
+  const t = useT()
   const [collapsed, setCollapsed] = React.useState(true)
   const totalEnvs = projects.reduce((a, p) => a + (p.environments?.length || 0), 0)
   const runningEnvs = projects.reduce((a, p) => a + (p.environments?.filter((e) => e.status === 'running').length || 0), 0)
@@ -4164,20 +4193,20 @@ function GlobalStatusPanel({ projects }: { projects: Project[] }) {
       className="fixed bottom-20 sm:bottom-16 left-4 z-40 rounded-lg border shadow-xl backdrop-blur-sm bg-card/95 p-3 sm:max-w-xs max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto"
     >
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5"><Zap className="h-3 w-3 text-emerald-500" /><span className="text-xs font-semibold dark:text-zinc-200 text-emerald-700 dark:text-emerald-400">System Health</span></div>
+        <div className="flex items-center gap-1.5"><Zap className="h-3 w-3 text-emerald-500" /><span className="text-xs font-semibold dark:text-zinc-200 text-emerald-700 dark:text-emerald-400">{t('surf.systemHealth')}</span></div>
         <Button variant="ghost" size="icon" className="h-6 w-6 rounded-md hover:bg-accent" onClick={() => setCollapsed(true)}><ChevronDown className="h-3.5 w-3.5" /></Button>
       </div>
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground dark:text-zinc-400">Projects</span>
+          <span className="text-muted-foreground dark:text-zinc-400">{t('surf.projectsLabel')}</span>
           <span className="font-medium dark:text-zinc-200">{projects.length}</span>
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground dark:text-zinc-400">Environments</span>
-          <span className="font-medium dark:text-zinc-200">{runningEnvs}/{totalEnvs} running</span>
+          <span className="text-muted-foreground dark:text-zinc-400">{t('surf.environmentsLabel')}</span>
+          <span className="font-medium dark:text-zinc-200">{t('card.preview.runningFraction', { running: runningEnvs, total: totalEnvs })}</span>
         </div>
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground dark:text-zinc-400">Health</span>
+          <span className="text-muted-foreground dark:text-zinc-400">{t('surf.healthLabel')}</span>
           <span className={`font-semibold ${healthColor(healthScore)}`}>{healthScore}%</span>
         </div>
         <Progress value={healthScore} className="h-1.5" />
@@ -4189,6 +4218,7 @@ function GlobalStatusPanel({ projects }: { projects: Project[] }) {
 // ======================== ENHANCED FOOTER ========================
 
 function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpenSystemMonitor, onRefresh, onAddProject }: { projects: Project[]; filteredCount: number; onOpenDevices: () => void; devices: Device[]; onOpenSystemMonitor: () => void; onRefresh?: () => void; onAddProject?: () => void }) {
+  const t = useT()
   const totalEnvs = projects.reduce((a, p) => a + (p.environments?.length || 0), 0)
   const runningEnvs = projects.reduce((a, p) => a + (p.environments?.filter((e) => e.status === 'running').length || 0), 0)
   const onlineDevices = devices.filter((d) => d.status === 'online').length
@@ -4246,7 +4276,7 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
               <span className={`relative inline-flex rounded-full h-2 w-2 ${runningEnvs > 0 ? 'bg-emerald-500' : 'bg-red-400'}`} />
             </span>
             <span className="font-bold dark:text-zinc-200">{runningEnvs}/{totalEnvs}</span>
-            <span className="text-muted-foreground dark:text-zinc-400">running</span>
+            <span className="text-muted-foreground dark:text-zinc-400">{t('surf.running')}</span>
           </span>
           {/* Mini health bar */}
           <div className="hidden sm:flex items-center gap-1.5">
@@ -4256,23 +4286,23 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
             <span className="text-[10px] text-muted-foreground">{healthRatio}%</span>
           </div>
           <span className="text-muted-foreground dark:text-zinc-400 hidden sm:inline">·</span>
-          <span className="dark:text-zinc-300 font-medium">{projects.length} projects</span>
+          <span className="dark:text-zinc-300 font-medium">{t('surf.projectsCount', { count: projects.length })}</span>
           {filteredCount !== projects.length && (
-            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">Showing {filteredCount}/{projects.length}</span>
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">{t('surf.showing', { shown: filteredCount, total: projects.length })}</span>
           )}
           <span className="text-muted-foreground dark:text-zinc-400 hidden sm:inline">·</span>
           <span className="hidden sm:inline-flex items-center gap-1 text-muted-foreground dark:text-zinc-400">
             <span className={`h-2 w-2 rounded-full ${totalDevices === 0 ? 'bg-zinc-400' : onlineDevices > 0 ? 'bg-emerald-500' : 'bg-red-400'}`} />
-            {onlineDevices}/{totalDevices + 1} devices online
+            {t('surf.devicesOnline', { online: onlineDevices, total: totalDevices + 1 })}
           </span>
           <span className="text-muted-foreground dark:text-zinc-400 hidden sm:inline">·</span>
-          <span className="hidden sm:inline text-[11px] text-muted-foreground dark:text-zinc-400">Last updated: {lastRefreshAgo}s ago</span>
+          <span className="hidden sm:inline text-[11px] text-muted-foreground dark:text-zinc-400">{t('surf.lastUpdatedAgo', { seconds: lastRefreshAgo })}</span>
         </div>
         <div className="flex items-center gap-1.5">
           {/* Network status indicator */}
           <span className={`hidden md:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full ${isOnline ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400' : 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'}`}>
             <Wifi className="h-2.5 w-2.5" />
-            {isOnline ? 'Connected' : 'Offline'}
+            {isOnline ? t('surf.connected') : t('dlg.common.offline')}
           </span>
           {/* Current time */}
           <span className="hidden md:inline-flex items-center gap-1 text-[10px] text-muted-foreground dark:text-zinc-400 tabular-nums">
@@ -4282,31 +4312,31 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
           {/* Keyboard shortcut hints */}
           <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-muted-foreground dark:text-zinc-400">
             <kbd className="px-1 py-0.5 rounded bg-muted/60 dark:bg-zinc-800/60 border border-border/30 dark:border-zinc-700/30 font-mono">⌘K</kbd>
-            <span>Search</span>
+            <span>{t('surf.kbdSearch')}</span>
             <span className="mx-0.5">·</span>
             <kbd className="px-1 py-0.5 rounded bg-muted/60 dark:bg-zinc-800/60 border border-border/30 dark:border-zinc-700/30 font-mono">?</kbd>
-            <span>Shortcuts</span>
+            <span>{t('surf.kbdShortcuts')}</span>
             <span className="mx-0.5">·</span>
             <kbd className="px-1 py-0.5 rounded bg-muted/60 dark:bg-zinc-800/60 border border-border/30 dark:border-zinc-700/30 font-mono">↑↓</kbd>
-            <span>Navigate</span>
+            <span>{t('surf.kbdNavigate')}</span>
           </div>
           {/* Quick action buttons */}
           {onRefresh && (
-            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onRefresh}><RefreshCw className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>Refresh</TooltipContent></Tooltip></TooltipProvider>
+            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onRefresh}><RefreshCw className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('dlg.common.refresh')}</TooltipContent></Tooltip></TooltipProvider>
           )}
           {onAddProject && (
-            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onAddProject}><Plus className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>Add Project</TooltipContent></Tooltip></TooltipProvider>
+            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onAddProject}><Plus className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('topbar.addProject')}</TooltipContent></Tooltip></TooltipProvider>
           )}
           <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-2.5 sm:px-3 py-1.5 rounded-md bg-brand-soft text-brand-strong hover:bg-brand-soft-strong ring-1 ring-brand/25 dark:ring-brand/20 active:scale-95 font-medium" onClick={onOpenDevices}>
             <Plug className="h-3.5 w-3.5" />
-            <span className="font-medium text-xs">Devices</span>
+            <span className="font-medium text-xs">{t('surf.devices')}</span>
             {totalDevices > 0 && (
               <span className="text-[9px] px-1 py-0 rounded-full bg-brand-soft-strong text-brand-strong font-semibold">{onlineDevices}/{totalDevices}</span>
             )}
           </button>
           <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-2.5 sm:px-3 py-1.5 rounded-md bg-brand-soft text-brand-strong hover:bg-brand-soft-strong ring-1 ring-brand/25 dark:ring-brand/20 active:scale-95 font-medium" onClick={onOpenSystemMonitor}>
             <Monitor className="h-3.5 w-3.5" />
-            <span className="font-medium text-xs">System</span>
+            <span className="font-medium text-xs">{t('surf.system')}</span>
           </button>
         </div>
       </div>
@@ -4331,6 +4361,7 @@ function DeviceManagementPanel({
   onOpenRemoteProject: () => void
   onOpenJoin: () => void
 }) {
+  const t = useT()
   const [healthCheckingIds, setHealthCheckingIds] = React.useState<Set<string>>(new Set())
   const [testingIds, setTestingIds] = React.useState<Set<string>>(new Set())
   const [testResults, setTestResults] = React.useState<Record<string, { latency: number; success: boolean } | null>>({})
@@ -4378,20 +4409,20 @@ function DeviceManagementPanel({
               <Plug className="h-5 w-5 text-teal-600 dark:text-teal-400" />
             </div>
             <div className="flex-1 min-w-0">
-              <SheetTitle>Device Management</SheetTitle>
-              <SheetDescription className="text-xs">Manage connected devices and remote agents</SheetDescription>
+              <SheetTitle>{t('dlg.devicePanel.title')}</SheetTitle>
+              <SheetDescription className="text-xs">{t('dlg.devicePanel.desc')}</SheetDescription>
             </div>
             <Button size="sm" variant="outline" onClick={onOpenJoin} className="h-7 text-xs border-cyan-300 text-cyan-700 hover:bg-cyan-50 dark:border-cyan-700 dark:text-cyan-400 dark:hover:bg-cyan-900/20">
-              <MonitorSmartphone className="h-3 w-3 mr-1" />加入网络
+              <MonitorSmartphone className="h-3 w-3 mr-1" />{t('dlg.devicePanel.join')}
             </Button>
             <Button size="sm" variant="outline" onClick={onOpenPairing} className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20">
-              <PlugZap className="h-3 w-3 mr-1" />配对
+              <PlugZap className="h-3 w-3 mr-1" />{t('dlg.devicePanel.pair')}
             </Button>
             <Button size="sm" variant="outline" onClick={onOpenDeployGuide} className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
-              <Download className="h-3 w-3 mr-1" />Deploy Agent
+              <Download className="h-3 w-3 mr-1" />{t('dlg.devicePanel.deploy')}
             </Button>
             <Button size="sm" onClick={onAdd} className="bg-teal-600 hover:bg-teal-700 text-white h-7 text-xs">
-              <Plus className="h-3 w-3 mr-1" />Add Device
+              <Plus className="h-3 w-3 mr-1" />{t('dlg.devicePanel.addDevice')}
             </Button>
           </div>
         </SheetHeader>
@@ -4402,15 +4433,15 @@ function DeviceManagementPanel({
             <div className="grid grid-cols-3 gap-3">
               <div className="text-center">
                 <div className="text-lg font-bold dark:text-zinc-100">{devices.length}</div>
-                <div className="text-[10px] text-muted-foreground dark:text-zinc-400 font-medium">Total</div>
+                <div className="text-[10px] text-muted-foreground dark:text-zinc-400 font-medium">{t('dlg.devicePanel.total')}</div>
               </div>
               <div className="text-center">
                 <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{onlineCount}</div>
-                <div className="text-[10px] text-emerald-600/70 dark:text-emerald-400/60 font-medium">Online</div>
+                <div className="text-[10px] text-emerald-600/70 dark:text-emerald-400/60 font-medium">{t('dlg.common.online')}</div>
               </div>
               <div className="text-center">
                 <div className="text-lg font-bold text-red-500 dark:text-red-400">{offlineCount}</div>
-                <div className="text-[10px] text-red-500/70 dark:text-red-400/60 font-medium">Offline</div>
+                <div className="text-[10px] text-red-500/70 dark:text-red-400/60 font-medium">{t('dlg.common.offline')}</div>
               </div>
             </div>
             <Button
@@ -4420,7 +4451,7 @@ function DeviceManagementPanel({
               className="w-full mt-2.5 h-8 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20"
             >
               <MonitorSmartphone className="h-3.5 w-3.5 mr-1.5" />
-              添加远程项目（自动调试启动）
+              {t('dlg.devicePanel.addRemote')}
             </Button>
           </div>
         )}
@@ -4431,20 +4462,20 @@ function DeviceManagementPanel({
               <div className="p-6 rounded-2xl bg-gradient-to-br from-teal-50/80 to-cyan-50/60 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/30 dark:ring-teal-800/20 shadow-inner mb-4">
                 <Plug className="h-12 w-12 text-teal-600/70 dark:text-teal-400/60" />
               </div>
-              <h3 className="text-sm font-semibold mb-1">No devices registered</h3>
-              <p className="text-xs text-muted-foreground dark:text-zinc-400 mb-4 max-w-xs">Add a remote device to monitor and manage projects on other machines.</p>
+              <h3 className="text-sm font-semibold mb-1">{t('dlg.devicePanel.noDevices')}</h3>
+              <p className="text-xs text-muted-foreground dark:text-zinc-400 mb-4 max-w-xs">{t('dlg.devicePanel.noDevicesDesc')}</p>
               <div className="flex items-center gap-2 flex-wrap justify-center">
                 <Button onClick={onOpenPairing} size="sm" className="bg-orange-500 hover:bg-orange-600 text-white">
-                  <PlugZap className="h-3 w-3 mr-1" />一键配对
+                  <PlugZap className="h-3 w-3 mr-1" />{t('dlg.devicePanel.oneClickPair')}
                 </Button>
                 <Button onClick={onOpenJoin} size="sm" className="bg-cyan-600 hover:bg-cyan-700 text-white">
-                  <MonitorSmartphone className="h-3 w-3 mr-1" />加入网络
+                  <MonitorSmartphone className="h-3 w-3 mr-1" />{t('dlg.devicePanel.join')}
                 </Button>
                 <Button onClick={onAdd} size="sm" className="bg-teal-600 hover:bg-teal-700 text-white">
-                  <Plus className="h-3 w-3 mr-1" />Add Device
+                  <Plus className="h-3 w-3 mr-1" />{t('dlg.devicePanel.addDevice')}
                 </Button>
                 <Button onClick={onOpenDeployGuide} size="sm" variant="outline" className="border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
-                  <Download className="h-3 w-3 mr-1" />Deploy Agent
+                  <Download className="h-3 w-3 mr-1" />{t('dlg.devicePanel.deploy')}
                 </Button>
               </div>
             </div>
@@ -4466,7 +4497,7 @@ function DeviceManagementPanel({
                   <AnimatedStatusDot status={device.status === 'online' ? 'running' : 'offline'} size="md" />
                   <span className="font-medium text-sm truncate">{device.name}</span>
                   <Badge variant="outline" className={`text-[9px] ml-auto shrink-0 ${device.status === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20' : device.status === 'error' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}>
-                    {device.status === 'online' ? 'Online' : device.status === 'error' ? 'Error' : 'Offline'}
+                    {device.status === 'online' ? t('dlg.common.online') : device.status === 'error' ? t('dlg.devicePanel.statusError') : t('dlg.common.offline')}
                   </Badge>
                 </div>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
@@ -4476,22 +4507,22 @@ function DeviceManagementPanel({
                     <button
                       type="button"
                       className="inline-flex items-center justify-center h-4 w-4 rounded hover:bg-muted dark:hover:bg-white/10 transition-colors text-muted-foreground hover:text-foreground"
-                      onClick={() => { navigator.clipboard.writeText(`${device.ip}:${device.port}`); addToast({ title: 'Copied', description: `${device.ip}:${device.port}`, variant: 'success' }) }}
-                      title="Copy IP:Port"
+                      onClick={() => { navigator.clipboard.writeText(`${device.ip}:${device.port}`); addToast({ title: t('dlg.toast.copiedShort'), description: `${device.ip}:${device.port}`, variant: 'success' }) }}
+                      title={t('dlg.devicePanel.copyIpPort')}
                     >
                       <Copy className="h-2.5 w-2.5" />
                     </button>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <Folder className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-muted-foreground dark:text-zinc-400">{device.projectCount ?? 0} projects</span>
+                    <span className="text-muted-foreground dark:text-zinc-400">{t('dlg.devicePanel.projects', { count: device.projectCount ?? 0 })}</span>
                     {device.projectCount !== undefined && device.projectCount > 0 && (
                       <Badge variant="secondary" className="text-[8px] px-1 py-0 h-3.5 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">{device.projectCount}</Badge>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 col-span-2">
                     <Clock className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-muted-foreground dark:text-zinc-400">Last seen: {device.lastSeen ? formatTimeAgo(device.lastSeen) : 'Never'}</span>
+                    <span className="text-muted-foreground dark:text-zinc-400">{t('dlg.devicePanel.lastSeen', { time: device.lastSeen ? formatTimeAgo(device.lastSeen, t) : t('dlg.common.never') })}</span>
                   </div>
                 </div>
                 {/* Connection test result */}
@@ -4506,22 +4537,22 @@ function DeviceManagementPanel({
                     }`}
                   >
                     {testResults[device.id]!.success
-                      ? `✓ Connected in ${testResults[device.id]!.latency}ms`
-                      : `✗ Unreachable (${testResults[device.id]!.latency}ms timeout)`
+                      ? t('dlg.devicePanel.connectedIn', { latency: testResults[device.id]!.latency })
+                      : t('dlg.devicePanel.unreachable', { latency: testResults[device.id]!.latency })
                     }
                   </motion.div>
                 )}
                 <div className="flex items-center gap-1.5 pt-1">
                   <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => onEdit(device)}>
-                    <Edit3 className="h-3 w-3 mr-1" />Edit
+                    <Edit3 className="h-3 w-3 mr-1" />{t('dlg.common.edit')}
                   </Button>
                   <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => handleTestConnection(device)} disabled={testingIds.has(device.id)}>
                     {testingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Zap className="h-3 w-3 mr-1" />}
-                    Test
+                    {t('dlg.devicePanel.test')}
                   </Button>
                   <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => handleHealthCheck(device.id)} disabled={healthCheckingIds.has(device.id)}>
                     {healthCheckingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Activity className="h-3 w-3 mr-1" />}
-                    Health
+                    {t('dlg.devicePanel.health')}
                   </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -4531,12 +4562,12 @@ function DeviceManagementPanel({
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Delete &quot;{device.name}&quot;?</AlertDialogTitle>
-                        <AlertDialogDescription>This will remove the device. Remote projects from this device will no longer appear.</AlertDialogDescription>
+                        <AlertDialogTitle>{t('dlg.devicePanel.deleteTitle', { name: device.name })}</AlertDialogTitle>
+                        <AlertDialogDescription>{t('dlg.devicePanel.deleteDesc')}</AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => onDelete(device.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                        <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => onDelete(device.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('dlg.common.delete')}</AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
@@ -4561,6 +4592,7 @@ function DeviceFormDialog({
   device?: Device | null
   mode: 'add' | 'edit'
 }) {
+  const t = useT()
   const [name, setName] = React.useState(() => mode === 'edit' && device ? device.name : '')
   const [ip, setIp] = React.useState(() => mode === 'edit' && device ? device.ip : '')
   const [port, setPort] = React.useState(() => mode === 'edit' && device ? String(device.port) : '3100')
@@ -4571,21 +4603,21 @@ function DeviceFormDialog({
   // `key` prop is always unique (previous version had duplicate 🔧 and crashed
   // with "Encountered two children with the same key, 🔧").
   const DEVICE_ICONS: { key: string; Icon: React.ElementType; label: string }[] = [
-    { key: 'monitor',     Icon: Monitor,     label: 'Desktop' },
-    { key: 'server',      Icon: Server,      label: 'Server' },
-    { key: 'smartphone',  Icon: Smartphone,  label: 'Mobile' },
-    { key: 'cloud',       Icon: Cloud,       label: 'Cloud' },
-    { key: 'container',   Icon: Container,   label: 'Container' },
-    { key: 'wrench',      Icon: Wrench,      label: 'Workstation' },
-    { key: 'zap',         Icon: Zap,         label: 'Fast' },
-    { key: 'building',    Icon: Building,    label: 'Office' },
-    { key: 'home',        Icon: House,       label: 'Home' },
-    { key: 'globe',       Icon: Globe,       label: 'Network' },
-    { key: 'database',    Icon: Database,    label: 'Database' },
-    { key: 'cpu',         Icon: CpuIcon,     label: 'Hardware' },
-    { key: 'plug-zap',    Icon: PlugZap,     label: 'Connected' },
-    { key: 'shield',      Icon: Shield,      label: 'Secure' },
-    { key: 'box',         Icon: Box,         label: 'Generic' },
+    { key: 'monitor',     Icon: Monitor,     label: t('dlg.deviceForm.icon.monitor') },
+    { key: 'server',      Icon: Server,      label: t('dlg.deviceForm.icon.server') },
+    { key: 'smartphone',  Icon: Smartphone,  label: t('dlg.deviceForm.icon.smartphone') },
+    { key: 'cloud',       Icon: Cloud,       label: t('dlg.deviceForm.icon.cloud') },
+    { key: 'container',   Icon: Container,   label: t('dlg.deviceForm.icon.container') },
+    { key: 'wrench',      Icon: Wrench,      label: t('dlg.deviceForm.icon.wrench') },
+    { key: 'zap',         Icon: Zap,         label: t('dlg.deviceForm.icon.zap') },
+    { key: 'building',    Icon: Building,    label: t('dlg.deviceForm.icon.building') },
+    { key: 'home',        Icon: House,       label: t('dlg.deviceForm.icon.home') },
+    { key: 'globe',       Icon: Globe,       label: t('dlg.deviceForm.icon.globe') },
+    { key: 'database',    Icon: Database,    label: t('dlg.deviceForm.icon.database') },
+    { key: 'cpu',         Icon: CpuIcon,     label: t('dlg.deviceForm.icon.cpu') },
+    { key: 'plug-zap',    Icon: PlugZap,     label: t('dlg.deviceForm.icon.plug-zap') },
+    { key: 'shield',      Icon: Shield,      label: t('dlg.deviceForm.icon.shield') },
+    { key: 'box',         Icon: Box,         label: t('dlg.deviceForm.icon.box') },
   ]
   const [icon, setIcon] = React.useState(() => {
     if (mode === 'edit' && device) {
@@ -4605,12 +4637,12 @@ function DeviceFormDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{mode === 'add' ? 'Add Device' : 'Edit Device'}</DialogTitle>
-          <DialogDescription>{mode === 'add' ? 'Register a remote device to monitor and manage its projects.' : 'Update device connection settings.'}</DialogDescription>
+          <DialogTitle>{mode === 'add' ? t('dlg.deviceForm.addTitle') : t('dlg.deviceForm.editTitle')}</DialogTitle>
+          <DialogDescription>{mode === 'add' ? t('dlg.deviceForm.addDesc') : t('dlg.deviceForm.editDesc')}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="space-y-1">
-            <Label>Device Icon</Label>
+            <Label>{t('dlg.deviceForm.icon')}</Label>
             <div className="flex flex-wrap gap-1.5">
               {DEVICE_ICONS.map(({ key: iconKey, Icon, label }) => {
                 const active = icon === iconKey
@@ -4635,7 +4667,7 @@ function DeviceFormDialog({
             </div>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="device-name">Name *</Label>
+            <Label htmlFor="device-name">{t('dlg.deviceForm.name')}</Label>
             <div className="flex items-center gap-2">
               {(() => {
                 const selected = DEVICE_ICONS.find((d) => d.key === icon)
@@ -4646,22 +4678,22 @@ function DeviceFormDialog({
             </div>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="device-ip">IP Address *</Label>
+            <Label htmlFor="device-ip">{t('dlg.deviceForm.ip')}</Label>
             <Input id="device-ip" value={ip} onChange={(e) => setIp(e.target.value)} placeholder="192.168.1.100" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="device-port">Port</Label>
+            <Label htmlFor="device-port">{t('dlg.deviceForm.port')}</Label>
             <Input id="device-port" type="number" value={port} onChange={(e) => setPort(e.target.value)} placeholder="3100" />
           </div>
           <div className="space-y-1">
-            <Label htmlFor="device-apikey">API Key</Label>
+            <Label htmlFor="device-apikey">{t('dlg.deviceForm.apiKey')}</Label>
             <div className="relative">
               <Input
                 id="device-apikey"
                 type={showApiKey ? 'text' : 'password'}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Auto-generated if empty"
+                placeholder={t('dlg.deviceForm.autoKey')}
                 className="pr-10 font-mono"
                 autoComplete="off"
                 spellCheck={false}
@@ -4669,8 +4701,8 @@ function DeviceFormDialog({
               <button
                 type="button"
                 onClick={() => setShowApiKey((v) => !v)}
-                title={showApiKey ? 'Hide API key' : 'Show API key'}
-                aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                title={showApiKey ? t('dlg.deviceForm.hideKey') : t('dlg.deviceForm.showKey')}
+                aria-label={showApiKey ? t('dlg.deviceForm.hideKey') : t('dlg.deviceForm.showKey')}
                 aria-pressed={showApiKey}
                 className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
               >
@@ -4679,9 +4711,9 @@ function DeviceFormDialog({
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
             <Button type="submit" disabled={!name.trim() || !ip.trim()} className="bg-teal-600 hover:bg-teal-700 text-white">
-              {mode === 'add' ? 'Add Device' : 'Update'}
+              {mode === 'add' ? t('dlg.deviceForm.addBtn') : t('dlg.deviceForm.updateBtn')}
             </Button>
           </DialogFooter>
         </form>
@@ -4787,6 +4819,7 @@ function LoadingSkeleton({ viewMode }: { viewMode: ViewMode }) {
 // ======================== EMPTY STATE ========================
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
+  const t = useT()
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <motion.div
@@ -4796,11 +4829,11 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       >
         <Folder className="h-16 w-16 text-emerald-600/70 dark:text-emerald-400/60" />
       </motion.div>
-      <h3 className="text-lg font-semibold mb-1 text-foreground">No projects yet</h3>
-      <p className="text-sm text-muted-foreground dark:text-zinc-400 mb-5 max-w-xs">Get started by creating your first project. You can add environments and manage them from here.</p>
+      <h3 className="text-lg font-semibold mb-1 text-foreground">{t('surf.emptyTitle')}</h3>
+      <p className="text-sm text-muted-foreground dark:text-zinc-400 mb-5 max-w-xs">{t('surf.emptyDesc')}</p>
       <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
         <Button onClick={onAdd} className="bg-primary hover:bg-primary/90 text-primary-foreground h-10 px-6 text-sm font-semibold shadow-sm transition-colors">
-          <Plus className="h-4 w-4 mr-2" />Create Project
+          <Plus className="h-4 w-4 mr-2" />{t('surf.createProject')}
         </Button>
       </motion.div>
     </div>
@@ -4812,6 +4845,8 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 // renders only for authenticated + approved users.
 
 function DashboardInner({ session }: { session: DashboardSession }) {
+  // i18n (task 17): top-bar chrome strings
+  const { t } = useI18n()
   // State
   const [userMgmtOpen, setUserMgmtOpen] = React.useState(false)
   const [changePwOpen, setChangePwOpen] = React.useState(false)
@@ -5042,14 +5077,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         body: JSON.stringify(data),
       })
       if (res.ok) {
-        toast({ title: 'Device added', variant: 'success' })
+        toast({ title: t('dlg.toast.deviceAdded'), variant: 'success' })
         fetchDevices()
       } else {
         const err = await res.json()
-        toast({ title: 'Failed to add device', description: err.error, variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedAddDevice'), description: err.error, variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to add device', variant: 'destructive' })
+      toast({ title: t('dlg.toast.failedAddDevice'), variant: 'destructive' })
     }
   }, [toast, fetchDevices])
 
@@ -5061,13 +5096,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         body: JSON.stringify(data),
       })
       if (res.ok) {
-        toast({ title: 'Device updated', variant: 'success' })
+        toast({ title: t('dlg.toast.deviceUpdated'), variant: 'success' })
         fetchDevices()
       } else {
-        toast({ title: 'Failed to update device', variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedUpdateDevice'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to update device', variant: 'destructive' })
+      toast({ title: t('dlg.toast.failedUpdateDevice'), variant: 'destructive' })
     }
   }, [toast, fetchDevices])
 
@@ -5075,14 +5110,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     try {
       const res = await fetch(`/api/devices/${id}`, { method: 'DELETE' })
       if (res.ok) {
-        toast({ title: 'Device deleted', variant: 'success' })
+        toast({ title: t('dlg.toast.deviceDeleted'), variant: 'success' })
         fetchDevices()
         if (selectedDeviceId === id) setSelectedDeviceId(null)
       } else {
-        toast({ title: 'Failed to delete device', variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedDeleteDevice'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to delete device', variant: 'destructive' })
+      toast({ title: t('dlg.toast.failedDeleteDevice'), variant: 'destructive' })
     }
   }, [toast, fetchDevices, selectedDeviceId])
 
@@ -5091,15 +5126,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       const res = await fetch(`/api/devices/${id}/health`)
       if (res.ok) {
         const data = await res.json()
-        toast({ title: `Device ${data.status === 'online' ? 'is online' : 'is offline'}`, variant: data.status === 'online' ? 'success' : 'destructive' })
+        toast({ title: t(data.status === 'online' ? 'dlg.toast.deviceOnline' : 'dlg.toast.deviceOffline', { name: data.name ?? data.hostname ?? 'device' }), variant: data.status === 'online' ? 'success' : 'destructive' })
         fetchDevices()
         return data
       } else {
-        toast({ title: 'Health check failed', variant: 'destructive' })
+        toast({ title: t('dlg.toast.healthCheckFailed'), variant: 'destructive' })
         return null
       }
     } catch {
-      toast({ title: 'Health check failed', variant: 'destructive' })
+      toast({ title: t('dlg.toast.healthCheckFailed'), variant: 'destructive' })
       return null
     }
   }, [toast, fetchDevices])
@@ -5180,8 +5215,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           if (prevStatus && prevStatus !== (isOnline ? 'online' : 'offline')) {
             addAutoNotification(
               isOnline ? 'success' : 'error',
-              isOnline ? 'Device Online' : 'Device Offline',
-              `${device.name} (${device.ip}:${device.port}) is now ${isOnline ? 'online' : 'unreachable'}.`
+              isOnline ? t('dlg.notif.deviceOnlineTitle') : t('dlg.notif.deviceOfflineTitle'),
+              isOnline
+                ? t('dlg.notif.deviceOnlineDesc', { device: device.name, addr: `${device.ip}:${device.port}` })
+                : t('dlg.notif.deviceOfflineDesc', { device: device.name, addr: `${device.ip}:${device.port}` })
             )
           }
         } catch {
@@ -5192,8 +5229,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           if (prevStatus && prevStatus === 'online') {
             addAutoNotification(
               'error',
-              'Device Offline',
-              `${device.name} (${device.ip}:${device.port}) is now unreachable.`
+              t('dlg.notif.deviceOfflineTitle'),
+              t('dlg.notif.deviceOfflineDesc', { device: device.name, addr: `${device.ip}:${device.port}` })
             )
           }
         }
@@ -5202,7 +5239,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     pollDeviceHealth()
     const interval = setInterval(pollDeviceHealth, 30000)
     return () => clearInterval(interval)
-  }, [devices.length, addAutoNotification])
+  }, [devices.length, addAutoNotification, t])
 
   // Fetch LAN IP for access links
   React.useEffect(() => {
@@ -5505,8 +5542,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     if (!healthAlertEnabled) return
     if (prevHealthScoreRef.current > healthAlertThreshold && dashboardStats.healthScore <= healthAlertThreshold && prevHealthScoreRef.current !== dashboardStats.healthScore) {
       toast({
-        title: '⚠️ Health Alert',
-        description: `System health dropped to ${dashboardStats.healthScore}% (threshold: ${healthAlertThreshold}%)`,
+        title: t('dlg.toast.healthAlertTitle'),
+        description: t('dlg.toast.healthAlertDesc', { score: dashboardStats.healthScore, threshold: healthAlertThreshold }),
         variant: 'destructive',
       })
       setAlertsAcknowledged(false)
@@ -5543,13 +5580,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         setHarnessSession(sess)
         // Survive HMR remounts / accidental reloads — see the restore effect above.
         try { sessionStorage.setItem('dashboard-harness-wizard', JSON.stringify(sess)) } catch {}
-        addToast({ title: 'Agent 已启动', description: 'deepseek-harness 正在分析项目并自动调试启动配置…', variant: 'success' })
+        addToast({ title: t('dlg.toast.agentStarted'), description: t('dlg.toast.agentStartedDesc'), variant: 'success' })
       } else {
         const err = await res.json()
-        toast({ title: '启动分析失败', description: err.error || 'harness-agent 不可达', variant: 'destructive' })
+        toast({ title: t('dlg.toast.analysisStartFailed'), description: err.error || t('dlg.toast.harnessUnreachable'), variant: 'destructive' })
       }
     } catch (e: any) {
-      toast({ title: '启动分析失败', description: e?.message || '网络错误', variant: 'destructive' })
+      toast({ title: t('dlg.toast.analysisStartFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
     }
   }, [projects, toast])
 
@@ -5564,8 +5601,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         if (res.ok) {
           const result = await res.json()
           const newProjectId = result.project?.id
-          toast({ title: 'Project created', variant: 'success' })
-          addAutoNotification('success', 'Project Created', `Project "${data.name}" has been created successfully.`, data.name)
+          toast({ title: t('dlg.toast.projectCreated'), variant: 'success' })
+          addAutoNotification('success', t('dlg.notif.projectCreatedTitle'), t('dlg.notif.projectCreatedDesc', { name: data.name }), data.name)
 
           // Local projects → harness-agent (deepseek-harness) analyzes, installs deps,
           // generates and VERIFIES the startup command (auto-debug until success).
@@ -5576,7 +5613,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           fetchProjects()
         } else {
           const err = await res.json()
-          toast({ title: 'Failed to create project', description: err.error, variant: 'destructive' })
+          toast({ title: t('dlg.toast.failedCreateProject'), description: err.error, variant: 'destructive' })
         }
       } else if (editingProject) {
         const res = await fetch(`/api/projects/${editingProject.id}`, {
@@ -5585,15 +5622,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           body: JSON.stringify(data),
         })
         if (res.ok) {
-          toast({ title: 'Project updated', variant: 'success' })
+          toast({ title: t('dlg.toast.projectUpdated'), variant: 'success' })
           fetchProjects()
         } else {
           const err = await res.json()
-          toast({ title: 'Failed to update project', description: err.error, variant: 'destructive' })
+          toast({ title: t('dlg.toast.failedUpdateProject'), description: err.error, variant: 'destructive' })
         }
       }
     } catch {
-      toast({ title: 'Operation failed', variant: 'destructive' })
+      toast({ title: t('dlg.toast.opFailed'), variant: 'destructive' })
     }
   }, [projectFormMode, editingProject, toast, fetchProjects, startHarnessAnalysis])
 
@@ -5601,16 +5638,16 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     try {
       const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' })
       if (res.ok) {
-        toast({ title: 'Project deleted', variant: 'success' })
-        addAutoNotification('warning', 'Project Deleted', `A project has been deleted.`, undefined)
+        toast({ title: t('dlg.toast.projectDeleted'), variant: 'success' })
+        addAutoNotification('warning', t('dlg.notif.projectDeletedTitle'), t('dlg.notif.projectDeletedDesc'), undefined)
         fetchProjects()
         setDeleteProject(null)
         if (selectedProject?.id === id) { setSelectedProject(null); setDetailOpen(false) }
       } else {
-        toast({ title: 'Failed to delete project', variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedDeleteProject'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to delete', variant: 'destructive' })
+      toast({ title: t('dlg.toast.failedDelete'), variant: 'destructive' })
     }
   }, [toast, fetchProjects, selectedProject])
 
@@ -5618,14 +5655,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     try {
       const res = await fetch(`/api/projects/${id}/duplicate`, { method: 'POST' })
       if (res.ok) {
-        toast({ title: 'Project duplicated', variant: 'success' })
+        toast({ title: t('dlg.toast.projectDuplicated'), variant: 'success' })
         fetchProjects()
       } else {
         const err = await res.json()
-        toast({ title: 'Failed to duplicate project', description: err.error || 'Server error', variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedDuplicate'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to duplicate project', variant: 'destructive' })
+      toast({ title: t('dlg.toast.failedDuplicate'), variant: 'destructive' })
     }
   }, [toast, fetchProjects])
 
@@ -5642,10 +5679,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       // Remote project → proxy to the device agent
       const device = devices.find((d) => d.id === project.deviceId)
       if (!device) {
-        toast({ title: 'Device not found', description: 'Cannot locate the remote device for this project.', variant: 'destructive' })
+        toast({ title: t('dlg.toast.deviceNotFound'), description: t('dlg.toast.deviceNotFoundDesc'), variant: 'destructive' })
         return
       }
-      toast({ title: `${action} environments...`, description: `${project.name} — analyzing on ${device.name}` })
+      toast({ title: hasExistingEnvs ? t('dlg.toast.replaceEnvs') : t('dlg.toast.detectEnvs'), description: t('dlg.toast.analyzingOn', { project: project.name, device: device.name }) })
       try {
         const result = await proxyToAgent(
           { ip: device.ip, port: device.port, apiKey: device.apiKey },
@@ -5656,18 +5693,18 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         if (result.ok) {
           const envCount = result.data.project?.environments?.length ?? 0
           toast({
-            title: hasExistingEnvs ? 'Environments replaced' : 'Environments detected',
+            title: hasExistingEnvs ? t('dlg.toast.envsReplaced') : t('dlg.toast.envsDetected'),
             description: envCount > 0
-              ? `Created ${envCount} environment${envCount === 1 ? '' : 's'}: ${result.data.project.environments.map((e: { name: string; port: number }) => `${e.name} (:${e.port})`).join(', ')}`
-              : 'No environments were generated — check that the project has package.json or similar manifest.',
+              ? t('dlg.toast.envsCreatedDesc', { count: envCount, list: result.data.project.environments.map((e: { name: string; port: number }) => `${e.name} (:${e.port})`).join(', ') })
+              : t('dlg.toast.noEnvsGenerated'),
             variant: 'success',
           })
           fetchProjects()
         } else {
-          toast({ title: 'Re-fetch failed', description: result.data?.error || `Agent returned ${result.status}`, variant: 'destructive' })
+          toast({ title: t('dlg.toast.refetchFailed'), description: result.data?.error || t('dlg.toast.agentReturned', { status: result.status }), variant: 'destructive' })
         }
       } catch (e: any) {
-        toast({ title: 'Re-fetch failed', description: e?.message || 'Network error', variant: 'destructive' })
+        toast({ title: t('dlg.toast.refetchFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
       }
     } else {
       // Local project → harness-agent (deepseek-harness) full auto-debug analyze
@@ -5683,15 +5720,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         body: JSON.stringify({ targetDeviceId }),
       })
       if (res.ok) {
-        toast({ title: 'Project moved', variant: 'success' })
+        toast({ title: t('dlg.toast.projectMoved'), variant: 'success' })
         fetchProjects()
         setMoveProjectDialog(null)
       } else {
         const err = await res.json()
-        toast({ title: 'Failed to move project', description: err.error || 'Server error', variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedMove'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to move project', variant: 'destructive' })
+      toast({ title: t('dlg.toast.failedMove'), variant: 'destructive' })
     }
   }, [toast, fetchProjects])
 
@@ -5743,7 +5780,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     a.download = 'projects-export.csv'
     a.click()
     URL.revokeObjectURL(url)
-    toast({ title: 'Exported as CSV', variant: 'success' })
+    toast({ title: t('dlg.toast.exportedCsv'), variant: 'success' })
   }, [projects, toast])
 
   const handleExportJSON = React.useCallback(() => {
@@ -5762,7 +5799,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     a.download = 'projects-export.json'
     a.click()
     URL.revokeObjectURL(url)
-    toast({ title: 'Exported as JSON', variant: 'success' })
+    toast({ title: t('dlg.toast.exportedJson'), variant: 'success' })
   }, [projects, toast])
 
   const handleImportJSON = React.useCallback(() => {
@@ -5776,7 +5813,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         const text = await file.text()
         const data = JSON.parse(text)
         if (!Array.isArray(data)) {
-          toast({ title: 'Invalid format', description: 'Expected a JSON array of projects', variant: 'destructive' })
+          toast({ title: t('dlg.toast.invalidFormat'), description: t('dlg.toast.invalidFormatDesc'), variant: 'destructive' })
           return
         }
         let importedCount = 0
@@ -5797,10 +5834,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             if (res.ok) importedCount++
           } catch { /* skip failed */ }
         }
-        toast({ title: `Imported ${importedCount} project${importedCount !== 1 ? 's' : ''}`, variant: 'success' })
+        toast({ title: importedCount === 1 ? t('dlg.toast.importedOne') : t('dlg.toast.importedCount', { count: importedCount }), variant: 'success' })
         fetchProjects()
       } catch {
-        toast({ title: 'Failed to parse JSON', description: 'Please check the file format', variant: 'destructive' })
+        toast({ title: t('dlg.toast.parseJsonFailed'), description: t('dlg.toast.parseJsonFailedDesc'), variant: 'destructive' })
       }
     }
     input.click()
@@ -5812,34 +5849,42 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     const envLabel = env ? (env.name === 'development' ? 'dev' : env.name === 'production' ? 'prod' : env.name) : 'environment'
     // Block rebuild for dev environments — they use HMR
     if (action === 'rebuild' && env?.name === 'development') {
-      toast({ title: 'Dev environments use hot-reload', description: 'No rebuild needed — file changes are applied automatically via HMR', variant: 'info' })
+      toast({ title: t('dlg.toast.devHotReload'), description: t('dlg.toast.devHotReloadDesc'), variant: 'info' })
       return
     }
     // Prevent duplicate concurrent operations on the same environment
     const inFlight = pendingEnvOpsRef.current[envId]
     if (inFlight) {
       toast({
-        title: '操作进行中',
-        description: `${project?.name ?? '该项目'} 的 ${envLabel} 正在执行「${OP_PROGRESS_LABELS[inFlight] ?? inFlight}」操作，请等待完成后再试`,
+        title: t('dlg.toast.opInProgress'),
+        description: t('dlg.toast.opInProgressDesc', {
+          project: project?.name ?? t('dlg.toast.theProject'),
+          env: envLabel,
+          op: ['start', 'stop', 'restart', 'rebuild'].includes(inFlight) ? t(`dlg.op.${inFlight}` as Parameters<typeof t>[0]) : inFlight,
+        }),
         variant: 'info',
       })
       return
     }
     setEnvOpPending(envId, action)
     const actionLabels: Record<string, string> = {
-      start: 'Started',
-      stop: 'Stopped',
-      rebuild: 'Rebuilt',
-      restart: 'Restarted',
+      start: t('dlg.actDone.start'),
+      stop: t('dlg.actDone.stop'),
+      rebuild: t('dlg.actDone.rebuild'),
+      restart: t('dlg.actDone.restart'),
     }
     try {
       const res = await fetch(`/api/projects/${projectId}/environments/${envId}/${action}`, { method: 'POST' })
       if (res.ok) {
-        toast({ title: `${actionLabels[action] ?? `${action}ed`} ${envLabel}`, variant: 'success' })
+        toast({ title: t(`dlg.toast.envDone.${action}` as Parameters<typeof t>[0], { env: envLabel, action: actionLabels[action] ?? `${action}ed` }), variant: 'success' })
         addAutoNotification(
           action === 'start' ? 'success' : action === 'stop' ? 'warning' : action === 'restart' ? 'info' : 'success',
-          `${actionLabels[action] ?? `${action}ed`} ${envLabel}`,
-          `${envLabel} for ${project?.name ?? 'project'} has been ${actionLabels[action]?.toLowerCase() ?? action + 'ed'}.`,
+          t('dlg.notif.envTitle', { action: actionLabels[action] ?? `${action}ed`, env: envLabel }),
+          t('dlg.notif.envDesc', {
+            env: envLabel,
+            project: project?.name ?? t('dlg.toast.theProject'),
+            action: ['start', 'stop', 'restart', 'rebuild'].includes(action) ? t(`dlg.actPast.${action}` as Parameters<typeof t>[0]) : `${action}ed`,
+          }),
           project?.name
         )
 
@@ -5850,7 +5895,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           if (bridgeProject && bridgeEnv && bridgeEnv.status !== 'running') {
             try {
               await fetch(`/api/projects/${bridgeProject.id}/environments/${bridgeEnv.id}/start`, { method: 'POST' })
-              toast({ title: 'Hermes Bridge auto-started', variant: 'success' })
+              toast({ title: t('dlg.toast.hermesStarted'), variant: 'success' })
             } catch { /* best-effort */ }
           }
         }
@@ -5865,7 +5910,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             if (bridgeProject && bridgeEnv && bridgeEnv.status === 'running') {
               try {
                 await fetch(`/api/projects/${bridgeProject.id}/environments/${bridgeEnv.id}/stop`, { method: 'POST' })
-                toast({ title: 'Hermes Bridge auto-stopped', variant: 'success' })
+                toast({ title: t('dlg.toast.hermesStopped'), variant: 'success' })
               } catch { /* best-effort */ }
             }
           }
@@ -5879,7 +5924,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         }
       } else {
         // 解析 API 返回的详细错误信息
-        let errorDetail = 'Server returned an error'
+        let errorDetail = t('dlg.toast.serverReturnedError')
         let repairJobIdFromResponse: string | null = null
         try {
           const errData = await res.json()
@@ -5894,22 +5939,22 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           }
         } catch {
           // 响应不是 JSON，使用 statusText
-          errorDetail = `Server error: ${res.status} ${res.statusText}`
+          errorDetail = t('dlg.toast.serverErrorStatus', { status: res.status, text: res.statusText })
         }
         if (repairJobIdFromResponse) {
           setRepairJobId(repairJobIdFromResponse)
           toast({
-            title: `${action === 'rebuild' ? 'Rebuild' : '启动'}失败 — 已自动调用 LLM 修复`,
-            description: `${project?.name ?? ''} ${envLabel} 的错误正在由 AI 诊断修复，可在对话框中查看实时进度`,
+            title: action === 'rebuild' ? t('dlg.toast.repairAutoRebuild') : t('dlg.toast.repairAutoStart'),
+            description: t('dlg.toast.repairAutoDesc', { project: project?.name ?? '', env: envLabel }),
             variant: 'warning',
           })
         } else {
           // 截断过长的错误信息用于 toast
           const toastDesc = errorDetail.length > 200
-            ? errorDetail.slice(0, 200) + '… (点击查看详情)'
+            ? errorDetail.slice(0, 200) + t('dlg.toast.clickForDetail')
             : errorDetail
           toast({
-            title: `Failed to ${action} ${envLabel}`,
+            title: t('dlg.toast.failedActionEnv', { action: ['start', 'stop', 'restart', 'rebuild'].includes(action) ? t(`dlg.act.${action}` as Parameters<typeof t>[0]) : action, env: envLabel }),
             description: toastDesc,
             variant: 'destructive',
             detail: errorDetail.length > 200 ? errorDetail : undefined,
@@ -5917,13 +5962,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         }
       }
     } catch {
-      toast({ title: `Failed to ${action} ${envLabel}`, description: 'Network error — check console for details', variant: 'destructive' })
+      toast({ title: t('dlg.toast.failedActionEnv', { action: ['start', 'stop', 'restart', 'rebuild'].includes(action) ? t(`dlg.act.${action}` as Parameters<typeof t>[0]) : action, env: envLabel }), description: t('dlg.toast.networkErrorDetail'), variant: 'destructive' })
     } finally {
       // NOTE: when LLM auto-repair kicks in, the backend keeps working in the
       // background — the env op itself has finished, so we release the lock.
       setEnvOpPending(envId, null)
     }
-  }, [toast, fetchProjects, selectedProject, projects, setEnvOpPending])
+  }, [toast, t, fetchProjects, selectedProject, projects, setEnvOpPending])
 
   // Update project actions ref for keyboard shortcuts (after all handler definitions)
   React.useEffect(() => {
@@ -5946,40 +5991,40 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     const envLabel = job.envName === 'development' ? 'dev' : job.envName === 'production' ? 'prod' : job.envName
     if (job.status === 'success') {
       toast({
-        title: 'AI 自动修复成功',
-        description: `${job.projectName} · ${envLabel} 已成功启动`,
+        title: t('dlg.toast.repairSuccess'),
+        description: t('dlg.toast.repairSuccessDesc', { project: job.projectName, env: envLabel }),
         variant: 'success',
       })
       addAutoNotification(
         'success',
-        'AI 自动修复成功',
-        `${job.projectName} 的 ${envLabel} 环境启动失败后由 LLM 自动诊断并修复，现已成功运行。`,
+        t('dlg.notif.repairSuccessTitle'),
+        t('dlg.notif.repairSuccessDesc', { project: job.projectName, env: envLabel }),
         job.projectName,
       )
     } else {
       toast({
-        title: 'AI 自动修复未能解决问题',
-        description: (job.error || '').slice(0, 200) || '请查看日志了解详情',
+        title: t('dlg.toast.repairFailed'),
+        description: (job.error || '').slice(0, 200) || t('dlg.toast.repairFailedDesc'),
         variant: 'destructive',
       })
     }
     fetchProjects()
-  }, [toast, fetchProjects, addAutoNotification])
+  }, [toast, t, fetchProjects, addAutoNotification])
 
   const handleSyncFromConfig = React.useCallback(async () => {
-    if (!confirm('This will REPLACE all projects and environments with the contents of projects.config.json. Any unsaved changes will be lost. Continue?')) {
+    if (!confirm(t('dlg.toast.syncConfirm'))) {
       return
     }
     try {
       const res = await fetch('/api/seed', { method: 'POST' })
       if (res.ok) {
-        toast({ title: 'Projects synced from config', variant: 'success' })
+        toast({ title: t('dlg.toast.synced'), variant: 'success' })
         fetchProjects()
       } else {
-        toast({ title: 'Failed to sync projects', variant: 'destructive' })
+        toast({ title: t('dlg.toast.syncFailed'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to sync projects', variant: 'destructive' })
+      toast({ title: t('dlg.toast.syncFailed'), variant: 'destructive' })
     }
   }, [toast, fetchProjects])
 
@@ -5991,12 +6036,12 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     // Skip dev environments — they use HMR and don't need rebuild
     const rebuildEnvs = envs.filter((e) => e.name !== 'development')
     if (rebuildEnvs.length === 0) {
-      toast({ title: 'No rebuildable environments', description: 'Dev environments use hot-reload and do not need rebuild', variant: 'info' })
+      toast({ title: t('dlg.toast.noRebuildable'), description: t('dlg.toast.noRebuildableDesc'), variant: 'info' })
       return
     }
     // Guard against duplicate concurrent rebuilds of the same project
     if (rebuildingProjectIds.has(projectId)) {
-      toast({ title: 'Rebuild 进行中', description: `${project.name} 正在重建，请等待完成后再试`, variant: 'info' })
+      toast({ title: t('dlg.toast.rebuildInProgress'), description: t('dlg.toast.rebuildInProgressDesc', { name: project.name }), variant: 'info' })
       return
     }
     setRebuildingProjectIds((prev) => new Set(prev).add(projectId))
@@ -6026,25 +6071,25 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         // LLM auto-repair is running in the background — show live progress
         setRepairJobId(lastRepairJobId)
         toast({
-          title: 'Rebuild 失败 — 已自动调用 LLM 修复',
-          description: `${project.name} 的构建错误正在由 AI 诊断修复，可在对话框中查看实时进度`,
+          title: t('dlg.toast.repairAutoRebuild'),
+          description: t('dlg.toast.repairAutoDesc2', { project: project.name }),
           variant: 'warning',
         })
       } else if (successCount === rebuildEnvs.length) {
-        toast({ title: `Rebuild completed`, description: `${successCount}/${rebuildEnvs.length} environments rebuilt`, variant: 'success' })
+        toast({ title: t('dlg.toast.rebuildCompleted'), description: t('dlg.toast.rebuildCompletedDesc', { success: successCount, total: rebuildEnvs.length }), variant: 'success' })
       } else if (successCount > 0) {
         const detail = errors.join('\n')
         toast({
-          title: `Rebuild partial failure`,
-          description: `${successCount}/${rebuildEnvs.length} succeeded. ${errors.length} failed (点击查看详情)`,
+          title: t('dlg.toast.rebuildPartial'),
+          description: t('dlg.toast.rebuildPartialDesc', { success: successCount, total: rebuildEnvs.length, failed: errors.length }),
           variant: 'destructive',
           detail,
         })
       } else {
         const detail = errors.join('\n')
         toast({
-          title: `Rebuild failed`,
-          description: `All ${rebuildEnvs.length} environments failed (点击查看详情)`,
+          title: t('dlg.toast.rebuildFailed'),
+          description: t('dlg.toast.rebuildFailedDesc', { count: rebuildEnvs.length }),
           variant: 'destructive',
           detail,
         })
@@ -6055,7 +6100,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         setSelectedProject(fresh?.project ?? fresh)
       }
     } catch {
-      toast({ title: 'Failed to rebuild project', description: 'Network error', variant: 'destructive' })
+      toast({ title: t('dlg.toast.failedRebuild'), description: t('dlg.common.networkError'), variant: 'destructive' })
     } finally {
       setRebuildingProjectIds((prev) => {
         const next = new Set(prev)
@@ -6088,11 +6133,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           body: JSON.stringify(data),
         })
         if (res.ok) {
-          toast({ title: 'Environment created', variant: 'success' })
+          toast({ title: t('dlg.toast.envCreated'), variant: 'success' })
           fetchProjects()
         } else {
           const err = await res.json()
-          toast({ title: 'Failed to create environment', description: err.error, variant: 'destructive' })
+          toast({ title: t('dlg.toast.failedCreateEnv'), description: err.error, variant: 'destructive' })
         }
       } else if (editingEnv) {
         const res = await fetch(`/api/projects/${editingEnv.projectId}/environments/${editingEnv.id}`, {
@@ -6101,15 +6146,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           body: JSON.stringify(data),
         })
         if (res.ok) {
-          toast({ title: 'Environment updated', variant: 'success' })
+          toast({ title: t('dlg.toast.envUpdated'), variant: 'success' })
           fetchProjects()
         } else {
           const err = await res.json()
-          toast({ title: 'Failed to update environment', description: err.error, variant: 'destructive' })
+          toast({ title: t('dlg.toast.failedUpdateEnv'), description: err.error, variant: 'destructive' })
         }
       }
     } catch {
-      toast({ title: 'Operation failed', variant: 'destructive' })
+      toast({ title: t('dlg.toast.opFailed'), variant: 'destructive' })
     }
   }, [envFormMode, addEnvProjectId, editingEnv, toast, fetchProjects])
 
@@ -6117,17 +6162,17 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     try {
       const res = await fetch(`/api/projects/${projectId}/environments/${envId}`, { method: 'DELETE' })
       if (res.ok) {
-        toast({ title: 'Environment deleted', variant: 'success' })
+        toast({ title: t('dlg.toast.envDeleted'), variant: 'success' })
         fetchProjects()
         if (selectedProject?.id === projectId) {
           const fresh = await (await fetch(`/api/projects/${projectId}`)).json()
           setSelectedProject(fresh?.project ?? fresh)
         }
       } else {
-        toast({ title: 'Failed to delete environment', variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedDeleteEnv'), variant: 'destructive' })
       }
     } catch {
-      toast({ title: 'Failed to delete environment', variant: 'destructive' })
+      toast({ title: t('dlg.toast.failedDeleteEnv'), variant: 'destructive' })
     }
   }, [toast, fetchProjects, selectedProject])
 
@@ -6188,7 +6233,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       }
     }
 
-    toast({ title: `Batch ${action} completed`, description: `${successCount} operations succeeded`, variant: 'success' })
+    toast({ title: t('dlg.toast.batchCompleted', { action: ['start', 'stop', 'rebuild', 'restart'].includes(action) ? t(`dlg.act.${action}` as Parameters<typeof t>[0]) : action }), description: t('dlg.toast.batchCompletedDesc', { count: successCount }), variant: 'success' })
     setSelectedIds(new Set())
     setBatchMode(false)
     fetchProjects()
@@ -6309,7 +6354,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         if (res.ok) successCount++
       } catch { /* skip */ }
     }
-    toast({ title: `Tags updated for ${successCount} project${successCount !== 1 ? 's' : ''}`, variant: 'success' })
+    toast({ title: successCount === 1 ? t('dlg.toast.tagsUpdatedOne') : t('dlg.toast.tagsUpdatedCount', { count: successCount }), variant: 'success' })
     setBatchTagEditorOpen(false)
     setBatchTagDraft([])
     setBatchTagApplying(false)
@@ -6336,22 +6381,22 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const activeFilters = React.useMemo(() => {
     const filters: Array<{ label: string; onRemove: () => void }> = []
     if (filterStatus !== 'all') {
-      filters.push({ label: `Status: ${filterStatus}`, onRemove: () => setFilterStatus('all') })
+      filters.push({ label: t('surf.filterChipStatus', { value: t(`surf.${filterStatus}` as Parameters<typeof t>[0]) }), onRemove: () => setFilterStatus('all') })
     }
     filterTags.forEach((tag) => {
-      filters.push({ label: `Tag: ${tag}`, onRemove: () => setFilterTags((prev) => prev.filter((t) => t !== tag)) })
+      filters.push({ label: t('surf.filterChipTag', { value: tag }), onRemove: () => setFilterTags((prev) => prev.filter((x) => x !== tag)) })
     })
     if (searchQuery.trim()) {
-      filters.push({ label: `Search: "${searchQuery}"`, onRemove: () => setSearchQuery('') })
+      filters.push({ label: t('surf.filterChipSearch', { value: searchQuery }), onRemove: () => setSearchQuery('') })
     }
     if (selectedDeviceId === 'local') {
-      filters.push({ label: 'Device: This Machine', onRemove: () => setSelectedDeviceId(null) })
+      filters.push({ label: t('surf.filterChipDeviceLocal'), onRemove: () => setSelectedDeviceId(null) })
     } else if (selectedDeviceId) {
       const device = devices.find((d) => d.id === selectedDeviceId)
-      filters.push({ label: `Device: ${device?.name ?? 'Unknown'}`, onRemove: () => setSelectedDeviceId(null) })
+      filters.push({ label: t('surf.filterChipDevice', { name: device?.name ?? t('surf.unknown') }), onRemove: () => setSelectedDeviceId(null) })
     }
     return filters
-  }, [filterStatus, filterTags, searchQuery, selectedDeviceId, devices])
+  }, [filterStatus, filterTags, searchQuery, selectedDeviceId, devices, t])
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -6377,7 +6422,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 h-9 px-3 text-xs font-medium cursor-pointer transition-colors max-w-[200px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50">
                 <Monitor className="h-3.5 w-3.5 shrink-0 text-brand-strong" />
                 <span className="truncate">
-                  {selectedDeviceId === null ? 'All Devices' : selectedDeviceId === 'local' ? 'This Machine' : devices.find(d => d.id === selectedDeviceId)?.name || 'Unknown'}
+                  {selectedDeviceId === null ? t('topbar.devices.all') : selectedDeviceId === 'local' ? t('topbar.devices.thisMachine') : devices.find(d => d.id === selectedDeviceId)?.name || t('topbar.devices.unknown')}
                 </span>
                 <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
               </button>
@@ -6385,11 +6430,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <DropdownMenuContent align="start" className="min-w-[220px] p-1.5 text-sm">
               <DropdownMenuItem onClick={() => setSelectedDeviceId(null)} className="px-2.5 py-2 text-sm rounded-md">
                 <Layers className="h-3.5 w-3.5 mr-2.5 text-muted-foreground" />
-                All Devices
+                {t('topbar.devices.all')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setSelectedDeviceId('local')} className="px-2.5 py-2 text-sm rounded-md">
                 <Monitor className="h-3.5 w-3.5 mr-2.5 text-emerald-600 dark:text-emerald-400" />
-                This Machine
+                {t('topbar.devices.thisMachine')}
               </DropdownMenuItem>
               {devices.length > 0 && <DropdownMenuSeparator />}
               {devices.map((device) => (
@@ -6408,7 +6453,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => { setAddDeviceFormOpen(true); setEditingDevice(null) }} className="px-2.5 py-2 text-sm rounded-md text-emerald-600 dark:text-emerald-400">
                 <Plus className="h-3.5 w-3.5 mr-2.5" />
-                Add Device
+                {t('topbar.devices.add')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -6418,7 +6463,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground transition-colors group-focus-within/search:text-brand" />
             <Input
               id="search-input"
-              placeholder="Search projects..."
+              placeholder={t('topbar.search.placeholder')}
               value={searchQuery}
               onChange={(e) => { setSearchQuery(e.target.value); setSearchDropdownOpen(true) }}
               onFocus={() => { if (searchQuery.length >= 2) setSearchDropdownOpen(true) }}
@@ -6443,7 +6488,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         <div className="font-medium truncate">{highlightText(p.name, searchQuery)}</div>
                         <div className="text-xs text-muted-foreground dark:text-zinc-400 truncate">{highlightText(p.path, searchQuery)}</div>
                       </div>
-                      <span className="text-[10px] text-muted-foreground shrink-0">{p.environments.length} envs</span>
+                      <span className="text-[10px] text-muted-foreground shrink-0">{t('topbar.search.envs', { count: p.environments.length })}</span>
                     </button>
                   )
                 })}
@@ -6473,16 +6518,16 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               </PopoverTrigger>
               <PopoverContent align="end" className="w-80 p-0">
                 <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
-                  <span className="text-sm font-semibold">Notifications</span>
+                  <span className="text-sm font-semibold">{t('topbar.notifications.title')}</span>
                   <div className="flex items-center gap-1">
                     {unreadNotifs > 0 && (
                       <Button variant="ghost" size="sm" className="h-6 text-[11px] px-1.5 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300" onClick={() => handleMarkNotifRead()}>
-                        <CheckCircle2 className="h-3 w-3 mr-0.5" />Mark all read
+                        <CheckCircle2 className="h-3 w-3 mr-0.5" />{t('topbar.notifications.markAllRead')}
                       </Button>
                     )}
                     {notifications.length > 0 && (
                       <Button variant="ghost" size="sm" className="h-6 text-[11px] px-1.5 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300" onClick={handleClearNotifications}>
-                        <Trash2 className="h-3 w-3 mr-0.5" />Clear all
+                        <Trash2 className="h-3 w-3 mr-0.5" />{t('topbar.notifications.clearAll')}
                       </Button>
                     )}
                   </div>
@@ -6491,7 +6536,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   {notifications.length === 0 && (
                     <div className="py-8 text-center text-sm text-muted-foreground">
                       <Bell className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                      <p>No notifications</p>
+                      <p>{t('topbar.notifications.empty')}</p>
                     </div>
                   )}
                   <AnimatePresence initial={false}>
@@ -6522,7 +6567,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               {!notif.read && <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 400, damping: 20 }} className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />}
                             </div>
                             <p className="text-xs text-muted-foreground truncate">{notif.message}</p>
-                            <p className="text-[10px] text-muted-foreground/70 mt-0.5 flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{formatTimeAgo(notif.timestamp)}</p>
+                            <p className="text-[10px] text-muted-foreground/70 mt-0.5 flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{formatTimeAgo(notif.timestamp, t)}</p>
                           </div>
                         </motion.button>
                       )
@@ -6541,7 +6586,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <TooltipTrigger asChild><button type="button" className={`inline-flex items-center justify-center rounded-md h-8 w-8 cursor-pointer transition-all duration-150 active:scale-95 ${viewMode === 'grid' ? 'bg-secondary text-secondary-foreground' : 'hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground'}`} onClick={() => setViewMode('grid')}>
                     <LayoutGrid className="h-4 w-4" />
                   </button></TooltipTrigger>
-                <TooltipContent>Grid view (G+G)</TooltipContent>
+                <TooltipContent>{t('topbar.view.grid')}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
             <TooltipProvider>
@@ -6549,7 +6594,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <TooltipTrigger asChild><button type="button" className={`inline-flex items-center justify-center rounded-md h-8 w-8 cursor-pointer transition-all duration-150 active:scale-95 ${viewMode === 'list' ? 'bg-secondary text-secondary-foreground' : 'hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground'}`} onClick={() => setViewMode('list')}>
                     <List className="h-4 w-4" />
                   </button></TooltipTrigger>
-                <TooltipContent>List view (G+L)</TooltipContent>
+                <TooltipContent>{t('topbar.view.list')}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
             </div>
@@ -6557,6 +6602,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <Separator orientation="vertical" className="h-5 mx-0.5 hidden sm:block" />
 
             <ThemeToggle />
+            {/* Standalone language switcher (task 17) — the only language control */}
+            <LanguageToggle />
             <UserMenu
               user={session.user}
               onLogout={session.logout}
@@ -6573,35 +6620,35 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               </button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[200px] p-1.5 text-sm">
                 <DropdownMenuItem onClick={() => setSystemMonitorOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
-                  <Server className="h-3.5 w-3.5 mr-2.5" />系统状态 / System Status
+                  <Server className="h-3.5 w-3.5 mr-2.5" />{t('topbar.settings.systemStatus')}
                 </DropdownMenuItem>
                 {session.user.role === 'admin' && (
                   <DropdownMenuItem onClick={() => setLlmOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
-                    <Bot className="h-3.5 w-3.5 mr-2.5" />LLM Configuration
+                    <Bot className="h-3.5 w-3.5 mr-2.5" />{t('topbar.settings.llmConfig')}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => setDepGraphOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
-                  <GitFork className="h-3.5 w-3.5 mr-2.5" />Dependency Map
+                  <GitFork className="h-3.5 w-3.5 mr-2.5" />{t('topbar.settings.dependencyMap')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setHealthAlertsOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
-                  <AlertTriangle className="h-3.5 w-3.5 mr-2.5" />Health Alerts
+                  <AlertTriangle className="h-3.5 w-3.5 mr-2.5" />{t('topbar.settings.healthAlerts')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setDashboardCustomizeOpen(true)} className="px-2.5 py-2 text-sm rounded-md">
-                  <LayoutGrid className="h-3.5 w-3.5 mr-2.5" />Customize Dashboard
+                  <LayoutGrid className="h-3.5 w-3.5 mr-2.5" />{t('topbar.settings.customize')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleSyncFromConfig} className="px-2.5 py-2 text-sm rounded-md">
-                  <RefreshCw className="h-3.5 w-3.5 mr-2.5" />Sync from config
+                  <RefreshCw className="h-3.5 w-3.5 mr-2.5" />{t('topbar.settings.sync')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleExportCSV} className="px-2.5 py-2 text-sm rounded-md">
-                  <Download className="h-3.5 w-3.5 mr-2.5" />Export as CSV
+                  <Download className="h-3.5 w-3.5 mr-2.5" />{t('topbar.settings.exportCsv')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleExportJSON} className="px-2.5 py-2 text-sm rounded-md">
-                  <Download className="h-3.5 w-3.5 mr-2.5" />Export as JSON
+                  <Download className="h-3.5 w-3.5 mr-2.5" />{t('topbar.settings.exportJson')}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleImportJSON} className="px-2.5 py-2 text-sm rounded-md">
-                  <Upload className="h-3.5 w-3.5 mr-2.5" />Import JSON
+                  <Upload className="h-3.5 w-3.5 mr-2.5" />{t('topbar.settings.importJson')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -6612,10 +6659,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             {/* Primary action */}
             <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" onClick={() => setRemoteProjectOpen(true)} disabled={devices.length === 0} className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
               <MonitorSmartphone className="h-4 w-4" />
-            </button></TooltipTrigger><TooltipContent>{devices.length === 0 ? '请先添加设备（无可用设备）' : '添加远程项目 — 在远程设备上自动调试启动'}</TooltipContent></Tooltip></TooltipProvider>
+            </button></TooltipTrigger><TooltipContent>{devices.length === 0 ? t('topbar.remoteProject.noDevice') : t('topbar.remoteProject.tooltip')}</TooltipContent></Tooltip></TooltipProvider>
             <Button onClick={handleAddProject} className="h-8 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-xs transition-colors">
               <Plus className="h-3.5 w-3.5 mr-1" />
-              <span className="hidden sm:inline">Add Project</span>
+              <span className="hidden sm:inline">{t('topbar.addProject')}</span>
             </Button>
           </div>
         </div>
@@ -6629,7 +6676,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             {/* Updated timestamp */}
             <span className="text-[9px] text-muted-foreground dark:text-zinc-400 tabular-nums hidden sm:inline-flex items-center gap-1 shrink-0">
               {loading && <Loader2 className="h-3 w-3 animate-spin text-brand" />}
-              Updated {formatTimeAgo(lastRefreshed)}
+              {t('topbar.updated')} {formatTimeAgo(lastRefreshed, t)}
             </span>
             {/* Filter controls — wrap naturally, no horizontal scroll */}
             <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
@@ -6637,15 +6684,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <DropdownMenuTrigger asChild>
                   <button type="button" className={`inline-flex items-center gap-1 rounded-md border ${filterStatus !== 'all' ? 'border-brand/50 bg-brand-soft text-brand-strong' : 'border-zinc-200 dark:border-zinc-700 bg-card shadow-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'} h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors`}>
                     <Filter className="h-3 w-3" />
-                    {filterStatus === 'all' ? 'Status' : filterStatus}
+                    {filterStatus === 'all' ? t('surf.filterStatus') : t(`surf.${filterStatus}` as Parameters<typeof t>[0])}
                     <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuRadioGroup value={filterStatus} onValueChange={(v) => setFilterStatus(v as FilterStatus)}>
-                    <DropdownMenuRadioItem value="all">All</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="running">Running</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="stopped">Stopped</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="all">{t('surf.all')}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="running">{t('surf.running')}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="stopped">{t('surf.stopped')}</DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -6654,7 +6701,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <DropdownMenuTrigger asChild>
                   <button type="button" className={`inline-flex items-center gap-1 rounded-md border ${filterTags.length > 0 ? 'border-brand/50 bg-brand-soft text-brand-strong' : 'border-zinc-200 dark:border-zinc-700 bg-card shadow-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'} h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors`}>
                     <Tag className="h-3 w-3" />
-                    Tags{filterTags.length > 0 && ` (${filterTags.length})`}
+                    {t('surf.tags')}{filterTags.length > 0 && ` (${filterTags.length})`}
                     <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
                   </button>
                 </DropdownMenuTrigger>
@@ -6677,16 +6724,16 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <DropdownMenuTrigger asChild>
                   <button type="button" className={`inline-flex items-center gap-1 rounded-md border ${sortBy !== 'newest' ? 'border-brand/50 bg-brand-soft text-brand-strong' : 'border-zinc-200 dark:border-zinc-700 bg-card shadow-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'} h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors`}>
                     <ArrowUpDown className="h-3 w-3" />
-                    {sortBy === 'newest' ? 'Newest' : sortBy === 'name' ? 'Name' : 'Status'}
+                    {sortBy === 'newest' ? t('surf.newest') : sortBy === 'name' ? t('surf.name') : t('surf.filterStatus')}
                     <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
-                    <DropdownMenuRadioItem value="custom">Custom Order</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="newest">Newest First</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="name">By Name</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="status">By Status</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="custom">{t('surf.sortCustom')}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="newest">{t('surf.sortNewest')}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="name">{t('surf.sortName')}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="status">{t('surf.sortStatus')}</DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -6695,15 +6742,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <DropdownMenuTrigger asChild>
                   <button type="button" className={`inline-flex items-center gap-1 rounded-md border ${groupBy !== 'none' ? 'border-brand/50 bg-brand-soft text-brand-strong' : 'border-zinc-200 dark:border-zinc-700 bg-card shadow-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'} h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors`}>
                     <Layers className="h-3 w-3" />
-                    Group: {groupBy === 'device' ? 'Device' : groupBy === 'tags' ? 'Tags' : 'None'}
+                    {t('surf.groupLabel', { value: t(`surf.group${groupBy === 'device' ? 'Device' : groupBy === 'tags' ? 'Tags' : 'None'}` as Parameters<typeof t>[0]) })}
                     <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuRadioGroup value={groupBy} onValueChange={(v) => setGroupBy(v as GroupBy)}>
-                    <DropdownMenuRadioItem value="device">By Device</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="tags">By Tags</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="none">None (Flat)</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="device">{t('surf.groupByDevice')}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="tags">{t('surf.groupByTags')}</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="none">{t('surf.groupFlat')}</DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -6738,7 +6785,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   ))}
                   </AnimatePresence>
                   <Button variant="ghost" size="sm" className="h-5 text-[10px] text-muted-foreground" onClick={() => { setFilterStatus('all'); setFilterTags([]); setSearchQuery('') }}>
-                    Clear
+                    {t('surf.clear')}
                   </Button>
                 </div>
               )}
@@ -6747,7 +6794,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             {/* Active filter count badge */}
             {(() => {
               const count = (filterStatus !== 'all' ? 1 : 0) + filterTags.length + (sortBy !== 'newest' ? 1 : 0) + (groupBy !== 'none' ? 1 : 0)
-              return count > 0 ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-semibold tabular-nums">{count} active</span> : null
+              return count > 0 ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-semibold tabular-nums">{t('surf.activeCount', { count })}</span> : null
             })()}
             {/* Batch mode toggle — always right-aligned */}
             <label className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-xs font-medium gap-1.5 shrink-0 h-7 px-2.5 transition-colors cursor-pointer border ${
@@ -6767,7 +6814,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   </svg>
                 )}
               </span>
-              <span className="text-[10px] text-muted-foreground">{batchMode ? 'Cancel' : 'Batch'}</span>
+              <span className="text-[10px] text-muted-foreground">{batchMode ? t('dlg.common.cancel') : t('surf.batchToggle')}</span>
             </label>
           </div>
           {/* Active Filter Chips (Session 13) */}
@@ -6775,13 +6822,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="flex items-center gap-1 flex-wrap mt-1.5">
               {searchQuery && (
                 <Badge variant="secondary" className="text-[10px] gap-1 pr-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 ring-1 ring-emerald-200/50 dark:ring-emerald-800/30">
-                  Search: {searchQuery}
+                  {t('surf.filterChipSearch', { value: searchQuery })}
                   <button type="button" onClick={() => setSearchQuery('')} className="ml-0.5 p-0.5 rounded hover:bg-emerald-200/50 dark:hover:bg-emerald-800/30"><X className="h-2.5 w-2.5" /></button>
                 </Badge>
               )}
               {filterStatus !== 'all' && (
                 <Badge variant="secondary" className="text-[10px] gap-1 pr-1 bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300 ring-1 ring-cyan-200/50 dark:ring-cyan-800/30">
-                  Status: {filterStatus}
+                  {t('surf.filterChipStatus', { value: t(`surf.${filterStatus}` as Parameters<typeof t>[0]) })}
                   <button type="button" onClick={() => setFilterStatus('all')} className="ml-0.5 p-0.5 rounded hover:bg-cyan-200/50 dark:hover:bg-cyan-800/30"><X className="h-2.5 w-2.5" /></button>
                 </Badge>
               )}
@@ -6792,7 +6839,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 </Badge>
               ))}
               <button type="button" onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterTags([]) }} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
-                Clear all
+                {t('surf.clearAll')}
               </button>
             </div>
           )}
@@ -6812,29 +6859,29 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <Checkbox checked={selectedIds.size === filteredProjects.length && filteredProjects.length > 0} onCheckedChange={toggleSelectAll} />
-                <span className="text-sm font-semibold">{selectedIds.size} <span className="font-normal text-muted-foreground">selected</span></span>
+                <span className="text-sm font-semibold">{selectedIds.size} <span className="font-normal text-muted-foreground">{t('surf.batchSelected')}</span></span>
                 <Button variant="ghost" size="sm" className="h-6 text-[10px] text-muted-foreground hover:text-foreground" onClick={toggleSelectAll}>
-                  {selectedIds.size === filteredProjects.length && filteredProjects.length > 0 ? 'Deselect All' : 'Select All'}
+                  {selectedIds.size === filteredProjects.length && filteredProjects.length > 0 ? t('surf.deselectAll') : t('surf.selectAll')}
                 </Button>
               </div>
               <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('start')}><Play className="h-3 w-3 mr-1 text-emerald-500" />Start All</Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1 text-red-500" />Stop All</Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openBatchTagEditor}><Tags className="h-3 w-3 mr-1 text-amber-500" />Edit Tags</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('start')}><Play className="h-3 w-3 mr-1 text-emerald-500" />{t('dlg.detail.run')}</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1 text-red-500" />{t('dlg.detail.stop')}</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openBatchTagEditor}><Tags className="h-3 w-3 mr-1 text-amber-500" />{t('dlg.batchTag.add')}</Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button size="sm" variant="outline" className="h-7 text-xs text-destructive">
-                      <Trash2 className="h-3 w-3 mr-1" />Delete All
+                      <Trash2 className="h-3 w-3 mr-1" />{t('dlg.deleteConfirm.deleteAll')}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete {selectedIds.size} projects?</AlertDialogTitle>
-                      <AlertDialogDescription>This action cannot be undone. All environments and data will be permanently removed.</AlertDialogDescription>
+                      <AlertDialogTitle>{t('dlg.deleteConfirm.batchTitle', { count: selectedIds.size })}</AlertDialogTitle>
+                      <AlertDialogDescription>{t('dlg.deleteConfirm.batchDesc')}</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleBatchAction('delete')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                      <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handleBatchAction('delete')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('dlg.common.delete')}</AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
@@ -6859,34 +6906,34 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <div className="flex items-center justify-center h-6 w-6 rounded-full bg-brand text-brand-foreground text-xs font-bold shadow-sm">
                   {selectedIds.size}
                 </div>
-                <span className="text-sm font-semibold text-brand-strong">selected</span>
+                <span className="text-sm font-semibold text-brand-strong">{t('dlg.batch.selected')}</span>
                 <Button variant="ghost" size="sm" className="h-6 text-[10px] text-brand-strong hover:text-brand-strong hover:bg-brand-soft" onClick={toggleSelectAll}>
-                  {selectedIds.size === filteredProjects.length && filteredProjects.length > 0 ? 'Deselect All' : 'Select All'}
+                  {selectedIds.size === filteredProjects.length && filteredProjects.length > 0 ? t('dlg.batch.deselectAll') : t('dlg.batch.selectAll')}
                 </Button>
               </div>
               <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                <Button size="sm" className="h-7 text-xs bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm" onClick={() => handleBatchAction('start')}><Play className="h-3 w-3 mr-1" />Start All</Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs border-brand/40 text-brand-strong hover:bg-brand-soft hover:text-brand-strong" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1" />Stop All</Button>
-                <Button size="sm" variant="outline" className="h-7 text-xs border-brand/40 text-brand-strong hover:bg-brand-soft hover:text-brand-strong" onClick={openBatchTagEditor}><Tags className="h-3 w-3 mr-1" />Add Tags</Button>
+                <Button size="sm" className="h-7 text-xs bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm" onClick={() => handleBatchAction('start')}><Play className="h-3 w-3 mr-1" />{t('dlg.batch.startAll')}</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs border-brand/40 text-brand-strong hover:bg-brand-soft hover:text-brand-strong" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1" />{t('dlg.batch.stopAll')}</Button>
+                <Button size="sm" variant="outline" className="h-7 text-xs border-brand/40 text-brand-strong hover:bg-brand-soft hover:text-brand-strong" onClick={openBatchTagEditor}><Tags className="h-3 w-3 mr-1" />{t('dlg.batch.addTags')}</Button>
                 <Button size="sm" variant="outline" className="h-7 text-xs border-brand/40 text-brand-strong hover:bg-brand-soft hover:text-brand-strong" onClick={() => {
                   // Move first selected project to device dialog
                   const firstSelected = projects.find(p => selectedIds.has(p.id))
                   if (firstSelected) setMoveProjectDialog(firstSelected)
-                }}><ArrowRightLeft className="h-3 w-3 mr-1" />Move to Device</Button>
+                }}><ArrowRightLeft className="h-3 w-3 mr-1" />{t('dlg.batch.moveToDevice')}</Button>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button size="sm" variant="outline" className="h-7 text-xs border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                      <Trash2 className="h-3 w-3 mr-1" />Delete Selected
+                      <Trash2 className="h-3 w-3 mr-1" />{t('dlg.deleteConfirm.deleteSelected')}
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Delete {selectedIds.size} projects?</AlertDialogTitle>
-                      <AlertDialogDescription>This action cannot be undone. All environments and data will be permanently removed.</AlertDialogDescription>
+                      <AlertDialogTitle>{t('dlg.deleteConfirm.batchTitle', { count: selectedIds.size })}</AlertDialogTitle>
+                      <AlertDialogDescription>{t('dlg.deleteConfirm.batchDesc')}</AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleBatchAction('delete')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                      <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handleBatchAction('delete')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('dlg.common.delete')}</AlertDialogAction>
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
@@ -6951,7 +6998,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <div className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700/70 bg-zinc-50 dark:bg-zinc-800/60">
                   <Activity className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                 </div>
-                <span className="text-xs font-semibold text-foreground dark:text-zinc-200">Recent Activity</span>
+                <span className="text-xs font-semibold text-foreground dark:text-zinc-200">{t('surf.recentActivity')}</span>
                 <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{globalActivity.length}</Badge>
               </div>
               <button type="button" onClick={() => setActivityFeedVisible(false)} className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
@@ -6975,7 +7022,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     </div>
                     <div className="min-w-0">
                       <p className="text-[11px] font-medium truncate max-w-[240px]">{event.message}</p>
-                      <p className="text-[10px] text-muted-foreground">{formatTimeAgo(event.timestamp)}</p>
+                      <p className="text-[10px] text-muted-foreground">{formatTimeAgo(event.timestamp, t)}</p>
                     </div>
                   </motion.div>
                 )
@@ -6998,10 +7045,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="p-6 rounded-2xl bg-gradient-to-br from-muted/50 to-muted/30 ring-1 ring-border/30 shadow-inner mb-5">
               <SearchX className="h-16 w-16 text-muted-foreground/60" />
             </div>
-            <h3 className="text-lg font-semibold mb-1 text-foreground">No projects found</h3>
-            <p className="text-sm text-muted-foreground dark:text-zinc-400 mb-4 max-w-xs">Your current filters didn't match any projects. Try adjusting your search or clearing the filters.</p>
+            <h3 className="text-lg font-semibold mb-1 text-foreground">{t('surf.noResultsTitle')}</h3>
+            <p className="text-sm text-muted-foreground dark:text-zinc-400 mb-4 max-w-xs">{t('surf.noResultsDesc')}</p>
             <Button variant="outline" onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterTags([]) }} className="gap-1.5">
-              <X className="h-4 w-4" />Clear Filters
+              <X className="h-4 w-4" />{t('surf.clearFilters')}
             </Button>
           </motion.div>
           )
@@ -7012,10 +7059,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               {filteredProjects.length > 0 && (
                 <div className={`grid gap-3 mb-5 relative ${visibleStats.size === 1 ? 'grid-cols-1 max-w-xs' : visibleStats.size === 2 ? 'grid-cols-2' : visibleStats.size === 3 ? 'grid-cols-3' : 'grid-cols-2 lg:grid-cols-4'}`}>
                   {[
-                    { key: 'totalProjects', label: 'Total Projects', value: dashboardStats.totalProjects, icon: Folder, sub: `${dashboardStats.runningEnvs} of ${dashboardStats.totalEnvs} envs running`, miniChart: true, miniRunning: dashboardStats.runningEnvs, miniTotal: dashboardStats.totalEnvs, statusBars: true, runningCount: stats.running, mixedCount: stats.mixed, stoppedCount: stats.stopped },
-                    { key: 'environments', label: 'Environments', value: dashboardStats.runningEnvs, icon: Play, sub: `${dashboardStats.runningEnvs} / ${dashboardStats.totalEnvs} running`, trend: dashboardStats.totalEnvs > 0 ? `${Math.round((dashboardStats.runningEnvs / dashboardStats.totalEnvs) * 100)}%` : '0%', envRing: true, envRunning: dashboardStats.runningEnvs, envTotal: dashboardStats.totalEnvs },
-                    { key: 'devices', label: 'Devices', value: dashboardStats.onlineDevices, icon: Server, sub: `${dashboardStats.onlineDevices} / ${dashboardStats.totalDevices} online`, deviceDots: true },
-                    { key: 'healthScore', label: 'Health Score', value: dashboardStats.healthScore, icon: Activity, sub: dashboardStats.healthScore >= 80 ? 'Healthy' : dashboardStats.healthScore >= 50 ? 'Warning' : 'Critical', isPercent: true, sparkline: healthScoreHistory, trendArrow: true },
+                    { key: 'totalProjects', label: t('dlg.customize.totalProjects'), value: dashboardStats.totalProjects, icon: Folder, sub: t('surf.statsEnvsRunning', { running: dashboardStats.runningEnvs, total: dashboardStats.totalEnvs }), miniChart: true, miniRunning: dashboardStats.runningEnvs, miniTotal: dashboardStats.totalEnvs, statusBars: true, runningCount: stats.running, mixedCount: stats.mixed, stoppedCount: stats.stopped },
+                    { key: 'environments', label: t('dlg.customize.environments'), value: dashboardStats.runningEnvs, icon: Play, sub: t('card.preview.runningFraction', { running: dashboardStats.runningEnvs, total: dashboardStats.totalEnvs }), trend: dashboardStats.totalEnvs > 0 ? `${Math.round((dashboardStats.runningEnvs / dashboardStats.totalEnvs) * 100)}%` : '0%', envRing: true, envRunning: dashboardStats.runningEnvs, envTotal: dashboardStats.totalEnvs },
+                    { key: 'devices', label: t('dlg.customize.devices'), value: dashboardStats.onlineDevices, icon: Server, sub: t('surf.devicesOnlineSub', { online: dashboardStats.onlineDevices, total: dashboardStats.totalDevices }), deviceDots: true },
+                    { key: 'healthScore', label: t('dlg.customize.healthScore'), value: dashboardStats.healthScore, icon: Activity, sub: dashboardStats.healthScore >= 80 ? t('surf.healthy') : dashboardStats.healthScore >= 50 ? t('surf.warning') : t('surf.critical'), isPercent: true, sparkline: healthScoreHistory, trendArrow: true },
                   ].filter((card) => visibleStats.has(card.key)).map((card, i) => (
                     <motion.div
                       key={card.label}
@@ -7049,9 +7096,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                           const total = card.runningCount + card.mixedCount + card.stoppedCount
                           return (
                             <div className="flex gap-0.5 items-end h-6 shrink-0">
-                              <div className="w-2 rounded-t-sm bg-emerald-400 transition-all" style={{ height: `${Math.max((card.runningCount / total) * 24, 2)}px` }} title={`${card.runningCount} running`} />
-                              <div className="w-2 rounded-t-sm bg-amber-400 transition-all" style={{ height: `${Math.max((card.mixedCount / total) * 24, 2)}px` }} title={`${card.mixedCount} mixed`} />
-                              <div className="w-2 rounded-t-sm bg-red-400 transition-all" style={{ height: `${Math.max((card.stoppedCount / total) * 24, 2)}px` }} title={`${card.stoppedCount} stopped`} />
+                              <div className="w-2 rounded-t-sm bg-emerald-400 transition-all" style={{ height: `${Math.max((card.runningCount / total) * 24, 2)}px` }} title={t('card.preview.runningCount', { count: card.runningCount })} />
+                              <div className="w-2 rounded-t-sm bg-amber-400 transition-all" style={{ height: `${Math.max((card.mixedCount / total) * 24, 2)}px` }} title={`${card.mixedCount} ${t('surf.mixed')}`} />
+                              <div className="w-2 rounded-t-sm bg-red-400 transition-all" style={{ height: `${Math.max((card.stoppedCount / total) * 24, 2)}px` }} title={t('card.preview.stoppedCount', { count: card.stoppedCount })} />
                             </div>
                           )
                         })()}
@@ -7113,7 +7160,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     type="button"
                     className="absolute -right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-card border shadow-sm hover:bg-accent hover:shadow-md transition-all ring-1 ring-border/30 text-muted-foreground hover:text-foreground"
                     onClick={() => fetchProjects()}
-                    title="Refresh data"
+                    title={t('dlg.cmd.refresh')}
                   >
                     <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
                   </button>
@@ -7124,7 +7171,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <div className="mb-4">
                   <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800">
                     <Pin className="h-3.5 w-3.5 text-zinc-600 dark:text-zinc-300 fill-current" />
-                    <span className="text-sm font-semibold text-foreground dark:text-zinc-200">Pinned</span>
+                    <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{t('surf.pinned')}</span>
                     <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
                       {filteredProjects.filter((p) => starredIds.has(p.id)).length}
                     </Badge>
@@ -7188,7 +7235,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               <div className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700/70 bg-card dark:bg-zinc-800/60">
                                 <Monitor className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                               </div>
-                              <span className="text-sm font-semibold text-foreground dark:text-zinc-200">This Machine</span>
+                              <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{t('surf.thisMachine')}</span>
                               <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{deviceGroupedProjects.localProjects.length}</Badge>
                             </div>
                           </div>
@@ -7235,7 +7282,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                                 <Server className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                               </div>
                               <AnimatedStatusDot status={group.device?.status === 'online' ? 'running' : 'offline'} size="md" />
-                              <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{group.device?.name ?? 'Unknown Device'}</span>
+                              <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{group.device?.name ?? t('surf.unknownDevice')}</span>
                               <span className="text-[10px] text-muted-foreground font-mono">{group.device?.ip}:{group.device?.port}</span>
                               <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{group.projects.length}</Badge>
                             </div>
@@ -7362,7 +7409,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                             <div className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-200 dark:border-zinc-700/70 bg-card dark:bg-zinc-800/60">
                               <Monitor className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                             </div>
-                            <span className="text-sm font-semibold text-foreground dark:text-zinc-200">This Machine</span>
+                            <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{t('surf.thisMachine')}</span>
                             <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{deviceGroupedProjects.localProjects.length}</Badge>
                           </div>
                           {deviceGroupedProjects.localProjects.map((project, idx) => (
@@ -7407,7 +7454,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               <Server className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                             </div>
                             <AnimatedStatusDot status={group.device?.status === 'online' ? 'running' : 'offline'} size="md" />
-                            <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{group.device?.name ?? 'Unknown Device'}</span>
+                            <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{group.device?.name ?? t('surf.unknownDevice')}</span>
                             <span className="text-[10px] text-muted-foreground font-mono">{group.device?.ip}:{group.device?.port}</span>
                             <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{group.projects.length}</Badge>
                           </div>
@@ -7500,13 +7547,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       <AlertDialog open={!!deleteProject} onOpenChange={(v) => !v && setDeleteProject(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete &quot;{deleteProject?.name}&quot;?</AlertDialogTitle>
-            <AlertDialogDescription>This will permanently delete the project and all its environments. This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogTitle>{t('dlg.deleteConfirm.title', { name: deleteProject?.name ?? '' })}</AlertDialogTitle>
+            <AlertDialogDescription>{t('dlg.deleteConfirm.desc')}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={() => deleteProject && handleDeleteProject(deleteProject.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Delete
+              {t('dlg.common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -7516,13 +7563,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       <AlertDialog open={!!rebuildConfirmProject} onOpenChange={(v) => !v && setRebuildConfirmProject(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Rebuild {rebuildConfirmProject?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>This will rebuild {rebuildConfirmProject?.environments?.filter((e) => e.name !== 'development').length ?? 0} production environments. Dev environments are skipped (they use hot-reload). Running services will be temporarily stopped.</AlertDialogDescription>
+            <AlertDialogTitle>{t('dlg.rebuildConfirm.title', { name: rebuildConfirmProject?.name ?? '' })}</AlertDialogTitle>
+            <AlertDialogDescription>{t('dlg.rebuildConfirm.desc', { count: rebuildConfirmProject?.environments?.filter((e) => e.name !== 'development').length ?? 0 })}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={() => { if (rebuildConfirmProject) { handleRebuildProject(rebuildConfirmProject.id); setRebuildConfirmProject(null) } }} className="bg-teal-600 text-white hover:bg-teal-700">
-              Rebuild
+              {t('dlg.rebuildConfirm.action')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -7534,9 +7581,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <ArrowRightLeft className="h-4 w-4 text-emerald-600" />
-              Move &quot;{moveProjectDialog?.name}&quot; to Device
+              {t('dlg.move.title', { name: moveProjectDialog?.name ?? '' })}
             </DialogTitle>
-            <DialogDescription>Select a target device to move this project to.</DialogDescription>
+            <DialogDescription>{t('dlg.move.desc')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5 max-h-64 overflow-y-auto">
             <button
@@ -7546,8 +7593,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             >
               <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <div>
-                <div className="text-sm font-medium">This Machine (Local)</div>
-                <div className="text-[10px] text-muted-foreground">Move back to this machine</div>
+                <div className="text-sm font-medium">{t('dlg.move.thisMachine')}</div>
+                <div className="text-[10px] text-muted-foreground">{t('dlg.move.backToLocal')}</div>
               </div>
             </button>
             {devices.map((device) => (
@@ -7562,7 +7609,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   <div className="text-sm font-medium truncate">{device.name}</div>
                   <div className="text-[10px] text-muted-foreground font-mono">{device.ip}:{device.port}</div>
                 </div>
-                <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${device.status === 'online' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>{device.status === 'online' ? 'Online' : 'Offline'}</span>
+                <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${device.status === 'online' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>{device.status === 'online' ? t('dlg.common.online') : t('dlg.common.offline')}</span>
               </button>
             ))}
           </div>
@@ -7575,10 +7622,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              {errorDialog?.title ?? 'Error'}
+              {errorDialog?.title ?? t('dlg.error.title')}
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground">
-              完整的错误输出，用于排查问题
+              {t('dlg.error.desc')}
             </DialogDescription>
           </DialogHeader>
           {errorDialog?.detail && (
@@ -7592,14 +7639,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <Button size="sm" variant="outline" onClick={() => {
               if (errorDialog?.detail) {
                 navigator.clipboard.writeText(errorDialog.detail).then(() => {
-                  toast({ title: '已复制到剪贴板', variant: 'success' })
+                  toast({ title: t('dlg.common.copied'), variant: 'success' })
                 }).catch(() => {})
               }
             }}>
               <Copy className="h-3.5 w-3.5 mr-1.5" />
-              复制
+              {t('dlg.common.copy')}
             </Button>
-            <Button size="sm" onClick={() => setErrorDialog(null)}>关闭</Button>
+            <Button size="sm" onClick={() => setErrorDialog(null)}>{t('dlg.common.close')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -7679,7 +7726,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         open={meshPairingOpen}
         onClose={() => setMeshPairingOpen(false)}
         lanIp={lanIp}
-        onPaired={() => { setMeshPairingOpen(false); fetchDevices(); fetchProjects(); addToast({ title: '设备已接入', description: '如未显示请稍候刷新', variant: 'success' }) }}
+        onPaired={() => { setMeshPairingOpen(false); fetchDevices(); fetchProjects(); addToast({ title: t('dlg.meshPairing.devicePaired'), description: t('dlg.meshPairing.devicePairedDesc'), variant: 'success' }) }}
       />
 
       {/* Join another dashboard's mesh by entering its pairing code in the web UI */}
@@ -7756,7 +7803,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             transition={{ type: 'spring', stiffness: 300, damping: 25 }}
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="fixed bottom-16 right-4 z-40 h-10 w-10 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg transition-all active:scale-90 flex items-center justify-center"
-            title="Scroll to top"
+            title={t('surf.scrollTop')}
           >
             <ArrowUp className="h-4 w-4" />
           </motion.button>
@@ -7769,15 +7816,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitFork className="h-5 w-5 text-emerald-600" />
-              Project Dependency Map
+              {t('dlg.depGraph.title')}
             </DialogTitle>
-            <DialogDescription>Projects connected by shared tags. Lines represent shared tag relationships.</DialogDescription>
+            <DialogDescription>{t('dlg.depGraph.desc')}</DialogDescription>
           </DialogHeader>
           <div className="flex-1 min-h-0 overflow-auto">
             {projects.length < 2 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <GitFork className="h-12 w-12 text-muted-foreground/30 mb-3" />
-                <p className="text-sm text-muted-foreground">Need at least 2 projects to show dependencies</p>
+                <p className="text-sm text-muted-foreground">{t('dlg.depGraph.needTwo')}</p>
               </div>
             ) : (() => {
               // Build nodes and edges
@@ -7834,13 +7881,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   </svg>
                   {/* Legend */}
                   <div className="flex items-center gap-4 justify-center text-[10px] text-muted-foreground pb-2">
-                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> Running</span>
-                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> Mixed</span>
-                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /> Stopped</span>
-                    <span className="flex items-center gap-1"><span className="h-4 border-t border-dashed border-muted-foreground/40 w-6" /> Shared Tag</span>
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> {t('dlg.depGraph.running')}</span>
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> {t('dlg.depGraph.mixed')}</span>
+                    <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /> {t('dlg.depGraph.stopped')}</span>
+                    <span className="flex items-center gap-1"><span className="h-4 border-t border-dashed border-muted-foreground/40 w-6" /> {t('dlg.depGraph.sharedTag')}</span>
                   </div>
                   {edges.length === 0 && (
-                    <p className="text-xs text-muted-foreground text-center pb-2">No shared tags found between projects</p>
+                    <p className="text-xs text-muted-foreground text-center pb-2">{t('dlg.depGraph.noSharedTags')}</p>
                   )}
                 </div>
               )
@@ -7855,14 +7902,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Tags className="h-5 w-5 text-amber-500" />
-              Batch Edit Tags
+              {t('dlg.batchTag.title')}
             </DialogTitle>
-            <DialogDescription>Modify tags for {selectedIds.size} selected project{selectedIds.size !== 1 ? 's' : ''}</DialogDescription>
+            <DialogDescription>{t('dlg.batchTag.desc', { count: selectedIds.size })}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             {/* Selected projects */}
             <div>
-              <Label className="text-xs text-muted-foreground mb-2 block">Selected Projects</Label>
+              <Label className="text-xs text-muted-foreground mb-2 block">{t('dlg.batchTag.selected')}</Label>
               <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
                 {Array.from(selectedIds).map((id) => {
                   const p = projects.find((proj) => proj.id === id)
@@ -7874,18 +7921,18 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             </div>
             {/* Mode toggle */}
             <div>
-              <Label className="text-xs text-muted-foreground mb-2 block">Mode</Label>
+              <Label className="text-xs text-muted-foreground mb-2 block">{t('dlg.batchTag.mode')}</Label>
               <div className="flex items-center gap-2">
-                <Button type="button" size="sm" variant={batchTagMode === 'add' ? 'default' : 'outline'} className={batchTagMode === 'add' ? 'bg-primary hover:bg-primary/90 text-primary-foreground' : ''} onClick={() => setBatchTagMode('add')}>Add Tags</Button>
-                <Button type="button" size="sm" variant={batchTagMode === 'replace' ? 'default' : 'outline'} className={batchTagMode === 'replace' ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''} onClick={() => setBatchTagMode('replace')}>Replace Tags</Button>
+                <Button type="button" size="sm" variant={batchTagMode === 'add' ? 'default' : 'outline'} className={batchTagMode === 'add' ? 'bg-primary hover:bg-primary/90 text-primary-foreground' : ''} onClick={() => setBatchTagMode('add')}>{t('dlg.batchTag.add')}</Button>
+                <Button type="button" size="sm" variant={batchTagMode === 'replace' ? 'default' : 'outline'} className={batchTagMode === 'replace' ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''} onClick={() => setBatchTagMode('replace')}>{t('dlg.batchTag.replace')}</Button>
               </div>
               <p className="text-[10px] text-muted-foreground mt-1">
-                {batchTagMode === 'add' ? 'Appends selected tags to existing tags' : 'Replaces all existing tags with selected tags'}
+                {batchTagMode === 'add' ? t('dlg.batchTag.addHint') : t('dlg.batchTag.replaceHint')}
               </p>
             </div>
             {/* Tag checkboxes */}
             <div>
-              <Label className="text-xs text-muted-foreground mb-2 block">Tags</Label>
+              <Label className="text-xs text-muted-foreground mb-2 block">{t('dlg.batchTag.tags')}</Label>
               <div className="grid grid-cols-2 gap-2">
                 {TAG_OPTIONS.map((tag) => {
                   const checked = batchTagDraft.includes(tag.name)
@@ -7906,10 +7953,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setBatchTagEditorOpen(false)} disabled={batchTagApplying}>Cancel</Button>
+            <Button variant="outline" onClick={() => setBatchTagEditorOpen(false)} disabled={batchTagApplying}>{t('dlg.common.cancel')}</Button>
             <Button onClick={handleBatchTagApply} disabled={batchTagApplying || (batchTagMode === 'replace' && batchTagDraft.length === 0)} className="bg-primary hover:bg-primary/90 text-primary-foreground">
               {batchTagApplying && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-              Apply Tags
+              {t('dlg.batchTag.apply')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -7923,23 +7970,23 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <div className="p-1.5 rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/15 ring-1 ring-amber-200/50 dark:ring-amber-800/30">
                 <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
               </div>
-              <DialogTitle>Health Alerts</DialogTitle>
+              <DialogTitle>{t('dlg.health.title')}</DialogTitle>
             </div>
-            <DialogDescription>Configure health monitoring alerts for your dashboard</DialogDescription>
+            <DialogDescription>{t('dlg.health.desc')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-2">
             {/* Enable toggle */}
             <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
               <div className="space-y-0.5">
-                <Label className="text-sm font-medium">Enable Health Alerts</Label>
-                <p className="text-xs text-muted-foreground">Get notified when health drops below threshold</p>
+                <Label className="text-sm font-medium">{t('dlg.health.enable')}</Label>
+                <p className="text-xs text-muted-foreground">{t('dlg.health.enableDesc')}</p>
               </div>
               <Switch checked={healthAlertEnabled} onCheckedChange={setHealthAlertEnabled} />
             </div>
             {/* Threshold slider */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Alert Threshold</Label>
+                <Label className="text-sm font-medium">{t('dlg.health.threshold')}</Label>
                 <span className={`text-sm font-bold px-2.5 py-0.5 rounded-md ${healthAlertThreshold >= 80 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : healthAlertThreshold >= 50 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>
                   {healthAlertThreshold}%
                 </span>
@@ -7954,30 +8001,30 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 className="w-full h-2 rounded-full appearance-none cursor-pointer bg-muted accent-amber-500"
               />
               <div className="flex justify-between text-[10px] text-muted-foreground">
-                <span>10% (More alerts)</span>
-                <span>90% (Fewer alerts)</span>
+                <span>{t('dlg.health.moreAlerts')}</span>
+                <span>{t('dlg.health.fewerAlerts')}</span>
               </div>
             </div>
             {/* Current status */}
             <div className="p-3 rounded-lg border bg-muted/20 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Current Health Score</span>
+                <span className="text-muted-foreground">{t('dlg.health.currentScore')}</span>
                 <span className={`font-bold ${healthColor(dashboardStats.healthScore)}`}>{dashboardStats.healthScore}%</span>
               </div>
               <Progress value={dashboardStats.healthScore} className="h-2" />
               <div className="flex items-center gap-1.5">
                 <span className={`h-2 w-2 rounded-full ${dashboardStats.healthScore <= healthAlertThreshold ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
                 <span className="text-[10px] text-muted-foreground">
-                  {dashboardStats.healthScore <= healthAlertThreshold ? 'Below threshold — alerts active' : 'Above threshold — all clear'}
+                  {dashboardStats.healthScore <= healthAlertThreshold ? t('dlg.health.belowThreshold') : t('dlg.health.aboveThreshold')}
                 </span>
               </div>
             </div>
             {/* Per-project health with severity groups (Session 14) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-xs text-muted-foreground">Project Health Status</Label>
+                <Label className="text-xs text-muted-foreground">{t('dlg.health.projectStatus')}</Label>
                 {alertsAcknowledged && (
-                  <Button variant="ghost" size="sm" className="h-5 text-[9px] px-1.5 btn-micro-click" onClick={() => { setAlertsAcknowledged(false); localStorage.setItem('dashboard-alerts-acknowledged', 'false') }}>Show Alerts</Button>
+                  <Button variant="ghost" size="sm" className="h-5 text-[9px] px-1.5 btn-micro-click" onClick={() => { setAlertsAcknowledged(false); localStorage.setItem('dashboard-alerts-acknowledged', 'false') }}>{t('dlg.health.showAlerts')}</Button>
                 )}
               </div>
               <div className="max-h-52 overflow-y-auto space-y-2 custom-scrollbar">
@@ -7992,7 +8039,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   return severityGroups.filter((g) => g.items.length > 0).map((group) => {
                     const cfg = severityConfig(group.key)
                     return (
-                      <SeverityGroup key={group.key} label={cfg.label} color={cfg.color} dot={cfg.dot} count={group.items.length}>
+                      <SeverityGroup key={group.key} label={t(`dlg.health.severity.${group.key}` as Parameters<typeof t>[0])} color={cfg.color} dot={cfg.dot} count={group.items.length}>
                         {group.items.map(({ project: p, score }) => (
                           <div key={p.id} className={`flex items-center justify-between px-3 py-1.5 rounded-md text-xs ${cfg.bg} ${group.key === 'critical' ? 'alert-critical-pulse' : ''}`}>
                             <span className="truncate font-medium">{p.name}</span>
@@ -8015,11 +8062,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="flex items-center gap-2">
               {!alertsAcknowledged && healthAlertEnabled && projects.some((p) => calculateHealthScore(p) <= healthAlertThreshold) && (
                 <Button variant="outline" size="sm" className="text-xs h-8 btn-micro-click" onClick={() => { setAlertsAcknowledged(true); localStorage.setItem('dashboard-alerts-acknowledged', 'true') }}>
-                  <AlertTriangle className="h-3 w-3 mr-1" />Acknowledge All
+                  <AlertTriangle className="h-3 w-3 mr-1" />{t('dlg.health.acknowledge')}
                 </Button>
               )}
             </div>
-            <Button variant="outline" onClick={() => setHealthAlertsOpen(false)}>Close</Button>
+            <Button variant="outline" onClick={() => setHealthAlertsOpen(false)}>{t('dlg.common.close')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8032,14 +8079,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <div className="p-1.5 rounded-lg bg-gradient-to-br from-cyan-50 to-sky-50 dark:from-cyan-900/20 dark:to-sky-900/15 ring-1 ring-cyan-200/50 dark:ring-cyan-800/30">
                 <LayoutGrid className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
               </div>
-              <DialogTitle>Customize Dashboard</DialogTitle>
+              <DialogTitle>{t('dlg.customize.title')}</DialogTitle>
             </div>
-            <DialogDescription>Personalize your dashboard layout and preferences</DialogDescription>
+            <DialogDescription>{t('dlg.customize.desc')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-5 py-2">
             {/* Card Density */}
             <div className="space-y-3">
-              <Label className="text-sm font-medium">Card Density</Label>
+              <Label className="text-sm font-medium">{t('dlg.customize.density')}</Label>
               <div className="grid grid-cols-3 gap-2">
                 {(['compact', 'comfortable', 'spacious'] as const).map((density) => (
                   <button
@@ -8052,20 +8099,20 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                       <div className="h-2 rounded bg-muted-foreground/20" />
                       <div className="h-2 rounded bg-muted-foreground/10 w-3/4" />
                     </div>
-                    <span className="text-[10px] font-medium capitalize">{density}</span>
+                    <span className="text-[10px] font-medium">{t(`dlg.customize.${density}` as Parameters<typeof t>[0])}</span>
                   </button>
                 ))}
               </div>
             </div>
             {/* Visible Stats */}
             <div className="space-y-3">
-              <Label className="text-sm font-medium">Visible Stats Cards</Label>
+              <Label className="text-sm font-medium">{t('dlg.customize.visibleStats')}</Label>
               <div className="space-y-1.5">
                 {[
-                  { key: 'totalProjects', label: 'Total Projects', icon: Folder },
-                  { key: 'environments', label: 'Environments', icon: Play },
-                  { key: 'devices', label: 'Devices', icon: Server },
-                  { key: 'healthScore', label: 'Health Score', icon: Activity },
+                  { key: 'totalProjects', label: t('dlg.customize.totalProjects'), icon: Folder },
+                  { key: 'environments', label: t('dlg.customize.environments'), icon: Play },
+                  { key: 'devices', label: t('dlg.customize.devices'), icon: Server },
+                  { key: 'healthScore', label: t('dlg.customize.healthScore'), icon: Activity },
                 ].map(({ key, label, icon: Icon }) => (
                   <label key={key} className="flex items-center gap-3 p-2.5 rounded-lg border hover:bg-accent/50 cursor-pointer transition-colors">
                     <Checkbox
@@ -8087,22 +8134,22 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             </div>
             {/* Quick Actions */}
             <div className="space-y-3">
-              <Label className="text-sm font-medium">Quick Actions</Label>
+              <Label className="text-sm font-medium">{t('dlg.customize.quickActions')}</Label>
               <div className="grid grid-cols-3 gap-2">
                 <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setQuickLaunchBarVisible(true) }}>
-                  <Zap className="h-3 w-3 mr-1" />Quick Launch
+                  <Zap className="h-3 w-3 mr-1" />{t('dlg.customize.quickLaunch')}
                 </Button>
                 <Button variant="outline" size="sm" className="text-xs h-8" onClick={() => { setActivityFeedVisible(true) }}>
-                  <Activity className="h-3 w-3 mr-1" />Activity Feed
+                  <Activity className="h-3 w-3 mr-1" />{t('dlg.customize.activityFeed')}
                 </Button>
                 <Button variant="outline" size="sm" className="text-xs h-8 col-span-3" onClick={() => { setCardDensity('comfortable'); setVisibleStats(new Set(['totalProjects', 'environments', 'devices', 'healthScore'])) }}>
-                  <RefreshCw className="h-3 w-3 mr-1" />Reset Defaults
+                  <RefreshCw className="h-3 w-3 mr-1" />{t('dlg.customize.resetDefaults')}
                 </Button>
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => setDashboardCustomizeOpen(false)}>Done</Button>
+            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => setDashboardCustomizeOpen(false)}>{t('dlg.customize.done')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8115,19 +8162,19 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/15 ring-1 ring-violet-200/50 dark:ring-violet-800/30">
                 <ArrowRightLeft className="h-5 w-5 text-violet-600 dark:text-violet-400" />
               </div>
-              <DialogTitle>Compare Projects</DialogTitle>
+              <DialogTitle>{t('dlg.compare.title')}</DialogTitle>
             </div>
-            <DialogDescription>Side-by-side project comparison</DialogDescription>
+            <DialogDescription>{t('dlg.compare.desc')}</DialogDescription>
           </DialogHeader>
           {!compareProjectA ? (
             <div className="py-6 text-center space-y-4">
-              <p className="text-sm text-muted-foreground">Select two projects to compare</p>
+              <p className="text-sm text-muted-foreground">{t('dlg.compare.selectTwo')}</p>
               <div className="grid grid-cols-2 gap-4">
-                {['Project A', 'Project B'].map((label, i) => (
+                {[t('dlg.compare.projectA'), t('dlg.compare.projectB')].map((label, i) => (
                   <div key={label} className="space-y-2">
                     <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
                     <Select onValueChange={(v) => { const p = projects.find((pr) => pr.id === v); if (i === 0) setCompareProjectA(p || null); else setCompareProjectB(p || null) }}>
-                      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select project..." /></SelectTrigger>
+                      <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={t('dlg.compare.selectProject')} /></SelectTrigger>
                       <SelectContent>
                         {projects.map((p) => (
                           <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
@@ -8149,7 +8196,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   </SelectContent>
                 </Select>
                 <Select value={compareProjectB?.id || ''} onValueChange={(v) => setCompareProjectB(projects.find((p) => p.id === v) || null)}>
-                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Select project..." /></SelectTrigger>
+                  <SelectTrigger className="h-9 text-sm"><SelectValue placeholder={t('dlg.compare.selectProject')} /></SelectTrigger>
                   <SelectContent>
                     {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                   </SelectContent>
@@ -8162,22 +8209,22 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b bg-muted/30">
-                        <th className="text-left p-2.5 font-medium text-muted-foreground w-1/4">Property</th>
+                        <th className="text-left p-2.5 font-medium text-muted-foreground w-1/4">{t('dlg.compare.property')}</th>
                         <th className="text-left p-2.5 font-medium">{compareProjectA.name}</th>
                         <th className="text-left p-2.5 font-medium">{compareProjectB.name}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/50">
                       {[
-                        { label: 'Status', a: getProjectStatus(compareProjectA), b: getProjectStatus(compareProjectB), render: (v: string) => <Badge variant="secondary" className={`text-[10px] ${v === 'running' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : v === 'mixed' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>{v}</Badge> },
-                        { label: 'Health', a: calculateHealthScore(compareProjectA), b: calculateHealthScore(compareProjectB), render: (v: number) => <span className={`font-bold ${healthColor(v)}`}>{v}%</span> },
-                        { label: 'Environments', a: (compareProjectA.environments || []).length, b: (compareProjectB.environments || []).length, render: (v: number) => <span>{v}</span> },
-                        { label: 'Running', a: (compareProjectA.environments || []).filter((e) => e.status === 'running').length, b: (compareProjectB.environments || []).filter((e) => e.status === 'running').length, render: (v: number) => <span className="text-emerald-600 dark:text-emerald-400">{v}</span> },
-                        { label: 'Stopped', a: (compareProjectA.environments || []).filter((e) => e.status !== 'running').length, b: (compareProjectB.environments || []).filter((e) => e.status !== 'running').length, render: (v: number) => <span className="text-red-500">{v}</span> },
-                        { label: 'Tags', a: parseTags(compareProjectA.tags), b: parseTags(compareProjectB.tags), render: (v: string[]) => <div className="flex flex-wrap gap-0.5">{v.map((t) => <Badge key={t} variant="secondary" className={`text-[8px] px-1 py-0 ${getTagColor(t)}`}>{t}</Badge>)}</div> },
-                        { label: 'Path', a: compareProjectA.path, b: compareProjectB.path, render: (v: string) => <span className="font-mono text-[10px] truncate max-w-[180px] inline-block">{v}</span> },
-                        { label: 'Device', a: compareProjectA.deviceName || 'Local', b: compareProjectB.deviceName || 'Local', render: (v: string) => <span>{v}</span> },
-                        { label: 'Description', a: compareProjectA.description || '—', b: compareProjectB.description || '—', render: (v: string) => <span className="truncate max-w-[180px] inline-block">{v}</span> },
+                        { label: t('dlg.compare.status'), a: getProjectStatus(compareProjectA), b: getProjectStatus(compareProjectB), render: (v: string) => <Badge variant="secondary" className={`text-[10px] ${v === 'running' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : v === 'mixed' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>{t(`surf.${v}` as Parameters<typeof t>[0])}</Badge> },
+                        { label: t('dlg.compare.health'), a: calculateHealthScore(compareProjectA), b: calculateHealthScore(compareProjectB), render: (v: number) => <span className={`font-bold ${healthColor(v)}`}>{v}%</span> },
+                        { label: t('dlg.compare.environments'), a: (compareProjectA.environments || []).length, b: (compareProjectB.environments || []).length, render: (v: number) => <span>{v}</span> },
+                        { label: t('dlg.compare.running'), a: (compareProjectA.environments || []).filter((e) => e.status === 'running').length, b: (compareProjectB.environments || []).filter((e) => e.status === 'running').length, render: (v: number) => <span className="text-emerald-600 dark:text-emerald-400">{v}</span> },
+                        { label: t('dlg.compare.stopped'), a: (compareProjectA.environments || []).filter((e) => e.status !== 'running').length, b: (compareProjectB.environments || []).filter((e) => e.status !== 'running').length, render: (v: number) => <span className="text-red-500">{v}</span> },
+                        { label: t('dlg.compare.tags'), a: parseTags(compareProjectA.tags), b: parseTags(compareProjectB.tags), render: (v: string[]) => <div className="flex flex-wrap gap-0.5">{v.map((t) => <Badge key={t} variant="secondary" className={`text-[8px] px-1 py-0 ${getTagColor(t)}`}>{t}</Badge>)}</div> },
+                        { label: t('dlg.compare.path'), a: compareProjectA.path, b: compareProjectB.path, render: (v: string) => <span className="font-mono text-[10px] truncate max-w-[180px] inline-block">{v}</span> },
+                        { label: t('dlg.compare.device'), a: compareProjectA.deviceName || t('dlg.compare.local'), b: compareProjectB.deviceName || t('dlg.compare.local'), render: (v: string) => <span>{v}</span> },
+                        { label: t('dlg.compare.description'), a: compareProjectA.description || '—', b: compareProjectB.description || '—', render: (v: string) => <span className="truncate max-w-[180px] inline-block">{v}</span> },
                       ].map(({ label, a, b, render }) => (
                         <tr key={label} className="hover:bg-muted/20 transition-colors">
                           <td className="p-2.5 font-medium text-muted-foreground">{label}</td>
@@ -8193,13 +8240,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               {!compareProjectB && (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <ArrowRightLeft className="h-10 w-10 text-muted-foreground/30 mb-3" />
-                  <p className="text-sm text-muted-foreground">Select a second project to compare</p>
+                  <p className="text-sm text-muted-foreground">{t('dlg.compare.selectSecond')}</p>
                 </div>
               )}
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setCompareOpen(false); setCompareProjectA(null); setCompareProjectB(null) }}>Close</Button>
+            <Button variant="outline" onClick={() => { setCompareOpen(false); setCompareProjectA(null); setCompareProjectB(null) }}>{t('dlg.compare.close')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -8212,9 +8259,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30">
                 <Download className="h-5 w-5 text-teal-600 dark:text-teal-400" />
               </div>
-              Deploy Agent to Remote Device
+              {t('dlg.agentDeploy.title')}
             </DialogTitle>
-            <DialogDescription>Install Dashboard Agent on Windows, macOS, or Linux devices to manage them remotely.</DialogDescription>
+            <DialogDescription>{t('dlg.agentDeploy.desc')}</DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1">
@@ -8222,13 +8269,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="space-y-3">
               <h4 className="text-sm font-semibold flex items-center gap-2">
                 <Monitor className="h-4 w-4 text-teal-600" />
-                Choose Platform
+                {t('dlg.agentDeploy.choosePlatform')}
               </h4>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { key: 'windows', label: 'Windows', icon: '🪟', desc: 'EXE Installer / Service', active: true },
-                  { key: 'macos', label: 'macOS', icon: '🍎', desc: 'Bun / Node.js', active: false },
-                  { key: 'linux', label: 'Linux', icon: '🐧', desc: 'Bun / Node.js', active: false },
+                  { key: 'windows', label: 'Windows', icon: '🪟', desc: t('dlg.agentDeploy.winDesc'), active: true },
+                  { key: 'macos', label: 'macOS', icon: '🍎', desc: t('dlg.agentDeploy.nodeDesc'), active: false },
+                  { key: 'linux', label: 'Linux', icon: '🐧', desc: t('dlg.agentDeploy.nodeDesc'), active: false },
                 ].map((p) => (
                   <button
                     key={p.key}
@@ -8242,7 +8289,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     <div className="text-lg mb-1">{p.icon}</div>
                     <div className="text-sm font-semibold">{p.label}</div>
                     <div className="text-[10px] text-muted-foreground">{p.desc}</div>
-                    {p.active && <Badge className="mt-1.5 text-[9px] bg-teal-600 text-white">Recommended</Badge>}
+                    {p.active && <Badge className="mt-1.5 text-[9px] bg-teal-600 text-white">{t('dlg.agentDeploy.recommended')}</Badge>}
                   </button>
                 ))}
               </div>
@@ -8254,25 +8301,25 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="space-y-3">
               <h4 className="text-sm font-semibold flex items-center gap-2">
                 <Zap className="h-4 w-4 text-amber-500" />
-                Quick Start (3 Steps)
+                {t('dlg.agentDeploy.quickStart')}
               </h4>
 
               {/* Step 1 */}
               <div className="rounded-lg border bg-muted/20 dark:bg-zinc-800/20 p-4 space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[10px] font-bold shrink-0">1</span>
-                  <span className="text-sm font-medium">Download & Extract</span>
+                  <span className="text-sm font-medium">{t('dlg.agentDeploy.step1')}</span>
                 </div>
                 <p className="text-xs text-muted-foreground pl-7">
-                  Download the <code className="px-1.5 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[11px] font-mono">dashboard-agent-windows.zip</code> package and extract it to your desired location.
+                  {t('dlg.agentDeploy.step1DescBefore')} <code className="px-1.5 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[11px] font-mono">dashboard-agent-windows.zip</code> {t('dlg.agentDeploy.step1DescAfter')}
                 </p>
                 <div className="pl-7">
                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={() => {
                     window.open('/api/agent/download?platform=windows', '_blank')
-                    addToast({ title: 'Downloading Agent Package', description: 'dashboard-agent-windows.zip is being downloaded...', variant: 'success' })
+                    addToast({ title: t('dlg.agentDeploy.downloading'), description: t('dlg.agentDeploy.downloadingDesc'), variant: 'success' })
                   }}>
                     <Download className="h-3 w-3" />
-                    Download Agent Package
+                    {t('dlg.agentDeploy.downloadBtn')}
                   </Button>
                 </div>
               </div>
@@ -8281,16 +8328,16 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <div className="rounded-lg border bg-muted/20 dark:bg-zinc-800/20 p-4 space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[10px] font-bold shrink-0">2</span>
-                  <span className="text-sm font-medium">Install & Configure</span>
+                  <span className="text-sm font-medium">{t('dlg.agentDeploy.step2')}</span>
                 </div>
-                <p className="text-xs text-muted-foreground pl-7">Run the setup wizard to install dependencies and configure the agent:</p>
+                <p className="text-xs text-muted-foreground pl-7">{t('dlg.agentDeploy.step2Desc')}</p>
                 <div className="pl-7 mt-1.5">
                   <div className="rounded-md bg-zinc-900 dark:bg-zinc-950 p-3 font-mono text-xs text-zinc-300 overflow-x-auto">
-                    <div className="text-emerald-400">:: Option A: Interactive Setup</div>
+                    <div className="text-emerald-400">{t('dlg.agentDeploy.optA')}</div>
                     <div className="text-zinc-300">node setup.js</div>
-                    <div className="text-zinc-500 mt-2">:: Option B: Quick Start</div>
+                    <div className="text-zinc-500 mt-2">{t('dlg.agentDeploy.optB')}</div>
                     <div className="text-zinc-300">start.bat</div>
-                    <div className="text-zinc-500 mt-2">:: Option C: EXE Installer</div>
+                    <div className="text-zinc-500 mt-2">{t('dlg.agentDeploy.optC')}</div>
                     <div className="text-zinc-300">dashboard-agent-setup.exe</div>
                   </div>
                 </div>
@@ -8300,10 +8347,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <div className="rounded-lg border bg-muted/20 dark:bg-zinc-800/20 p-4 space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[10px] font-bold shrink-0">3</span>
-                  <span className="text-sm font-medium">Add Device to Dashboard</span>
+                  <span className="text-sm font-medium">{t('dlg.agentDeploy.step3')}</span>
                 </div>
                 <p className="text-xs text-muted-foreground pl-7">
-                  Copy the generated API Key, then add the device in the Dashboard using the device&apos;s IP address and port.
+                  {t('dlg.agentDeploy.step3Desc')}
                 </p>
                 <div className="pl-7 mt-1.5">
                   <Button size="sm" className="h-7 text-xs bg-teal-600 hover:bg-teal-700 text-white gap-1.5" onClick={() => {
@@ -8311,7 +8358,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     setTimeout(() => setAddDeviceFormOpen(true), 300)
                   }}>
                     <Plus className="h-3 w-3" />
-                    Add Device Now
+                    {t('dlg.agentDeploy.addNow')}
                   </Button>
                 </div>
               </div>
@@ -8323,7 +8370,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="space-y-3">
               <h4 className="text-sm font-semibold flex items-center gap-2">
                 <Layers className="h-4 w-4 text-violet-600" />
-                Installation Methods
+                {t('dlg.agentDeploy.installMethods')}
               </h4>
 
               <div className="grid gap-3">
@@ -8333,14 +8380,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     <div className="p-1 rounded bg-emerald-100 dark:bg-emerald-900/30">
                       <Terminal className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                     </div>
-                    <span className="text-sm font-semibold">Simple (ZIP + start.bat)</span>
-                    <Badge variant="secondary" className="text-[9px] bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Easiest</Badge>
+                    <span className="text-sm font-semibold">{t('dlg.agentDeploy.simple')}</span>
+                    <Badge variant="secondary" className="text-[9px] bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">{t('dlg.agentDeploy.easiest')}</Badge>
                   </div>
                   <ol className="text-xs text-muted-foreground space-y-1 pl-6 list-decimal">
-                    <li>Install <a href="https://nodejs.org" target="_blank" rel="noopener" className="text-teal-600 dark:text-teal-400 underline underline-offset-2">Node.js 18+</a></li>
-                    <li>Download & extract the agent package</li>
-                    <li>Double-click <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">start.bat</code></li>
-                    <li>Copy the generated API Key</li>
+                    <li>{t('dlg.agentDeploy.m1s1Before')} <a href="https://nodejs.org" target="_blank" rel="noopener" className="text-teal-600 dark:text-teal-400 underline underline-offset-2">Node.js 18+</a></li>
+                    <li>{t('dlg.agentDeploy.m1s2')}</li>
+                    <li>{t('dlg.agentDeploy.m1s3Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">start.bat</code></li>
+                    <li>{t('dlg.agentDeploy.m1s4')}</li>
                   </ol>
                 </div>
 
@@ -8350,16 +8397,16 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     <div className="p-1 rounded bg-violet-100 dark:bg-violet-900/30">
                       <Monitor className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
                     </div>
-                    <span className="text-sm font-semibold">EXE Installer (Inno Setup)</span>
-                    <Badge variant="secondary" className="text-[9px] bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">Professional</Badge>
+                    <span className="text-sm font-semibold">{t('dlg.agentDeploy.exe')}</span>
+                    <Badge variant="secondary" className="text-[9px] bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">{t('dlg.agentDeploy.professional')}</Badge>
                   </div>
                   <ol className="text-xs text-muted-foreground space-y-1 pl-6 list-decimal">
-                    <li>Build the installer on a Windows machine: <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">build-installer.bat</code></li>
-                    <li>Distribute <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">dashboard-agent-setup.exe</code></li>
-                    <li>Run the installer wizard on target device</li>
-                    <li>Configure port &amp; API Key during setup</li>
+                    <li>{t('dlg.agentDeploy.m2s1Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">build-installer.bat</code></li>
+                    <li>{t('dlg.agentDeploy.m2s2Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">dashboard-agent-setup.exe</code></li>
+                    <li>{t('dlg.agentDeploy.m2s3')}</li>
+                    <li>{t('dlg.agentDeploy.m2s4')}</li>
                   </ol>
-                  <p className="text-[10px] text-amber-600 dark:text-amber-400 pl-6">⚠ Requires Inno Setup installed on build machine</p>
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 pl-6">{t('dlg.agentDeploy.innoWarn')}</p>
                 </div>
 
                 {/* Method 3: Windows Service */}
@@ -8368,14 +8415,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     <div className="p-1 rounded bg-amber-100 dark:bg-amber-900/30">
                       <Shield className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                     </div>
-                    <span className="text-sm font-semibold">Windows Service (Auto-start)</span>
-                    <Badge variant="secondary" className="text-[9px] bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Production</Badge>
+                    <span className="text-sm font-semibold">{t('dlg.agentDeploy.service')}</span>
+                    <Badge variant="secondary" className="text-[9px] bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{t('dlg.agentDeploy.production')}</Badge>
                   </div>
                   <ol className="text-xs text-muted-foreground space-y-1 pl-6 list-decimal">
-                    <li>Run PowerShell as Administrator</li>
-                    <li>Execute: <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">.\install-service.ps1 -Port 3100</code></li>
-                    <li>Agent starts automatically with Windows</li>
-                    <li>Manage: <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">Start-Service DashboardAgent</code></li>
+                    <li>{t('dlg.agentDeploy.m3s1')}</li>
+                    <li>{t('dlg.agentDeploy.m3s2Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">.\install-service.ps1 -Port 3100</code></li>
+                    <li>{t('dlg.agentDeploy.m3s3')}</li>
+                    <li>{t('dlg.agentDeploy.m3s4Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">Start-Service DashboardAgent</code></li>
                   </ol>
                 </div>
               </div>
@@ -8387,25 +8434,25 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="space-y-3">
               <h4 className="text-sm font-semibold flex items-center gap-2">
                 <Settings className="h-4 w-4 text-zinc-500" />
-                Configuration
+                {t('dlg.agentDeploy.config')}
               </h4>
               <div className="rounded-lg border overflow-hidden">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b bg-muted/30">
-                      <th className="text-left p-2.5 font-medium text-muted-foreground">Parameter</th>
-                      <th className="text-left p-2.5 font-medium text-muted-foreground">Default</th>
-                      <th className="text-left p-2.5 font-medium text-muted-foreground">Description</th>
+                      <th className="text-left p-2.5 font-medium text-muted-foreground">{t('dlg.agentDeploy.param')}</th>
+                      <th className="text-left p-2.5 font-medium text-muted-foreground">{t('dlg.agentDeploy.default')}</th>
+                      <th className="text-left p-2.5 font-medium text-muted-foreground">{t('dlg.agentDeploy.descCol')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {[
-                      { param: '--port', default: '3100', desc: 'HTTP server port' },
-                      { param: '--apiKey', default: 'Auto-generated', desc: 'Authentication token for Dashboard' },
-                      { param: '--name', default: 'Hostname', desc: 'Agent display name' },
-                      { param: '--config', default: '—', desc: 'Path to JSON config file' },
-                      { param: '--install-service', default: '—', desc: 'Install as Windows Service (admin)' },
-                      { param: '--uninstall-service', default: '—', desc: 'Remove Windows Service (admin)' },
+                      { param: '--port', default: '3100', desc: t('dlg.agentDeploy.cfg.port') },
+                      { param: '--apiKey', default: t('dlg.agentDeploy.cfg.autoGenerated'), desc: t('dlg.agentDeploy.cfg.apiKey') },
+                      { param: '--name', default: 'Hostname', desc: t('dlg.agentDeploy.cfg.name') },
+                      { param: '--config', default: '—', desc: t('dlg.agentDeploy.cfg.config') },
+                      { param: '--install-service', default: '—', desc: t('dlg.agentDeploy.cfg.installService') },
+                      { param: '--uninstall-service', default: '—', desc: t('dlg.agentDeploy.cfg.uninstallService') },
                     ].map((row) => (
                       <tr key={row.param} className="hover:bg-muted/20 transition-colors">
                         <td className="p-2.5 font-mono text-teal-600 dark:text-teal-400">{row.param}</td>
@@ -8424,11 +8471,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="space-y-3">
               <h4 className="text-sm font-semibold flex items-center gap-2">
                 <Shield className="h-4 w-4 text-red-500" />
-                Firewall Configuration
+                {t('dlg.agentDeploy.firewall')}
               </h4>
-              <p className="text-xs text-muted-foreground">Open the Agent port in Windows Firewall to allow Dashboard connections:</p>
+              <p className="text-xs text-muted-foreground">{t('dlg.agentDeploy.firewallDesc')}</p>
               <div className="rounded-md bg-zinc-900 dark:bg-zinc-950 p-3 font-mono text-xs text-zinc-300 overflow-x-auto">
-                <div className="text-zinc-500">:: Run as Administrator</div>
+                <div className="text-zinc-500">{t('dlg.agentDeploy.runAsAdmin')}</div>
                 <div className="text-zinc-300">netsh advfirewall firewall add rule name=&quot;Dashboard Agent&quot; dir=in action=allow protocol=TCP localport=3100</div>
               </div>
             </div>
@@ -8439,21 +8486,21 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="space-y-3">
               <h4 className="text-sm font-semibold flex items-center gap-2">
                 <Folder className="h-4 w-4 text-sky-500" />
-                Package Contents
+                {t('dlg.agentDeploy.contents')}
               </h4>
               <div className="rounded-md bg-muted/30 dark:bg-zinc-800/30 p-3 font-mono text-xs space-y-0.5">
                 <div className="text-zinc-500">📁 dashboard-agent-windows/</div>
-                <div className="text-zinc-400 pl-4">📄 agent.js <span className="text-zinc-600 ml-2">— Main agent server</span></div>
-                <div className="text-zinc-400 pl-4">📄 package.json <span className="text-zinc-600 ml-2">— Dependencies</span></div>
-                <div className="text-zinc-400 pl-4">📄 setup.js <span className="text-zinc-600 ml-2">— Interactive setup wizard</span></div>
-                <div className="text-zinc-400 pl-4">📄 start.bat <span className="text-zinc-600 ml-2">— Quick start script</span></div>
-                <div className="text-zinc-400 pl-4">📄 install-service.ps1 <span className="text-zinc-600 ml-2">— Windows Service installer</span></div>
-                <div className="text-zinc-400 pl-4">📄 uninstall-service.ps1 <span className="text-zinc-600 ml-2">— Service uninstaller</span></div>
-                <div className="text-zinc-400 pl-4">📄 agent-installer.iss <span className="text-zinc-600 ml-2">— Inno Setup script</span></div>
-                <div className="text-zinc-400 pl-4">📄 build-installer.bat <span className="text-zinc-600 ml-2">— Build EXE installer</span></div>
-                <div className="text-zinc-400 pl-4">📁 prisma/ <span className="text-zinc-600 ml-2">— Database schema</span></div>
-                <div className="text-zinc-400 pl-4">📄 .env.example <span className="text-zinc-600 ml-2">— Environment template</span></div>
-                <div className="text-zinc-400 pl-4">📄 README.md <span className="text-zinc-600 ml-2">— Documentation</span></div>
+                <div className="text-zinc-400 pl-4">📄 agent.js <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.agent')}</span></div>
+                <div className="text-zinc-400 pl-4">📄 package.json <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.package')}</span></div>
+                <div className="text-zinc-400 pl-4">📄 setup.js <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.setup')}</span></div>
+                <div className="text-zinc-400 pl-4">📄 start.bat <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.start')}</span></div>
+                <div className="text-zinc-400 pl-4">📄 install-service.ps1 <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.install')}</span></div>
+                <div className="text-zinc-400 pl-4">📄 uninstall-service.ps1 <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.uninstall')}</span></div>
+                <div className="text-zinc-400 pl-4">📄 agent-installer.iss <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.iss')}</span></div>
+                <div className="text-zinc-400 pl-4">📄 build-installer.bat <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.build')}</span></div>
+                <div className="text-zinc-400 pl-4">📁 prisma/ <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.prisma')}</span></div>
+                <div className="text-zinc-400 pl-4">📄 .env.example <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.env')}</span></div>
+                <div className="text-zinc-400 pl-4">📄 README.md <span className="text-zinc-600 ml-2">— {t('dlg.agentDeploy.file.readme')}</span></div>
               </div>
             </div>
 
@@ -8461,24 +8508,24 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <div className="space-y-2">
               <h4 className="text-sm font-semibold flex items-center gap-2">
                 <Hammer className="h-4 w-4 text-orange-500" />
-                Build Standalone EXE
+                {t('dlg.agentDeploy.buildExe')}
               </h4>
-              <p className="text-xs text-muted-foreground">Create a single-file executable using <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">pkg</code>:</p>
+              <p className="text-xs text-muted-foreground">{t('dlg.agentDeploy.buildExeBefore')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">pkg</code>{t('dlg.agentDeploy.buildExeAfter')}</p>
               <div className="rounded-md bg-zinc-900 dark:bg-zinc-950 p-3 font-mono text-xs text-zinc-300 overflow-x-auto">
-                <div className="text-zinc-500">:: Install pkg globally</div>
+                <div className="text-zinc-500">{t('dlg.agentDeploy.pkgInstall')}</div>
                 <div className="text-zinc-300">npm install -g pkg</div>
-                <div className="text-zinc-500 mt-2">:: Build for Windows x64</div>
+                <div className="text-zinc-500 mt-2">{t('dlg.agentDeploy.pkgBuild')}</div>
                 <div className="text-zinc-300">npm run build:exe</div>
-                <div className="text-zinc-500 mt-2">:: Output: dist/dashboard-agent.exe</div>
+                <div className="text-zinc-500 mt-2">{t('dlg.agentDeploy.pkgOutput')}</div>
               </div>
-              <p className="text-[10px] text-amber-600 dark:text-amber-400">⚠ Note: Prisma native binaries need to be bundled alongside the exe. Use the Inno Setup method for a complete installer.</p>
+              <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('dlg.agentDeploy.buildExeWarn')}</p>
             </div>
           </div>
 
           <DialogFooter className="shrink-0 border-t pt-3">
             <div className="flex items-center justify-between w-full">
-              <span className="text-[10px] text-muted-foreground">Package location: <code className="font-mono">mini-services/agent-windows/</code></span>
-              <Button variant="outline" onClick={() => setAgentDeployGuideOpen(false)}>Close</Button>
+              <span className="text-[10px] text-muted-foreground">{t('dlg.agentDeploy.packageLocationBefore')} <code className="font-mono">mini-services/agent-windows/</code></span>
+              <Button variant="outline" onClick={() => setAgentDeployGuideOpen(false)}>{t('dlg.common.close')}</Button>
             </div>
           </DialogFooter>
         </DialogContent>

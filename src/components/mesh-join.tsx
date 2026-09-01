@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { addToast } from '@/hooks/use-toast'
+import { useT } from '@/lib/i18n'
 
 interface LocalAgentInfo {
   port: number
@@ -35,6 +36,7 @@ export function JoinMeshDialog({
   onClose: () => void
   onJoined?: () => void
 }) {
+  const t = useT()
   const [target, setTarget] = React.useState('')
   const [code, setCode] = React.useState('')
   const [agent, setAgent] = React.useState<LocalAgentInfo | null>(null)
@@ -81,8 +83,8 @@ export function JoinMeshDialog({
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
         addToast({
-          title: '已加入网络',
-          description: `本机（${data.deviceName} · ${data.ip}:${data.port}）已注册到 ${data.target}`,
+          title: t('dlg.meshJoin.joinedToast'),
+          description: t('dlg.meshJoin.joinedDesc', { device: data.deviceName, ip: data.ip, port: data.port, target: data.target }),
           variant: 'success',
         })
         onJoined?.()
@@ -90,14 +92,14 @@ export function JoinMeshDialog({
         setTarget('')
         onClose()
       } else {
-        addToast({ title: '加入失败', description: data.error || `HTTP ${res.status}`, variant: 'destructive' })
+        addToast({ title: t('dlg.meshJoin.joinFailed'), description: data.error || `HTTP ${res.status}`, variant: 'destructive' })
       }
     } catch (e: any) {
-      addToast({ title: '加入失败', description: e?.message || '网络错误', variant: 'destructive' })
+      addToast({ title: t('dlg.meshJoin.joinFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
     } finally {
       setJoining(false)
     }
-  }, [target, code, manualMode, manualPort, manualKey, joining, onClose, onJoined])
+  }, [t, target, code, manualMode, manualPort, manualKey, joining, onClose, onJoined])
 
   if (!open) return null
 
@@ -112,10 +114,10 @@ export function JoinMeshDialog({
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-cyan-500 text-white shrink-0">
               <PlugZap className="h-4 w-4" />
             </span>
-            加入其他仪表盘
+            {t('dlg.meshJoin.title')}
           </DialogTitle>
           <DialogDescription className="text-xs">
-            在对方设备的 Web UI 中打开 设备 → 配对 获取验证码，在下方输入即可将本机加入对方网络 — 无需命令行
+            {t('dlg.meshJoin.desc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -123,7 +125,7 @@ export function JoinMeshDialog({
           {/* Target dashboard URL */}
           <div className="space-y-1.5">
             <Label className="text-xs flex items-center gap-1.5">
-              <Globe className="h-3.5 w-3.5 text-muted-foreground" />对方仪表盘地址
+              <Globe className="h-3.5 w-3.5 text-muted-foreground" />{t('dlg.meshJoin.target')}
             </Label>
             <Input
               value={target}
@@ -132,13 +134,13 @@ export function JoinMeshDialog({
               className="h-9 text-sm font-mono"
               autoFocus
             />
-            <p className="text-[11px] text-muted-foreground">对方设备访问其 Web UI 使用的地址（局域网 IP 或公网地址均可）</p>
+            <p className="text-[11px] text-muted-foreground">{t('dlg.meshJoin.targetHint')}</p>
           </div>
 
           {/* Pairing code */}
           <div className="space-y-1.5">
             <Label className="text-xs flex items-center gap-1.5">
-              <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />配对验证码
+              <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />{t('dlg.meshJoin.code')}
             </Label>
             <Input
               value={code}
@@ -153,36 +155,36 @@ export function JoinMeshDialog({
           <div className="rounded-xl border bg-muted/30 p-3 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium flex items-center gap-1.5">
-                <Server className="h-3.5 w-3.5 text-muted-foreground" />本机 Agent
+                <Server className="h-3.5 w-3.5 text-muted-foreground" />{t('dlg.meshJoin.localAgent')}
               </span>
               {agentLoading ? (
-                <Badge variant="secondary" className="text-[10px] h-5"><Loader2 className="h-3 w-3 animate-spin mr-1" />检测中</Badge>
+                <Badge variant="secondary" className="text-[10px] h-5"><Loader2 className="h-3 w-3 animate-spin mr-1" />{t('dlg.meshJoin.detecting')}</Badge>
               ) : agentReady ? (
                 <Badge className="text-[10px] h-5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />运行中 · {agent?.port}
+                  <CheckCircle2 className="h-3 w-3 mr-1" />{t('dlg.meshJoin.running', { port: agent?.port ?? '' })}
                 </Badge>
               ) : (
                 <Badge variant="destructive" className="text-[10px] h-5">
-                  <AlertTriangle className="h-3 w-3 mr-1" />{agent ? '未运行' : '未检测到'}
+                  <AlertTriangle className="h-3 w-3 mr-1" />{agent ? t('dlg.meshJoin.notRunning') : t('dlg.meshJoin.notDetected')}
                 </Badge>
               )}
             </div>
             {agent && (
               <p className="text-[11px] text-muted-foreground">
-                {agent.name} · 端口 {agent.port} · 上报地址 {ip || '未知'}:{agent.port}
+                {t('dlg.meshJoin.agentInfo', { name: agent.name, port: agent.port, ip: ip || t('dlg.meshJoin.unknown') })}
               </p>
             )}
             {!agentReady && (
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                  Agent 未运行时对方将无法控制本机项目
+                  {t('dlg.meshJoin.agentWarn')}
                 </p>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="sm" className="h-6 text-[11px] px-2" onClick={loadAgent} disabled={agentLoading}>
-                    <RefreshCw className={`h-3 w-3 mr-1 ${agentLoading ? 'animate-spin' : ''}`} />重试
+                    <RefreshCw className={`h-3 w-3 mr-1 ${agentLoading ? 'animate-spin' : ''}`} />{t('dlg.meshJoin.retry')}
                   </Button>
                   <Button variant="outline" size="sm" className="h-6 text-[11px] px-2" onClick={() => setManualMode((v) => !v)}>
-                    {manualMode ? '取消手动' : '手动填写'}
+                    {manualMode ? t('dlg.meshJoin.cancelManual') : t('dlg.meshJoin.manual')}
                   </Button>
                 </div>
               </div>
@@ -190,21 +192,21 @@ export function JoinMeshDialog({
             {manualMode && (
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <div className="space-y-1">
-                  <Label className="text-[11px]">Agent 端口</Label>
+                  <Label className="text-[11px]">{t('dlg.meshJoin.agentPort')}</Label>
                   <Input value={manualPort} onChange={(e) => setManualPort(e.target.value.replace(/\D/g, ''))} placeholder="3100" className="h-8 text-xs font-mono" />
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-[11px]">Agent API Key</Label>
-                  <Input value={manualKey} onChange={(e) => setManualKey(e.target.value)} placeholder="key…" className="h-8 text-xs font-mono" />
+                  <Label className="text-[11px]">{t('dlg.meshJoin.agentKey')}</Label>
+                  <Input value={manualKey} onChange={(e) => setManualKey(e.target.value)} placeholder={t('dlg.meshJoin.keyPlaceholder')} className="h-8 text-xs font-mono" />
                 </div>
               </div>
             )}
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={joining}>取消</Button>
+            <Button variant="outline" size="sm" onClick={onClose} disabled={joining}>{t('dlg.common.cancel')}</Button>
             <Button size="sm" className="bg-teal-600 hover:bg-teal-700 text-white" onClick={handleJoin} disabled={!canJoin}>
-              {joining ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />正在加入…</> : <><PlugZap className="h-3.5 w-3.5 mr-1.5" />加入网络</>}
+              {joining ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />{t('dlg.meshJoin.joining')}</> : <><PlugZap className="h-3.5 w-3.5 mr-1.5" />{t('dlg.meshJoin.join')}</>}
             </Button>
           </div>
         </div>

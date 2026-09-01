@@ -103,8 +103,29 @@ model User {
   approvedById      String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+  sessions          Session[]
 
   @@index([status])
+}
+
+// Revocable server-side session records (Task 19). One row per issued
+// dash_session token, keyed by the SHA-256 hash of the token so raw
+// credentials never touch the database. Deleting a user cascades.
+model Session {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  ip         String?
+  userAgent  String?
+  remember   Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 // Key/value settings store (auth secret, Google OAuth credentials, …).

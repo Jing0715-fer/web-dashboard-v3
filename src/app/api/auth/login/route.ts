@@ -12,7 +12,7 @@ import {
   buildSessionCookie,
   isSecureRequest,
   withSessionCookie,
-  createSessionToken,
+  createSession,
   type UserRow,
 } from '@/lib/auth'
 
@@ -80,8 +80,9 @@ export async function POST(req: Request) {
     // Dual-channel session: the httpOnly cookie for same-origin access, plus
     // the raw token in the body for the localStorage bearer channel (used when
     // browsers block third-party cookies in the sandbox preview iframe).
+    // The token is recorded as a revocable Session row (Task 19).
     const secure = isSecureRequest(req)
-    const sessionToken = await createSessionToken(user.id, remember)
+    const sessionToken = await createSession(user.id, remember, req)
     const cookie = buildSessionCookie(sessionToken, remember, secure)
     return withSessionCookie(
       NextResponse.json({ user: toPublicUser({ ...user, lastLoginAt: now }), sessionToken }),

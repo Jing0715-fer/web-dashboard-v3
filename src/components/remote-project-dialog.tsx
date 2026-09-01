@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { addToast } from '@/hooks/use-toast'
+import { useT, type I18nContextValue } from '@/lib/i18n'
 
 interface DeviceInfo { id: string; name: string; ip: string; port: number; status: string }
 
@@ -47,6 +48,7 @@ export function RemoteProjectDialog({
   lanIp: string
   onCompleted: () => void
 }) {
+  const t = useT()
   const [deviceId, setDeviceId] = React.useState('')
   const [path, setPath] = React.useState('')
   const [name, setName] = React.useState('')
@@ -80,7 +82,7 @@ export function RemoteProjectDialog({
           if (data.status !== 'running') return
         }
       } catch (e: any) {
-        if (!stop) setError(e?.message || '网络错误')
+        if (!stop) setError(e?.message || t('dlg.common.networkError'))
       }
       if (!stop) { setElapsed(Math.floor((Date.now() - started) / 1000)); timer = window.setTimeout(tick, 2500) }
     }
@@ -94,7 +96,7 @@ export function RemoteProjectDialog({
 
   const start = React.useCallback(async () => {
     if (!deviceId || !path.trim()) {
-      addToast({ title: '请填写完整', description: '选择设备并输入项目路径', variant: 'destructive' })
+      addToast({ title: t('dlg.remoteProject.fillComplete'), description: t('dlg.remoteProject.fillDesc'), variant: 'destructive' })
       return
     }
     setStarting(true)
@@ -108,18 +110,18 @@ export function RemoteProjectDialog({
       if (res.ok) {
         const data = await res.json()
         setJobId(data.jobId)
-        addToast({ title: '远程分析已启动', description: '远程设备正在自动调试启动配置…', variant: 'success' })
+        addToast({ title: t('dlg.remoteProject.startedToast'), description: t('dlg.remoteProject.startedDesc'), variant: 'success' })
       } else {
         const err = await res.json()
-        setError(err.error || '启动失败')
-        addToast({ title: '启动失败', description: err.error || 'Agent 不可达', variant: 'destructive' })
+        setError(err.error || t('dlg.toast.analysisStartFailed'))
+        addToast({ title: t('dlg.toast.analysisStartFailed'), description: err.error || t('dlg.remoteProject.agentUnreachable'), variant: 'destructive' })
       }
     } catch (e: any) {
       setError(e?.message)
     } finally {
       setStarting(false)
     }
-  }, [deviceId, path, name])
+  }, [deviceId, path, name, t])
 
   // Apply result on the remote device: create envs via the agent's own API,
   // then trigger the dashboard sync so the project appears in the grid.
@@ -128,7 +130,7 @@ export function RemoteProjectDialog({
     setStarting(true)
     try {
       const device = devices.find(d => d.id === deviceId)
-      if (!device) throw new Error('设备不存在')
+      if (!device) throw new Error(t('dlg.remoteProject.deviceMissing'))
       // Create the project on the device (if missing) with analyzed envs.
       const res = await fetch('/api/mesh/apply-remote', {
         method: 'POST',
@@ -138,22 +140,22 @@ export function RemoteProjectDialog({
       if (res.ok) {
         setApplied(true)
         addToast({
-          title: autoStart ? '远程项目已启动' : '远程项目已添加',
-          description: `${job.result.environments?.length ?? 0} 个环境已在 ${device.name} 上配置${autoStart ? '并启动' : ''}。`,
+          title: autoStart ? t('dlg.remoteProject.startedToast2') : t('dlg.remoteProject.addedToast'),
+          description: t(autoStart ? 'dlg.remoteProject.startedDesc2' : 'dlg.remoteProject.addedDesc', { count: job.result.environments?.length ?? 0, device: device.name }),
           variant: 'success',
         })
         onCompleted()
         if (autoStart) onClose()
       } else {
         const err = await res.json()
-        addToast({ title: '应用失败', description: err.error || '服务器错误', variant: 'destructive' })
+        addToast({ title: t('dlg.remoteProject.applyFailed'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
       }
     } catch (e: any) {
-      addToast({ title: '应用失败', description: e?.message || '网络错误', variant: 'destructive' })
+      addToast({ title: t('dlg.remoteProject.applyFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
     } finally {
       setStarting(false)
     }
-  }, [job, deviceId, devices, path, name, onCompleted, onClose])
+  }, [job, deviceId, devices, path, name, onCompleted, onClose, t])
 
   if (!open) return null
 
@@ -171,20 +173,20 @@ export function RemoteProjectDialog({
             <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-emerald-500 text-white shrink-0">
               <MonitorSmartphone className="h-4 w-4" />
             </span>
-            添加远程项目
+            {t('dlg.remoteProject.title')}
             {running && <Loader2 className="h-4 w-4 animate-spin text-teal-500" />}
           </DialogTitle>
           <DialogDescription className="text-xs">
-            输入远程设备上的项目路径，agent 将自动分析、安装依赖并调试启动直到成功
+            {t('dlg.remoteProject.desc')}
           </DialogDescription>
         </DialogHeader>
 
         {!jobId && (
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs">目标设备</Label>
+              <Label className="text-xs">{t('dlg.remoteProject.device')}</Label>
               <Select value={deviceId} onValueChange={setDeviceId}>
-                <SelectTrigger className="h-9"><SelectValue placeholder="选择设备" /></SelectTrigger>
+                <SelectTrigger className="h-9"><SelectValue placeholder={t('dlg.remoteProject.devicePlaceholder')} /></SelectTrigger>
                 <SelectContent>
                   {devices.map(d => (
                     <SelectItem key={d.id} value={d.id}>
@@ -198,19 +200,19 @@ export function RemoteProjectDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">项目路径（远程设备上的绝对路径）</Label>
+              <Label className="text-xs">{t('dlg.remoteProject.path')}</Label>
               <Input value={path} onChange={e => setPath(e.target.value)} placeholder="/home/user/projects/my-app" className="h-9 font-mono text-sm" />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">名称（可选，留空自动识别）</Label>
+              <Label className="text-xs">{t('dlg.remoteProject.name')}</Label>
               <Input value={name} onChange={e => setName(e.target.value)} placeholder="my-app" className="h-9 text-sm" />
             </div>
             {error && <div className="text-xs text-red-500">{error}</div>}
             <div className="flex justify-end gap-2 pt-1">
-              <Button variant="outline" size="sm" onClick={onClose}>取消</Button>
+              <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.common.cancel')}</Button>
               <Button size="sm" onClick={start} disabled={starting || !path.trim() || !deviceId}>
                 {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Zap className="h-3.5 w-3.5 mr-1.5" />}
-                开始自动调试分析
+                {t('dlg.remoteProject.startBtn')}
               </Button>
             </div>
           </div>
@@ -220,17 +222,17 @@ export function RemoteProjectDialog({
           <>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <Badge variant={running ? 'secondary' : done ? 'default' : 'destructive'} className="text-[11px] h-5">
-                {running ? '远程分析中' : done ? '已验证' : '失败'}
+                {running ? t('dlg.remoteProject.status.running') : done ? t('dlg.remoteProject.status.completed') : t('dlg.remoteProject.status.failed')}
               </Badge>
               <span className="flex items-center gap-1"><Server className="h-3 w-3" />{devices.find(d => d.id === deviceId)?.name}</span>
               <span className="font-mono">{path}</span>
-              <span className="ml-auto flex items-center gap-1"><Gauge className="h-3 w-3" />{elapsed}s</span>
+              <span className="ml-auto flex items-center gap-1"><Gauge className="h-3 w-3" />{t('dlg.analyze.elapsed', { count: elapsed })}</span>
             </div>
             <Progress value={pct} className="h-1.5" />
             <div ref={scrollRef} className="flex-1 min-h-0 max-h-64 overflow-y-auto rounded-lg border bg-muted/30 p-3 space-y-1.5">
               {progressItems.length === 0 && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 justify-center">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在连接远程设备…
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('dlg.remoteProject.connecting')}
                 </div>
               )}
               {progressItems.map((p, i) => (
@@ -255,7 +257,7 @@ export function RemoteProjectDialog({
               <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-2">
                 <div className="text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-1.5">
                   <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>{job.result.summary || '远程验证成功'}</span>
+                  <span>{job.result.summary || t('dlg.remoteProject.verifiedFallback')}</span>
                 </div>
                 {(job.result.environments ?? []).map((e: any, i: number) => (
                   <div key={i} className="flex items-center gap-2 text-xs font-mono bg-background/60 rounded-md px-2 py-1.5">
@@ -268,18 +270,18 @@ export function RemoteProjectDialog({
             )}
 
             <div className="flex items-center gap-2 justify-end">
-              {running && <Button variant="outline" size="sm" onClick={onClose}>后台运行</Button>}
+              {running && <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.remoteProject.background')}</Button>}
               {done && !applied && (
                 <>
-                  <Button variant="outline" size="sm" onClick={() => apply(false)} disabled={starting}>仅添加项目</Button>
+                  <Button variant="outline" size="sm" onClick={() => apply(false)} disabled={starting}>{t('dlg.remoteProject.addOnly')}</Button>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => apply(true)} disabled={starting}>
                     {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
-                    一键启动（远程）
+                    {t('dlg.remoteProject.startRemote')}
                   </Button>
                 </>
               )}
-              {applied && <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />完成</Button>}
-              {failed && <Button size="sm" variant="outline" onClick={() => { setJobId(null); setJob(null) }}>重试</Button>}
+              {applied && <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.remoteProject.done')}</Button>}
+              {failed && <Button size="sm" variant="outline" onClick={() => { setJobId(null); setJob(null) }}>{t('dlg.remoteProject.retry')}</Button>}
             </div>
           </>
         )}

@@ -7,7 +7,7 @@ import {
   googleRedirectUri,
   originFromReq,
   normalizeEmail,
-  createSessionToken,
+  createSession,
   buildSessionCookie,
   isSecureRequest,
   OAUTH_STATE_COOKIE,
@@ -142,7 +142,7 @@ export async function GET(req: Request) {
       },
     })
 
-    const token = await createSessionToken(user.id)
+    const token = await createSession(user.id, false, req)
     const res = NextResponse.redirect(`${origin}/#dash_token=${encodeURIComponent(token)}`, 302)
     res.headers.append('set-cookie', buildSessionCookie(token, false, isSecureRequest(req)))
     // consume the state cookie

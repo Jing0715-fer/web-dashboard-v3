@@ -8,6 +8,7 @@ import {
   consumeTokenFromHash,
   installAuthFetchPatch,
 } from './session-token'
+import { useT } from '@/lib/i18n'
 
 interface SessionResponse {
   user: PublicUser | null
@@ -106,6 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 /** Full-screen brand splash shown while the first session fetch resolves. */
 export function AuthLoadingSplash() {
+  const t = useT()
   return (
     <div className="min-h-screen flex flex-col">
       <div className="page-backdrop" aria-hidden="true" />
@@ -114,10 +116,10 @@ export function AuthLoadingSplash() {
           <div className="relative flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/40 ring-1 ring-primary/30 ring-inset animate-pulse">
             <Zap className="h-6 w-6" />
           </div>
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-sm text-muted-foreground">{t('auth.loading')}</p>
         </div>
       </div>
-      <span className="sr-only">Loading</span>
+      <span className="sr-only">{t('auth.loadingSr')}</span>
     </div>
   )
 }

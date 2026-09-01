@@ -4,6 +4,7 @@ import * as React from 'react'
 import { motion } from 'framer-motion'
 import { Clock, XCircle, LogOut, Loader2, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useT } from '@/lib/i18n'
 import type { PublicUser } from './auth-types'
 
 function initials(name: string): string {
@@ -14,6 +15,7 @@ function initials(name: string): string {
 }
 
 function UserChip({ user }: { user: PublicUser }) {
+  const t = useT()
   return (
     <div className="flex items-center gap-2.5 rounded-lg border border-border/60 bg-muted/40 px-3 py-2.5">
       {user.avatarUrl ? (
@@ -28,13 +30,14 @@ function UserChip({ user }: { user: PublicUser }) {
         <p className="text-xs text-muted-foreground truncate">{user.email}</p>
       </div>
       <span className="ml-auto shrink-0 inline-flex items-center rounded-full border border-border/60 bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-        {user.provider === 'google' ? 'via Google' : 'via email'}
+        {user.provider === 'google' ? t('auth.viaGoogle') : t('auth.viaEmail')}
       </span>
     </div>
   )
 }
 
 export function AccountStatusScreen({ user, onLogout }: { user: PublicUser; onLogout: () => void }) {
+  const t = useT()
   const [signingOut, setSigningOut] = React.useState(false)
   const pending = user.status === 'pending'
 
@@ -70,9 +73,9 @@ export function AccountStatusScreen({ user, onLogout }: { user: PublicUser; onLo
                     <Clock className="h-8 w-8 text-amber-500" />
                   </div>
                 </div>
-                <h1 className="text-xl font-semibold tracking-tight text-center">Awaiting approval</h1>
+                <h1 className="text-xl font-semibold tracking-tight text-center">{t('auth.status.pending.title')}</h1>
                 <p className="mt-2 text-sm text-muted-foreground text-center leading-relaxed">
-                  Your registration is being reviewed by an administrator — this page updates automatically.
+                  {t('auth.status.pending.desc')}
                 </p>
                 <div className="mt-6">
                   <UserChip user={user} />
@@ -85,7 +88,7 @@ export function AccountStatusScreen({ user, onLogout }: { user: PublicUser; onLo
                     className="h-11 px-6 text-sm"
                   >
                     {signingOut ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LogOut className="h-4 w-4 mr-2" />}
-                    Sign out
+                    {t('auth.menu.signOut')}
                   </Button>
                 </div>
               </>
@@ -96,20 +99,20 @@ export function AccountStatusScreen({ user, onLogout }: { user: PublicUser; onLo
                     <XCircle className="h-8 w-8 text-red-500 dark:text-red-400" />
                   </div>
                 </div>
-                <h1 className="text-xl font-semibold tracking-tight text-center">Access rejected</h1>
+                <h1 className="text-xl font-semibold tracking-tight text-center">{t('auth.status.rejected.title')}</h1>
                 <p className="mt-2 text-sm text-muted-foreground text-center leading-relaxed">
-                  Your registration was not approved for this dashboard.
+                  {t('auth.status.rejected.desc')}
                 </p>
                 {user.rejectionReason && (
                   <div className="mt-4 rounded-lg border border-red-200/70 bg-red-50/70 dark:border-red-900/60 dark:bg-red-950/30 px-3.5 py-2.5 text-sm text-red-700 dark:text-red-300" role="alert">
-                    <span className="font-medium">Reason: </span>{user.rejectionReason}
+                    <span className="font-medium">{t('auth.status.rejected.reason')}</span>{user.rejectionReason}
                   </div>
                 )}
                 <div className="mt-6">
                   <UserChip user={user} />
                 </div>
                 <p className="mt-5 text-xs text-muted-foreground text-center">
-                  Ask an administrator if you believe this is a mistake.
+                  {t('auth.status.rejected.help')}
                 </p>
                 <div className="mt-5 flex justify-center">
                   <Button
@@ -119,7 +122,7 @@ export function AccountStatusScreen({ user, onLogout }: { user: PublicUser; onLo
                     className="h-11 px-6 text-sm"
                   >
                     {signingOut ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LogOut className="h-4 w-4 mr-2" />}
-                    Sign out
+                    {t('auth.menu.signOut')}
                   </Button>
                 </div>
               </>
@@ -128,7 +131,7 @@ export function AccountStatusScreen({ user, onLogout }: { user: PublicUser; onLo
         </motion.div>
       </main>
       <footer className="mt-auto pb-5 pt-2 text-center text-[11px] text-muted-foreground/70">
-        Dashboard · internal tooling
+        {t('login.footer')}
       </footer>
     </div>
   )

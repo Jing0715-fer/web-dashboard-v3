@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { db } from '@/lib/db'
+import { parseUserAgent } from '@/lib/ua'
 
 /**
  * Hand-rolled authentication for the dashboard (Task 11-a).
@@ -9,6 +10,10 @@ import { db } from '@/lib/db'
  * - Sessions: httpOnly cookie `dash_session` carrying an HMAC-SHA256-signed
  *   JSON payload `{uid, iat, exp}`. The signature secret is generated once
  *   and persisted in AppSetting (`auth.secret`).
+ * - Every issued token is ALSO recorded as a `Session` row keyed by the
+ *   SHA-256 hash of the token (Task 19) — enabling listing active sessions
+ *   and server-side revocation. A token whose row is missing, revoked, or
+ *   expired is rejected.
  * - Every request re-loads the user from the DB, so approval / role changes /
  *   deletion take effect immediately.
  * - Google OAuth 2.0 credentials are stored in AppSetting (`auth.google`) and
@@ -236,6 +241,192 @@ async function verifySessionToken(token: string): Promise<TokenPayload | null> {
   }
 }
 
+// ============================== session store (Task 19) ==============================
+
+const LAST_SEEN_THROTTLE_MS = 60_000 // touch lastSeenAt at most once a minute
+const REVOKED_RETENTION_MS = 7 * 24 * 60 * 60 * 1000 // keep revoked rows for a week
+
+function sha256(input: string): string {
+  return createHash('sha256').update(input).digest('hex')
+}
+
+/** SHA-256 of a session token — the lookup key for Session rows. */
+export function hashSessionToken(token: string): string {
+  return sha256(token)
+}
+
+/** Serialize a session row for the sessions API. */
+export interface SessionInfo {
+  id: string
+  userId: string
+  userName: string
+  userEmail: string
+  userRole: string
+  current: boolean
+  ip: string | null
+  browser: string
+  os: string
+  deviceType: string
+  remember: boolean
+  createdAt: string
+  lastSeenAt: string
+  expiresAt: string
+}
+
+export interface SessionRow {
+  id: string
+  userId: string
+  tokenHash: string
+  ip: string | null
+  userAgent: string | null
+  remember: boolean
+  createdAt: Date
+  lastSeenAt: Date
+  expiresAt: Date
+  revokedAt: Date | null
+}
+
+export interface SessionRowWithUser extends SessionRow {
+  user: { id: string; name: string; email: string; role: string }
+}
+
+export function toSessionInfo(row: SessionRowWithUser, currentTokenHash: string): SessionInfo {
+  const ua = parseUserAgent(row.userAgent)
+  return {
+    id: row.id,
+    userId: row.userId,
+    userName: row.user.name,
+    userEmail: row.user.email,
+    userRole: row.user.role,
+    current: row.tokenHash === currentTokenHash,
+    ip: row.ip,
+    browser: ua.browser,
+    os: ua.os,
+    deviceType: ua.deviceType,
+    remember: row.remember,
+    createdAt: row.createdAt.toISOString(),
+    lastSeenAt: row.lastSeenAt.toISOString(),
+    expiresAt: row.expiresAt.toISOString(),
+  }
+}
+
+/**
+ * Create a session: HMAC token (unchanged wire format) + a revocable
+ * server-side row carrying ip / user-agent / expiry. Throws on DB failure —
+ * a session that cannot be recorded must not be issued.
+ */
+export async function createSession(
+  userId: string,
+  remember = false,
+  req?: NextRequest | Request,
+): Promise<string> {
+  const token = await createSessionToken(userId, remember)
+  const payload = await verifySessionToken(token)
+  const expiresAt = payload
+    ? new Date(payload.exp)
+    : new Date(Date.now() + (remember ? SESSION_TTL_REMEMBER_MS : SESSION_TTL_MS))
+  await db.session.create({
+    data: {
+      userId,
+      tokenHash: sha256(token),
+      ip: req ? clientIp(req) : null,
+      userAgent: req?.headers.get('user-agent') ?? null,
+      remember,
+      expiresAt,
+    },
+  })
+  return token
+}
+
+/** Opportunistic cleanup: drop long-expired and long-revoked rows. */
+export async function pruneSessions(): Promise<void> {
+  const cutoff = Date.now() - REVOKED_RETENTION_MS
+  try {
+    await db.session.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: new Date(Date.now() - REVOKED_RETENTION_MS) } },
+          { revokedAt: { lt: new Date(cutoff) } },
+        ],
+      },
+    })
+  } catch {
+    /* best-effort housekeeping */
+  }
+}
+
+/** Active sessions of one user (not revoked, not expired), newest activity first. */
+export async function listUserSessions(userId: string): Promise<SessionRowWithUser[]> {
+  return db.session.findMany({
+    where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { lastSeenAt: 'desc' },
+    include: { user: { select: { id: true, name: true, email: true, role: true } } },
+  })
+}
+
+/** Active sessions of ALL users with user info (admin view), newest activity first. */
+export async function listAllSessions(): Promise<SessionRowWithUser[]> {
+  return db.session.findMany({
+    where: { revokedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { lastSeenAt: 'desc' },
+    include: { user: { select: { id: true, name: true, email: true, role: true } } },
+  })
+}
+
+/** Revoke the session a request is authenticated with (used by logout). */
+export async function revokeSessionByToken(token: string): Promise<boolean> {
+  const res = await db.session.updateMany({
+    where: { tokenHash: sha256(token), revokedAt: null },
+    data: { revokedAt: new Date() },
+  })
+  return res.count > 0
+}
+
+/** Fetch a session row by id (for ownership checks). */
+export async function findSessionById(id: string): Promise<SessionRow | null> {
+  return db.session.findUnique({ where: { id } })
+}
+
+export interface RevokedSession {
+  id: string
+  userId: string
+  /** True when the revoked session is the one the current request used. */
+  wasCurrent: boolean
+}
+
+/** Revoke a session by id (ownership checked by the caller). Idempotent. */
+export async function revokeSessionById(
+  id: string,
+  currentToken: string | null,
+): Promise<RevokedSession | null> {
+  const session = await db.session.findUnique({ where: { id } })
+  if (!session) return null
+  if (!session.revokedAt) {
+    await db.session.update({ where: { id }, data: { revokedAt: new Date() } })
+  }
+  return {
+    id: session.id,
+    userId: session.userId,
+    wasCurrent: !!currentToken && sha256(currentToken) === session.tokenHash,
+  }
+}
+
+/** Revoke every session of a user (optionally keeping the current one). Returns the count. */
+export async function revokeAllUserSessions(
+  userId: string,
+  exceptToken: string | null = null,
+): Promise<number> {
+  const res = await db.session.updateMany({
+    where: {
+      userId,
+      revokedAt: null,
+      ...(exceptToken ? { tokenHash: { not: sha256(exceptToken) } } : {}),
+    },
+    data: { revokedAt: new Date() },
+  })
+  return res.count
+}
+
 // ============================== serialization ==============================
 
 export function toPublicUser(user: UserRow): PublicUser {
@@ -370,10 +561,12 @@ export function withSessionCookie(response: NextResponse, cookie: string): NextR
 // ============================== session lookup & guards ==============================
 
 /**
- * Verify the session cookie signature + expiry, then LOAD the user from the DB
- * (so approve/reject/role changes/deletions apply immediately). Returns the
- * user regardless of status — the pending/rejected states are surfaced to the
- * frontend via `user.status` so it can render the approval screen.
+ * Verify the session token signature + expiry, REQUIRE a live Session row
+ * (not revoked / not expired — Task 19 revocation enforcement), then LOAD
+ * the user from the DB (so approve/reject/role changes/deletions apply
+ * immediately). Returns the user regardless of status — the pending/rejected
+ * states are surfaced to the frontend via `user.status` so it can render the
+ * approval screen. lastSeenAt is touched at most once per minute.
  */
 export async function getSessionUser(req: NextRequest | Request): Promise<PublicUser | null> {
   const token = sessionTokenFromRequest(req)
@@ -381,8 +574,18 @@ export async function getSessionUser(req: NextRequest | Request): Promise<Public
   const payload = await verifySessionToken(token)
   if (!payload) return null
   try {
+    const session = await db.session.findUnique({ where: { tokenHash: sha256(token) } })
+    // Missing row → legacy or revoked-and-deleted token: treat as revoked.
+    if (!session || session.revokedAt) return null
+    if (session.expiresAt.getTime() < Date.now()) return null
+    if (session.userId !== payload.uid) return null
     const user = await db.user.findUnique({ where: { id: payload.uid } })
     if (!user) return null // deleted → session invalid immediately
+    if (Date.now() - session.lastSeenAt.getTime() > LAST_SEEN_THROTTLE_MS) {
+      db.session
+        .update({ where: { id: session.id }, data: { lastSeenAt: new Date() } })
+        .catch(() => { /* activity tracking is best-effort */ })
+    }
     return toPublicUser(user)
   } catch {
     return null

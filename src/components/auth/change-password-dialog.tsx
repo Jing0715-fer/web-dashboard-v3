@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useT, type I18nContextValue } from '@/lib/i18n'
 
 interface ChangePasswordDialogProps {
   open: boolean
@@ -15,17 +16,18 @@ interface ChangePasswordDialogProps {
 interface Fields { current: string; next: string; confirm: string }
 type FieldErrors = Partial<Record<keyof Fields, string>>
 
-function validate(f: Fields): FieldErrors {
+function validate(f: Fields, t: I18nContextValue['t']): FieldErrors {
   const errors: FieldErrors = {}
-  if (!f.current) errors.current = 'Enter your current password.'
+  if (!f.current) errors.current = t('auth.changePw.error.current')
   if (f.next.length < 8 || !/[A-Za-z]/.test(f.next) || !/\d/.test(f.next)) {
-    errors.next = 'At least 8 characters, including a letter and a digit.'
+    errors.next = t('auth.changePw.error.next')
   }
-  if (f.confirm !== f.next) errors.confirm = 'Passwords do not match.'
+  if (f.confirm !== f.next) errors.confirm = t('auth.changePw.error.confirm')
   return errors
 }
 
 export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProps) {
+  const t = useT()
   const [fields, setFields] = React.useState<Fields>({ current: '', next: '', confirm: '' })
   const [errors, setErrors] = React.useState<FieldErrors>({})
   const [showCurrent, setShowCurrent] = React.useState(false)
@@ -48,8 +50,8 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
 
   React.useEffect(() => {
     if (!succeeded) return
-    const t = setTimeout(() => onClose(), 1500)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => onClose(), 1500)
+    return () => clearTimeout(timer)
   }, [succeeded, onClose])
 
   const set = (key: keyof Fields) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,7 +63,7 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (submitting) return
-    const validation = validate(fields)
+    const validation = validate(fields, t)
     setErrors(validation)
     if (Object.keys(validation).length > 0) return
     setSubmitting(true)
@@ -77,9 +79,9 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
         setSucceeded(true)
         return
       }
-      setServerError(data.error || (res.status === 401 ? 'Current password is incorrect.' : 'Failed to update password.'))
+      setServerError(data.error || (res.status === 401 ? t('auth.changePw.error.incorrect') : t('auth.changePw.error.failed')))
     } catch {
-      setServerError('Network error — could not reach the server.')
+      setServerError(t('login.error.network'))
     } finally {
       setSubmitting(false)
     }
@@ -91,21 +93,21 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <KeyRound className="h-5 w-5 text-brand-strong" />
-            Change Password
+            {t('auth.changePw.title')}
           </DialogTitle>
-          <DialogDescription>Set a new password for your account.</DialogDescription>
+          <DialogDescription>{t('auth.changePw.desc')}</DialogDescription>
         </DialogHeader>
         {succeeded ? (
           <div className="py-5 flex flex-col items-center text-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 ring-4 ring-emerald-100 dark:ring-emerald-900/40">
               <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <p className="text-sm font-medium">Password updated</p>
+            <p className="text-sm font-medium">{t('auth.changePw.updated')}</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="chpw-current">Current password</Label>
+              <Label htmlFor="chpw-current">{t('auth.changePw.current')}</Label>
               <div className="relative">
                 <Input
                   id="chpw-current"
@@ -117,7 +119,7 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
                   aria-invalid={!!errors.current}
                   className="h-10 pr-10"
                 />
-                <button type="button" tabIndex={0} onClick={() => setShowCurrent((v) => !v)} aria-label={showCurrent ? 'Hide password' : 'Show password'}
+                <button type="button" tabIndex={0} onClick={() => setShowCurrent((v) => !v)} aria-label={showCurrent ? t('login.hidePassword') : t('login.showPassword')}
                   className="absolute right-0 top-0 h-10 w-10 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -125,20 +127,20 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
               {errors.current && <p className="text-xs text-destructive dark:text-red-400 mt-1.5">{errors.current}</p>}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="chpw-new">New password</Label>
+              <Label htmlFor="chpw-new">{t('auth.changePw.new')}</Label>
               <div className="relative">
                 <Input
                   id="chpw-new"
                   type={showNext ? 'text' : 'password'}
                   autoComplete="new-password"
-                  placeholder="At least 8 characters"
+                  placeholder={t('auth.changePw.newPlaceholder')}
                   value={fields.next}
                   onChange={set('next')}
                   disabled={submitting}
                   aria-invalid={!!errors.next}
                   className="h-10 pr-10"
                 />
-                <button type="button" tabIndex={0} onClick={() => setShowNext((v) => !v)} aria-label={showNext ? 'Hide password' : 'Show password'}
+                <button type="button" tabIndex={0} onClick={() => setShowNext((v) => !v)} aria-label={showNext ? t('login.hidePassword') : t('login.showPassword')}
                   className="absolute right-0 top-0 h-10 w-10 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {showNext ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -146,12 +148,12 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
               {errors.next && <p className="text-xs text-destructive dark:text-red-400 mt-1.5">{errors.next}</p>}
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="chpw-confirm">Confirm new password</Label>
+              <Label htmlFor="chpw-confirm">{t('auth.changePw.confirm')}</Label>
               <Input
                 id="chpw-confirm"
                 type="password"
                 autoComplete="new-password"
-                placeholder="Repeat your new password"
+                placeholder={t('auth.changePw.confirmPlaceholder')}
                 value={fields.confirm}
                 onChange={set('confirm')}
                 disabled={submitting}
@@ -167,10 +169,10 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
               </div>
             )}
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={onClose} disabled={submitting} className="h-10">Cancel</Button>
+              <Button type="button" variant="outline" onClick={onClose} disabled={submitting} className="h-10">{t('common.cancel')}</Button>
               <Button type="submit" disabled={submitting} className="h-10 bg-primary hover:bg-primary/90 text-primary-foreground">
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                {submitting ? 'Updating…' : 'Update password'}
+                {submitting ? t('auth.changePw.submitting') : t('auth.changePw.submit')}
               </Button>
             </DialogFooter>
           </form>

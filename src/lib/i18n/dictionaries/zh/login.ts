@@ -1,0 +1,76 @@
+/**
+ * 中文词典 — 登录 / 注册界面（任务 17 范围）。
+ */
+export const login = {
+  // ---- 品牌面板 ----
+  'login.brand': 'Dashboard',
+  'login.subtitle': '多设备项目控制台 — 环境、日志与修复工具一站式管理。',
+  'login.feature.multiDevice.title': '多设备控制',
+  'login.feature.multiDevice.desc': '本地与远程机器统一管理。',
+  'login.feature.oneClick.title': '一键启动环境',
+  'login.feature.oneClick.desc': '启动、停止、重启项目环境。',
+  'login.feature.llm.title': 'LLM 分析与自动修复',
+  'login.feature.llm.desc': '自动化分析与故障自愈。',
+  // ---- 标题 ----
+  'login.welcomeBack': '欢迎回来',
+  'login.createAccount': '创建账户',
+  'login.signinSubtitle': '登录以继续使用控制台。',
+  'login.registerSubtitle': '注册以申请控制台访问权限。',
+  'login.tab.signin': '登录',
+  'login.tab.register': '注册',
+  // ---- Google 登录 ----
+  'login.google.continue': '使用 Google 继续',
+  'login.google.notConfigured': 'Google 登录尚未配置。请联系管理员配置（设置 → 用户管理 → Google 登录）。',
+  'login.google.notConfiguredShort': '未配置 — 请联系管理员启用 Google 登录',
+  // ---- 表单字段 ----
+  'login.divider': '或使用邮箱登录',
+  'login.email': '邮箱',
+  'login.emailPlaceholder': 'you@example.com',
+  'login.password': '密码',
+  'login.rememberMe': '记住我',
+  'login.signin': '登录',
+  'login.signingIn': '登录中…',
+  'login.showPassword': '显示密码',
+  'login.hidePassword': '隐藏密码',
+  // ---- 登录错误 ----
+  'login.error.enterCredentials': '请输入邮箱和密码。',
+  'login.error.invalid': '邮箱或密码错误。',
+  'login.error.pending.title': '您的注册正在等待管理员审批。',
+  'login.error.pending.detail': '管理员批准后即可登录。',
+  'login.error.rejected.title': '您的访问已被拒绝。',
+  'login.error.rejected.reason': '原因：{reason}',
+  'login.error.tooMany': '尝试过于频繁，请稍后再试。',
+  'login.error.network': '网络错误 — 无法连接服务器。',
+  'login.error.fallback': '登录失败。',
+  // ---- 默认管理员提示（拆分以保留 <code> 样式） ----
+  'login.seedHintPrefix': '默认管理员：',
+  'login.seedHintSuffix': '首次登录后请及时修改密码。',
+  // ---- Google OAuth 重定向错误 ----
+  'login.googleError.emailConflict': '该邮箱已使用密码注册，请改用邮箱密码登录。',
+  'login.googleError.stateMismatch': '登录会话已过期，请重试。',
+  'login.googleError.rejected': '您的访问已被拒绝。',
+  'login.googleError.default': 'Google 登录失败。',
+  // ---- 注册表单 ----
+  'login.register.name': '姓名',
+  'login.register.namePlaceholder': '你的姓名',
+  'login.register.email': '邮箱',
+  'login.register.password': '密码',
+  'login.register.passwordPlaceholder': '至少 8 个字符',
+  'login.register.confirm': '确认密码',
+  'login.register.confirmPlaceholder': '再次输入密码',
+  'login.register.createAccount': '创建账户',
+  'login.register.submitting': '提交中…',
+  'login.register.error.name': '姓名需为 2–40 个字符。',
+  'login.register.error.email': '请输入有效的邮箱地址。',
+  'login.register.error.password': '至少 8 个字符，且需包含字母和数字。',
+  'login.register.error.confirm': '两次输入的密码不一致。',
+  'login.register.error.exists': '该邮箱已被注册。',
+  'login.register.error.tooMany': '尝试过于频繁，请稍后再试。',
+  'login.register.error.failed': '注册失败。',
+  'login.register.success.title': '申请已提交',
+  'login.register.success.desc': '管理员将审核您的注册申请，批准后即可使用此账号登录。',
+  'login.register.back': '返回登录',
+  'login.register.notice': '新账户需管理员批准后方可首次登录。',
+  // ---- 页脚 ----
+  'login.footer': 'Dashboard · 内部工具',
+}

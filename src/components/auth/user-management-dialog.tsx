@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { addToast } from '@/hooks/use-toast'
+import { useT, type I18nContextValue } from '@/lib/i18n'
 import { useAuth } from './auth-provider'
 import type { GoogleStatus, PublicUser, UserRole } from './auth-types'
 
@@ -35,16 +36,16 @@ function initials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return 'never'
+function timeAgo(dateStr: string | null, t?: I18nContextValue['t']): string {
+  if (!dateStr) return t ? t('dlg.common.never') : 'never'
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 1) return t ? t('time.now') : 'just now'
+  if (mins < 60) return t ? t('time.minutesAgo', { count: mins }) : `${mins}m ago`
   const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return t ? t('time.hoursAgo', { count: hours }) : `${hours}h ago`
   const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return t ? t('time.daysAgo', { count: days }) : `${days}d ago`
 }
 
 function UserAvatar({ user, className = 'h-9 w-9 text-xs' }: { user: PublicUser; className?: string }) {
@@ -59,31 +60,33 @@ function UserAvatar({ user, className = 'h-9 w-9 text-xs' }: { user: PublicUser;
 }
 
 function StatusBadge({ status }: { status: PublicUser['status'] }) {
+  const t = useT()
   if (status === 'pending') {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-amber-200/80 bg-amber-50/80 dark:border-amber-900/60 dark:bg-amber-950/40 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
-        <Clock className="h-3 w-3" />Pending
+        <Clock className="h-3 w-3" />{t('dlg.userMgmt.filter.pending')}
       </span>
     )
   }
   if (status === 'approved') {
     return (
       <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200/80 bg-emerald-50/80 dark:border-emerald-900/60 dark:bg-emerald-950/40 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-        <CheckCircle2 className="h-3 w-3" />Approved
+        <CheckCircle2 className="h-3 w-3" />{t('dlg.userMgmt.filter.approved')}
       </span>
     )
   }
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-red-200/80 bg-red-50/80 dark:border-red-900/60 dark:bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:text-red-400">
-      <XCircle className="h-3 w-3" />Rejected
+      <XCircle className="h-3 w-3" />{t('dlg.userMgmt.filter.rejected')}
     </span>
   )
 }
 
 function ProviderBadge({ provider }: { provider: PublicUser['provider'] }) {
+  const t = useT()
   return (
     <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-      {provider === 'google' ? 'Google' : 'Email'}
+      {provider === 'google' ? t('dlg.userMgmt.provider.google') : t('dlg.userMgmt.provider.email')}
     </span>
   )
 }
@@ -92,6 +95,7 @@ function ProviderBadge({ provider }: { provider: PublicUser['provider'] }) {
 
 export function UserManagementDialog({ open, onClose, onPendingChange }: UserManagementDialogProps) {
   const { user: currentUser } = useAuth()
+  const t = useT()
   const [tab, setTab] = React.useState<'users' | 'google'>('users')
 
   // Users tab state
@@ -171,13 +175,12 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        const labels: Record<AdminAction, string> = { approve: 'approve', reject: 'reject', setRole: 'update the role of', reactivate: 'reactivate' }
-        addToast({ title: 'Operation failed', description: data.error || `Could not ${labels[action]} ${target.name}.`, variant: 'destructive' })
+        addToast({ title: t('dlg.userMgmt.opFailed'), description: data.error || t('dlg.userMgmt.couldNot', { action: t(`dlg.userMgmt.act.${action}` as Parameters<typeof t>[0]), name: target.name }), variant: 'destructive' })
         return false
       }
       return true
     } catch {
-      addToast({ title: 'Network error', description: 'Could not reach the server.', variant: 'destructive' })
+      addToast({ title: t('dlg.userMgmt.networkError'), description: t('dlg.userMgmt.couldNotReach'), variant: 'destructive' })
       return false
     } finally {
       setBusyId(null)
@@ -186,7 +189,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
 
   const handleApprove = async (target: PublicUser) => {
     if (await mutateUser(target, 'approve')) {
-      addToast({ title: 'Approved', description: `${target.name} can now sign in.`, variant: 'success' })
+      addToast({ title: t('dlg.userMgmt.approvedToast'), description: t('dlg.userMgmt.approvedDesc', { name: target.name }), variant: 'success' })
       await fetchUsers()
     }
   }
@@ -197,7 +200,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
     const ok = await mutateUser(rejectTarget, 'reject', { reason: rejectReason.trim().slice(0, 200) || undefined })
     setRejectBusy(false)
     if (ok) {
-      addToast({ title: 'Rejected', description: `${rejectTarget.name} will be informed on next sign-in.`, variant: 'default' })
+      addToast({ title: t('dlg.userMgmt.rejectedToast'), description: t('dlg.userMgmt.rejectedDesc', { name: rejectTarget.name }), variant: 'default' })
       setRejectTarget(null)
       setRejectReason('')
       await fetchUsers()
@@ -206,7 +209,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
 
   const handleReactivate = async (target: PublicUser) => {
     if (await mutateUser(target, 'reactivate')) {
-      addToast({ title: 'Reactivated', description: `${target.name} is pending approval again.`, variant: 'success' })
+      addToast({ title: t('dlg.userMgmt.reactivatedToast'), description: t('dlg.userMgmt.reactivatedDesc', { name: target.name }), variant: 'success' })
       await fetchUsers()
     }
   }
@@ -214,7 +217,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
   const handleRoleChange = async (target: PublicUser, role: UserRole) => {
     if (target.role === role) return
     if (await mutateUser(target, 'setRole', { role })) {
-      addToast({ title: 'Role updated', description: `${target.name} is now ${role === 'admin' ? 'an administrator' : 'a standard user'}.`, variant: 'success' })
+      addToast({ title: t('dlg.userMgmt.roleUpdated'), description: t(role === 'admin' ? 'dlg.userMgmt.roleAdminDesc' : 'dlg.userMgmt.roleUserDesc', { name: target.name }), variant: 'success' })
       await fetchUsers()
     }
   }
@@ -229,13 +232,13 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
       const res = await fetch(`/api/admin/users/${encodeURIComponent(deleteTarget.id)}`, { method: 'DELETE' })
       if (res.ok) {
         ok = true
-        addToast({ title: 'User deleted', description: `${deleteTarget.name} has been removed.`, variant: 'success' })
+        addToast({ title: t('dlg.userMgmt.userDeleted'), description: t('dlg.userMgmt.userDeletedDesc', { name: deleteTarget.name }), variant: 'success' })
       } else {
         const data = await res.json().catch(() => ({}))
-        addToast({ title: 'Delete failed', description: data.error || 'Could not delete the user.', variant: 'destructive' })
+        addToast({ title: t('dlg.userMgmt.deleteFailed'), description: data.error || t('dlg.userMgmt.deleteFailedDesc'), variant: 'destructive' })
       }
     } catch {
-      addToast({ title: 'Network error', description: 'Could not reach the server.', variant: 'destructive' })
+      addToast({ title: t('dlg.userMgmt.networkError'), description: t('dlg.userMgmt.couldNotReach'), variant: 'destructive' })
     } finally {
       setDeleteBusy(false)
       setBusyId(null)
@@ -252,10 +255,10 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
     const configured = !!googleStatus?.configured
     const payload: Record<string, string> = {}
     if (clientId.trim()) payload.googleClientId = clientId.trim()
-    else if (!configured) { setGoogleError('Client ID is required.'); return }
+    else if (!configured) { setGoogleError(t('dlg.userMgmt.clientIdRequired')); return }
     if (clientSecret.trim()) payload.googleClientSecret = clientSecret.trim()
-    else if (!configured) { setGoogleError('Client secret is required.'); return }
-    if (Object.keys(payload).length === 0) { setGoogleError('Nothing to save — enter a new Client ID or secret.'); return }
+    else if (!configured) { setGoogleError(t('dlg.userMgmt.secretRequired')); return }
+    if (Object.keys(payload).length === 0) { setGoogleError(t('dlg.userMgmt.nothingToSave')); return }
     setSavingGoogle(true)
     setGoogleError(null)
     try {
@@ -265,16 +268,16 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
         body: JSON.stringify(payload),
       })
       if (res.ok) {
-        addToast({ title: 'Google sign-in settings saved', variant: 'success' })
+        addToast({ title: t('dlg.userMgmt.googleSaved'), variant: 'success' })
         setClientId('')
         setClientSecret('')
         await refreshGoogle()
       } else {
         const data = await res.json().catch(() => ({}))
-        setGoogleError(data.error || 'Failed to save settings.')
+        setGoogleError(data.error || t('dlg.userMgmt.saveFailed'))
       }
     } catch {
-      setGoogleError('Network error — could not reach the server.')
+      setGoogleError(t('dlg.userMgmt.netErrLong'))
     } finally {
       setSavingGoogle(false)
     }
@@ -290,17 +293,17 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
         body: JSON.stringify({ googleClientId: '', googleClientSecret: '' }),
       })
       if (res.ok) {
-        addToast({ title: 'Google sign-in disabled', description: 'The Google button on the sign-in page is now disabled.', variant: 'default' })
+        addToast({ title: t('dlg.userMgmt.googleDisabled'), description: t('dlg.userMgmt.googleDisabledDesc'), variant: 'default' })
         setRemoveConfirm(false)
         setClientId('')
         setClientSecret('')
         await refreshGoogle()
       } else {
         const data = await res.json().catch(() => ({}))
-        addToast({ title: 'Failed to remove configuration', description: data.error || 'Please try again.', variant: 'destructive' })
+        addToast({ title: t('dlg.userMgmt.removeFailed'), description: data.error || t('dlg.userMgmt.tryAgain'), variant: 'destructive' })
       }
     } catch {
-      addToast({ title: 'Network error', description: 'Could not reach the server.', variant: 'destructive' })
+      addToast({ title: t('dlg.userMgmt.networkError'), description: t('dlg.userMgmt.couldNotReach'), variant: 'destructive' })
     } finally {
       setRemoveBusy(false)
     }
@@ -309,7 +312,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
   const copyToClipboard = (text: string) => {
     if (!text) return
     navigator.clipboard.writeText(text)
-    addToast({ title: 'Copied', description: text, variant: 'success' })
+    addToast({ title: t('dlg.userMgmt.copied'), description: text, variant: 'success' })
   }
 
   // ---------- derived ----------
@@ -331,10 +334,10 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
   const redirectUri = googleStatus?.redirectUri || ''
 
   const filterChips: Array<{ id: UserFilter; label: string; count: number }> = [
-    { id: 'pending', label: 'Pending', count: counts.pending },
-    { id: 'approved', label: 'Approved', count: counts.approved },
-    { id: 'rejected', label: 'Rejected', count: counts.rejected },
-    { id: 'all', label: 'All', count: counts.all },
+    { id: 'pending', label: t('dlg.userMgmt.filter.pending'), count: counts.pending },
+    { id: 'approved', label: t('dlg.userMgmt.filter.approved'), count: counts.approved },
+    { id: 'rejected', label: t('dlg.userMgmt.filter.rejected'), count: counts.rejected },
+    { id: 'all', label: t('dlg.userMgmt.filter.all'), count: counts.all },
   ]
 
   return (
@@ -343,20 +346,20 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="h-5 w-5 text-brand-strong" />
-            User Management
+            {t('dlg.userMgmt.title')}
           </DialogTitle>
-          <DialogDescription>Approve registrations, manage roles and configure Google sign-in.</DialogDescription>
+          <DialogDescription>{t('dlg.userMgmt.desc')}</DialogDescription>
         </DialogHeader>
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as 'users' | 'google')}>
           <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-2 mb-4">
             <TabsTrigger value="users" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">
-              Users
+              {t('dlg.userMgmt.users')}
               {counts.pending > 0 && (
                 <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">{counts.pending > 9 ? '9+' : counts.pending}</span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="google" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">Google Sign-in</TabsTrigger>
+            <TabsTrigger value="google" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('dlg.userMgmt.google')}</TabsTrigger>
           </TabsList>
 
           {/* ==================== USERS TAB ==================== */}
@@ -393,10 +396,10 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                     {filter === 'pending' ? <Clock className="h-6 w-6 text-muted-foreground" /> : <Users className="h-6 w-6 text-muted-foreground" />}
                   </div>
                   <p className="text-sm font-medium">
-                    {filter === 'pending' ? 'No pending registrations' : filter === 'approved' ? 'No approved users yet' : filter === 'rejected' ? 'No rejected users' : 'No users yet'}
+                    {filter === 'pending' ? t('dlg.userMgmt.noPending') : filter === 'approved' ? t('dlg.userMgmt.noApproved') : filter === 'rejected' ? t('dlg.userMgmt.noRejected') : t('dlg.userMgmt.noUsers')}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {filter === 'pending' ? 'All caught up — new registrations will appear here.' : 'Users will appear here as they register.'}
+                    {filter === 'pending' ? t('dlg.userMgmt.allCaughtUp') : t('dlg.userMgmt.usersAppear')}
                   </p>
                 </div>
               ) : (
@@ -416,7 +419,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="text-sm font-medium truncate max-w-[160px] sm:max-w-[220px]">{u.name}</p>
                               {isSelf && (
-                                <span className="inline-flex items-center rounded-full border border-brand/40 bg-brand-soft px-1.5 py-0.5 text-[10px] font-semibold text-brand-strong">You</span>
+                                <span className="inline-flex items-center rounded-full border border-brand/40 bg-brand-soft px-1.5 py-0.5 text-[10px] font-semibold text-brand-strong">{t('dlg.userMgmt.you')}</span>
                               )}
                               <ProviderBadge provider={u.provider} />
                             </div>
@@ -434,21 +437,21 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                                     <Select value={u.role} disabled>
                                       <SelectTrigger className="h-8 text-xs w-full"><SelectValue /></SelectTrigger>
                                       <SelectContent>
-                                        <SelectItem value="admin">Admin</SelectItem>
-                                        <SelectItem value="user">User</SelectItem>
+                                        <SelectItem value="admin">{t('dlg.userMgmt.roleAdmin')}</SelectItem>
+                                        <SelectItem value="user">{t('dlg.userMgmt.roleUser')}</SelectItem>
                                       </SelectContent>
                                     </Select>
                                   </span>
                                 </TooltipTrigger>
-                                <TooltipContent>You</TooltipContent>
+                                <TooltipContent>{t('dlg.userMgmt.you')}</TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
                           ) : (
                             <Select value={u.role} onValueChange={(v) => void handleRoleChange(u, v as UserRole)} disabled={busy}>
-                              <SelectTrigger className="h-8 text-xs w-full" aria-label={`Role for ${u.name}`}><SelectValue /></SelectTrigger>
+                              <SelectTrigger className="h-8 text-xs w-full" aria-label={t('dlg.userMgmt.role', { name: u.name })}><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="admin">Admin</SelectItem>
-                                <SelectItem value="user">User</SelectItem>
+                                <SelectItem value="admin">{t('dlg.userMgmt.roleAdmin')}</SelectItem>
+                                <SelectItem value="user">{t('dlg.userMgmt.roleUser')}</SelectItem>
                               </SelectContent>
                             </Select>
                           )}
@@ -459,8 +462,8 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
 
                         {/* Dates */}
                         <div className="text-[11px] text-muted-foreground leading-relaxed">
-                          <p>Joined {timeAgo(u.createdAt)}</p>
-                          <p>Last login {timeAgo(u.lastLoginAt)}</p>
+                          <p>{t('dlg.userMgmt.joined', { time: timeAgo(u.createdAt, t) })}</p>
+                          <p>{t('dlg.userMgmt.lastLogin', { time: timeAgo(u.lastLoginAt, t) })}</p>
                         </div>
 
                         {/* Actions */}
@@ -475,7 +478,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                                 disabled={busy}
                                 className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
                               >
-                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />Approve
+                                <CheckCircle2 className="h-3.5 w-3.5 mr-1" />{t('dlg.userMgmt.approve')}
                               </Button>
                               <Button
                                 type="button"
@@ -485,7 +488,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                                 disabled={busy}
                                 className="h-8 px-3 text-xs border-red-300/70 text-red-600 dark:border-red-900/60 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-700 dark:hover:text-red-300"
                               >
-                                <XCircle className="h-3.5 w-3.5 mr-1" />Reject
+                                <XCircle className="h-3.5 w-3.5 mr-1" />{t('dlg.userMgmt.reject')}
                               </Button>
                             </>
                           )}
@@ -498,7 +501,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                               disabled={busy}
                               className="h-8 px-3 text-xs"
                             >
-                              Reactivate
+                              {t('dlg.userMgmt.reactivate')}
                             </Button>
                           )}
                           {!isSelf && (
@@ -508,7 +511,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                               variant="ghost"
                               onClick={() => setDeleteTarget(u)}
                               disabled={busy}
-                              aria-label={`Delete ${u.name}`}
+                              aria-label={t('dlg.userMgmt.deleteUser', { name: u.name })}
                               className="h-8 w-8 px-0 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-300"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -531,45 +534,45 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                 <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${configured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium flex items-center gap-2 flex-wrap">
-                    {configured ? 'Configured' : 'Not configured'}
+                    {configured ? t('dlg.userMgmt.configured') : t('dlg.userMgmt.notConfigured')}
                     {configured && maskedClient && (
                       <code className="font-mono text-xs text-muted-foreground font-normal break-all">{maskedClient}</code>
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     {configured
-                      ? 'Test: open the sign-in page and use the Google button.'
-                      : 'Complete the steps below to enable Google sign-in for this dashboard.'}
+                      ? t('dlg.userMgmt.testHint')
+                      : t('dlg.userMgmt.enableHint')}
                   </p>
                 </div>
               </div>
 
               {/* Redirect URI */}
               <div className="space-y-1.5">
-                <Label className="text-xs">Redirect URI</Label>
+                <Label className="text-xs">{t('dlg.userMgmt.redirectUri')}</Label>
                 <div className="rounded-md bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 dark:border-zinc-800 p-2.5 flex items-center gap-2">
-                  <code className="flex-1 min-w-0 font-mono text-xs text-zinc-300 truncate">{redirectUri || '— (available once the server knows its origin)'}</code>
+                  <code className="flex-1 min-w-0 font-mono text-xs text-zinc-300 truncate">{redirectUri || t('dlg.userMgmt.redirectNA')}</code>
                   <Button type="button" variant="outline" size="sm" onClick={() => copyToClipboard(redirectUri)} disabled={!redirectUri} className="h-7 px-2.5 text-xs shrink-0 bg-transparent border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
-                    <Copy className="h-3 w-3 mr-1" />Copy
+                    <Copy className="h-3 w-3 mr-1" />{t('dlg.common.copy')}
                   </Button>
                 </div>
               </div>
 
               {/* Instructions */}
               <ol className="space-y-1.5 text-xs text-muted-foreground list-decimal list-inside leading-relaxed">
-                <li>Open Google Cloud Console → APIs &amp; Services → Credentials.</li>
-                <li>"Create Credentials" → OAuth client ID → Web application.</li>
-                <li>Add the redirect URI above as an Authorized redirect URI.</li>
-                <li>Paste the Client ID and Client secret here and Save.</li>
+                <li>{t('dlg.userMgmt.instr1')}</li>
+                <li>{t('dlg.userMgmt.instr2')}</li>
+                <li>{t('dlg.userMgmt.instr3')}</li>
+                <li>{t('dlg.userMgmt.instr4')}</li>
               </ol>
 
               {/* Form */}
               <div className="space-y-3.5 rounded-lg border border-border/60 bg-card p-3.5">
                 <div className="space-y-1.5">
-                  <Label htmlFor="google-client-id" className="text-xs">Client ID</Label>
+                  <Label htmlFor="google-client-id" className="text-xs">{t('dlg.userMgmt.clientId')}</Label>
                   {configured && maskedClient && (
                     <p className="text-[11px] text-muted-foreground">
-                      Current: <code className="font-mono break-all">{maskedClient}</code>
+                      {t('dlg.userMgmt.current')} <code className="font-mono break-all">{maskedClient}</code>
                     </p>
                   )}
                   <Input
@@ -584,12 +587,12 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="google-client-secret" className="text-xs">Client Secret</Label>
+                  <Label htmlFor="google-client-secret" className="text-xs">{t('dlg.userMgmt.clientSecret')}</Label>
                   <Input
                     id="google-client-secret"
                     type="password"
                     autoComplete="new-password"
-                    placeholder={configured ? 'Leave blank to keep current secret' : 'GOCSPX-…'}
+                    placeholder={configured ? t('dlg.userMgmt.keepSecret') : 'GOCSPX-…'}
                     value={clientSecret}
                     onChange={(e) => { setClientSecret(e.target.value); setGoogleError(null) }}
                     disabled={savingGoogle}
@@ -605,7 +608,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                 <div className="flex items-center gap-2 flex-wrap">
                   <Button type="button" onClick={() => void handleSaveGoogle()} disabled={savingGoogle} className="h-10 px-5 text-sm bg-primary hover:bg-primary/90 text-primary-foreground">
                     {savingGoogle && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    {savingGoogle ? 'Saving…' : 'Save'}
+                    {savingGoogle ? t('dlg.userMgmt.saving') : t('dlg.userMgmt.save')}
                   </Button>
                   {configured && (
                     <Button
@@ -615,7 +618,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                       disabled={savingGoogle}
                       className="h-10 px-5 text-sm border-red-300/70 text-red-600 dark:border-red-900/60 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
                     >
-                      <LogOut className="h-4 w-4 mr-2 rotate-180" />Remove configuration
+                      <LogOut className="h-4 w-4 mr-2 rotate-180" />{t('dlg.userMgmt.removeConfig')}
                     </Button>
                   )}
                 </div>
@@ -630,17 +633,17 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <XCircle className="h-5 w-5 text-red-500 dark:text-red-400" />
-                Reject registration
+                {t('dlg.userMgmt.rejectTitle')}
               </DialogTitle>
               <DialogDescription>
-                {rejectTarget ? `Reject ${rejectTarget.name} (${rejectTarget.email}). They will see this decision on their next sign-in attempt.` : ''}
+                {rejectTarget ? t('dlg.userMgmt.rejectDesc', { name: rejectTarget.name, email: rejectTarget.email }) : ''}
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-1.5">
-              <Label htmlFor="reject-reason">Reason (optional)</Label>
+              <Label htmlFor="reject-reason">{t('dlg.userMgmt.reason')}</Label>
               <Textarea
                 id="reject-reason"
-                placeholder="Optional explanation shown to the user…"
+                placeholder={t('dlg.userMgmt.reasonPlaceholder')}
                 value={rejectReason}
                 maxLength={200}
                 onChange={(e) => setRejectReason(e.target.value)}
@@ -650,10 +653,10 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
               <p className="text-[11px] text-muted-foreground text-right tabular-nums">{rejectReason.length}/200</p>
             </div>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => { setRejectTarget(null); setRejectReason('') }} disabled={rejectBusy} className="h-10">Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => { setRejectTarget(null); setRejectReason('') }} disabled={rejectBusy} className="h-10">{t('dlg.common.cancel')}</Button>
               <Button type="button" onClick={() => void handleRejectConfirm()} disabled={rejectBusy} className="h-10 bg-red-600 hover:bg-red-700 text-white">
                 {rejectBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Reject
+                {t('dlg.userMgmt.reject')}
               </Button>
             </div>
           </DialogContent>
@@ -663,22 +666,22 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
         <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null) }}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete user?</AlertDialogTitle>
+              <AlertDialogTitle>{t('dlg.userMgmt.deleteTitle')}</AlertDialogTitle>
               <AlertDialogDescription>
                 {deleteTarget
-                  ? `This permanently removes ${deleteTarget.name} (${deleteTarget.email}) from the dashboard. They will be able to register again afterwards.`
+                  ? t('dlg.userMgmt.deleteDesc', { name: deleteTarget.name, email: deleteTarget.email })
                   : ''}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleteBusy}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel disabled={deleteBusy}>{t('dlg.common.cancel')}</AlertDialogCancel>
               <AlertDialogAction
                 onClick={(e) => { e.preventDefault(); void handleDeleteConfirm() }}
                 disabled={deleteBusy}
                 className="bg-red-600 hover:bg-red-700 text-white focus:ring-red-600"
               >
                 {deleteBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Delete
+                {t('dlg.common.delete')}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
@@ -688,20 +691,20 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
         <AlertDialog open={removeConfirm} onOpenChange={setRemoveConfirm}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Remove Google sign-in?</AlertDialogTitle>
+              <AlertDialogTitle>{t('dlg.userMgmt.removeGoogleTitle')}</AlertDialogTitle>
               <AlertDialogDescription>
-                The Google button on the sign-in page will be disabled immediately. Existing Google sessions are not affected.
+                {t('dlg.userMgmt.removeGoogleDesc')}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={removeBusy}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel disabled={removeBusy}>{t('dlg.common.cancel')}</AlertDialogCancel>
               <AlertDialogAction
                 onClick={(e) => { e.preventDefault(); void handleRemoveGoogle() }}
                 disabled={removeBusy}
                 className="bg-red-600 hover:bg-red-700 text-white focus:ring-red-600"
               >
                 {removeBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Remove
+                {t('dlg.userMgmt.remove')}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
