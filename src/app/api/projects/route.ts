@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { enrichEnvStatuses } from '@/lib/env-status';
-import { fetchRemoteProjects, type RemoteAgentConfig } from '@/lib/remote-agent';
+import { getRemoteProjectsCached } from '@/lib/remote-sync';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
 
@@ -37,159 +37,17 @@ export async function GET(req: Request) {
       }),
     }));
 
-    // 2. Get remote projects from devices (try all non-offline devices, plus offline ones with a shorter timeout)
-    const devices = await db.device.findMany();
-    const remoteResults = await Promise.allSettled(
-      devices.map(async (device) => {
-        try {
-          const config: RemoteAgentConfig = { ip: device.ip, port: device.port, apiKey: device.apiKey };
-          const projects = await fetchRemoteProjects(config);
-          
-          // If we got projects, mark device as online
-          if (projects.length > 0 && device.status !== 'online') {
-            await db.device.update({
-              where: { id: device.id },
-              data: { status: 'online', lastSeen: new Date() },
-            }).catch(() => {});
-          }
-          
-          return projects.map((p: any) => ({
-            ...p,
-            deviceId: device.id,
-            deviceName: device.name,
-            deviceIp: device.ip,
-            deviceStatus: 'online' as const,
-            environments: (p.environments || []).map((e: any) => ({
-              ...e,
-              status: e.status || 'stopped',
-            })),
-          }));
-        } catch {
-          // Device unreachable - return empty with offline status
-          if (device.status !== 'offline') {
-            await db.device.update({
-              where: { id: device.id },
-              data: { status: 'offline' },
-            }).catch(() => {});
-          }
-          return [];
-        }
-      })
-    );
+    // 2. Remote projects: served from the SWR sync cache (see
+    //    src/lib/remote-sync.ts). This call never blocks on unreachable
+    //    devices beyond the short probe budgets — a hanging agent can no
+    //    longer stall the whole dashboard list. `?fresh=1` (manual refresh
+    //    button) bypasses the cache and forces a real agent sync.
+    const forceSync = new URL(req.url).searchParams.get('fresh') === '1';
+    const dedupedRemote = await getRemoteProjectsCached(forceSync);
 
-    const enrichedRemote = remoteResults.flatMap(r => r.status === 'fulfilled' ? r.value : []);
-
-    // Dedupe live remote projects by (deviceId, path). The Windows agent
-    // occasionally returns the same project twice — usually because the
-    // agent's local project registry has two rows for the same path
-    // (e.g. one from a stale manual registration + one from the auto-scan).
-    // Without this, the dashboard would render two cards for one project.
-    //
-    // Tiebreaker: when collapsing, prefer the row that carries
-    // environments. If both have none, first-wins. We also drop rows
-    // missing deviceId/path because they cannot be uniquely addressed
-    // for control actions.
-    const remoteByKey = new Map<string, any>();
-    for (const p of enrichedRemote as any[]) {
-      if (!p.deviceId || !p.path) continue;
-      const key = `${p.deviceId}::${p.path}`;
-      const existing = remoteByKey.get(key);
-      if (!existing) {
-        remoteByKey.set(key, p);
-        continue;
-      }
-      const existingHasEnv = (existing.environments?.length ?? 0) > 0;
-      const incomingHasEnv = (p.environments?.length ?? 0) > 0;
-      if (incomingHasEnv && !existingHasEnv) {
-        remoteByKey.set(key, p);
-      }
-    }
-    const dedupedRemote = Array.from(remoteByKey.values());
-
-    // 3. Persist live remote projects to local DB so start/stop routes can find them.
-    //    Use the agent's own id/deviceId so subsequent requests resolve the same rows.
-    //    A change-detection pass avoids rewriting identical rows on every poll —
-    //    previously each 8s poll issued a BEGIN IMMEDIATE write transaction per
-    //    remote project even when nothing had changed (DB churn + UI jank).
-    const cachedRows = await db.project.findMany({
-      where: { deviceId: { not: null } },
-      include: { environments: true },
-    });
-    const cachedById = new Map(cachedRows.map((p) => [p.id, p]));
-    for (const remote of dedupedRemote) {
-      try {
-        const envData = (remote.environments || []).map((e: any) => ({
-          id: e.id,
-          projectId: remote.id,
-          name: e.name,
-          cmd: e.cmd,
-          port: e.port,
-          envVars: typeof e.envVars === 'string' ? e.envVars : JSON.stringify(e.envVars || {}),
-          status: e.status || 'stopped',
-          pid: e.pid ?? null,
-        }));
-        const tagsStr = typeof remote.tags === 'string' ? remote.tags : JSON.stringify(remote.tags || []);
-        const cached = cachedById.get(remote.id);
-        if (
-          cached &&
-          cached.name === remote.name &&
-          cached.path === remote.path &&
-          cached.description === (remote.description || '') &&
-          cached.icon === (remote.icon || 'folder') &&
-          cached.tags === tagsStr &&
-          cached.deviceId === remote.deviceId &&
-          cached.environments.length === envData.length &&
-          cached.environments.every((ce, i) =>
-            ce.id === envData[i].id &&
-            ce.name === envData[i].name &&
-            ce.cmd === envData[i].cmd &&
-            ce.port === envData[i].port &&
-            ce.envVars === envData[i].envVars &&
-            ce.status === envData[i].status &&
-            (ce.pid ?? null) === envData[i].pid
-          )
-        ) {
-          // Nothing changed since the last sync — skip the write entirely.
-          continue;
-        }
-        // P2-1: wrap upsert + delete-then-create in a single transaction so a
-        // concurrent GET can't see an empty environments array mid-sync.
-        await db.$transaction(async (tx) => {
-          await tx.project.upsert({
-            where: { id: remote.id },
-            update: {
-              name: remote.name,
-              path: remote.path,
-              description: remote.description || '',
-              icon: remote.icon || 'folder',
-              tags: tagsStr,
-              deviceId: remote.deviceId,
-            },
-            create: {
-              id: remote.id,
-              name: remote.name,
-              path: remote.path,
-              description: remote.description || '',
-              icon: remote.icon || 'folder',
-              tags: tagsStr,
-              deviceId: remote.deviceId,
-              order: remote.order ?? 0,
-            },
-          });
-          // Sync environments: delete-then-create keeps them aligned with the agent.
-          await tx.environment.deleteMany({ where: { projectId: remote.id } });
-          if (envData.length > 0) {
-            await tx.environment.createMany({ data: envData });
-          }
-        });
-      } catch (e) {
-        // best-effort: don't fail the GET if a single remote project fails to persist
-        console.error('Failed to persist remote project', remote.id, e);
-      }
-    }
-
-    // 4. Also include projects in local DB that have a deviceId (cached remote projects
-    //    for devices that were offline / not reachable on this request).
+    // 3. Include projects in local DB that have a deviceId (cached remote
+    //    projects for devices that were offline / unreachable on this
+    //    request).
     //
     // Dedupe key is `deviceId+path` instead of just `id`: when the Windows agent
     // regenerates a project's ID (e.g. on first registration, or after a path

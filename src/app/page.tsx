@@ -295,6 +295,10 @@ function RocketIcon(props: React.SVGProps<SVGSVGElement> & { className?: string 
 
 // ======================== UTILITY FUNCTIONS ========================
 
+// localStorage key for the stale-while-revalidate project list cache.
+// Written by fetchProjects, read once on mount (see the hydrate effect).
+const PROJECTS_CACHE_KEY = 'dashboard-projects-cache-v1'
+
 function parseTags(tagsStr: string | string[]): string[] {
   if (Array.isArray(tagsStr)) return tagsStr
   try {
@@ -5271,14 +5275,26 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // auto-refresh from overwriting local drag order with stale DB data.
   const reorderInFlightRef = React.useRef(false)
   const lastProjectsSerializedRef = React.useRef('')
+  // True once the project list has been painted from the localStorage cache —
+  // the initial network load then skips flashing the skeleton over it.
+  const hydratedFromCacheRef = React.useRef(false)
+
+  // Client-side project cache (stale-while-revalidate). A page refresh used
+  // to blank the dashboard until /api/projects resolved — which, with a slow
+  // or unreachable remote device, could take many seconds. The last good
+  // list is cached in localStorage and painted immediately on mount; the
+  // network refresh overlays it. Entries older than 10 minutes are ignored.
+  const PROJECTS_CACHE_MAX_AGE_MS = 10 * 60 * 1000
 
   // Data fetching
-  const fetchProjects = React.useCallback(async () => {
+  const fetchProjects = React.useCallback(async (opts?: { fresh?: boolean }) => {
     // If a reorder POST is in-flight, skip this auto-refresh cycle so we
     // don't overwrite the locally-reordered state with stale DB data.
     if (reorderInFlightRef.current) return
     try {
-      const res = await fetch('/api/projects')
+      // `fresh` (manual refresh button) bypasses the server-side sync cache
+      // so a user-initiated refresh always talks to the agents for real.
+      const res = await fetch(opts?.fresh ? '/api/projects?fresh=1' : '/api/projects')
       if (res.ok) {
         const data = await res.json()
         const parsed = (data.projects ?? []).map((p: Record<string, unknown>) => ({
@@ -5292,6 +5308,12 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         if (serialized !== lastProjectsSerializedRef.current) {
           lastProjectsSerializedRef.current = serialized
           setProjects(parsed)
+          // Persist for instant next-refresh paint (stale-while-revalidate).
+          // Best-effort: quota or serialization failures must never break
+          // the refresh itself.
+          try {
+            localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: parsed }))
+          } catch { /* ignore */ }
         }
         setLastRefreshed(new Date().toISOString())
         // Publish projects for cross-component consumers (e.g. HermesBridgeToggle)
@@ -5301,6 +5323,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         } catch {
           // ignore
         }
+      } else if (res.status === 401) {
+        // Logged out — drop the cache so a later user doesn't see a stale
+        // list from this session while their own data loads.
+        lastProjectsSerializedRef.current = ''
+        try { localStorage.removeItem(PROJECTS_CACHE_KEY) } catch { /* ignore */ }
       }
     } catch { /* ignore */ }
   }, [])
@@ -5404,14 +5431,34 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   }, [toast, fetchDevices])
 
   const loadData = React.useCallback(async () => {
-    setLoading(true)
+    // Cache-hydrated paint already shows projects — don't flash the skeleton
+    // over it while the network refresh runs in the background.
+    if (!hydratedFromCacheRef.current) setLoading(true)
     await Promise.all([fetchProjects(), fetchNotifications(), fetchDevices()])
     // fetchGlobalActivity will be triggered by the projects-changed effect below
     setLoading(false)
   }, [fetchProjects, fetchNotifications, fetchDevices])
 
-  // Initial load
+  // Initial load — hydrate the project list from the localStorage cache
+  // (instant paint, no skeleton), then refresh everything from the network.
+  // The cached snapshot may briefly show stale statuses; the first network
+  // response (≤ one poll cycle) reconciles it. Entries older than the max
+  // age are ignored so long-dead sessions don't paint old state.
   React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PROJECTS_CACHE_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed?.data) && Date.now() - (parsed.ts ?? 0) < PROJECTS_CACHE_MAX_AGE_MS) {
+          lastProjectsSerializedRef.current = JSON.stringify(parsed.data)
+          hydratedFromCacheRef.current = true
+          setProjects(parsed.data)
+          setLoading(false)
+        } else {
+          localStorage.removeItem(PROJECTS_CACHE_KEY)
+        }
+      }
+    } catch { try { localStorage.removeItem(PROJECTS_CACHE_KEY) } catch { /* ignore */ } }
     const id = requestAnimationFrame(() => { loadData() })
     return () => cancelAnimationFrame(id)
   }, []) // Initial load only
@@ -7871,7 +7918,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       </main>
 
       {/* ======================== FOOTER ======================== */}
-      <EnhancedFooter projects={projects} filteredCount={filteredProjects.length} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} onOpenSystemMonitor={() => setSystemMonitorOpen(true)} onRefresh={() => fetchProjects()} onAddProject={() => { setEditingProject(null); setProjectFormMode('add'); setProjectFormOpen(true) }} />
+      <EnhancedFooter projects={projects} filteredCount={filteredProjects.length} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} onOpenSystemMonitor={() => setSystemMonitorOpen(true)} onRefresh={() => fetchProjects({ fresh: true })} onAddProject={() => { setEditingProject(null); setProjectFormMode('add'); setProjectFormOpen(true) }} />
 
       {/* ======================== GLOBAL STATUS PANEL ======================== */}
       {!loading && projects.length > 0 && <GlobalStatusPanel projects={projects} />}
@@ -8017,7 +8064,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         lanIp={lanIp}
         currentHost={currentHost}
         onRefresh={() => {
-          fetchProjects()
+          fetchProjects({ fresh: true })
           if (selectedProject) {
             fetch(`/api/projects/${selectedProject.id}`)
               .then((r) => r.json())

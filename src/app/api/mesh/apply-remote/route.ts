@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { proxyToAgent } from '@/lib/remote-agent';
+import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 import { requireApprovedUser } from '@/lib/auth';
 
 /**
@@ -79,6 +80,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: startRes.data?.error || 'Failed to start remote environment' }, { status: 502 });
       }
     }
+
+    // A project/environments were created or updated on the agent — drop
+    // the sync cache so the dashboard reflects them on the next list GET.
+    invalidateRemoteProjectCache();
 
     return NextResponse.json({
       ok: true,

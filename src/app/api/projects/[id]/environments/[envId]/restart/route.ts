@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { restartProcess } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
+import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 import { startRepairJob } from '@/lib/llm-repair';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
@@ -35,6 +36,7 @@ export async function POST(
         `/projects/${id}/environments/${envId}/restart`,
         'POST'
       );
+      invalidateRemoteProjectCache();
       return NextResponse.json(result.data, { status: result.status });
     }
 

@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { invalidateRemoteProjectCache } from '@/lib/remote-sync'
 import { requireApprovedUser } from '@/lib/auth';
 
 export async function GET(req: Request) {
@@ -64,6 +65,10 @@ export async function POST(request: Request) {
         apiKey: apiKey || crypto.randomBytes(32).toString('hex'),
       },
     })
+
+    // New device — drop the sync cache so its projects are fetched on the
+    // next list GET instead of being served from the pre-add snapshot.
+    invalidateRemoteProjectCache()
 
     return NextResponse.json(device, { status: 201 })
   } catch (error: any) {

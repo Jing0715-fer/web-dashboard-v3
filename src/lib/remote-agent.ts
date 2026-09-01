@@ -5,11 +5,15 @@ export interface RemoteAgentConfig {
 }
 
 // Proxy a request to the remote agent
+// `timeoutMs` defaults to 15s for control operations (start/stop/rebuild).
+// Read-only list fetches should pass a much shorter timeout so one
+// unreachable device cannot stall the dashboard's critical render path.
 export async function proxyToAgent(
   config: RemoteAgentConfig,
   path: string,
   method: string = 'GET',
-  body?: any
+  body?: any,
+  timeoutMs: number = 15000
 ): Promise<{ ok: boolean; status: number; data: any }> {
   const url = `http://${config.ip}:${config.port}/api/agent${path}`;
   try {
@@ -20,7 +24,7 @@ export async function proxyToAgent(
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(15000), // 15s timeout for operations
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };
@@ -29,9 +33,12 @@ export async function proxyToAgent(
   }
 }
 
-// Fetch remote projects from an agent
-export async function fetchRemoteProjects(config: RemoteAgentConfig): Promise<any[]> {
-  const result = await proxyToAgent(config, '/projects', 'GET');
+// Fetch remote projects from an agent.
+// `timeoutMs` defaults to 6s — listing projects is a cheap read on the agent;
+// a healthy agent responds in well under a second, so anything still pending
+// after a few seconds is an unreachable/hung host we should not wait for.
+export async function fetchRemoteProjects(config: RemoteAgentConfig, timeoutMs: number = 6000): Promise<any[]> {
+  const result = await proxyToAgent(config, '/projects', 'GET', undefined, timeoutMs);
   if (!result.ok) return [];
   return result.data.projects || [];
 }

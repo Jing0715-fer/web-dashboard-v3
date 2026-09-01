@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { stopProcess, startProcess } from '@/lib/process-manager'
 import { startRepairJob } from '@/lib/llm-repair'
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision'
+import { invalidateRemoteProjectCache } from '@/lib/remote-sync'
 import { logActivity } from '@/lib/activity'
 import { exec } from 'child_process'
 import { promisify } from 'util'
@@ -55,6 +56,7 @@ export async function POST(
         `/projects/${id}/environments/${envId}/rebuild`,
         'POST'
       )
+      invalidateRemoteProjectCache()
       return NextResponse.json(result.data, { status: result.status })
     }
 

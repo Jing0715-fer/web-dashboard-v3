@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { startProcess, checkPortStatus } from '@/lib/process-manager';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
+import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 import { startRepairJob } from '@/lib/llm-repair';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
@@ -40,6 +41,9 @@ export async function POST(
         `/projects/${id}/environments/${envId}/start`,
         'POST'
       );
+      // The process state changed on the agent — drop the sync cache so the
+      // next list GET re-syncs instead of serving the pre-start snapshot.
+      invalidateRemoteProjectCache();
       return NextResponse.json(result.data, { status: result.status });
     }
 

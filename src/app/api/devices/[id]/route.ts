@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
+import { invalidateRemoteProjectCache } from '@/lib/remote-sync'
 import { requireApprovedUser } from '@/lib/auth';
 
 export async function GET(
@@ -78,6 +79,9 @@ export async function PUT(
       data,
     })
 
+    // Connection details may have changed — force a real re-sync next time.
+    invalidateRemoteProjectCache()
+
     return NextResponse.json(device)
   } catch (error: any) {
     if (error?.code === 'P2002') {
@@ -113,6 +117,10 @@ export async function DELETE(
     }
 
     await db.device.delete({ where: { id } })
+
+    // The cache still holds this device's projects — drop it so the next
+    // list GET doesn't serve projects of a device that no longer exists.
+    invalidateRemoteProjectCache()
 
     return NextResponse.json({ success: true })
   } catch (error) {
