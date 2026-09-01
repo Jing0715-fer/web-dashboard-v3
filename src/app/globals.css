@@ -246,6 +246,119 @@
   background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1.2px);
 }
 
+/* ---------- Login screen backdrop ----------
+   Richer hero canvas for the auth screen (the shared page-backdrop is too
+   plain for a full-viewport page): layered brand sky washes, a fine brand
+   grid masked toward the center, slowly drifting aurora orbs (.login-orb
+   children), a dark-mode-only star field, and an edge vignette for depth.
+   Everything derives from --brand so the theme customizer accent flows
+   through, and all motion respects prefers-reduced-motion. */
+.login-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+/* Sky washes + horizon glow + edge vignette (background color fades the
+   corners so the card pops without a hard contrast edge). */
+.login-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(1100px 560px at 74% -12%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 70%),
+    radial-gradient(880px 460px at 8% 6%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 72%),
+    radial-gradient(1400px 540px at 50% 118%, color-mix(in srgb, var(--brand) 14%, transparent), transparent 72%),
+    radial-gradient(ellipse 130% 105% at 50% 45%, transparent 62%, color-mix(in srgb, var(--background) 72%, transparent) 100%);
+}
+/* Fine perspective-feel grid, concentrated around the auth column. */
+.login-backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(9, 9, 11, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(9, 9, 11, 0.06) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 88% 78% at 50% 40%, rgba(0, 0, 0, 0.9), transparent 76%);
+  mask-image: radial-gradient(ellipse 88% 78% at 50% 40%, rgba(0, 0, 0, 0.9), transparent 76%);
+}
+.dark .login-backdrop::after {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+}
+
+/* Drifting aurora orbs — soft blurred brand blobs on very slow loops. */
+.login-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(72px);
+  will-change: transform;
+}
+.login-orb-a {
+  width: 36rem;
+  height: 36rem;
+  top: -13rem;
+  right: -9rem;
+  background: color-mix(in srgb, var(--brand) 30%, transparent);
+  animation: login-drift-a 26s ease-in-out infinite alternate;
+}
+.login-orb-b {
+  width: 27rem;
+  height: 27rem;
+  bottom: -10rem;
+  left: -8rem;
+  background: color-mix(in srgb, var(--brand) 20%, transparent);
+  animation: login-drift-b 32s ease-in-out infinite alternate;
+}
+.login-orb-c {
+  width: 19rem;
+  height: 19rem;
+  top: 36%;
+  left: 28%;
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  animation: login-drift-c 38s ease-in-out infinite alternate;
+}
+@keyframes login-drift-a {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-4.5rem, 3.5rem, 0) scale(1.12); }
+}
+@keyframes login-drift-b {
+  from { transform: translate3d(0, 0, 0) scale(1.06); }
+  to { transform: translate3d(5rem, -3.5rem, 0) scale(0.94); }
+}
+@keyframes login-drift-c {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(3.5rem, -4rem, 0) scale(1.18); }
+}
+
+/* Faint twinkling star field — dark mode only (in light mode it reads as
+   noise). Whole layer breathes instead of animating each dot. */
+.login-stars {
+  position: absolute;
+  inset: 0;
+  display: none;
+  background-image:
+    radial-gradient(1.4px 1.4px at 11% 16%, rgba(255, 255, 255, 0.7) 50%, transparent 51%),
+    radial-gradient(1px 1px at 23% 64%, rgba(255, 255, 255, 0.5) 50%, transparent 51%),
+    radial-gradient(1.2px 1.2px at 37% 28%, rgba(255, 255, 255, 0.6) 50%, transparent 51%),
+    radial-gradient(1px 1px at 46% 74%, rgba(255, 255, 255, 0.45) 50%, transparent 51%),
+    radial-gradient(1.4px 1.4px at 58% 12%, rgba(255, 255, 255, 0.65) 50%, transparent 51%),
+    radial-gradient(1px 1px at 69% 47%, rgba(255, 255, 255, 0.5) 50%, transparent 51%),
+    radial-gradient(1.2px 1.2px at 81% 22%, rgba(255, 255, 255, 0.55) 50%, transparent 51%),
+    radial-gradient(1px 1px at 90% 68%, rgba(255, 255, 255, 0.4) 50%, transparent 51%),
+    radial-gradient(1.1px 1.1px at 17% 87%, rgba(255, 255, 255, 0.45) 50%, transparent 51%),
+    radial-gradient(1.1px 1.1px at 64% 89%, rgba(255, 255, 255, 0.4) 50%, transparent 51%);
+  animation: login-twinkle 11s ease-in-out infinite alternate;
+}
+.dark .login-stars { display: block; }
+@keyframes login-twinkle {
+  from { opacity: 0.45; }
+  to { opacity: 0.95; }
+}
+
 /* Bookend hairlines: thin brand gradient edge under the header / above the footer,
    anchoring the accent into the chrome. */
 .header-hairline {
@@ -284,6 +397,7 @@
   .card-lift:hover, .card-lift:active { transform: none; }
   .skeleton-card, .animate-shimmer, .skeleton-shimmer-block, .skeleton-shimmer-block::after,
   .notif-badge-pulse, .bell-shake, .progress-indeterminate, .health-trend-icon { animation: none !important; }
+  .login-orb, .login-stars { animation: none !important; will-change: auto; }
 }
 
 @layer base {

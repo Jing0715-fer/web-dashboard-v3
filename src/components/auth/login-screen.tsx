@@ -510,7 +510,13 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
 
   return (
     <div className="relative min-h-screen flex flex-col">
-      <div className="page-backdrop" aria-hidden="true" />
+      {/* Layered hero backdrop: brand sky washes, grid, drifting orbs, stars */}
+      <div className="login-backdrop" aria-hidden="true">
+        <div className="login-orb login-orb-a" />
+        <div className="login-orb login-orb-b" />
+        <div className="login-orb login-orb-c" />
+        <div className="login-stars" />
+      </div>
       {/* Standalone language switcher (task 17) — top-right corner */}
       <div className="absolute top-4 right-4 z-20 flex items-center gap-1">
         <LanguageToggle />
@@ -550,7 +556,7 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
             transition={{ duration: 0.3, ease: 'easeOut' }}
             className="w-full max-w-md mx-auto lg:mx-0"
           >
-            <div className="rounded-xl border border-border/60 bg-background/95 backdrop-blur-sm shadow-sm p-6 sm:p-8">
+            <div className="rounded-xl border border-border/60 bg-background/95 backdrop-blur-sm shadow-lg shadow-black/5 dark:shadow-black/30 p-6 sm:p-8">
               {/* Mobile logo row */}
               <div className="flex items-center gap-2.5 lg:hidden mb-5">
                 <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/40 ring-1 ring-primary/30 ring-inset">

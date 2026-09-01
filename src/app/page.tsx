@@ -11,7 +11,7 @@ import {
   ChevronUp, MoreVertical, Eye, Filter, Tag, Layers,
   Monitor, Database, Smartphone, Cpu as CpuIcon, GitBranch,
   CheckCircle2, XCircle, Loader2,
-  Bot, ArrowUpDown, ArrowRightLeft,
+  Bot, ArrowUpDown, ArrowRightLeft, ArrowUpNarrowWide, ArrowDownWideNarrow,
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap, MonitorSmartphone,
   Keyboard,
   Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate,
@@ -213,7 +213,8 @@ interface HealthCheckResult {
 type AlertSeverity = 'critical' | 'warning' | 'notice' | 'ok'
 
 type ViewMode = 'grid' | 'list'
-type SortOption = 'newest' | 'name' | 'status' | 'custom'
+type SortOption = 'newest' | 'name' | 'status' | 'port' | 'custom'
+type SortDir = 'asc' | 'desc'
 type FilterStatus = 'all' | 'running' | 'stopped'
 type GroupBy = 'device' | 'tags' | 'none'
 
@@ -322,6 +323,14 @@ function getProjectStatus(project: Project): 'running' | 'stopped' | 'mixed' {
   if (running === envs.length) return 'running'
   if (running === 0) return 'stopped'
   return 'mixed'
+}
+
+/** Port used when sorting a project by port — mirrors the card's open-URL
+ *  fallback: the running env's port, else the first env's port. Projects
+ *  without any environment sink to the end (Infinity) instead of position 0. */
+function getProjectSortPort(project: Project): number {
+  const envs = project.environments || []
+  return (envs.find((e) => e.status === 'running') ?? envs[0])?.port ?? Number.POSITIVE_INFINITY
 }
 
 function calculateHealthScore(project: Project): number {
@@ -4859,7 +4868,22 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     try { const v = localStorage.getItem('dashboard-viewMode'); return v === 'grid' || v === 'list' ? v : 'grid' } catch { return 'grid' }
   })
   const [sortBy, setSortBy] = React.useState<SortOption>(() => {
-    try { const v = localStorage.getItem('dashboard-sortBy'); return v === 'newest' || v === 'name' || v === 'status' || v === 'custom' ? v : 'custom' } catch { return 'custom' }
+    try {
+      const v = localStorage.getItem('dashboard-sortBy')
+      // One-time migration: 'custom' used to be the default; the default is
+      // now port ascending. Explicitly chosen sorts are still honored, and
+      // after this runs once, drag-to-reorder ('custom') persists normally.
+      if (v === 'custom' && localStorage.getItem('dashboard-sortBy-migrated') !== '1') {
+        localStorage.setItem('dashboard-sortBy-migrated', '1')
+        return 'port'
+      }
+      return v === 'newest' || v === 'name' || v === 'status' || v === 'custom' || v === 'port' ? v : 'port'
+    } catch { return 'port' }
+  })
+  // Sort direction for the non-custom sorts ('asc' = natural forward order:
+  // port small→large, A→Z, newest first, running first). Toggle button flips it.
+  const [sortDir, setSortDir] = React.useState<SortDir>(() => {
+    try { return localStorage.getItem('dashboard-sortDir') === 'desc' ? 'desc' : 'asc' } catch { return 'asc' }
   })
   const [filterStatus, setFilterStatus] = React.useState<FilterStatus>('all')
   const [filterTags, setFilterTags] = React.useState<string[]>([])
@@ -4992,6 +5016,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // Persist dashboard preferences to localStorage
   React.useEffect(() => { localStorage.setItem('dashboard-viewMode', viewMode) }, [viewMode])
   React.useEffect(() => { localStorage.setItem('dashboard-sortBy', sortBy) }, [sortBy])
+  React.useEffect(() => { localStorage.setItem('dashboard-sortDir', sortDir) }, [sortDir])
   React.useEffect(() => { localStorage.setItem('dashboard-selectedDeviceId', selectedDeviceId ?? 'null') }, [selectedDeviceId])
   React.useEffect(() => { localStorage.setItem('dashboard-groupBy', groupBy) }, [groupBy])
   React.useEffect(() => { localStorage.setItem('dashboard-health-alert-threshold', String(healthAlertThreshold)) }, [healthAlertThreshold])
@@ -5416,15 +5441,21 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       })
     }
 
-    // Sort
-    if (sortBy === 'newest') result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    else if (sortBy === 'name') result.sort((a, b) => a.name.localeCompare(b.name))
-    else if (sortBy === 'status') {
+    // Sort — each key sorts in its natural forward order; 'desc' flips it.
+    // Starred projects are partitioned AFTER sorting so they always lead.
+    const fwd = sortDir === 'desc' ? -1 : 1
+    if (sortBy === 'port') {
+      result.sort((a, b) => (getProjectSortPort(a) - getProjectSortPort(b)) * fwd)
+    } else if (sortBy === 'newest') {
+      result.sort((a, b) => (new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) * fwd)
+    } else if (sortBy === 'name') {
+      result.sort((a, b) => a.name.localeCompare(b.name) * fwd)
+    } else if (sortBy === 'status') {
       result.sort((a, b) => {
         const sa = getProjectStatus(a)
         const sb = getProjectStatus(b)
         const order = { running: 0, mixed: 1, stopped: 2 }
-        return (order[sa] ?? 3) - (order[sb] ?? 3)
+        return ((order[sa] ?? 3) - (order[sb] ?? 3)) * fwd
       })
     }
 
@@ -5434,7 +5465,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     result = [...starred, ...unstarred]
 
     return result
-  }, [projects, searchQuery, filterStatus, filterTags, sortBy, starredIds, selectedDeviceId])
+  }, [projects, searchQuery, filterStatus, filterTags, sortBy, sortDir, starredIds, selectedDeviceId])
 
   // Keep refs in sync for keyboard handler (avoids temporal dead zone)
   React.useEffect(() => { filteredProjectsRef.current = filteredProjects }, [filteredProjects])
@@ -6722,14 +6753,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" className={`inline-flex items-center gap-1 rounded-md border ${sortBy !== 'newest' ? 'border-brand/50 bg-brand-soft text-brand-strong' : 'border-zinc-200 dark:border-zinc-700 bg-card shadow-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'} h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors`}>
+                  <button type="button" className={`inline-flex items-center gap-1 rounded-md border ${sortBy !== 'custom' ? 'border-brand/50 bg-brand-soft text-brand-strong' : 'border-zinc-200 dark:border-zinc-700 bg-card shadow-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'} h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors`}>
                     <ArrowUpDown className="h-3 w-3" />
-                    {sortBy === 'newest' ? t('surf.newest') : sortBy === 'name' ? t('surf.name') : t('surf.filterStatus')}
+                    {sortBy === 'custom' ? t('surf.sortCustom') : sortBy === 'newest' ? t('surf.newest') : sortBy === 'name' ? t('surf.name') : sortBy === 'status' ? t('surf.filterStatus') : t('surf.sortPort')}
                     <ChevronDown className="h-3 w-3 ml-0.5 opacity-60" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuRadioGroup value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+                    <DropdownMenuRadioItem value="port">{t('surf.sortPort')}</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="custom">{t('surf.sortCustom')}</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="newest">{t('surf.sortNewest')}</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="name">{t('surf.sortName')}</DropdownMenuRadioItem>
@@ -6737,6 +6769,27 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
+
+              {/* Sort direction toggle — flips the active sort between its
+                  natural forward order and reverse. Starred-first is unaffected. */}
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                      disabled={sortBy === 'custom'}
+                      aria-label={sortDir === 'asc' ? t('surf.sortDirAsc') : t('surf.sortDirDesc')}
+                      className={`inline-flex items-center justify-center rounded-md border h-7 w-7 text-xs cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${sortDir === 'desc' ? 'border-brand/50 bg-brand-soft text-brand-strong' : 'border-zinc-200 dark:border-zinc-700 bg-card shadow-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'}`}
+                    >
+                      {sortDir === 'asc' ? <ArrowUpNarrowWide className="h-3 w-3" /> : <ArrowDownWideNarrow className="h-3 w-3" />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="text-xs">
+                    {sortDir === 'asc' ? t('surf.sortDirAsc') : t('surf.sortDirDesc')}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -6793,7 +6846,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
             {/* Active filter count badge */}
             {(() => {
-              const count = (filterStatus !== 'all' ? 1 : 0) + filterTags.length + (sortBy !== 'newest' ? 1 : 0) + (groupBy !== 'none' ? 1 : 0)
+              const count = (filterStatus !== 'all' ? 1 : 0) + filterTags.length + (sortBy !== 'port' ? 1 : 0) + (groupBy !== 'none' ? 1 : 0)
               return count > 0 ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-semibold tabular-nums">{t('surf.activeCount', { count })}</span> : null
             })()}
             {/* Batch mode toggle — always right-aligned */}
