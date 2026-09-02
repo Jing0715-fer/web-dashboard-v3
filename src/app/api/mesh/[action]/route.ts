@@ -56,10 +56,43 @@ function hostFromReq(req: NextRequest): string {
   return host;
 }
 
-function lanIp(): string {
+/**
+ * Ranked LAN IP detection.
+ *
+ * os.networkInterfaces() order is arbitrary — on machines with VPN / Clash /
+ * Surge TUN adapters the FIRST non-internal IPv4 is often the fake-IP range
+ * (198.18.0.0/15) which is unroutable from other devices. Ranking:
+ *   1. 192.168.0.0/16  — typical home/office LAN (best)
+ *   2. 10.0.0.0/8      — larger private nets
+ *   3. 172.16.0.0/12   — docker/ corp nets
+ *   4. 100.64.0.0/10   — CGNAT (Tailscale & friends) — reachable, keep last
+ * Excluded entirely:
+ *   - 198.18.0.0/15 — benchmark range hijacked by fake-IP VPN modes
+ *   - 169.254.0.0/16 — link-local
+ */
+function lanIpCandidates(): string[] {
   const ifaces = Object.values(os.networkInterfaces()).flat();
-  const ipv4 = ifaces.find((i) => i && i.family === 'IPv4' && !i.internal);
-  return ipv4?.address || '127.0.0.1';
+  const ips: string[] = [];
+  for (const i of ifaces) {
+    if (!i || i.family !== 'IPv4' || i.internal) continue;
+    const [a, b] = i.address.split('.').map(Number);
+    if (a === 198 && (b === 18 || b === 19)) continue; // fake-IP VPN
+    if (a === 169 && b === 254) continue; // link-local
+    ips.push(i.address);
+  }
+  const rank = (ip: string): number => {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 192 && b === 168) return 0;
+    if (a === 10) return 1;
+    if (a === 172 && b >= 16 && b <= 31) return 2;
+    if (a === 100 && b >= 64 && b <= 127) return 3; // CGNAT / tailscale
+    return 4;
+  };
+  return ips.sort((x, y) => rank(x) - rank(y));
+}
+
+function lanIp(): string {
+  return lanIpCandidates()[0] || '127.0.0.1';
 }
 
 interface LocalAgentInfo {
@@ -85,7 +118,14 @@ async function probeAgent(port: number): Promise<boolean> {
  * Auto-detect the agent service on this machine.
  * Reads agent-config.json (written by the agent on startup) from each
  * mini-services/agent-* dir, prefers a live (health-probe OK) instance.
+ *
+ * If the recorded port is dead but an agent is listening on a NEIGHBOURING
+ * port (started manually with --port, stale .agent-session.env, …), the scan
+ * finds it: all probes run in parallel and closed ports reject in ~1ms, so
+ * the sweep adds no latency to the dead-config case.
  */
+const AGENT_SCAN_PORTS = [3100, 3101, 3102, 3103, 3104, 3105];
+
 async function detectLocalAgent(): Promise<LocalAgentInfo | null> {
   const root = process.cwd();
   const candidates: Array<Omit<LocalAgentInfo, 'running'>> = [];
@@ -115,6 +155,14 @@ async function detectLocalAgent(): Promise<LocalAgentInfo | null> {
   for (const c of candidates) {
     if (await probeAgent(c.port)) return { ...c, running: true };
   }
+  // Recorded port is dead — sweep the usual agent ports (and any other
+  // candidates' ports) for a live agent before declaring "not running".
+  const scanPorts = [...new Set([...AGENT_SCAN_PORTS, ...candidates.map((c) => c.port)])];
+  const alive = await Promise.all(
+    scanPorts.map(async (p) => ((await probeAgent(p)) ? p : null)),
+  );
+  const livePort = alive.find((p) => p != null) ?? null;
+  if (livePort != null) return { ...candidates[0], port: livePort, running: true };
   return { ...candidates[0], running: false };
 }
 
@@ -242,7 +290,11 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const ip = lanIp();
+      // Reported IP: the user can override which address gets advertised
+      // (auto-detect ranks LAN ranges first, but VPN / multi-NIC setups may
+      // need the explicit choice). Falls back to the ranked best candidate.
+      const bodyIp = String(body?.ip || '').trim();
+      const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(bodyIp) ? bodyIp : lanIp();
       try {
         const res = await fetch(`${target}/api/mesh/register`, {
           method: 'POST',
@@ -298,9 +350,14 @@ export async function GET(req: NextRequest) {
   }
   if (action === 'local-agent') {
     const detected = await detectLocalAgent();
+    const ips = lanIpCandidates();
     return NextResponse.json({
       agent: detected,
-      ip: lanIp(),
+      ip: ips[0] || '127.0.0.1',
+      // All routable candidates (VPN fake-IP ranges excluded, LAN ranges
+      // first) — the UI shows them so the user can verify the advertised
+      // address or override it in manual mode.
+      ips,
       hostname: os.hostname(),
     });
   }

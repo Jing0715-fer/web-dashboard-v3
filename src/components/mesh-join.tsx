@@ -41,10 +41,12 @@ export function JoinMeshDialog({
   const [code, setCode] = React.useState('')
   const [agent, setAgent] = React.useState<LocalAgentInfo | null>(null)
   const [ip, setIp] = React.useState('')
+  const [ips, setIps] = React.useState<string[]>([])
   const [agentLoading, setAgentLoading] = React.useState(false)
   const [manualMode, setManualMode] = React.useState(false)
   const [manualPort, setManualPort] = React.useState('')
   const [manualKey, setManualKey] = React.useState('')
+  const [manualIp, setManualIp] = React.useState('')
   const [joining, setJoining] = React.useState(false)
 
   const loadAgent = React.useCallback(async () => {
@@ -55,6 +57,8 @@ export function JoinMeshDialog({
         const data = await res.json()
         setAgent(data.agent)
         setIp(data.ip || '')
+        setIps(Array.isArray(data.ips) ? data.ips : [])
+        setManualIp(data.ip || '')
       }
     } catch { /* ignore */ } finally {
       setAgentLoading(false)
@@ -77,7 +81,7 @@ export function JoinMeshDialog({
         body: JSON.stringify({
           target: target.trim(),
           code: code.trim(),
-          ...(manualMode ? { agentPort: Number(manualPort) || undefined, agentApiKey: manualKey.trim() || undefined } : {}),
+          ...(manualMode ? { agentPort: Number(manualPort) || undefined, agentApiKey: manualKey.trim() || undefined, ip: manualIp.trim() || undefined } : {}),
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -99,7 +103,7 @@ export function JoinMeshDialog({
     } finally {
       setJoining(false)
     }
-  }, [t, target, code, manualMode, manualPort, manualKey, joining, onClose, onJoined])
+  }, [t, target, code, manualMode, manualPort, manualKey, manualIp, joining, onClose, onJoined])
 
   if (!open) return null
 
@@ -170,9 +174,16 @@ export function JoinMeshDialog({
               )}
             </div>
             {agent && (
-              <p className="text-[11px] text-muted-foreground">
-                {t('dlg.meshJoin.agentInfo', { name: agent.name, port: agent.port, ip: ip || t('dlg.meshJoin.unknown') })}
-              </p>
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground">
+                  {t('dlg.meshJoin.agentInfo', { name: agent.name, port: agent.port, ip: ip || t('dlg.meshJoin.unknown') })}
+                </p>
+                {ips.length > 1 && (
+                  <p className="text-[11px] text-muted-foreground/80">
+                    {t('dlg.meshJoin.otherIps', { ips: ips.slice(1).join(', ') })}
+                  </p>
+                )}
+              </div>
             )}
             {!agentReady && (
               <div className="flex items-center justify-between gap-2">
@@ -190,14 +201,45 @@ export function JoinMeshDialog({
               </div>
             )}
             {manualMode && (
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <div className="space-y-1">
-                  <Label className="text-[11px]">{t('dlg.meshJoin.agentPort')}</Label>
-                  <Input value={manualPort} onChange={(e) => setManualPort(e.target.value.replace(/\D/g, ''))} placeholder="3100" className="h-8 text-xs font-mono" />
+              <div className="space-y-2 pt-1">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-[11px]">{t('dlg.meshJoin.agentPort')}</Label>
+                    <Input value={manualPort} onChange={(e) => setManualPort(e.target.value.replace(/\D/g, ''))} placeholder="3100" className="h-8 text-xs font-mono" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[11px]">{t('dlg.meshJoin.agentKey')}</Label>
+                    <Input value={manualKey} onChange={(e) => setManualKey(e.target.value)} placeholder={t('dlg.meshJoin.keyPlaceholder')} className="h-8 text-xs font-mono" />
+                  </div>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-[11px]">{t('dlg.meshJoin.agentKey')}</Label>
-                  <Input value={manualKey} onChange={(e) => setManualKey(e.target.value)} placeholder={t('dlg.meshJoin.keyPlaceholder')} className="h-8 text-xs font-mono" />
+                  <Label className="text-[11px]">{t('dlg.meshJoin.advertisedIp')}</Label>
+                  <Input
+                    value={manualIp}
+                    onChange={(e) => setManualIp(e.target.value.trim())}
+                    placeholder={ip || '192.168.1.20'}
+                    className="h-8 text-xs font-mono"
+                    inputMode="numeric"
+                  />
+                  {ips.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      {ips.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setManualIp(c)}
+                          className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                            manualIp === c
+                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'
+                              : 'bg-muted hover:bg-muted/70 text-muted-foreground dark:hover:bg-zinc-800'
+                          }`}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground">{t('dlg.meshJoin.advertisedIpHint')}</p>
                 </div>
               </div>
             )}

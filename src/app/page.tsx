@@ -4918,26 +4918,38 @@ function DeviceManagementPanel({
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-lg overflow-hidden p-0 flex flex-col dark:bg-zinc-900/98 dark:border-l dark:border-zinc-800/60">
-        <SheetHeader className="px-4 pt-4 pb-2 border-b shrink-0">
+        <SheetHeader className="px-4 pt-4 pb-3 border-b shrink-0">
+          {/* Title row — icon + title/description + ONE primary action.
+           * The remaining actions live in the wrap-friendly toolbar below:
+           * 4 buttons in this row used to squeeze the title to 0px on narrow
+           * screens and push "Add Device" off-viewport. */}
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30">
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30 shrink-0">
               <Plug className="h-5 w-5 text-teal-600 dark:text-teal-400" />
             </div>
             <div className="flex-1 min-w-0">
               <SheetTitle>{t('dlg.devicePanel.title')}</SheetTitle>
               <SheetDescription className="text-xs">{t('dlg.devicePanel.desc')}</SheetDescription>
             </div>
-            <Button size="sm" variant="outline" onClick={onOpenJoin} className="h-7 text-xs border-cyan-300 text-cyan-700 hover:bg-cyan-50 dark:border-cyan-700 dark:text-cyan-400 dark:hover:bg-cyan-900/20">
-              <MonitorSmartphone className="h-3 w-3 mr-1" />{t('dlg.devicePanel.join')}
+            <Button size="sm" onClick={onAdd} className="bg-teal-600 hover:bg-teal-700 text-white h-7 text-xs shrink-0">
+              <Plus className="h-3 w-3 mr-1" />{t('dlg.devicePanel.addDevice')}
             </Button>
-            <Button size="sm" variant="outline" onClick={onOpenPairing} className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20">
+          </div>
+          {/* Action toolbar — wraps on narrow screens instead of overlapping
+           * the header text. One instance of each action (no duplicates: the
+           * empty state below no longer repeats them). */}
+          <div className="flex flex-wrap items-center gap-1.5 pt-1">
+            <Button variant="outline" size="sm" onClick={onOpenPairing} className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20">
               <PlugZap className="h-3 w-3 mr-1" />{t('dlg.devicePanel.pair')}
             </Button>
-            <Button size="sm" variant="outline" onClick={onOpenDeployGuide} className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
+            <Button variant="outline" size="sm" onClick={onOpenJoin} className="h-7 text-xs border-cyan-300 text-cyan-700 hover:bg-cyan-50 dark:border-cyan-700 dark:text-cyan-400 dark:hover:bg-cyan-900/20">
+              <MonitorSmartphone className="h-3 w-3 mr-1" />{t('dlg.devicePanel.join')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={onOpenDeployGuide} className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
               <Download className="h-3 w-3 mr-1" />{t('dlg.devicePanel.deploy')}
             </Button>
-            <Button size="sm" onClick={onAdd} className="bg-teal-600 hover:bg-teal-700 text-white h-7 text-xs">
-              <Plus className="h-3 w-3 mr-1" />{t('dlg.devicePanel.addDevice')}
+            <Button variant="outline" size="sm" onClick={onOpenRemoteProject} className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
+              <MonitorSmartphone className="h-3 w-3 mr-1" />{t('dlg.devicePanel.addRemote')}
             </Button>
           </div>
         </SheetHeader>
@@ -4959,15 +4971,6 @@ function DeviceManagementPanel({
                 <div className="text-[10px] text-red-500/70 dark:text-red-400/60 font-medium">{t('dlg.common.offline')}</div>
               </div>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onOpenRemoteProject}
-              className="w-full mt-2.5 h-8 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20"
-            >
-              <MonitorSmartphone className="h-3.5 w-3.5 mr-1.5" />
-              {t('dlg.devicePanel.addRemote')}
-            </Button>
           </div>
         )}
 
@@ -4978,21 +4981,8 @@ function DeviceManagementPanel({
                 <Plug className="h-12 w-12 text-teal-600/70 dark:text-teal-400/60" />
               </div>
               <h3 className="text-sm font-semibold mb-1">{t('dlg.devicePanel.noDevices')}</h3>
-              <p className="text-xs text-muted-foreground dark:text-zinc-400 mb-4 max-w-xs">{t('dlg.devicePanel.noDevicesDesc')}</p>
-              <div className="flex items-center gap-2 flex-wrap justify-center">
-                <Button onClick={onOpenPairing} size="sm" className="bg-orange-500 hover:bg-orange-600 text-white">
-                  <PlugZap className="h-3 w-3 mr-1" />{t('dlg.devicePanel.oneClickPair')}
-                </Button>
-                <Button onClick={onOpenJoin} size="sm" className="bg-cyan-600 hover:bg-cyan-700 text-white">
-                  <MonitorSmartphone className="h-3 w-3 mr-1" />{t('dlg.devicePanel.join')}
-                </Button>
-                <Button onClick={onAdd} size="sm" className="bg-teal-600 hover:bg-teal-700 text-white">
-                  <Plus className="h-3 w-3 mr-1" />{t('dlg.devicePanel.addDevice')}
-                </Button>
-                <Button onClick={onOpenDeployGuide} size="sm" variant="outline" className="border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
-                  <Download className="h-3 w-3 mr-1" />{t('dlg.devicePanel.deploy')}
-                </Button>
-              </div>
+              <p className="text-xs text-muted-foreground dark:text-zinc-400 max-w-xs">{t('dlg.devicePanel.noDevicesDesc')}</p>
+              <p className="text-[11px] text-muted-foreground/80 mt-3">{t('dlg.devicePanel.useToolbarAbove')}</p>
             </div>
           ) : (
             devices.map((device) => (
