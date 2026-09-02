@@ -8,6 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
+import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 
 /**
  * Device mesh pairing — simple device interconnection.
@@ -113,6 +114,24 @@ interface LocalAgentInfo {
   name: string;
   running: boolean;
   dir: string;
+}
+
+/**
+ * Info about THIS dashboard machine's own agent, shared (pair code = trust
+ * anchor) with a device registering via /api/mesh/register so the JOINER
+ * can mirror us into its own device list — pairing becomes mutual instead
+ * of one-directional. Null when this machine has no agent identity yet.
+ */
+async function localPeerInfo() {
+  const detected = await detectLocalAgent();
+  if (!detected) return null;
+  return {
+    name: detected.name,
+    ip: lanIp(),
+    port: detected.port,
+    apiKey: detected.apiKey,
+    running: detected.running,
+  };
 }
 
 async function probeAgent(port: number): Promise<boolean> {
@@ -383,9 +402,12 @@ export async function POST(req: NextRequest) {
       });
       let device;
       if (existing) {
+        // Heal the address too (not just name/key/status): a device whose
+        // ip/port drifted since its last registration would otherwise stay
+        // pinned to a dead address and show offline forever.
         device = await db.device.update({
           where: { id: existing.id },
-          data: { name: String(name), apiKey: String(apiKey), status: 'online', lastSeen: new Date() },
+          data: { name: String(name), apiKey: String(apiKey), ip: String(ip), port: Number(port), status: 'online', lastSeen: new Date() },
         });
       } else {
         device = await db.device.create({
@@ -411,10 +433,15 @@ export async function POST(req: NextRequest) {
       // The code stays valid until expiry so several devices can join with
       // the same code within the 5-minute window.
 
+      // Mutual pairing: hand our own agent's coordinates to the joiner so
+      // BOTH dashboards end up with a device row for the other side.
+      const peer = await localPeerInfo();
+
       return NextResponse.json({
         ok: true,
         deviceId: device.id,
         dashboard: { name: 'Dashboard', registered: true },
+        peer,
       });
     }
 
@@ -455,14 +482,90 @@ export async function POST(req: NextRequest) {
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
+          // ---- Mutual pairing ----
+          // The target returned its OWN agent coordinates (peer). Mirror it
+          // into OUR device list so both sides can see (and fetch projects
+          // from) each other — previously the joiner learned nothing about
+          // the target, so device lists stayed one-directional.
+          let mutual = false;
+          let peerSummary: { name: string; ip: string; port: number } | null = null;
+          const peer = data?.peer;
+          if (peer && peer.apiKey && peer.port) {
+            const peerIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(String(peer.ip))
+              ? String(peer.ip)
+              : lanIp();
+            const peerPort = Number(peer.port);
+            const existingPeer = await db.device.findFirst({
+              where: { OR: [{ apiKey: String(peer.apiKey) }, { ip: peerIp, port: peerPort }] },
+            });
+            const peerDevice = existingPeer
+              ? await db.device.update({
+                  where: { id: existingPeer.id },
+                  data: {
+                    name: String(peer.name || 'Dashboard peer'),
+                    ip: peerIp,
+                    port: peerPort,
+                    apiKey: String(peer.apiKey),
+                    status: peer.running ? 'online' : 'offline',
+                    lastSeen: new Date(),
+                  },
+                })
+              : await db.device.create({
+                  data: {
+                    name: String(peer.name || 'Dashboard peer'),
+                    ip: peerIp,
+                    port: peerPort,
+                    apiKey: String(peer.apiKey),
+                    status: peer.running ? 'online' : 'offline',
+                  },
+                });
+            mutual = true;
+            peerSummary = { name: peerDevice.name, ip: peerIp, port: peerPort };
+            logActivity({
+              type: 'pair',
+              level: 'success',
+              message: `Device '${peerDevice.name}' paired (mutual)`,
+              deviceId: peerDevice.id,
+              deviceName: peerDevice.name,
+              detail: `${peerIp}:${peerPort} · target: ${target}`,
+            });
+            // New peer → drop the sync cache so its projects are fetched
+            // on the next list GET instead of a pre-join snapshot.
+            invalidateRemoteProjectCache();
+          }
+
+          // Wire the LOCAL agent's heartbeat to the target so the remote
+          // Device row for THIS machine keeps self-healing (ip/port drift)
+          // after restarts. Best-effort: a stopped agent simply keeps its
+          // persisted dashboardUrl once started via ensure-agent.
+          try {
+            await fetch(`http://127.0.0.1:${port}/api/agent/pair-target`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({ dashboardUrl: target }),
+              signal: AbortSignal.timeout(3000),
+            });
+          } catch { /* best-effort only */ }
+
           logActivity({
             type: 'pair',
             level: 'success',
             message: `Joined '${name}' via pairing code`,
             deviceName: name,
-            detail: `target: ${target}`,
+            detail: `target: ${target}${mutual ? ' · mutual' : ''}`,
           });
-          return NextResponse.json({ ok: true, deviceName: name, ip, port, target });
+          return NextResponse.json({
+            ok: true,
+            deviceName: name,
+            ip,
+            port,
+            target,
+            mutual,
+            peer: peerSummary,
+          });
         }
         return NextResponse.json(
           { error: data?.error || `对方仪表盘返回 ${res.status}` },

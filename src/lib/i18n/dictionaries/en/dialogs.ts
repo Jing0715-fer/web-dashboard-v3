@@ -778,6 +778,7 @@ export const dialogs = {
   'dlg.meshJoin.join': 'Join Network',
   'dlg.meshJoin.joinedToast': 'Joined the network',
   'dlg.meshJoin.joinedDesc': 'This machine ({device} · {ip}:{port}) has registered with {target}',
+  'dlg.meshJoin.joinedMutualDesc': 'Mutually paired: this machine registered with {target}, and {peer} ({peerIp}:{peerPort}) joined your device list',
   'dlg.meshJoin.joinFailed': 'Join failed',
 
   // ---- dialogs: misc toasts wired in page.tsx ----

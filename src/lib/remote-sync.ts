@@ -1,5 +1,7 @@
 import { db } from '@/lib/db'
 import { proxyToAgent } from '@/lib/remote-agent'
+import * as fs from 'fs'
+import * as path from 'path'
 
 /**
  * Remote project sync — stale-while-revalidate.
@@ -27,6 +29,30 @@ const FRESH_MS = 6_000 // serve from cache with no background refresh
 const ONLINE_TIMEOUT_MS = 6_000
 const OFFLINE_TIMEOUT_MS = 1_500
 
+const AGENT_DIRS = ['agent', 'agent-linux', 'agent-macos', 'agent-win', 'agent-windows']
+
+/**
+ * apiKeys of the agent(s) co-located on THIS machine (mini-services/agent-*'
+ * agent-config.json). A Device row carrying one of these keys IS this
+ * machine — its projects are already our local rows. Syncing such a row
+ * would feed our own projects back through the agent and flip them to
+ * "remote" (self-mirror corruption — seen live: a local project's deviceId
+ * got overwritten with the self device's id).
+ */
+function localAgentApiKeys(): Set<string> {
+  const keys = new Set<string>()
+  const root = process.cwd()
+  for (const dir of AGENT_DIRS) {
+    try {
+      const cfg = JSON.parse(
+        fs.readFileSync(path.join(root, 'mini-services', dir, 'agent-config.json'), 'utf-8')
+      )
+      if (cfg.apiKey) keys.add(String(cfg.apiKey))
+    } catch { /* no config in this dir */ }
+  }
+  return keys
+}
+
 export interface RemoteSyncResult {
   at: number
   /** Deduped live remote projects, already carrying deviceId/deviceName. */
@@ -48,7 +74,12 @@ export function invalidateRemoteProjectCache() {
  */
 async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   const startedAt = Date.now()
-  const devices = await db.device.findMany()
+  // Skip the self-mirroring device rows: an agent co-located with THIS
+  // dashboard serves our own local projects, and mirroring them back would
+  // corrupt deviceId. (Device rows for other machines are unaffected.)
+  const localKeys = localAgentApiKeys()
+  const allDevices = await db.device.findMany()
+  const devices = allDevices.filter((d) => !localKeys.has(d.apiKey))
   const remoteResults = await Promise.allSettled(
     devices.map(async (device) => {
       // Offline devices get a short probe budget; online ones the full (but

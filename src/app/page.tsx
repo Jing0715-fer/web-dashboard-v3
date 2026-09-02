@@ -1676,40 +1676,6 @@ function NotificationDetailDialog({
   )
 }
 
-// ======================== TOAST CONTAINER ========================
-
-function ToastContainer() {
-  const { toasts, dismiss } = useToast()
-  const variantColor = (v?: string) => {
-    if (v === 'success') return 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50'
-    if (v === 'destructive') return 'border-red-500 bg-red-50 dark:bg-red-950/50'
-    return 'border-border bg-card'
-  }
-  return (
-    <div className="fixed bottom-16 right-4 z-[100] flex flex-col gap-2 max-w-sm">
-      <AnimatePresence>
-        {toasts.map((toast) => (
-          <motion.div
-            key={toast.id}
-            initial={{ opacity: 0, x: 50, scale: 0.95 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 50, scale: 0.95 }}
-            className={`rounded-lg border p-3 shadow-lg ${variantColor(toast.variant)}`}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-sm font-medium">{toast.title}</p>
-                {toast.description && <p className="text-xs text-muted-foreground mt-0.5">{toast.description}</p>}
-              </div>
-              <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => dismiss(toast.id)}><X className="h-3 w-3" /></Button>
-            </div>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-    </div>
-  )
-}
-
 // ======================== PROJECT FORM DIALOG ========================
 
 function ProjectFormDialog({
@@ -9222,8 +9188,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       />
       <ChangePasswordDialog open={changePwOpen} onClose={() => setChangePwOpen(false)} />
 
-      {/* Toast container */}
-      <ToastContainer />
+      {/* NOTE: toasts are rendered ONCE by the <Toaster /> mounted in the
+          root layout — this page used to render a second custom toast list
+          (same useToast store) which made every notification appear twice
+          in two different styles. */}
     </div>
   )
 }

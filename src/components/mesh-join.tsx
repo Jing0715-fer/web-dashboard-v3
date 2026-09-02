@@ -115,7 +115,14 @@ export function JoinMeshDialog({
       if (res.ok) {
         addToast({
           title: t('dlg.meshJoin.joinedToast'),
-          description: t('dlg.meshJoin.joinedDesc', { device: data.deviceName, ip: data.ip, port: data.port, target: data.target }),
+          description: data?.mutual
+            ? t('dlg.meshJoin.joinedMutualDesc', {
+                target: data.target,
+                peer: data.peer?.name ?? '',
+                peerIp: data.peer?.ip ?? '',
+                peerPort: data.peer?.port ?? '',
+              })
+            : t('dlg.meshJoin.joinedDesc', { device: data.deviceName, ip: data.ip, port: data.port, target: data.target }),
           variant: 'success',
         })
         onJoined?.()

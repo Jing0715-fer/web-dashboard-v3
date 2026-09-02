@@ -774,6 +774,7 @@ export const dialogs = {
   'dlg.meshJoin.join': '加入网络',
   'dlg.meshJoin.joinedToast': '已加入网络',
   'dlg.meshJoin.joinedDesc': '本机（{device} · {ip}:{port}）已注册到 {target}',
+  'dlg.meshJoin.joinedMutualDesc': '已双向配对：本机已注册到 {target}，对方（{peer} · {peerIp}:{peerPort}）已加入本机设备列表',
   'dlg.meshJoin.joinFailed': '加入失败',
 
   // ---- 对话框：page.tsx 内的杂项提示 ----
