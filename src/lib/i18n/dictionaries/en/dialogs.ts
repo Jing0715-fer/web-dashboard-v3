@@ -769,6 +769,7 @@ export const dialogs = {
   'dlg.meshJoin.startAgent': 'Start Agent',
   'dlg.meshJoin.startingAgent': 'Starting…',
   'dlg.meshJoin.startAgentToast': 'Local agent started (port {port})',
+  'dlg.meshJoin.agentUpgradedToast': 'Local agent upgraded & restarted (port {port}) — it now serves this machine\'s projects',
   'dlg.meshJoin.startAgentFailed': 'Failed to start the agent',
   'dlg.meshJoin.manual': 'Enter manually',
   'dlg.meshJoin.cancelManual': 'Cancel manual',

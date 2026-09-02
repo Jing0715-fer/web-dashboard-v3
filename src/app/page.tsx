@@ -4866,7 +4866,11 @@ function DeviceManagementPanel({
     try {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 5000)
-      const res = await fetch(`http://${device.ip}:${device.port}/api/health`, { signal: controller.signal })
+      // The agent's health endpoint is /api/agent/health (unauthenticated,
+      // CORS *). The old probe hit /api/health — a 404 that answered in
+      // milliseconds and was rendered as "Unreachable (84ms timeout)" even
+      // though the agent was perfectly reachable.
+      const res = await fetch(`http://${device.ip}:${device.port}/api/agent/health`, { signal: controller.signal })
       clearTimeout(timeout)
       const latency = Math.round(performance.now() - start)
       setTestResults((prev) => ({ ...prev, [device.id]: { latency, success: res.ok } }))

@@ -39,7 +39,7 @@ const AGENT_DIRS = ['agent', 'agent-linux', 'agent-macos', 'agent-win', 'agent-w
  * "remote" (self-mirror corruption — seen live: a local project's deviceId
  * got overwritten with the self device's id).
  */
-function localAgentApiKeys(): Set<string> {
+export function localAgentApiKeys(): Set<string> {
   const keys = new Set<string>()
   const root = process.cwd()
   for (const dir of AGENT_DIRS) {
@@ -51,6 +51,38 @@ function localAgentApiKeys(): Set<string> {
     } catch { /* no config in this dir */ }
   }
   return keys
+}
+
+/**
+ * Self-mirror corruption heal. Versions before the deviceId-IS-NULL guard
+ * could feed this dashboard's OWN projects back through its own agent and
+ * overwrite their deviceId with the self device row's id. Such projects
+ * then vanish from BOTH views at once: the local list (deviceId != null)
+ * and the agent's serving (deviceId IS NULL filter) — the machine shows
+ * "0 projects" to every peer (and to itself) forever. Reset deviceId to
+ * NULL for any project owned by a SELF device row.
+ */
+async function healSelfMirroredProjects(localKeys: Set<string>): Promise<number> {
+  if (localKeys.size === 0) return 0;
+  const selfRows = await db.device.findMany({
+    where: { apiKey: { in: [...localKeys] } },
+    select: { id: true, name: true },
+  });
+  if (selfRows.length === 0) return 0;
+  const res = await db.project.updateMany({
+    where: { deviceId: { in: selfRows.map((r) => r.id) } },
+    data: { deviceId: null },
+  });
+  return res.count;
+}
+
+/** Idempotent, safe to call on every projects GET — early-exits when this
+ * machine has no self device rows (the overwhelmingly common case). */
+export async function healSelfMirroredLocalProjects(): Promise<void> {
+  const healed = await healSelfMirroredProjects(localAgentApiKeys());
+  if (healed > 0) {
+    console.log(`[remote-sync] healed ${healed} self-mirrored project(s) back to local`);
+  }
 }
 
 export interface RemoteSyncResult {
@@ -78,6 +110,15 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   // dashboard serves our own local projects, and mirroring them back would
   // corrupt deviceId. (Device rows for other machines are unaffected.)
   const localKeys = localAgentApiKeys()
+
+  // Heal rows already corrupted by pre-guard versions (deviceId pointing
+  // at the self device row) BEFORE anything reads them — the local list,
+  // the agent's serving and the peer's view all recover in this same pass.
+  const healed = await healSelfMirroredProjects(localKeys)
+  if (healed > 0) {
+    console.log(`[remote-sync] healed ${healed} self-mirrored project(s) back to local`)
+  }
+
   const allDevices = await db.device.findMany()
   const devices = allDevices.filter((d) => !localKeys.has(d.apiKey))
   const remoteResults = await Promise.allSettled(

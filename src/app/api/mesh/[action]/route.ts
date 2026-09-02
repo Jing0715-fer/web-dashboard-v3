@@ -146,6 +146,87 @@ async function probeAgent(port: number): Promise<boolean> {
 }
 
 /**
+ * True when the RUNNING agent on this port predates the dashboard-DB
+ * support: its /api/agent/health response lacks the `dashboardDb` marker
+ * (new agents always include the field, true or false). Such an agent
+ * keeps serving its own EMPTY agent.db — remote peers see the device
+ * online but with 0 projects, which is exactly the stale-agent failure
+ * mode reported after a git pull upgraded the dashboard code but the
+ * long-running agent process kept executing the old code.
+ */
+async function agentOutdated(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/agent/health`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!res.ok) return false; // can't tell — do NOT restart
+    const data = await res.json().catch(() => null);
+    return !!data && typeof data === 'object' && !('dashboardDb' in (data as Record<string, unknown>));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * PIDs currently LISTENING on `port`. Cross-platform best-effort:
+ *   darwin / linux: `lsof -ti tcp:PORT` (falls back to `ss -tlnp` parsing)
+ *   win32:         `netstat -ano | findstr ":PORT "` (LISTENING lines)
+ * The port's listener was just health-verified to BE our agent, so killing
+ * the owning pid(s) is surgical — no command-line pattern guessing that
+ * would miss agents started via start.sh (whose argv lacks the full path).
+ */
+function portListenerPids(port: number): number[] {
+  const pids = new Set<number>();
+  const addAll = (text: string, re: RegExp) => {
+    for (const m of text.matchAll(re)) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n > 0 && n !== process.pid) pids.add(n);
+    }
+  };
+  try {
+    addAll(execSync(`lsof -ti tcp:${port} 2>/dev/null`, { timeout: 2000 }).toString(), /(\d+)/g);
+  } catch { /* no lsof (common on linux) or nothing listening */ }
+  if (pids.size === 0) {
+    try {
+      const ss = execSync('ss -tlnp 2>/dev/null', { timeout: 2000 }).toString();
+      for (const line of ss.split('\n')) {
+        if (!line.includes(`:${port} `)) continue;
+        addAll(line, /pid=(\d+)/g);
+      }
+    } catch { /* no ss / nothing listening */ }
+  }
+  if (pids.size === 0 && process.platform === 'win32') {
+    try {
+      const ns = execSync(`netstat -ano | findstr ":${port} "`, { timeout: 3000 }).toString();
+      for (const line of ns.split('\n')) {
+        if (!line.includes('LISTENING')) continue;
+        const parts = line.trim().split(/\s+/);
+        const pid = Number(parts[parts.length - 1]);
+        if (Number.isFinite(pid) && pid > 0) pids.add(pid);
+      }
+    } catch { /* nothing listening */ }
+  }
+  return [...pids];
+}
+
+/** Stop the agent listening on `port` and wait for the port to actually
+ * free, so the respawn below doesn't race into EADDRINUSE. */
+async function stopAgentOnPort(port: number): Promise<void> {
+  for (const pid of portListenerPids(port)) {
+    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+  }
+  for (let i = 0; i < 16; i++) {
+    if (!(await probeAgent(port))) return; // listener is gone
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  // Still answering after 4s — force kill, then give the OS a beat.
+  for (const pid of portListenerPids(port)) {
+    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+  }
+  await new Promise((r) => setTimeout(r, 300));
+}
+
+/**
  * Auto-detect the agent service on this machine.
  * Reads agent-config.json (written by the agent on startup) from each
  * mini-services/agent-* dir, prefers a live (health-probe OK) instance.
@@ -216,7 +297,26 @@ export async function POST(req: NextRequest) {
       // demand — fixing the most common mesh failure mode: "Local Agent: Not
       // running" because nobody ran start.sh on this machine.
       const detected = await detectLocalAgent();
-      if (detected?.running) {
+
+      // Auto-upgrade: a long-running agent started BEFORE a code pull keeps
+      // executing the OLD code (git pull only hot-reloads the dashboard, not
+      // the spawned agent process). Old agents report no `dashboardDb` field
+      // → kill & respawn so the new code (co-located dashboard DB serving)
+      // takes over. Without this, paired peers see the device "online" with
+      // 0 projects forever no matter how many times the user pulls.
+      let restarted = false;
+      if (detected?.running && (await agentOutdated(detected.port))) {
+        await stopAgentOnPort(detected.port);
+        restarted = true;
+        logActivity({
+          type: 'pair',
+          level: 'info',
+          message: 'Local agent restarted (code upgrade)',
+          detail: `port ${detected.port} · old agent lacked dashboard-DB support`,
+        });
+      }
+
+      if (detected?.running && !restarted) {
         return NextResponse.json({ running: true, started: false, agent: detected });
       }
 
@@ -290,6 +390,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         running,
         started: true,
+        restarted,
         port,
         name,
         pid: child.pid,
@@ -549,6 +650,23 @@ export async function POST(req: NextRequest) {
               signal: AbortSignal.timeout(3000),
             });
           } catch { /* best-effort only */ }
+
+          // Durable wiring: ALSO persist dashboardUrl into the local agent's
+          // agent-config.json. A RUNNING old agent 404s the pair-target call
+          // above (that endpoint is new) — but once ensure-agent
+          // restarts/upgrades it, the heartbeat arms from this persisted
+          // field at boot, so the pairing survives restarts of either side.
+          if (detected?.dir) {
+            try {
+              const cfgPath = path.join(process.cwd(), 'mini-services', detected.dir, 'agent-config.json');
+              const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'));
+              await fs.writeFile(
+                cfgPath,
+                JSON.stringify({ ...cfg, dashboardUrl: target, updatedAt: new Date().toISOString() }, null, 2),
+                'utf-8',
+              );
+            } catch { /* best-effort — config may not exist in manual mode */ }
+          }
 
           logActivity({
             type: 'pair',

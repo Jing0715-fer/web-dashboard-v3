@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { enrichEnvStatuses } from '@/lib/env-status';
-import { getRemoteProjectsCached } from '@/lib/remote-sync';
+import { getRemoteProjectsCached, healSelfMirroredLocalProjects } from '@/lib/remote-sync';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
 
@@ -12,6 +12,13 @@ export async function GET(req: Request) {
   const authGuard = await requireApprovedUser(req);
   if (authGuard.error) return authGuard.error;
   try {
+    // 0. Heal legacy self-mirror corruption FIRST (a project whose deviceId
+    //    points at THIS machine's own device row must count as local — the
+    //    agent's deviceId-IS-NULL serving depends on it too). Running it
+    //    before the local findMany means the healed rows appear as local in
+    //    THIS response, not one poll later.
+    await healSelfMirroredLocalProjects()
+
     // 1. Get local projects (deviceId = null)
     const localProjects = await db.project.findMany({
       where: { deviceId: null },

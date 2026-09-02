@@ -1,7 +1,7 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { invalidateRemoteProjectCache } from '@/lib/remote-sync'
+import { localAgentApiKeys, invalidateRemoteProjectCache } from '@/lib/remote-sync'
 import { requireApprovedUser } from '@/lib/auth';
 
 export async function GET(req: Request) {
@@ -18,10 +18,21 @@ export async function GET(req: Request) {
       orderBy: { createdAt: 'desc' },
     })
 
-    const result = devices.map(({ _count, ...device }) => ({
-      ...device,
-      projectCount: _count.projects,
-    }))
+    // Hide SELF device rows (this machine's own agent registered as a
+    // "device", typically from an early CLI self-pair). They can never carry
+    // remote projects (the sync skips them by the same key set) so they only
+    // produce a confusing "own machine / 0 projects / Unreachable" card —
+    // the local agent's real status lives in the join dialog's Local Agent
+    // panel instead. The row itself is kept in the DB: it still anchors the
+    // self-mirror heal in remote-sync.
+    const localKeys = localAgentApiKeys()
+
+    const result = devices
+      .filter((d) => !localKeys.has(d.apiKey))
+      .map(({ _count, ...device }) => ({
+        ...device,
+        projectCount: _count.projects,
+      }))
 
     return NextResponse.json(result)
   } catch (error) {

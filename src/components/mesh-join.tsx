@@ -84,7 +84,12 @@ export function JoinMeshDialog({
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.running) {
         addToast({
-          title: t('dlg.meshJoin.startAgentToast', { port: data.port ?? data.agent?.port ?? '' }),
+          // ensure-agent restarts an agent that is still executing pre-upgrade
+          // code (git pull doesn't restart the spawned agent process) — a
+          // different toast makes the auto-upgrade visible instead of silent.
+          title: data.restarted
+            ? t('dlg.meshJoin.agentUpgradedToast', { port: data.port ?? data.agent?.port ?? '' })
+            : t('dlg.meshJoin.startAgentToast', { port: data.port ?? data.agent?.port ?? '' }),
           variant: 'success',
         })
         await loadAgent()

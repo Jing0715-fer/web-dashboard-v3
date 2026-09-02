@@ -765,6 +765,7 @@ export const dialogs = {
   'dlg.meshJoin.startAgent': '启动 Agent',
   'dlg.meshJoin.startingAgent': '正在启动…',
   'dlg.meshJoin.startAgentToast': '本机 Agent 已启动（端口 {port}）',
+  'dlg.meshJoin.agentUpgradedToast': '本机 Agent 已升级并重启（端口 {port}）——现在会向对方提供本机项目',
   'dlg.meshJoin.startAgentFailed': '启动 Agent 失败',
   'dlg.meshJoin.manual': '手动填写',
   'dlg.meshJoin.cancelManual': '取消手动',
