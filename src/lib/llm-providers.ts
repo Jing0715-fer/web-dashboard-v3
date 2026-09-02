@@ -386,9 +386,17 @@ async function getZaiClient(): Promise<any> {
   return zaiInitPromise;
 }
 
+export interface LlmMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface CallLlmOptions {
   system: string;
-  prompt: string;
+  /** Single-shot prompt (legacy / non-agent callers). */
+  prompt?: string;
+  /** Multi-turn conversation (agent loops). Takes precedence over `prompt`. */
+  messages?: LlmMessage[];
   temperature?: number;
   maxTokens?: number;
 }
@@ -407,6 +415,10 @@ export interface CallLlmResult {
 export async function callLLM(opts: CallLlmOptions): Promise<CallLlmResult> {
   const llmConfig = await db.llmConfig.findUnique({ where: { id: 'default' } });
   const provider = llmConfig?.provider || 'zai';
+  // Conversation = multi-turn messages when provided, else the single prompt.
+  const conversation: LlmMessage[] = opts.messages ?? [
+    { role: 'user' as const, content: opts.prompt ?? '' },
+  ];
 
   // ---- zai (built-in SDK, no key needed) ----
   if (provider === 'zai' || (!llmConfig?.apiKey && provider !== 'claude-code')) {
@@ -414,7 +426,7 @@ export async function callLLM(opts: CallLlmOptions): Promise<CallLlmResult> {
     const completion = await zai.chat.completions.create({
       messages: [
         { role: 'system', content: opts.system },
-        { role: 'user', content: opts.prompt },
+        ...conversation,
       ],
       thinking: { type: 'disabled' },
       ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
@@ -459,7 +471,7 @@ export async function callLLM(opts: CallLlmOptions): Promise<CallLlmResult> {
           model: effectiveModel,
           max_tokens: opts.maxTokens ?? 4096,
           system: opts.system,
-          messages: [{ role: 'user', content: opts.prompt }],
+          messages: conversation,
           temperature: opts.temperature ?? 0.3,
         }),
         // Hard timeout — without it a hung provider connection stalls repair
@@ -495,7 +507,7 @@ export async function callLLM(opts: CallLlmOptions): Promise<CallLlmResult> {
         model,
         messages: [
           { role: 'system', content: opts.system },
-          { role: 'user', content: opts.prompt },
+          ...conversation,
         ],
         temperature: opts.temperature ?? 0.3,
         ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
@@ -520,12 +532,126 @@ export function extractJson(text: string): any | null {
   let t = text.trim();
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fence) t = fence[1].trim();
+  // 1. Whole text is already valid JSON (the common case for a compliant model).
+  try {
+    return JSON.parse(t);
+  } catch {
+    /* fall through */
+  }
+  // 2. First balanced {...} object anywhere in the text (skips surrounding
+  //    prose; brace-counts with string-state so braces inside strings or
+  //    a second JSON blob don't break extraction).
+  const balanced = extractBalancedObject(t);
+  if (balanced !== null) {
+    try {
+      return JSON.parse(balanced);
+    } catch {
+      /* fall through */
+    }
+    // 3. Repair the common LLM JSON mistakes and retry.
+    try {
+      return JSON.parse(repairJson(balanced));
+    } catch {
+      /* fall through */
+    }
+  }
+  // 4. Legacy heuristic: first "{" to last "}" (still helps when the reply is
+  //    truncated mid-string so the balanced walk never closes).
   const start = t.indexOf('{');
   const end = t.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    return JSON.parse(t.slice(start, end + 1));
-  } catch {
-    return null;
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(t.slice(start, end + 1));
+    } catch {
+      return null;
+    }
   }
+  return null;
+}
+
+/** Find the first top-level {...} with balanced braces, tracking string state. */
+function extractBalancedObject(t: string): string | null {
+  const start = t.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < t.length; i++) {
+    const c = t[i];
+    if (inStr) {
+      if (esc) {
+        esc = false;
+      } else if (c === '\\') {
+        esc = true;
+      } else if (c === '"') {
+        inStr = false;
+      }
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+    } else if (c === '{') {
+      depth++;
+    } else if (c === '}') {
+      depth--;
+      if (depth === 0) return t.slice(start, i + 1);
+    }
+  }
+  return null; // unbalanced — let the caller try other strategies
+}
+
+/** Fix the JSON mistakes chat models most often make:
+ *  - trailing commas before } or ]
+ *  - smart quotes used instead of ASCII quotes
+ *  - // line comments outside strings
+ *  - <think>…</think> reasoning blocks some models emit */
+function repairJson(s: string): string {
+  let out = s;
+  // Strip <think> blocks wholesale (they may contain braces that confuse parsing).
+  out = out.replace(/<think>[\s\S]*?<\/think>/g, '');
+  // Smart quotes → ASCII. Inside JSON strings smart quotes are content, but
+  // models that emit them as delimiters produce unparseable JSON; this repair
+  // is a last resort so the trade-off is acceptable.
+  out = out.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+  const chars = out.split('');
+  let inStr = false;
+  let esc = false;
+  const keep: string[] = [];
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+    const next = chars[i + 1] ?? '';
+    if (inStr) {
+      if (esc) {
+        esc = false;
+        keep.push(c);
+      } else if (c === '\\') {
+        esc = true;
+        keep.push(c);
+      } else if (c === '"') {
+        inStr = false;
+        keep.push(c);
+      } else {
+        keep.push(c);
+      }
+      continue;
+    }
+    if (c === '"') {
+      inStr = true;
+      keep.push(c);
+      continue;
+    }
+    // Line comments outside strings: drop until end of line.
+    if (c === '/' && next === '/') {
+      while (i < chars.length && chars[i] !== '\n') i++;
+      continue;
+    }
+    // Trailing commas: drop a comma when the next non-whitespace is } or ].
+    if (c === ',') {
+      let j = i + 1;
+      while (j < chars.length && /\s/.test(chars[j])) j++;
+      if (chars[j] === '}' || chars[j] === ']') continue;
+    }
+    keep.push(c);
+  }
+  return keep.join('');
 }
