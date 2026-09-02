@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
+import { existsSync, openSync, closeSync } from 'fs';
+import { spawn, execSync } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import { logActivity } from '@/lib/activity';
@@ -49,6 +51,16 @@ function registerRateLimited(clientIp: string): boolean {
 
 // Agent service directories shipped with the project (platform variants).
 const AGENT_DIRS = ['agent', 'agent-linux', 'agent-macos', 'agent-win', 'agent-windows'];
+
+function existsSyncSafe(p: string): boolean {
+  try { return existsSync(p); } catch { return false; }
+}
+
+/** Append-mode fd for the agent log (never fails the request — stdout is
+ *  an acceptable fallback). */
+function openSyncAppend(logFile: string): number {
+  try { return openSync(logFile, 'a'); } catch { return 1; }
+}
 
 function hostFromReq(req: NextRequest): string {
   const url = new URL(req.url);
@@ -170,15 +182,102 @@ export async function POST(req: NextRequest) {
   const url = new URL(req.url);
   const action = url.pathname.split('/').pop();
 
-  // Auth guard (Task 11-a): 'pair' and 'join' are UI actions and require an
-  // approved session. 'register' stays OPEN — remote device CLIs call it
-  // with apiKey + pair code, no cookies available.
-  if (action === 'pair' || action === 'join') {
+  // Auth guard (Task 11-a): 'pair', 'join' and 'ensure-agent' are UI actions
+  // and require an approved session. 'register' stays OPEN — remote device
+  // CLIs call it with apiKey + pair code, no cookies available.
+  if (action === 'pair' || action === 'join' || action === 'ensure-agent') {
     const authGuard = await requireApprovedUser(req);
     if (authGuard.error) return authGuard.error;
   }
 
   try {
+    if (action === 'ensure-agent') {
+      // Start (or verify) the LOCAL agent service. The agent ships with the
+      // project (mini-services/agent*), so the dashboard can bring it up on
+      // demand — fixing the most common mesh failure mode: "Local Agent: Not
+      // running" because nobody ran start.sh on this machine.
+      const detected = await detectLocalAgent();
+      if (detected?.running) {
+        return NextResponse.json({ running: true, started: false, agent: detected });
+      }
+
+      // Pick the agent directory + entry to spawn:
+      //   - mini-services/agent (TypeScript, self-contained node_modules +
+      //     initialized db) via bun when the bun CLI is available;
+      //   - platform agent.js bundle via node otherwise.
+      // NOTE: process.versions.bun is useless here — `next dev` spawns a
+      // node runtime for the server even under `bun run dev`, so probe the
+      // bun CLI itself.
+      const root = process.cwd();
+      let bunAvailable = false;
+      try {
+        execSync('bun --version', { stdio: 'ignore', timeout: 3000 });
+        bunAvailable = true;
+      } catch { /* no bun CLI */ }
+      const platformDir = os.platform() === 'darwin' ? 'agent-macos' : os.platform() === 'win32' ? 'agent-windows' : 'agent-linux';
+      const preferTs = bunAvailable && existsSyncSafe(path.join(root, 'mini-services', 'agent', 'index.ts'));
+      const dir = preferTs ? 'agent' : platformDir;
+      const base = path.join(root, 'mini-services', dir);
+      const entry = preferTs ? path.join(base, 'index.ts') : path.join(base, 'agent.js');
+      const runtime = preferTs ? 'bun' : 'node';
+      if (!existsSyncSafe(entry)) {
+        return NextResponse.json(
+          { error: `Agent entry not found: ${path.join('mini-services', dir, path.basename(entry))}` },
+          { status: 500 },
+        );
+      }
+
+      // Config: reuse the persisted agent-config.json (port / apiKey / name)
+      // so re-starts keep the SAME identity — a new random key each boot
+      // would orphan every already-paired dashboard row.
+      let port = 3101;
+      let apiKey = randomBytes(24).toString('hex');
+      let name = os.hostname();
+      try {
+        const cfg = JSON.parse(await fs.readFile(path.join(base, 'agent-config.json'), 'utf-8'));
+        port = Number(cfg.port) || port;
+        apiKey = String(cfg.apiKey || apiKey);
+        name = String(cfg.name || name);
+      } catch { /* first run — defaults above */ }
+      // .agent-session.env records the actually-used port (start.sh writes
+      // it; a stale file could pin an outdated port).
+      try {
+        const envTxt = await fs.readFile(path.join(base, '.agent-session.env'), 'utf-8');
+        const m = envTxt.match(/^AGENT_PORT=(\d+)\s*$/m);
+        if (m) port = parseInt(m[1], 10);
+      } catch { /* no session file */ }
+
+      const logFile = path.join('/tmp', 'dashboard-agent.log');
+      const out = openSyncAppend(logFile);
+      const child = spawn(runtime, [entry, '--port', String(port), '--apiKey', apiKey, '--name', name], {
+        cwd: base,
+        detached: true,
+        stdio: ['ignore', out, out],
+        env: { ...process.env, DATABASE_URL: `file:${path.join(base, 'db', 'agent.db')}` },
+      });
+      child.unref();
+      if (out !== 1 && out !== 2) { try { closeSync(out); } catch { /* already closed */ } }
+
+      logActivity({
+        type: 'pair',
+        level: 'info',
+        message: `Local agent started (port ${port})`,
+        detail: `${dir} · pid ${child.pid}`,
+      });
+
+      // Give the process a moment to bind, then verify.
+      await new Promise((r) => setTimeout(r, 1500));
+      const running = await probeAgent(port);
+      return NextResponse.json({
+        running,
+        started: true,
+        port,
+        name,
+        pid: child.pid,
+        dir,
+      });
+    }
+
     if (action === 'pair') {
       // Invalidate ALL previous pending codes — only the newest code is
       // valid at any time (a fresh code supersedes older ones).
@@ -217,7 +316,55 @@ export async function POST(req: NextRequest) {
       }
       const body = await req.json();
       const { code, name, ip, port, apiKey } = body || {};
-      if (!code || !pendingPairs.has(String(code).toUpperCase())) {
+
+      // ---- Self-heal re-registration (no pair code) ----
+      // An agent whose apiKey already exists in the Device table may
+      // re-register its CURRENT ip/port. IP drift (DHCP / new network / VPN
+      // up) or a port change would otherwise leave the DB pointing at a dead
+      // address and the device shows offline forever (user report:
+      // dev-laptop-2 registered 192.168.253.1:3100 while the agent now runs
+      // on 192.168.101.43:3101). The stored apiKey IS the credential.
+      if (!code) {
+        const keyRow = apiKey
+          ? await db.device.findFirst({ where: { apiKey: String(apiKey) } })
+          : null;
+        if (!keyRow) {
+          return NextResponse.json(
+            { error: '缺少配对码 — 新设备请先在对方仪表盘生成配对码（或提供已注册设备的 apiKey）' },
+            { status: 400 },
+          );
+        }
+        const ipChanged = keyRow.ip !== String(ip);
+        const portChanged = keyRow.port !== Number(port);
+        const device = await db.device.update({
+          where: { id: keyRow.id },
+          data: {
+            name: String(name),
+            ip: String(ip),
+            port: Number(port),
+            status: 'online',
+            lastSeen: new Date(),
+          },
+        });
+        if (ipChanged || portChanged) {
+          logActivity({
+            type: 'pair',
+            level: 'success',
+            message: `Device '${device.name}' address self-healed`,
+            deviceId: device.id,
+            deviceName: device.name,
+            detail: `${keyRow.ip}:${keyRow.port} → ${device.ip}:${device.port}`,
+          });
+        }
+        return NextResponse.json({
+          ok: true,
+          deviceId: device.id,
+          reRegistered: true,
+          addressFixed: ipChanged || portChanged,
+        });
+      }
+
+      if (!pendingPairs.has(String(code).toUpperCase())) {
         return NextResponse.json({ error: '无效或已过期的配对码' }, { status: 400 });
       }
       const entry = pendingPairs.get(String(code).toUpperCase())!;
@@ -229,7 +376,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '缺少 name / ip / port / apiKey' }, { status: 400 });
       }
 
-      const existing = await db.device.findFirst({ where: { ip: String(ip), port: Number(port) } });
+      // Dedup by apiKey FIRST (same device re-pairing after its address
+      // changed), then by ip:port (fresh device on a known address).
+      const existing = await db.device.findFirst({
+        where: { OR: [{ apiKey: String(apiKey) }, { ip: String(ip), port: Number(port) }] },
+      });
       let device;
       if (existing) {
         device = await db.device.update({

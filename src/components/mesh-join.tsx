@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import {
-  PlugZap, Loader2, Globe, KeyRound, Server, CheckCircle2, AlertTriangle, RefreshCw,
+  PlugZap, Loader2, Globe, KeyRound, Server, CheckCircle2, AlertTriangle, RefreshCw, Play,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -48,6 +48,7 @@ export function JoinMeshDialog({
   const [manualKey, setManualKey] = React.useState('')
   const [manualIp, setManualIp] = React.useState('')
   const [joining, setJoining] = React.useState(false)
+  const [startingAgent, setStartingAgent] = React.useState(false)
 
   const loadAgent = React.useCallback(async () => {
     setAgentLoading(true)
@@ -70,6 +71,32 @@ export function JoinMeshDialog({
       loadAgent()
     }
   }, [open, loadAgent])
+
+  // One-click fix for the most common mesh failure: the agent binary is
+  // shipped with the project but nobody started it (user report:
+  // "Local Agent: Not running"). POST /api/mesh/ensure-agent spawns it on
+  // this machine and returns its port.
+  const handleStartAgent = React.useCallback(async () => {
+    if (startingAgent) return
+    setStartingAgent(true)
+    try {
+      const res = await fetch('/api/mesh/ensure-agent', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.running) {
+        addToast({
+          title: t('dlg.meshJoin.startAgentToast', { port: data.port ?? data.agent?.port ?? '' }),
+          variant: 'success',
+        })
+        await loadAgent()
+      } else {
+        addToast({ title: t('dlg.meshJoin.startAgentFailed'), description: data.error || `HTTP ${res.status}`, variant: 'destructive' })
+      }
+    } catch (e: any) {
+      addToast({ title: t('dlg.meshJoin.startAgentFailed'), description: e?.message || '', variant: 'destructive' })
+    } finally {
+      setStartingAgent(false)
+    }
+  }, [t, loadAgent, startingAgent])
 
   const handleJoin = React.useCallback(async () => {
     if (joining) return
@@ -191,6 +218,17 @@ export function JoinMeshDialog({
                   {t('dlg.meshJoin.agentWarn')}
                 </p>
                 <div className="flex items-center gap-1">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-6 text-[11px] px-2 bg-teal-600 hover:bg-teal-700 text-white"
+                    onClick={handleStartAgent}
+                    disabled={startingAgent || agentLoading}
+                  >
+                    {startingAgent
+                      ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />{t('dlg.meshJoin.startingAgent')}</>
+                      : <><Play className="h-3 w-3 mr-1" />{t('dlg.meshJoin.startAgent')}</>}
+                  </Button>
                   <Button variant="ghost" size="sm" className="h-6 text-[11px] px-2" onClick={loadAgent} disabled={agentLoading}>
                     <RefreshCw className={`h-3 w-3 mr-1 ${agentLoading ? 'animate-spin' : ''}`} />{t('dlg.meshJoin.retry')}
                   </Button>

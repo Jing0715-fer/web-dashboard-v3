@@ -5674,7 +5674,18 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       const res = await fetch(`/api/devices/${id}/health`)
       if (res.ok) {
         const data = await res.json()
-        toast({ title: t(data.status === 'online' ? 'dlg.toast.deviceOnline' : 'dlg.toast.deviceOffline', { name: data.name ?? data.hostname ?? 'device' }), variant: data.status === 'online' ? 'success' : 'destructive' })
+        // Self-healing health check: the recorded port was dead but a live
+        // key-verified agent was found on a neighbouring port — the DB row
+        // was corrected in place. Surface that so the fix isn't silent.
+        if (data.status === 'online' && data.correctedPort) {
+          toast({
+            title: t('dlg.toast.deviceOnline', { name: data.name ?? data.health?.name ?? 'device' }),
+            description: t('dlg.toast.devicePortHealed', { name: data.health?.name ?? 'device', from: data.previousPort, to: data.correctedPort }),
+            variant: 'success',
+          })
+        } else {
+          toast({ title: t(data.status === 'online' ? 'dlg.toast.deviceOnline' : 'dlg.toast.deviceOffline', { name: data.name ?? data.health?.name ?? 'device' }), variant: data.status === 'online' ? 'success' : 'destructive' })
+        }
         fetchDevices()
         return data
       } else {
@@ -5685,7 +5696,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       toast({ title: t('dlg.toast.healthCheckFailed'), variant: 'destructive' })
       return null
     }
-  }, [toast, fetchDevices])
+  }, [toast, fetchDevices, t])
 
   const loadData = React.useCallback(async () => {
     // Cache-hydrated paint already shows projects — don't flash the skeleton

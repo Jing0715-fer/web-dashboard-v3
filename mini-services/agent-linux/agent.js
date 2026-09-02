@@ -918,16 +918,90 @@ Rules:
 // One-liner mesh join: the dashboard shows a pairing URL + code, and this
 // agent registers itself with `--pair <dashboard-origin> --code <code>`.
 
+// ---- Ranked LAN IP detection (mirrors the dashboard's lanIpCandidates) ----
+// The FIRST non-internal IPv4 is often a VPN / Clash / Surge TUN fake-IP
+// (198.18.0.0/15) or a stale virtual NIC — advertising it registers an
+// UNREACHABLE address and the dashboard shows this device offline forever
+// (user report: pair registered 192.168.253.1:3100 while the routable
+// address was 192.168.101.43:3101).
+function lanIpCandidates() {
+  const ips = [];
+  for (const i of Object.values(os.networkInterfaces()).flat()) {
+    if (!i || i.family !== 'IPv4' || i.internal) continue;
+    const [a, b] = i.address.split('.').map(Number);
+    if (a === 198 && (b === 18 || b === 19)) continue; // VPN fake-IP range
+    if (a === 169 && b === 254) continue;              // link-local
+    ips.push(i.address);
+  }
+  const rank = (ip) => {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 192 && b === 168) return 0;               // typical home/office LAN
+    if (a === 10) return 1;                             // larger private nets
+    if (a === 172 && b >= 16 && b <= 31) return 2;      // docker / corp
+    if (a === 100 && b >= 64 && b <= 127) return 3;     // CGNAT (Tailscale & friends)
+    return 4;
+  };
+  return ips.sort((x, y) => rank(x) - rank(y));
+}
+
+const PERSISTED_CONFIG_PATH = path.resolve(process.cwd(), 'agent-config.json');
+function readPersistedConfig() {
+  try { return JSON.parse(fs.readFileSync(PERSISTED_CONFIG_PATH, 'utf-8')); } catch (e) { return {}; }
+}
+function persistConfigField(key, value) {
+  try {
+    const cfg = readPersistedConfig();
+    cfg[key] = value;
+    fs.writeFileSync(PERSISTED_CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf-8');
+  } catch (err) { console.warn(`[Agent] persist ${key} failed: ${err.message}`); }
+}
+
+// ---- heartbeat: keep the dashboard's Device row fresh ----
+// IP drift (DHCP / new network / VPN up) or a port change would leave the
+// dashboard's DB pointing at a dead address. Re-registration with the
+// already-paired apiKey self-heals the row — POST /api/mesh/register
+// accepts {apiKey} WITHOUT a pair code for existing devices.
+const DASHBOARD_URL = String(
+  cliArgs.dashboard || fileConfig.dashboardUrl || readPersistedConfig().dashboardUrl || ''
+).replace(/\/+$/, '');
+const HEARTBEAT_INTERVAL_MS = 60 * 1000;
+
+async function reRegisterWithDashboard() {
+  if (!DASHBOARD_URL) return;
+  const payload = {
+    name: AGENT_NAME,
+    ip: lanIpCandidates()[0] || '127.0.0.1',
+    port: PORT,
+    apiKey: API_KEY,
+  };
+  try {
+    const res = await fetch(DASHBOARD_URL + '/api/mesh/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data.addressFixed) {
+        console.log(`[Agent][heartbeat] dashboard row healed → ${payload.ip}:${payload.port}`);
+      }
+    } else if (res.status !== 400) {
+      // 400 = key unknown to this dashboard (not ours / DB reset) — noisy, skip
+      console.warn(`[Agent][heartbeat] dashboard responded ${res.status}`);
+    }
+  } catch (e) { /* dashboard unreachable — retry next cycle */ }
+}
+
 async function pairWithDashboard(dashboardUrl, code) {
   const info = {
     code,
     name: AGENT_NAME,
-    ip: Object.values(os.networkInterfaces()).flat()
-      .filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address)[0] || '127.0.0.1',
+    ip: lanIpCandidates()[0] || '127.0.0.1', // ranked: LAN first, VPN fake-IP excluded
     port: PORT,
     apiKey: API_KEY,
   };
-  const url = dashboardUrl.replace(/\/$/, '') + '/api/mesh/register';
+  const url = dashboardUrl.replace(/\/+$/, '') + '/api/mesh/register';
   console.log(`[Agent][pair] registering with ${url} as "${info.name}" (${info.ip}:${info.port})`);
   const res = await fetch(url, {
     method: 'POST',
@@ -938,6 +1012,9 @@ async function pairWithDashboard(dashboardUrl, code) {
   if (res.ok) {
     console.log(`[Agent][pair] SUCCESS — dashboard "${data.dashboard?.name || 'dashboard'}" registered this device.`);
     console.log(`[Agent][pair] You can now manage this device's projects from the dashboard.`);
+    // Remember the dashboard so the heartbeat keeps the row fresh (self-heal
+    // on later IP/port drift) and restarts re-register automatically.
+    persistConfigField('dashboardUrl', dashboardUrl.replace(/\/+$/, ''));
     return true;
   }
   console.error(`[Agent][pair] FAILED (${res.status}): ${data.error || 'unknown error'}`);
@@ -1595,6 +1672,16 @@ server.listen(PORT, HOST, () => {
   console.log(`[Agent] PID: ${process.pid}`);
   console.log(`[Agent] PID File: ${PID_FILE}`);
 });
+
+// Heartbeat: re-register with the paired dashboard every 60s so its Device
+// row always points at our CURRENT ip:port (self-heal on network change).
+// Runs only when a paired dashboard is known (agent-config.json
+// 'dashboardUrl', --config 'dashboardUrl', or --dashboard <url>).
+if (DASHBOARD_URL) {
+  console.log(`[Agent][heartbeat] re-registering with ${DASHBOARD_URL} every ${HEARTBEAT_INTERVAL_MS / 1000}s`);
+  setTimeout(reRegisterWithDashboard, 3000).unref?.();
+  setInterval(reRegisterWithDashboard, HEARTBEAT_INTERVAL_MS).unref?.();
+}
 }
 
 // Keep alive — prevent the event loop from being empty

@@ -15,10 +15,10 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { PrismaClient } from '@prisma/client';
 import { spawn, ChildProcess, execSync } from 'child_process';
-import { readFileSync, existsSync, mkdirSync, createWriteStream } from 'fs';
+import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { randomBytes } from 'crypto';
-import { hostname, tmpdir, platform, arch, homedir } from 'os';
+import { hostname, tmpdir, platform, arch, homedir, networkInterfaces } from 'os';
 
 // ======================== PLATFORM DETECTION ========================
 
@@ -40,9 +40,96 @@ const PORT = parseInt(getArg('port', '3100'), 10);
 const API_KEY = getArg('apiKey', randomBytes(32).toString('hex'));
 const AGENT_NAME = getArg('name', hostname());
 const HOST = IS_WINDOWS ? '0.0.0.0' : getArg('host', '0.0.0.0');
+const DASHBOARD_URL = getArg('dashboard', '').replace(/\/+$/, '');
 
 console.log(`[Agent] Config: port=${PORT}, name=${AGENT_NAME}, host=${HOST}`);
 console.log(`[Agent] API Key: ${API_KEY}`);
+
+// ======================== MESH PAIRING SUPPORT ========================
+
+// Ranked LAN IP detection (mirrors the dashboard's lanIpCandidates — see
+// src/app/api/mesh/[action]/route.ts). The FIRST non-internal IPv4 is often
+// a VPN / Clash TUN fake-IP (198.18.0.0/15) or a stale virtual NIC —
+// advertising it would register an UNREACHABLE address in the dashboard DB
+// and the device would show offline forever.
+function lanIpCandidates(): string[] {
+  const ips: string[] = [];
+  for (const i of Object.values(networkInterfaces()).flat()) {
+    if (!i || i.family !== 'IPv4' || i.internal) continue;
+    const [a, b] = i.address.split('.').map(Number);
+    if (a === 198 && (b === 18 || b === 19)) continue; // VPN fake-IP range
+    if (a === 169 && b === 254) continue;              // link-local
+    ips.push(i.address);
+  }
+  const rank = (ip: string): number => {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 192 && b === 168) return 0;               // typical home/office LAN
+    if (a === 10) return 1;                             // larger private nets
+    if (a === 172 && b >= 16 && b <= 31) return 2;      // docker / corp
+    if (a === 100 && b >= 64 && b <= 127) return 3;     // CGNAT (Tailscale & friends)
+    return 4;
+  };
+  return ips.sort((x, y) => rank(x) - rank(y));
+}
+
+// Persist runtime config (port + apiKey + name + dashboardUrl) so the
+// dashboard backend can auto-discover this agent (GET /api/mesh/local-agent
+// reads agent-config.json) and the heartbeat target survives restarts.
+// Merged with any existing file so extra fields survive.
+const CONFIG_PATH = resolve(process.cwd(), 'agent-config.json');
+function readPersistedConfig(): Record<string, unknown> {
+  try { return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')); } catch { return {}; }
+}
+function persistConfig(): void {
+  try {
+    writeFileSync(CONFIG_PATH, JSON.stringify({
+      ...readPersistedConfig(),
+      port: PORT,
+      apiKey: API_KEY,
+      name: AGENT_NAME,
+      ...(DASHBOARD_URL ? { dashboardUrl: DASHBOARD_URL } : {}),
+      dbPath: resolve(process.cwd(), 'db', 'agent.db'),
+      updatedAt: new Date().toISOString(),
+    }, null, 2), 'utf-8');
+  } catch (err: any) {
+    console.warn(`[Agent] Failed to persist agent-config.json: ${err?.message}`);
+  }
+}
+persistConfig();
+
+const HEARTBEAT_TARGET = DASHBOARD_URL || String(readPersistedConfig().dashboardUrl || '').replace(/\/+$/, '');
+const HEARTBEAT_INTERVAL_MS = 60 * 1000;
+
+// Heartbeat: re-register with the paired dashboard every 60s so its Device
+// row always points at our CURRENT ip:port — self-heals IP drift (DHCP /
+// new network) and port drift. POST /api/mesh/register accepts {apiKey}
+// WITHOUT a pair code for devices that already paired (key is the credential).
+async function reRegisterWithDashboard(): Promise<void> {
+  if (!HEARTBEAT_TARGET) return;
+  const payload = {
+    name: AGENT_NAME,
+    ip: lanIpCandidates()[0] || '127.0.0.1',
+    port: PORT,
+    apiKey: API_KEY,
+  };
+  try {
+    const res = await fetch(`${HEARTBEAT_TARGET}/api/mesh/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data: any = await res.json().catch(() => ({}));
+      if (data.addressFixed) {
+        console.log(`[Agent][heartbeat] dashboard row healed → ${payload.ip}:${payload.port}`);
+      }
+    } else if (res.status !== 400) {
+      // 400 = key unknown to this dashboard (not ours / DB reset) — skip
+      console.warn(`[Agent][heartbeat] dashboard responded ${res.status}`);
+    }
+  } catch { /* dashboard unreachable — retry next cycle */ }
+}
 
 // ======================== DATABASE ========================
 
@@ -713,6 +800,15 @@ server.listen(PORT, HOST, () => {
   console.log(`[Agent] DB: ${dbPath}`);
   console.log(`[Agent] Logs: ${LOG_DIR}`);
 });
+
+// Heartbeat: keep the dashboard's Device row fresh (self-heal on network /
+// port change). Runs only when a paired dashboard is known (--dashboard or
+// agent-config.json 'dashboardUrl').
+if (HEARTBEAT_TARGET) {
+  console.log(`[Agent][heartbeat] re-registering with ${HEARTBEAT_TARGET} every ${HEARTBEAT_INTERVAL_MS / 1000}s`);
+  setTimeout(reRegisterWithDashboard, 3000).unref?.();
+  setInterval(reRegisterWithDashboard, HEARTBEAT_INTERVAL_MS).unref?.();
+}
 
 // Keep alive
 setInterval(() => {
