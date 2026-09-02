@@ -1111,22 +1111,55 @@ const DASHBOARD_URL = String(
 ).replace(/\/+$/, '');
 const HEARTBEAT_INTERVAL_MS = 60 * 1000;
 
-// Re-armable heartbeat target: the pair-target endpoint can point this
+// Multi-target heartbeat: one agent may be paired with SEVERAL dashboards
+// (A joins B, later C joins A — A's agent must keep BOTH rows fresh, not
+// re-point at the latest joiner only). Targets dedupe; capped at 8.
+const HEARTBEAT_MAX_TARGETS = 8;
+
+function normalizeUrl(u) {
+  return String(u || '').trim().replace(/\/+$/, '');
+}
+
+function buildHeartbeatTargets() {
+  const persisted = readPersistedConfig();
+  const list = [
+    DASHBOARD_URL,                              // --dashboard CLI arg
+    normalizeUrl(persisted.dashboardUrl),       // legacy single-target field
+    ...(Array.isArray(persisted.dashboardUrls) ? persisted.dashboardUrls.map(normalizeUrl) : []),
+  ].filter((u) => /^https?:\/\/.+/i.test(u));
+  return [...new Set(list)].slice(0, HEARTBEAT_MAX_TARGETS);
+}
+
+let HEARTBEAT_TARGETS = buildHeartbeatTargets();
+
+function persistHeartbeatTargets() {
+  const cfg = readPersistedConfig();
+  cfg.dashboardUrl = HEARTBEAT_TARGETS[0] || ''; // legacy field (pre-upgrade agents)
+  cfg.dashboardUrls = HEARTBEAT_TARGETS;
+  cfg.updatedAt = new Date().toISOString();
+  try {
+    fs.writeFileSync(PERSISTED_CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf-8');
+  } catch (err) { console.warn(`[Agent] persist heartbeat targets failed: ${err.message}`); }
+}
+
+// Re-armable heartbeat scheduler: the pair-target endpoint can point this
 // agent at a dashboard AFTER boot (the web-UI join flow does exactly that),
 // so the timer must be startable lazily, not only at startup.
-let HEARTBEAT_TARGET = DASHBOARD_URL;
 let heartbeatTimer = null;
 function armHeartbeat() {
-  if (!HEARTBEAT_TARGET) return;
-  console.log(`[Agent][heartbeat] re-registering with ${HEARTBEAT_TARGET} every ${HEARTBEAT_INTERVAL_MS / 1000}s`);
+  if (HEARTBEAT_TARGETS.length === 0) return;
   if (heartbeatTimer) return; // already armed
-  setTimeout(reRegisterWithDashboard, 3000).unref?.();
-  heartbeatTimer = setInterval(reRegisterWithDashboard, HEARTBEAT_INTERVAL_MS);
+  console.log(`[Agent][heartbeat] re-registering with ${HEARTBEAT_TARGETS.length} dashboard(s) every ${HEARTBEAT_INTERVAL_MS / 1000}s`);
+  setTimeout(reRegisterWithDashboards, 3000).unref?.();
+  heartbeatTimer = setInterval(reRegisterWithDashboards, HEARTBEAT_INTERVAL_MS);
   heartbeatTimer.unref?.();
 }
 
-async function reRegisterWithDashboard() {
-  if (!HEARTBEAT_TARGET) return;
+async function reRegisterWithDashboards() {
+  await Promise.allSettled(HEARTBEAT_TARGETS.map((t) => reRegisterWithDashboard(t)));
+}
+
+async function reRegisterWithDashboard(target) {
   const payload = {
     name: AGENT_NAME,
     ip: lanIpCandidates()[0] || '127.0.0.1',
@@ -1134,7 +1167,7 @@ async function reRegisterWithDashboard() {
     apiKey: API_KEY,
   };
   try {
-    const res = await fetch(HEARTBEAT_TARGET + '/api/mesh/register', {
+    const res = await fetch(target + '/api/mesh/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1147,7 +1180,7 @@ async function reRegisterWithDashboard() {
       }
     } else if (res.status !== 400) {
       // 400 = key unknown to this dashboard (not ours / DB reset) — noisy, skip
-      console.warn(`[Agent][heartbeat] dashboard responded ${res.status}`);
+      console.warn(`[Agent][heartbeat] dashboard ${target} responded ${res.status}`);
     }
   } catch (e) { /* dashboard unreachable — retry next cycle */ }
 }
@@ -1172,8 +1205,10 @@ async function pairWithDashboard(dashboardUrl, code) {
     console.log(`[Agent][pair] SUCCESS — dashboard "${data.dashboard?.name || 'dashboard'}" registered this device.`);
     console.log(`[Agent][pair] You can now manage this device's projects from the dashboard.`);
     // Remember the dashboard so the heartbeat keeps the row fresh (self-heal
-    // on later IP/port drift) and restarts re-register automatically.
-    persistConfigField('dashboardUrl', dashboardUrl.replace(/\/+$/, ''));
+    // on later IP/port drift) and restarts re-register automatically. A CLI
+    // pair is just another join — merge into the multi-target list.
+    HEARTBEAT_TARGETS = [...new Set([...HEARTBEAT_TARGETS, dashboardUrl.replace(/\/+$/, '')])].slice(0, HEARTBEAT_MAX_TARGETS);
+    persistHeartbeatTargets();
     return true;
   }
   console.error(`[Agent][pair] FAILED (${res.status}): ${data.error || 'unknown error'}`);
@@ -1236,10 +1271,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ======================== POST /api/agent/pair-target ========================
-    // {dashboardUrl} — called by the LOCAL dashboard right after a successful
-    // join, so this agent heartbeats to the dashboard it just joined — the
-    // remote Device row then self-heals on ip/port drift without a manual
-    // re-pair.
+    // {dashboardUrl, remove?} — called by the LOCAL dashboard right after a
+    // successful join (joiner side) AND by the remote dashboard's register
+    // handler (target side, mutual pairing) — this agent ADDS the dashboard
+    // to its heartbeat target list so the remote Device row self-heals on
+    // ip/port drift without a manual re-pair. Multi-target: pairing with a
+    // third dashboard no longer steals the heartbeat from earlier ones.
     if (pathname === '/api/agent/pair-target' && req.method === 'POST') {
       const body = await getBody(req);
       const dashUrl = String(body.dashboardUrl || '').trim().replace(/\/+$/, '');
@@ -1247,12 +1284,13 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 400, { error: 'dashboardUrl must be an http(s) URL' });
         return;
       }
-      HEARTBEAT_TARGET = dashUrl;
-      // Persist the merged agent-config.json so restarts re-register too.
-      persistConfigField('dashboardUrl', dashUrl);
+      HEARTBEAT_TARGETS = body.remove
+        ? HEARTBEAT_TARGETS.filter((t) => t !== dashUrl)
+        : [...new Set([...HEARTBEAT_TARGETS, dashUrl])].slice(0, HEARTBEAT_MAX_TARGETS);
+      persistHeartbeatTargets();
       armHeartbeat();
-      console.log(`[Agent][pair-target] heartbeat target set to ${dashUrl}`);
-      sendJSON(res, 200, { ok: true, dashboardUrl: dashUrl });
+      console.log(`[Agent][pair-target] heartbeat targets: ${HEARTBEAT_TARGETS.join(', ')}`);
+      sendJSON(res, 200, { ok: true, dashboardUrl: dashUrl, targets: HEARTBEAT_TARGETS });
       return;
     }
 
@@ -1819,10 +1857,11 @@ server.listen(PORT, HOST, () => {
 // every prisma call would fail with P2021 until someone ran db push).
 ensureAgentDb().catch((err) => console.warn(`[Agent] DB bootstrap failed: ${err.message}`));
 
-// Heartbeat: keep the dashboard's Device row fresh (self-heal on network /
-// port change). Runs only when a paired dashboard is known (--dashboard,
-// agent-config.json 'dashboardUrl', or set later via /api/agent/pair-target).
-if (HEARTBEAT_TARGET) armHeartbeat();
+// Heartbeat: keep every paired dashboard's Device row fresh (self-heal on
+// network / port change). Runs only when at least one target is known
+// (--dashboard, agent-config.json 'dashboardUrl'/'dashboardUrls', or set
+// later via /api/agent/pair-target).
+if (HEARTBEAT_TARGETS.length > 0) armHeartbeat();
 }
 
 // Keep alive — prevent the event loop from being empty

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { motion } from 'framer-motion'
 import {
-  PlugZap, Loader2, Copy, Check, RefreshCw, Terminal, QrCode, ChevronDown, MonitorSmartphone,
+  PlugZap, Loader2, Copy, Check, RefreshCw, Terminal, QrCode, ChevronDown, MonitorSmartphone, CheckCircle2,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,9 @@ import { useT } from '@/lib/i18n'
 interface PairInfo {
   code: string
   expiresAt: number
+  /** Port this dashboard is browsed on (Host header) — keeps the
+   * advertised address correct for dashboards not running on :3000. */
+  port?: number
   dashboardUrl: string
   command: string
   curlCommand: string
@@ -87,8 +90,11 @@ export function MeshPairingDialog({
 
   if (!open) return null
 
-  const lanCommand = pair ? `node agent.js --pair http://${lanIp}:3000 --code ${pair.code}` : ''
-  const lanDashboardUrl = `http://${lanIp}:3000`
+  // Pair response now carries the REAL dashboard port — advertise
+  // http://<lan-ip>:<port> instead of a hardcoded :3000.
+  const dashPort = pair?.port || 3000
+  const lanDashboardUrl = `http://${lanIp}:${dashPort}`
+  const lanCommand = pair ? `node agent.js --pair ${lanDashboardUrl} --code ${pair.code}` : ''
   const expired = countdown <= 0
 
   return (
@@ -156,6 +162,13 @@ export function MeshPairingDialog({
                 >
                   {copied === 'url' ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
                 </button>
+              </div>
+              {/* One join is enough — pairing is mutual. */}
+              <div className="flex items-start gap-1.5 rounded-lg border border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-900/40 dark:bg-emerald-950/20 px-2.5 py-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+                <p className="text-[11px] leading-4 text-emerald-700 dark:text-emerald-300">
+                  {t('dlg.meshPairing.mutualNote')}
+                </p>
               </div>
             </div>
 

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import {
-  PlugZap, Loader2, Globe, KeyRound, Server, CheckCircle2, AlertTriangle, RefreshCw, Play,
+  PlugZap, Loader2, Globe, KeyRound, Server, CheckCircle2, AlertTriangle, RefreshCw, Play, Wifi,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -49,6 +49,8 @@ export function JoinMeshDialog({
   const [manualIp, setManualIp] = React.useState('')
   const [joining, setJoining] = React.useState(false)
   const [startingAgent, setStartingAgent] = React.useState(false)
+  const [checking, setChecking] = React.useState(false)
+  const [checkResult, setCheckResult] = React.useState<{ reachable?: boolean; dashboard?: boolean; reason?: string; host?: string } | null>(null)
 
   const loadAgent = React.useCallback(async () => {
     setAgentLoading(true)
@@ -103,6 +105,39 @@ export function JoinMeshDialog({
     }
   }, [t, loadAgent, startingAgent])
 
+  // Pre-flight "test connection": probes the target through OUR backend
+  // (/api/mesh/check → target's /api/mesh/ping) and classifies failures —
+  // firewall timeouts, refused ports, non-dashboard hosts — so the user
+  // knows WHAT is wrong before typing a pairing code (user report: reverse
+  // join from macOS failed with a bare timeout message; the cause was
+  // almost certainly the Windows firewall blocking inbound connections).
+  const checkTarget = React.useCallback(async () => {
+    const t0 = target.trim()
+    if (!t0 || !/^https?:\/\/.+/i.test(t0)) return
+    setChecking(true)
+    setCheckResult(null)
+    try {
+      const res = await fetch(`/api/mesh/check?target=${encodeURIComponent(t0)}`)
+      const data = await res.json().catch(() => ({}))
+      setCheckResult(res.ok ? data : { reachable: false, reason: 'error' })
+    } catch {
+      setCheckResult({ reachable: false, reason: 'error' })
+    } finally {
+      setChecking(false)
+    }
+  }, [target])
+
+  // Map the server's classified network failure to a localized hint.
+  const reasonText = React.useCallback((reason?: string) => {
+    switch (reason) {
+      case 'timeout': return t('dlg.meshJoin.checkTimeout')
+      case 'refused': return t('dlg.meshJoin.checkRefused')
+      case 'dns': return t('dlg.meshJoin.checkDns')
+      case 'unreachable': return t('dlg.meshJoin.checkUnreachable')
+      default: return t('dlg.meshJoin.checkError')
+    }
+  }, [t])
+
   const handleJoin = React.useCallback(async () => {
     if (joining) return
     setJoining(true)
@@ -118,36 +153,45 @@ export function JoinMeshDialog({
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
+        const baseDesc = data?.mutual
+          ? t('dlg.meshJoin.joinedMutualDesc', {
+              target: data.target,
+              peer: data.peer?.name ?? '',
+              peerIp: data.peer?.ip ?? '',
+              peerPort: data.peer?.port ?? '',
+            })
+          : t('dlg.meshJoin.joinedDesc', { device: data.deviceName, ip: data.ip, port: data.port, target: data.target })
         addToast({
           title: t('dlg.meshJoin.joinedToast'),
-          description: data?.mutual
-            ? t('dlg.meshJoin.joinedMutualDesc', {
-                target: data.target,
-                peer: data.peer?.name ?? '',
-                peerIp: data.peer?.ip ?? '',
-                peerPort: data.peer?.port ?? '',
-              })
-            : t('dlg.meshJoin.joinedDesc', { device: data.deviceName, ip: data.ip, port: data.port, target: data.target }),
+          description: data?.agentStarted ? `${baseDesc} · ${t('dlg.meshJoin.agentAutoStart')}` : baseDesc,
           variant: 'success',
         })
         onJoined?.()
         setCode('')
         setTarget('')
+        setCheckResult(null)
         onClose()
       } else {
-        addToast({ title: t('dlg.meshJoin.joinFailed'), description: data.error || `HTTP ${res.status}`, variant: 'destructive' })
+        const networkReasons = ['timeout', 'refused', 'dns', 'unreachable', 'error']
+        const desc = data?.reason && networkReasons.includes(data.reason) && !data?.error?.includes('重新生成')
+          ? reasonText(data.reason)
+          : (data.error || `HTTP ${res.status}`)
+        addToast({ title: t('dlg.meshJoin.joinFailed'), description: desc, variant: 'destructive' })
       }
     } catch (e: any) {
       addToast({ title: t('dlg.meshJoin.joinFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
     } finally {
       setJoining(false)
     }
-  }, [t, target, code, manualMode, manualPort, manualKey, manualIp, joining, onClose, onJoined])
+  }, [t, target, code, manualMode, manualPort, manualKey, manualIp, joining, onClose, onJoined, reasonText])
 
   if (!open) return null
 
   const agentReady = !!agent && agent.running
-  const canJoin = !!target.trim() && !!code.trim() && !joining && (agentReady || (manualMode && !!manualPort && !!manualKey))
+  // The join API auto-starts / auto-upgrades the local agent server-side,
+  // so a stopped agent no longer blocks joining — only manual mode needs
+  // its explicit fields.
+  const canJoin = !!target.trim() && !!code.trim() && !joining && (!manualMode || (!!manualPort && !!manualKey))
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
@@ -167,16 +211,42 @@ export function JoinMeshDialog({
         <div className="space-y-4">
           {/* Target dashboard URL */}
           <div className="space-y-1.5">
-            <Label className="text-xs flex items-center gap-1.5">
-              <Globe className="h-3.5 w-3.5 text-muted-foreground" />{t('dlg.meshJoin.target')}
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs flex items-center gap-1.5">
+                <Globe className="h-3.5 w-3.5 text-muted-foreground" />{t('dlg.meshJoin.target')}
+              </Label>
+              <button
+                type="button"
+                onClick={checkTarget}
+                disabled={checking || !/^https?:\/\/.+/i.test(target.trim())}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
+              >
+                {checking
+                  ? <><Loader2 className="h-3 w-3 animate-spin" />{t('dlg.meshJoin.checking')}</>
+                  : <><Wifi className="h-3 w-3" />{t('dlg.meshJoin.checkTarget')}</>}
+              </button>
+            </div>
             <Input
               value={target}
-              onChange={(e) => setTarget(e.target.value)}
+              onChange={(e) => { setTarget(e.target.value); setCheckResult(null) }}
+              onBlur={() => { if (/^https?:\/\/.+/i.test(target.trim())) checkTarget() }}
               placeholder="http://192.168.1.100:3000"
               className="h-9 text-sm font-mono"
               autoFocus
             />
+            {(checking || checkResult) && (
+              <div className="text-[11px] leading-4">
+                {checking ? (
+                  <span className="flex items-center text-muted-foreground"><Loader2 className="h-3 w-3 mr-1 animate-spin" />{t('dlg.meshJoin.checking')}</span>
+                ) : checkResult?.reachable && checkResult?.dashboard ? (
+                  <span className="flex items-center text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3 mr-1 shrink-0" />{t('dlg.meshJoin.checkOk', { host: checkResult?.host ?? '' })}</span>
+                ) : checkResult?.reachable ? (
+                  <span className="flex items-center text-amber-600 dark:text-amber-400"><AlertTriangle className="h-3 w-3 mr-1 shrink-0" />{t('dlg.meshJoin.checkNotDashboard')}</span>
+                ) : (
+                  <span className="flex items-start text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3 mr-1 mt-0.5 shrink-0" />{reasonText(checkResult?.reason)}</span>
+                )}
+              </div>
+            )}
             <p className="text-[11px] text-muted-foreground">{t('dlg.meshJoin.targetHint')}</p>
           </div>
 
@@ -227,7 +297,7 @@ export function JoinMeshDialog({
             {!agentReady && (
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                  {t('dlg.meshJoin.agentWarn')}
+                  {t('dlg.meshJoin.agentAutoStart')}
                 </p>
                 <div className="flex items-center gap-1">
                   <Button

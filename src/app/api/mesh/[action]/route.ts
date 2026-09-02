@@ -15,10 +15,19 @@ import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
  *
  *   POST /api/mesh/pair          → create a pairing code for this dashboard
  *   GET  /api/mesh/pair          → current pending pairing info (code + one-liner)
- *   POST /api/mesh/register      → a remote agent registers itself with {code, name, ip, port, apiKey}
+ *   POST /api/mesh/register      → a remote agent registers itself with {code, name, ip, port, apiKey, dashboardUrl?}
+ *   GET  /api/mesh/ping          → OPEN probe: "is a dashboard running here?" (used by pre-flight checks)
+ *   GET  /api/mesh/check?target= → pre-flight probe of ANOTHER dashboard (join dialog "test connection")
  *   GET  /api/mesh/local-agent   → auto-detect the agent running on THIS machine (for web-UI join)
  *   POST /api/mesh/join          → this dashboard joins another dashboard's mesh by entering
- *                                  {target, code} in the web UI (no CLI needed on this device)
+ *                                  {target, code} in the web UI (no CLI needed on this device).
+ *                                  The local agent is auto-started/upgraded here — no separate step.
+ *
+ * Pairing is MUTUAL from a single join: the joiner registers with the target
+ * (row created there), mirrors the target's peer coordinates into its own
+ * DB, and both agents' heartbeats get wired at each other (joiner side wires
+ * itself in 'join'; target side wires itself in 'register' via the joiner's
+ * advertised dashboardUrl). No reverse join is ever needed.
  *
  * Two ways to join a mesh:
  *   A. CLI (agent-only devices):  node agent.js --pair http://<dashboard-host>:3000 --code <CODE>
@@ -122,16 +131,215 @@ interface LocalAgentInfo {
  * can mirror us into its own device list — pairing becomes mutual instead
  * of one-directional. Null when this machine has no agent identity yet.
  */
-async function localPeerInfo() {
-  const detected = await detectLocalAgent();
-  if (!detected) return null;
+async function localPeerInfo(detected?: LocalAgentInfo | null) {
+  const d = detected ?? await detectLocalAgent();
+  if (!d) return null;
   return {
-    name: detected.name,
+    name: d.name,
     ip: lanIp(),
-    port: detected.port,
-    apiKey: detected.apiKey,
-    running: detected.running,
+    port: d.port,
+    apiKey: d.apiKey,
+    running: d.running,
   };
+}
+
+/** Dashboard port as the user browses it (Host header). '' → 3000. */
+function dashboardPortFromHost(host: string): number {
+  try {
+    const p = new URL(`http://${host}`).port;
+    if (p) return Number(p) || 3000;
+  } catch { /* odd host header */ }
+  return 3000;
+}
+
+/**
+ * Classify a network failure from a fetch() exception into a short machine
+ * reason + raw detail. The join/check UIs map `reason` to a localized,
+ * actionable hint (firewall / wrong port / wrong IP) instead of surfacing a
+ * bare "TimeoutError was aborted".
+ */
+function classifyNetError(e: unknown): { reason: string; detail: string } {
+  const err = e as { name?: string; message?: string; cause?: { code?: string } };
+  const code = err?.cause?.code || '';
+  const name = err?.name || '';
+  if (name === 'TimeoutError' || name === 'AbortError' || code === 'ETIMEDOUT') {
+    return { reason: 'timeout', detail: err?.message || 'timeout' };
+  }
+  if (code === 'ECONNREFUSED') return { reason: 'refused', detail: err?.message || 'refused' };
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return { reason: 'dns', detail: err?.message || 'dns' };
+  if (code === 'EHOSTUNREACH' || code === 'ENETUNREACH') return { reason: 'unreachable', detail: err?.message || 'unreachable' };
+  return { reason: 'error', detail: err?.message || String(e) };
+}
+
+/** Short localized hint for join/check failures, keyed by classifyNetError reason. */
+function joinFailHint(reason?: string): string {
+  switch (reason) {
+    case 'timeout': return '常见原因：对方防火墙拦截入站连接（Windows 需允许 Node.js 通过防火墙）、IP 不正确、或两台设备不在同一网络';
+    case 'refused': return '该地址/端口上没有运行仪表盘 — 请核对对方地址与端口';
+    case 'dns': return '主机名无法解析 — 请改用对方的局域网 IP 地址';
+    case 'unreachable': return '网络不可达 — 请检查 IP 与子网';
+    default: return '请检查地址与网络';
+  }
+}
+
+interface TargetProbe {
+  reachable: boolean;
+  dashboard: boolean;
+  reason?: string;
+  detail?: string;
+  host?: string;
+  status?: number;
+}
+
+/** Pre-flight probe of a remote dashboard: GET {target}/api/mesh/ping. */
+async function probeDashboard(target: string, timeoutMs = 4000): Promise<TargetProbe> {
+  try {
+    const res = await fetch(`${target}/api/mesh/ping`, { signal: AbortSignal.timeout(timeoutMs) });
+    const data = await res.json().catch(() => null);
+    if (res.ok && data && typeof data === 'object' && (data as Record<string, unknown>).dashboard === true) {
+      return { reachable: true, dashboard: true, host: String((data as Record<string, unknown>).host || '') };
+    }
+    return { reachable: true, dashboard: false, status: res.status };
+  } catch (e) {
+    const c = classifyNetError(e);
+    return { reachable: false, dashboard: false, reason: c.reason, detail: c.detail };
+  }
+}
+
+/** Best-effort merge-patch of an agent dir's agent-config.json. */
+async function patchAgentConfig(
+  dir: string,
+  mutate: (cfg: Record<string, unknown>) => Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    const cfgPath = path.join(process.cwd(), 'mini-services', dir, 'agent-config.json');
+    const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'));
+    await fs.writeFile(cfgPath, JSON.stringify(mutate(cfg), null, 2), 'utf-8');
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Add a dashboard URL to an agent dir's persisted heartbeat target list
+ * (new agents heartbeat to ALL of them; the legacy single `dashboardUrl`
+ * field is also refreshed for pre-upgrade agents). Takes effect at the next
+ * agent boot when the agent is not currently running.
+ */
+async function addPersistedHeartbeatTarget(dir: string, target: string): Promise<void> {
+  await patchAgentConfig(dir, (cfg) => {
+    const list = Array.isArray(cfg.dashboardUrls) ? cfg.dashboardUrls.map(String) : [];
+    return {
+      ...cfg,
+      dashboardUrl: target,
+      dashboardUrls: [...new Set([...list, target])].slice(0, 8),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+}
+
+/**
+ * Start (or verify) the LOCAL agent service — shared by the 'ensure-agent'
+ * action and the join flow, so joining never requires a separate
+ * "start the agent first" step (one click fewer for the user).
+ *
+ * Returns the agent's coordinates (port / apiKey / name / dir) plus whether
+ * it was just started or auto-upgraded.
+ */
+async function ensureLocalAgent(): Promise<
+  | { ok: true; agent: LocalAgentInfo; started: boolean; restarted: boolean }
+  | { ok: false; error: string }
+> {
+  const detected = await detectLocalAgent();
+
+  // Auto-upgrade: a long-running agent started BEFORE a code pull keeps
+  // executing the OLD code (git pull only hot-reloads the dashboard, not
+  // the spawned agent process). Old agents report no `dashboardDb` field
+  // → kill & respawn so the new code (co-located dashboard DB serving)
+  // takes over. Without this, paired peers see the device "online" with
+  // 0 projects forever no matter how many times the user pulls.
+  let restarted = false;
+  if (detected?.running && (await agentOutdated(detected.port))) {
+    await stopAgentOnPort(detected.port);
+    restarted = true;
+    logActivity({
+      type: 'pair',
+      level: 'info',
+      message: 'Local agent restarted (code upgrade)',
+      detail: `port ${detected.port} · old agent lacked dashboard-DB support`,
+    });
+  }
+
+  if (detected?.running && !restarted) {
+    return { ok: true, agent: detected, started: false, restarted };
+  }
+
+  // Pick the agent directory + entry to spawn:
+  //   - mini-services/agent (TypeScript, self-contained node_modules +
+  //     initialized db) via bun when the bun CLI is available;
+  //   - platform agent.js bundle via node otherwise.
+  // NOTE: process.versions.bun is useless here — `next dev` spawns a
+  // node runtime for the server even under `bun run dev`, so probe the
+  // bun CLI itself.
+  const root = process.cwd();
+  let bunAvailable = false;
+  try {
+    execSync('bun --version', { stdio: 'ignore', timeout: 3000 });
+    bunAvailable = true;
+  } catch { /* no bun CLI */ }
+  const platformDir = os.platform() === 'darwin' ? 'agent-macos' : os.platform() === 'win32' ? 'agent-windows' : 'agent-linux';
+  const preferTs = bunAvailable && existsSyncSafe(path.join(root, 'mini-services', 'agent', 'index.ts'));
+  const dir = preferTs ? 'agent' : platformDir;
+  const base = path.join(root, 'mini-services', dir);
+  const entry = preferTs ? path.join(base, 'index.ts') : path.join(base, 'agent.js');
+  const runtime = preferTs ? 'bun' : 'node';
+  if (!existsSyncSafe(entry)) {
+    return { ok: false, error: `Agent entry not found: ${path.join('mini-services', dir, path.basename(entry))}` };
+  }
+
+  // Config: reuse the PERSISTED identity. Prefer the directory where an
+  // agent was actually detected (its config holds this machine's paired
+  // identity); fall back to the spawn directory on first run. A new random
+  // key each boot would orphan every already-paired dashboard row.
+  let port = 3101;
+  let apiKey = randomBytes(24).toString('hex');
+  let name = os.hostname();
+  const cfgDir = detected?.dir ?? dir;
+  try {
+    const cfg = JSON.parse(await fs.readFile(path.join(root, 'mini-services', cfgDir, 'agent-config.json'), 'utf-8'));
+    port = Number(cfg.port) || port;
+    apiKey = String(cfg.apiKey || apiKey);
+    name = String(cfg.name || name);
+  } catch { /* first run — defaults above */ }
+  // .agent-session.env records the actually-used port (start.sh writes
+  // it; a stale file could pin an outdated port).
+  try {
+    const envTxt = await fs.readFile(path.join(root, 'mini-services', cfgDir, '.agent-session.env'), 'utf-8');
+    const m = envTxt.match(/^AGENT_PORT=(\d+)\s*$/m);
+    if (m) port = parseInt(m[1], 10);
+  } catch { /* no session file */ }
+
+  const logFile = path.join('/tmp', 'dashboard-agent.log');
+  const out = openSyncAppend(logFile);
+  const child = spawn(runtime, [entry, '--port', String(port), '--apiKey', apiKey, '--name', name], {
+    cwd: base,
+    detached: true,
+    stdio: ['ignore', out, out],
+    env: { ...process.env, DATABASE_URL: `file:${path.join(base, 'db', 'agent.db')}` },
+  });
+  child.unref();
+  if (out !== 1 && out !== 2) { try { closeSync(out); } catch { /* already closed */ } }
+
+  logActivity({
+    type: 'pair',
+    level: 'info',
+    message: `Local agent started (port ${port})`,
+    detail: `${dir} · pid ${child.pid}`,
+  });
+
+  // Give the process a moment to bind, then verify.
+  await new Promise((r) => setTimeout(r, 1500));
+  const running = await probeAgent(port);
+  return { ok: true, agent: { port, apiKey, name, dir, running }, started: true, restarted };
 }
 
 async function probeAgent(port: number): Promise<boolean> {
@@ -296,105 +504,18 @@ export async function POST(req: NextRequest) {
       // project (mini-services/agent*), so the dashboard can bring it up on
       // demand — fixing the most common mesh failure mode: "Local Agent: Not
       // running" because nobody ran start.sh on this machine.
-      const detected = await detectLocalAgent();
-
-      // Auto-upgrade: a long-running agent started BEFORE a code pull keeps
-      // executing the OLD code (git pull only hot-reloads the dashboard, not
-      // the spawned agent process). Old agents report no `dashboardDb` field
-      // → kill & respawn so the new code (co-located dashboard DB serving)
-      // takes over. Without this, paired peers see the device "online" with
-      // 0 projects forever no matter how many times the user pulls.
-      let restarted = false;
-      if (detected?.running && (await agentOutdated(detected.port))) {
-        await stopAgentOnPort(detected.port);
-        restarted = true;
-        logActivity({
-          type: 'pair',
-          level: 'info',
-          message: 'Local agent restarted (code upgrade)',
-          detail: `port ${detected.port} · old agent lacked dashboard-DB support`,
-        });
+      const ensured = await ensureLocalAgent();
+      if (!ensured.ok) {
+        return NextResponse.json({ error: ensured.error }, { status: 500 });
       }
-
-      if (detected?.running && !restarted) {
-        return NextResponse.json({ running: true, started: false, agent: detected });
-      }
-
-      // Pick the agent directory + entry to spawn:
-      //   - mini-services/agent (TypeScript, self-contained node_modules +
-      //     initialized db) via bun when the bun CLI is available;
-      //   - platform agent.js bundle via node otherwise.
-      // NOTE: process.versions.bun is useless here — `next dev` spawns a
-      // node runtime for the server even under `bun run dev`, so probe the
-      // bun CLI itself.
-      const root = process.cwd();
-      let bunAvailable = false;
-      try {
-        execSync('bun --version', { stdio: 'ignore', timeout: 3000 });
-        bunAvailable = true;
-      } catch { /* no bun CLI */ }
-      const platformDir = os.platform() === 'darwin' ? 'agent-macos' : os.platform() === 'win32' ? 'agent-windows' : 'agent-linux';
-      const preferTs = bunAvailable && existsSyncSafe(path.join(root, 'mini-services', 'agent', 'index.ts'));
-      const dir = preferTs ? 'agent' : platformDir;
-      const base = path.join(root, 'mini-services', dir);
-      const entry = preferTs ? path.join(base, 'index.ts') : path.join(base, 'agent.js');
-      const runtime = preferTs ? 'bun' : 'node';
-      if (!existsSyncSafe(entry)) {
-        return NextResponse.json(
-          { error: `Agent entry not found: ${path.join('mini-services', dir, path.basename(entry))}` },
-          { status: 500 },
-        );
-      }
-
-      // Config: reuse the persisted agent-config.json (port / apiKey / name)
-      // so re-starts keep the SAME identity — a new random key each boot
-      // would orphan every already-paired dashboard row.
-      let port = 3101;
-      let apiKey = randomBytes(24).toString('hex');
-      let name = os.hostname();
-      try {
-        const cfg = JSON.parse(await fs.readFile(path.join(base, 'agent-config.json'), 'utf-8'));
-        port = Number(cfg.port) || port;
-        apiKey = String(cfg.apiKey || apiKey);
-        name = String(cfg.name || name);
-      } catch { /* first run — defaults above */ }
-      // .agent-session.env records the actually-used port (start.sh writes
-      // it; a stale file could pin an outdated port).
-      try {
-        const envTxt = await fs.readFile(path.join(base, '.agent-session.env'), 'utf-8');
-        const m = envTxt.match(/^AGENT_PORT=(\d+)\s*$/m);
-        if (m) port = parseInt(m[1], 10);
-      } catch { /* no session file */ }
-
-      const logFile = path.join('/tmp', 'dashboard-agent.log');
-      const out = openSyncAppend(logFile);
-      const child = spawn(runtime, [entry, '--port', String(port), '--apiKey', apiKey, '--name', name], {
-        cwd: base,
-        detached: true,
-        stdio: ['ignore', out, out],
-        env: { ...process.env, DATABASE_URL: `file:${path.join(base, 'db', 'agent.db')}` },
-      });
-      child.unref();
-      if (out !== 1 && out !== 2) { try { closeSync(out); } catch { /* already closed */ } }
-
-      logActivity({
-        type: 'pair',
-        level: 'info',
-        message: `Local agent started (port ${port})`,
-        detail: `${dir} · pid ${child.pid}`,
-      });
-
-      // Give the process a moment to bind, then verify.
-      await new Promise((r) => setTimeout(r, 1500));
-      const running = await probeAgent(port);
       return NextResponse.json({
-        running,
-        started: true,
-        restarted,
-        port,
-        name,
-        pid: child.pid,
-        dir,
+        running: ensured.agent.running,
+        started: ensured.started,
+        restarted: ensured.restarted,
+        port: ensured.agent.port,
+        name: ensured.agent.name,
+        agent: ensured.agent,
+        dir: ensured.agent.dir,
       });
     }
 
@@ -420,9 +541,16 @@ export async function POST(req: NextRequest) {
         message: 'Pairing code generated (valid 5 min)',
       });
 
+      // The port THIS dashboard is browsed on (Host header) — lets the UI
+      // advertise an address with the RIGHT port instead of a hardcoded
+      // :3000 (a dashboard started on e.g. 3001 would otherwise hand the
+      // joiner a dead URL).
+      const dashPort = dashboardPortFromHost(host);
+
       return NextResponse.json({
         code,
         expiresAt: entry.expiresAt,
+        port: dashPort,
         dashboardUrl: `${proto}://${host}`,
         command: `node agent.js --pair ${proto}://${host} --code ${code}`,
         curlCommand: `curl -X POST ${proto}://${host}/api/mesh/register -H 'Content-Type: application/json' -d '{"code":"${code}","name":"<device-name>","ip":"<device-ip>","port":3100,"apiKey":"<agent-api-key>"}'`,
@@ -534,15 +662,54 @@ export async function POST(req: NextRequest) {
       // The code stays valid until expiry so several devices can join with
       // the same code within the 5-minute window.
 
-      // Mutual pairing: hand our own agent's coordinates to the joiner so
-      // BOTH dashboards end up with a device row for the other side.
-      const peer = await localPeerInfo();
+      // Mutual pairing, two halves:
+      //   1) hand our own agent's coordinates (peer) to the joiner so BOTH
+      //      dashboards end up with a device row for the other side;
+      //   2) point OUR agent's heartbeat at the JOINER's advertised
+      //      dashboard URL (body.dashboardUrl) so OUR device row on the
+      //      joiner self-heals (ip/port drift) exactly like the joiner's
+      //      row here does. ONE join → mutual rows AND mutual heartbeats;
+      //      the reverse join becomes unnecessary.
+      // Trust note: the joiner already receives peer.apiKey in this very
+      // response (the pair code is the trust anchor), so heartbeat-ing at
+      // its URL discloses nothing new.
+      const me = await detectLocalAgent();
+      const peer = await localPeerInfo(me);
+
+      let mutualHeartbeat = false;
+      const joinerDashboardUrl = String(body?.dashboardUrl || '').trim().replace(/\/+$/, '');
+      if (/^https?:\/\/.+/i.test(joinerDashboardUrl) && me?.apiKey && me.port > 0) {
+        try {
+          const r = await fetch(`http://127.0.0.1:${me.port}/api/agent/pair-target`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${me.apiKey}`,
+            },
+            body: JSON.stringify({ dashboardUrl: joinerDashboardUrl }),
+            signal: AbortSignal.timeout(3000),
+          });
+          mutualHeartbeat = r.ok;
+        } catch { /* agent not running — persisted config below still arms it at next boot */ }
+        if (me.dir) {
+          await addPersistedHeartbeatTarget(me.dir, joinerDashboardUrl);
+        }
+        if (mutualHeartbeat) {
+          logActivity({
+            type: 'pair',
+            level: 'info',
+            message: 'Agent heartbeat wired to the joiner (mutual)',
+            detail: joinerDashboardUrl,
+          });
+        }
+      }
 
       return NextResponse.json({
         ok: true,
         deviceId: device.id,
         dashboard: { name: 'Dashboard', registered: true },
         peer,
+        mutualHeartbeat,
       });
     }
 
@@ -558,15 +725,33 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: '请输入对方仪表盘显示的配对码' }, { status: 400 });
       }
 
-      const detected = await detectLocalAgent();
-      const port = Number(body?.agentPort) || detected?.port || 0;
-      const apiKey = String(body?.agentApiKey || '') || detected?.apiKey || '';
-      const name = String(body?.name || '') || detected?.name || os.hostname();
-      if (!port || !apiKey) {
-        return NextResponse.json(
-          { error: '未检测到本机 Agent 的端口 / API Key — 请先启动 Agent，或在下方手动填写', agentDetected: false },
-          { status: 400 },
-        );
+      // Local agent coordinates. Explicit manual mode (port + key) is
+      // honored as-is; otherwise the agent is ENSURED right here — started
+      // when stopped, auto-upgraded when running stale code, spawned with a
+      // fresh identity when never started. Joining must not require a
+      // separate "start the agent first" step (user request: minimize the
+      // number of pairing steps).
+      const manualPort = Number(body?.agentPort) || 0;
+      const manualKey = String(body?.agentApiKey || '').trim();
+      let port: number;
+      let apiKey: string;
+      let name: string;
+      let agentDir: string | null = null;
+      let agentStarted = false;
+      if (manualPort > 0 && manualKey) {
+        port = manualPort;
+        apiKey = manualKey;
+        name = String(body?.name || '') || os.hostname();
+      } else {
+        const ensured = await ensureLocalAgent();
+        if (!ensured.ok) {
+          return NextResponse.json({ error: ensured.error, agentDetected: false }, { status: 400 });
+        }
+        port = ensured.agent.port;
+        apiKey = ensured.agent.apiKey;
+        name = ensured.agent.name || os.hostname();
+        agentDir = ensured.agent.dir;
+        agentStarted = ensured.started;
       }
 
       // Reported IP: the user can override which address gets advertised
@@ -574,11 +759,36 @@ export async function POST(req: NextRequest) {
       // need the explicit choice). Falls back to the ranked best candidate.
       const bodyIp = String(body?.ip || '').trim();
       const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(bodyIp) ? bodyIp : lanIp();
+
+      // Our own dashboard URL, advertised to the target so it can wire ITS
+      // agent's heartbeat back at us (mutual pairing from ONE join). The
+      // port comes from how the user browses THIS dashboard (Host header),
+      // the IP from the same advertised address used for the agent
+      // registration.
+      const dashPort = dashboardPortFromHost(hostFromReq(req));
+      const joinerDashboardUrl = `http://${ip}:${dashPort}`;
+
+      // Pre-flight: fail FAST with an actionable reason when the target is
+      // unreachable (firewall / wrong IP / wrong port) instead of a 10s
+      // hang followed by a bare TimeoutError. A reachable-but-unknown
+      // server (404) falls through — the register call below then reports
+      // its own precise error.
+      const probe = await probeDashboard(target, 4000);
+      if (!probe.reachable) {
+        const label = probe.reason === 'timeout' ? '连接超时'
+          : probe.reason === 'refused' ? '连接被拒绝'
+          : probe.reason === 'dns' ? '域名解析失败'
+          : '网络错误';
+        return NextResponse.json(
+          { error: `无法连接对方仪表盘（${label}）— ${joinFailHint(probe.reason)}`, reason: probe.reason, detail: probe.detail },
+          { status: 502 },
+        );
+      }
       try {
         const res = await fetch(`${target}/api/mesh/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, name, ip, port, apiKey }),
+          body: JSON.stringify({ code, name, ip, port, apiKey, dashboardUrl: joinerDashboardUrl }),
           signal: AbortSignal.timeout(10000),
         });
         const data = await res.json().catch(() => ({}));
@@ -651,21 +861,14 @@ export async function POST(req: NextRequest) {
             });
           } catch { /* best-effort only */ }
 
-          // Durable wiring: ALSO persist dashboardUrl into the local agent's
-          // agent-config.json. A RUNNING old agent 404s the pair-target call
-          // above (that endpoint is new) — but once ensure-agent
-          // restarts/upgrades it, the heartbeat arms from this persisted
-          // field at boot, so the pairing survives restarts of either side.
-          if (detected?.dir) {
-            try {
-              const cfgPath = path.join(process.cwd(), 'mini-services', detected.dir, 'agent-config.json');
-              const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'));
-              await fs.writeFile(
-                cfgPath,
-                JSON.stringify({ ...cfg, dashboardUrl: target, updatedAt: new Date().toISOString() }, null, 2),
-                'utf-8',
-              );
-            } catch { /* best-effort — config may not exist in manual mode */ }
+          // Durable wiring: ALSO persist the heartbeat target into the local
+          // agent's agent-config.json. A RUNNING old agent 404s the
+          // pair-target call above (that endpoint is new) — but once
+          // ensure-agent restarts/upgrades it, the heartbeat arms from this
+          // persisted field at boot, so the pairing survives restarts of
+          // either side.
+          if (agentDir) {
+            await addPersistedHeartbeatTarget(agentDir, target);
           }
 
           logActivity({
@@ -673,7 +876,7 @@ export async function POST(req: NextRequest) {
             level: 'success',
             message: `Joined '${name}' via pairing code`,
             deviceName: name,
-            detail: `target: ${target}${mutual ? ' · mutual' : ''}`,
+            detail: `target: ${target}${mutual ? ' · mutual' : ''}${agentStarted ? ' · agent auto-started' : ''}`,
           });
           return NextResponse.json({
             ok: true,
@@ -682,16 +885,24 @@ export async function POST(req: NextRequest) {
             port,
             target,
             mutual,
+            mutualHeartbeat: !!data?.mutualHeartbeat,
+            agentStarted,
+            dashboardUrl: joinerDashboardUrl,
             peer: peerSummary,
           });
         }
+        const targetErr = data?.error || `对方仪表盘返回 ${res.status}`;
+        const codeHint = res.status === 400 && /配对码/.test(String(targetErr))
+          ? '（请在对方仪表盘点「重新生成」拿新码 — 旧码可能已被新码取代、已过期、或对方服务重启后失效）'
+          : '';
         return NextResponse.json(
-          { error: data?.error || `对方仪表盘返回 ${res.status}` },
+          { error: `${targetErr}${codeHint}`, reason: 'target-error' },
           { status: 400 },
         );
-      } catch (e: any) {
+      } catch (e) {
+        const c = classifyNetError(e);
         return NextResponse.json(
-          { error: `无法连接对方仪表盘：${e?.message || e} — 请检查地址与网络` },
+          { error: `无法连接对方仪表盘（${c.detail}）— ${joinFailHint(c.reason)}`, reason: c.reason },
           { status: 502 },
         );
       }
@@ -707,10 +918,28 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const action = url.pathname.split('/').pop();
 
+  // OPEN endpoint — no session. Remote dashboards probe it (via their own
+  // /api/mesh/check) to verify "there IS a dashboard at this URL" before
+  // attempting a join, so the join dialog can show a precise reason
+  // (firewall / wrong port / not a dashboard) instead of a bare timeout.
+  if (action === 'ping') {
+    return NextResponse.json({ ok: true, dashboard: true, host: os.hostname(), time: Date.now() });
+  }
+
   // Auth guard (Task 11-a): UI status endpoints require an approved session.
-  if (action === 'pair' || action === 'local-agent') {
+  if (action === 'pair' || action === 'local-agent' || action === 'check') {
     const authGuard = await requireApprovedUser(req);
     if (authGuard.error) return authGuard.error;
+  }
+
+  if (action === 'check') {
+    // Pre-flight reachability check for the join dialog's "测试连接" button.
+    const target = (url.searchParams.get('target') || '').trim().replace(/\/+$/, '');
+    if (!/^https?:\/\/.+/i.test(target)) {
+      return NextResponse.json({ error: '请输入以 http(s):// 开头的完整地址' }, { status: 400 });
+    }
+    const probe = await probeDashboard(target, 4000);
+    return NextResponse.json(probe);
   }
 
   if (action === 'pair') {
