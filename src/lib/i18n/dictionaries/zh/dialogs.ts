@@ -1046,4 +1046,30 @@ export const dialogs = {
 
   // ---- 其他 aria ----
   'surf.healthScore': '健康分 {score}',
+
+  // ---- 端口面板 ----
+  'ports.title': '端口占用',
+  'ports.desc': '实时显示本机所有监听中的 TCP 端口及其进程，可一键杀死进程释放端口。',
+  'ports.count': '{count} 个监听',
+  'ports.search': '按端口 / PID / 进程 / 项目过滤…',
+  'ports.live': '实时 · 每 3 秒刷新',
+  'ports.liveUpdated': '实时 · {seconds} 秒前刷新',
+  'ports.colPort': '端口',
+  'ports.colPid': 'PID',
+  'ports.colProcess': '进程',
+  'ports.colOwner': '所属环境',
+  'ports.colActions': '操作',
+  'ports.kill': '杀死',
+  'ports.killOk': '进程已杀死',
+  'ports.killOkDesc': '端口 {port}（pid {pid}）已释放，环境列表已刷新。',
+  'ports.killFailed': '杀死进程失败',
+  'ports.killConfirmTitle': '确定杀死该进程？',
+  'ports.killConfirmDesc': '将向监听端口 {port} 的进程 pid {pid}（{name}）发送 SIGTERM（超时升级为 SIGKILL）。进程将被终止，未保存的状态会丢失。',
+  'ports.protected': '仪表盘自身进程 — 受保护',
+  'ports.unowned': '—',
+  'ports.noPid': '无 PID（系统/Root）',
+  'ports.unknownProc': '未知',
+  'ports.empty': '未发现监听端口',
+  'ports.noMatch': '没有匹配的端口',
+  'ports.footerNote': '仪表盘进程与保留端口不可杀死；远程设备的端口仅展示，需在该设备上管理。',
 }

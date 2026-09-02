@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { startProcess, checkPortStatus } from '@/lib/process-manager';
+import { killStrayListeners } from '@/lib/ports';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 import { startRepairJob } from '@/lib/llm-repair';
@@ -53,6 +54,43 @@ export async function POST(
       envVars = JSON.parse(env.envVars);
     } catch {
       // ignore parse errors
+    }
+
+    // ---- Start-conflict resolution -------------------------------------
+    // If the project is ALREADY running (typically on another port — a stray
+    // from an old port config, a previous dashboard session, or a manual
+    // start), kill the original process(es) first so the start lands on the
+    // freshly configured port instead of failing with "port in use" or
+    // forking a duplicate instance. Ports of sibling environments that are
+    // legitimately running (other envs of this project) are preserved.
+    try {
+      const siblings = await db.environment.findMany({
+        where: { projectId: id, id: { not: envId }, status: 'running' },
+        select: { port: true },
+      });
+      const killed = await killStrayListeners(
+        env.project.path,
+        siblings.map((s) => s.port),
+      );
+      if (killed.length > 0) {
+        // This env's own stray (old pid from a previous port) is dead — reset
+        // the stale running state so the start below is a clean slate.
+        if (env.status === 'running') {
+          await db.environment.update({ where: { id: envId }, data: { status: 'stopped', pid: null } });
+        }
+        logActivity({
+          type: 'start',
+          level: 'warn',
+          message: `Killed ${killed.length} stray process(es) of '${env.project.name}' before start`,
+          projectId: id,
+          projectName: env.project.name,
+          envId,
+          envName: env.name,
+          detail: killed.map((k) => `port ${k.port} pid ${k.pid}: ${(k.command || k.cwd).slice(0, 80)}`).join('; '),
+        });
+      }
+    } catch {
+      // Stray sweep is best-effort — a failure here must not block the start.
     }
 
     const result = await startProcess(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { restartProcess } from '@/lib/process-manager';
+import { killStrayListeners } from '@/lib/ports';
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 import { startRepairJob } from '@/lib/llm-repair';
@@ -46,6 +47,35 @@ export async function POST(
       envVars = JSON.parse(env.envVars);
     } catch {
       // ignore
+    }
+
+    // Stray sweep BEFORE restart: restartProcess's stop only frees the
+    // CONFIGURED port — a stray running on a different port (old config,
+    // orphaned session) would survive and keep consuming resources. Same
+    // sibling-preservation rule as the start route.
+    try {
+      const siblings = await db.environment.findMany({
+        where: { projectId: id, id: { not: envId }, status: 'running' },
+        select: { port: true },
+      });
+      const killed = await killStrayListeners(
+        env.project.path,
+        [...siblings.map((s) => s.port), env.port],
+      );
+      if (killed.length > 0) {
+        logActivity({
+          type: 'restart',
+          level: 'warn',
+          message: `Killed ${killed.length} stray process(es) of '${env.project.name}' before restart`,
+          projectId: id,
+          projectName: env.project.name,
+          envId,
+          envName: env.name,
+          detail: killed.map((k) => `port ${k.port} pid ${k.pid}: ${(k.command || k.cwd).slice(0, 80)}`).join('; '),
+        });
+      }
+    } catch {
+      // best-effort
     }
 
     const restartStartedAt = Date.now();

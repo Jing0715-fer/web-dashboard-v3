@@ -1050,4 +1050,30 @@ export const dialogs = {
 
   // ---- misc aria ----
   'surf.healthScore': 'Health score {score}',
+
+  // ---- ports panel ----
+  'ports.title': 'Port Occupancy',
+  'ports.desc': 'Live view of every listening TCP port on this machine, with the owning process. Kill a process to free its port.',
+  'ports.count': '{count} listening',
+  'ports.search': 'Filter by port, pid, process, project…',
+  'ports.live': 'Live · refreshes every 3s',
+  'ports.liveUpdated': 'Live · refreshed {seconds}s ago',
+  'ports.colPort': 'Port',
+  'ports.colPid': 'PID',
+  'ports.colProcess': 'Process',
+  'ports.colOwner': 'Environment',
+  'ports.colActions': 'Actions',
+  'ports.kill': 'Kill',
+  'ports.killOk': 'Process killed',
+  'ports.killOkDesc': 'Port {port} (pid {pid}) — the environment list has been refreshed.',
+  'ports.killFailed': 'Failed to kill process',
+  'ports.killConfirmTitle': 'Kill this process?',
+  'ports.killConfirmDesc': 'This sends SIGTERM (escalating to SIGKILL) to pid {pid} listening on port {port} ({name}). The process will be gone for good — unsaved state is lost.',
+  'ports.protected': 'Dashboard process — protected',
+  'ports.unowned': '—',
+  'ports.noPid': 'no pid (system/root)',
+  'ports.unknownProc': 'unknown',
+  'ports.empty': 'No listening ports found',
+  'ports.noMatch': 'No ports match the filter',
+  'ports.footerNote': 'The dashboard process and reserved ports cannot be killed. Remote-device ports are shown but must be managed on that device.',
 }

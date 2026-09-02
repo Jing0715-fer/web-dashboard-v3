@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import dynamic from 'next/dynamic'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, LayoutGrid, List, Bell, Settings,
@@ -15,6 +16,7 @@ import {
   CircleDot, Download, Star, ExternalLink, Link2, Plug, PlugZap, MonitorSmartphone,
   Keyboard,
   Wifi, Gauge, MemoryStick, BarChart3, Upload, LayoutTemplate,
+  Network, Ban, Lock as LockIcon,
   TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, Clipboard,
   SearchX,
   Cloud, Container, Wrench, Building, House, Box,
@@ -58,19 +60,28 @@ import { ThemeToggle } from '@/components/theme-toggle'
 import { ThemeCustomizer } from '@/components/theme-customizer'
 import { LanguageToggle } from '@/components/language-toggle'
 import { useI18n, useT, type I18nContextValue } from '@/lib/i18n'
-import { AnalyzeWizard, HarnessSessionState } from '@/components/analyze-wizard'
-import { RemoteProjectDialog } from '@/components/remote-project-dialog'
-import { MeshPairingDialog } from '@/components/mesh-pairing'
-import { JoinMeshDialog } from '@/components/mesh-join'
+import { type HarnessSessionState } from '@/components/analyze-wizard'
 import { useToast, addToast } from '@/hooks/use-toast'
 import { AuthProvider, useAuth, AuthLoadingSplash } from '@/components/auth/auth-provider'
-import { LoginScreen } from '@/components/auth/login-screen'
 import { AccountStatusScreen } from '@/components/auth/account-status-screen'
 import { UserMenu } from '@/components/auth/user-menu'
-import { ChangePasswordDialog } from '@/components/auth/change-password-dialog'
-import { UserManagementDialog } from '@/components/auth/user-management-dialog'
 import type { DashboardSession } from '@/components/auth/auth-types'
 import { setToastClickHandler } from '@/components/ui/toaster'
+
+// ---- Code-split heavy, rarely-shown surfaces --------------------------
+// These dialogs together are ~2400 lines (login screen alone 600, user
+// management 715) and only appear on specific flows (logged out, admin
+// panel, wizard, remote/mesh setup). Loading them on demand cuts the
+// first-load chunk of this 9000-line page substantially.
+const AnalyzeWizard = dynamic(() => import('@/components/analyze-wizard').then((m) => m.AnalyzeWizard))
+const RemoteProjectDialog = dynamic(() => import('@/components/remote-project-dialog').then((m) => m.RemoteProjectDialog))
+const MeshPairingDialog = dynamic(() => import('@/components/mesh-pairing').then((m) => m.MeshPairingDialog))
+const JoinMeshDialog = dynamic(() => import('@/components/mesh-join').then((m) => m.JoinMeshDialog))
+const LoginScreen = dynamic(() => import('@/components/auth/login-screen').then((m) => m.LoginScreen), {
+  loading: () => <AuthLoadingSplash />,
+})
+const ChangePasswordDialog = dynamic(() => import('@/components/auth/change-password-dialog').then((m) => m.ChangePasswordDialog))
+const UserManagementDialog = dynamic(() => import('@/components/auth/user-management-dialog').then((m) => m.UserManagementDialog))
 
 // ======================== CUSTOM DnD SENSOR ========================
 // A PointerSensor that only activates when the pointerdown target is a
@@ -296,8 +307,30 @@ function RocketIcon(props: React.SVGProps<SVGSVGElement> & { className?: string 
 // ======================== UTILITY FUNCTIONS ========================
 
 // localStorage key for the stale-while-revalidate project list cache.
-// Written by fetchProjects, read once on mount (see the hydrate effect).
+// Written by fetchProjects, read synchronously in the projects useState
+// initializer so the very FIRST render already shows data (no skeleton flash)
+// — the network revalidation then runs in the background.
 const PROJECTS_CACHE_KEY = 'dashboard-projects-cache-v1'
+const PROJECTS_CACHE_MAX_AGE_MS = 10 * 60 * 1000
+
+/** Read the cached project list (module-level memo: called from two useState
+ *  initializers on the first render, never again). */
+let projectsCacheInit: { hit: boolean; data: Project[] } | null = null
+function readProjectsCacheOnce(): { hit: boolean; data: Project[] } {
+  if (projectsCacheInit) return projectsCacheInit
+  try {
+    const raw = localStorage.getItem(PROJECTS_CACHE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed?.data) && Date.now() - (parsed.ts ?? 0) < PROJECTS_CACHE_MAX_AGE_MS) {
+        projectsCacheInit = { hit: true, data: parsed.data }
+        return projectsCacheInit
+      }
+    }
+  } catch { /* corrupt cache — ignore */ }
+  projectsCacheInit = { hit: false, data: [] }
+  return projectsCacheInit
+}
 
 function parseTags(tagsStr: string | string[]): string[] {
   if (Array.isArray(tagsStr)) return tagsStr
@@ -1972,26 +2005,26 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
   const fetchStatus = React.useCallback(async () => {
     setLoading(true)
     try {
-      const [statusRes, netRes, projectsRes] = await Promise.all([
+      // /api/projects is NOT re-fetched here (it can trigger a remote-device
+      // sync server-side — heavy). The dashboard already publishes the fresh
+      // project list on every change via window.__dashboardProjects; the
+      // 10s interval in this dialog re-reads that snapshot instead.
+      const [statusRes, netRes] = await Promise.all([
         fetch('/api/gateway/status'),
         fetch('/api/network-info'),
-        fetch('/api/projects'),
       ])
       if (statusRes.ok) setStatus(await statusRes.json())
       if (netRes.ok) setNetworkInfo(await netRes.json())
-      if (projectsRes.ok) {
-        const data = await projectsRes.json()
-        const projs = data?.projects ?? (Array.isArray(data) ? data : [])
-        const svc: Array<{ name: string; port: number; pid: number | null; device: string }> = []
-        for (const p of projs) {
-          for (const e of p.environments || []) {
-            if (e.status === 'running') {
-              svc.push({ name: `${p.name} · ${e.name === 'development' ? 'dev' : e.name}`, port: e.port, pid: e.pid ?? null, device: p.deviceName || 'local' })
-            }
+      const projs = ((window as unknown as { __dashboardProjects?: Project[] }).__dashboardProjects ?? []) as Project[]
+      const svc: Array<{ name: string; port: number; pid: number | null; device: string }> = []
+      for (const p of projs) {
+        for (const e of p.environments || []) {
+          if (e.status === 'running') {
+            svc.push({ name: `${p.name} · ${e.name === 'development' ? 'dev' : e.name}`, port: e.port, pid: e.pid ?? null, device: p.deviceName || 'local' })
           }
         }
-        setRunningServices(svc)
       }
+      setRunningServices(svc)
     } catch { /* ignore */ }
     setLoading(false)
   }, [])
@@ -2134,6 +2167,220 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="text-center py-8 text-muted-foreground">{t('dlg.systemMonitor.loadFailed')}</div>
         )}
       </DialogContent>
+    </Dialog>
+  )
+}
+
+// ======================== PORTS PANEL (live port occupancy + kill) ========================
+
+interface PortRow {
+  port: number
+  pid: number | null
+  processName: string
+  command: string
+  self: boolean
+  reserved: boolean
+  owner: { projectId: string; projectName: string; envId: string; envName: string; remote: boolean } | null
+}
+
+function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () => void; onKilled?: () => void }) {
+  const t = useT()
+  const [rows, setRows] = React.useState<PortRow[] | null>(null)
+  const [loading, setLoading] = React.useState(false)
+  const [filter, setFilter] = React.useState('')
+  const [killingPid, setKillingPid] = React.useState<number | null>(null)
+  const [confirmPid, setConfirmPid] = React.useState<PortRow | null>(null)
+  const [lastRefresh, setLastRefresh] = React.useState<number | null>(null)
+
+  const fetchPorts = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/ports', { cache: 'no-store' })
+      if (res.ok) {
+        const data = await res.json()
+        setRows(Array.isArray(data.ports) ? data.ports : [])
+        setLastRefresh(Date.now())
+      }
+    } catch { /* ignore */ }
+    setLoading(false)
+  }, [])
+
+  // Live refresh: immediately on open, then every 3s while the panel is open.
+  // The interval also catches processes the user starts/kills OUTSIDE the
+  // dashboard (terminal, another tool) — that is the point of the panel.
+  React.useEffect(() => {
+    if (!open) return
+    const raf = requestAnimationFrame(() => { fetchPorts() })
+    const interval = setInterval(fetchPorts, 3000)
+    return () => { cancelAnimationFrame(raf); clearInterval(interval) }
+  }, [open, fetchPorts])
+
+  const doKill = React.useCallback(async (row: PortRow) => {
+    if (row.pid == null) return
+    setKillingPid(row.pid)
+    try {
+      const res = await fetch('/api/ports/kill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pid: row.pid }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        addToast({ title: t('ports.killOk'), description: t('ports.killOkDesc', { port: row.port, pid: row.pid }), variant: 'success' })
+        onKilled?.()
+        fetchPorts()
+      } else {
+        addToast({ title: t('ports.killFailed'), description: data.error || '', variant: 'destructive' })
+      }
+    } catch {
+      addToast({ title: t('ports.killFailed'), variant: 'destructive' })
+    }
+    setKillingPid(null)
+    setConfirmPid(null)
+  }, [t, fetchPorts, onKilled])
+
+  const filtered = React.useMemo(() => {
+    if (!rows) return []
+    const q = filter.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((r) =>
+      String(r.port).includes(q) ||
+      String(r.pid ?? '').includes(q) ||
+      r.processName.toLowerCase().includes(q) ||
+      r.command.toLowerCase().includes(q) ||
+      (r.owner ? `${r.owner.projectName} ${r.owner.envName}`.toLowerCase().includes(q) : false)
+    )
+  }, [rows, filter])
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-3xl max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Network className="h-5 w-5 text-teal-600" />
+            {t('ports.title')}
+            {rows && <Badge variant="secondary" className="text-[10px] ml-1">{t('ports.count', { count: rows.length })}</Badge>}
+          </DialogTitle>
+          <DialogDescription>{t('ports.desc')}</DialogDescription>
+        </DialogHeader>
+
+        {/* Toolbar: search + manual refresh + live indicator */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder={t('ports.search')}
+              className="w-full h-8 pl-8 pr-3 rounded-md border border-border bg-background text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+          </div>
+          <Button variant="outline" size="sm" className="h-8" onClick={fetchPorts} disabled={loading}>
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+          </Button>
+          <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-muted-foreground whitespace-nowrap">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-60 animate-ping" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-500" />
+            </span>
+            {lastRefresh ? t('ports.liveUpdated', { seconds: Math.max(0, Math.round((Date.now() - lastRefresh) / 1000)) }) : t('ports.live')}
+          </span>
+        </div>
+
+        {/* Port table */}
+        <div className="min-h-[200px] flex-1 overflow-y-auto rounded-lg border">
+          {rows == null ? (
+            <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-600" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="text-center py-12 text-xs text-muted-foreground">{filter ? t('ports.noMatch') : t('ports.empty')}</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 z-10 bg-muted/80 dark:bg-zinc-900/90 backdrop-blur">
+                <tr className="text-left text-muted-foreground">
+                  <th className="px-3 py-2 font-medium w-[74px]">{t('ports.colPort')}</th>
+                  <th className="px-3 py-2 font-medium w-[84px]">{t('ports.colPid')}</th>
+                  <th className="px-3 py-2 font-medium">{t('ports.colProcess')}</th>
+                  <th className="px-3 py-2 font-medium hidden md:table-cell">{t('ports.colOwner')}</th>
+                  <th className="px-3 py-2 font-medium w-[80px] text-right">{t('ports.colActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => {
+                  const selfRow = r.self || r.reserved
+                  const killable = !selfRow && r.pid != null
+                  return (
+                    <tr key={`${r.port}-${r.pid ?? 'x'}`} className="border-t border-border/60 hover:bg-accent/40 transition-colors">
+                      <td className="px-3 py-2">
+                        <span className={`font-mono font-semibold ${selfRow ? 'text-amber-600 dark:text-amber-400' : 'text-teal-600 dark:text-teal-400'}`}>:{r.port}</span>
+                        {r.reserved && <LockIcon className="inline ml-1 h-3 w-3 text-amber-500" />}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-muted-foreground">{r.pid ?? '—'}</td>
+                      <td className="px-3 py-2 max-w-[260px]">
+                        <div className="truncate font-medium" title={r.command || r.processName}>{r.processName || t('ports.unknownProc')}</div>
+                        {r.command && <div className="truncate text-[10px] text-muted-foreground" title={r.command}>{r.command}</div>}
+                      </td>
+                      <td className="px-3 py-2 hidden md:table-cell">
+                        {r.owner ? (
+                          <span className={`inline-flex items-center gap-1 ${r.owner.remote ? 'text-violet-600 dark:text-violet-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                            {r.owner.projectName} · {r.owner.envName}{r.owner.remote ? ' (remote)' : ''}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">{t('ports.unowned')}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {selfRow ? (
+                          <TooltipProvider><Tooltip><TooltipTrigger asChild><span className="inline-flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground/50"><Ban className="h-3.5 w-3.5" /></span></TooltipTrigger><TooltipContent>{t('ports.protected')}</TooltipContent></Tooltip></TooltipProvider>
+                        ) : killable ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                            disabled={killingPid != null}
+                            onClick={() => setConfirmPid(r)}
+                          >
+                            {killingPid === r.pid ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3 w-3" />}
+                            <span className="ml-1 hidden sm:inline">{t('ports.kill')}</span>
+                          </Button>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">{t('ports.noPid')}</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <DialogFooter className="text-[10px] text-muted-foreground sm:justify-between">
+          <span>{t('ports.footerNote')}</span>
+          <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.common.close')}</Button>
+        </DialogFooter>
+      </DialogContent>
+
+      {/* Kill confirmation */}
+      <AlertDialog open={confirmPid != null} onOpenChange={(v) => !v && setConfirmPid(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-500" />{t('ports.killConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmPid && t('ports.killConfirmDesc', { port: confirmPid.port, pid: confirmPid.pid ?? '?', name: confirmPid.processName || confirmPid.command.slice(0, 40) || '?' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmPid(null)}>{t('dlg.common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={(e) => { e.preventDefault(); if (confirmPid) doKill(confirmPid) }}
+            >
+              {t('ports.kill')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   )
 }
@@ -4480,7 +4727,7 @@ function GlobalStatusPanel({ projects }: { projects: Project[] }) {
 
 // ======================== ENHANCED FOOTER ========================
 
-function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpenSystemMonitor, onRefresh, onAddProject }: { projects: Project[]; filteredCount: number; onOpenDevices: () => void; devices: Device[]; onOpenSystemMonitor: () => void; onRefresh?: () => void; onAddProject?: () => void }) {
+function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpenSystemMonitor, onOpenPorts, onRefresh, onAddProject }: { projects: Project[]; filteredCount: number; onOpenDevices: () => void; devices: Device[]; onOpenSystemMonitor: () => void; onOpenPorts: () => void; onRefresh?: () => void; onAddProject?: () => void }) {
   const t = useT()
   const totalEnvs = projects.reduce((a, p) => a + (p.environments?.length || 0), 0)
   const runningEnvs = projects.reduce((a, p) => a + (p.environments?.filter((e) => e.status === 'running').length || 0), 0)
@@ -4601,6 +4848,7 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
             <Monitor className="h-3.5 w-3.5" />
             <span className="font-medium text-xs">{t('surf.system')}</span>
           </button>
+          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onOpenPorts}><Network className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('ports.title')}</TooltipContent></Tooltip></TooltipProvider>
         </div>
       </div>
     </motion.footer>
@@ -5114,9 +5362,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [userMgmtOpen, setUserMgmtOpen] = React.useState(false)
   const [changePwOpen, setChangePwOpen] = React.useState(false)
   const [adminPendingCount, setAdminPendingCount] = React.useState(0)
-  const [projects, setProjects] = React.useState<Project[]>([])
+  const [projects, setProjects] = React.useState<Project[]>(() => readProjectsCacheOnce().data)
   const [notifications, setNotifications] = React.useState<Notification[]>([])
-  const [loading, setLoading] = React.useState(true)
+  // Skeleton only when there is no cached paint — a cache hit renders data on
+  // the very first frame, killing the skeleton flash + one wasted render.
+  const [loading, setLoading] = React.useState(() => !readProjectsCacheOnce().hit)
   const [searchQuery, setSearchQuery] = React.useState('')
   const [viewMode, setViewMode] = React.useState<ViewMode>(() => {
     try { const v = localStorage.getItem('dashboard-viewMode'); return v === 'grid' || v === 'list' ? v : 'grid' } catch { return 'grid' }
@@ -5155,6 +5405,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [editingEnv, setEditingEnv] = React.useState<Environment | null>(null)
   const [addEnvProjectId, setAddEnvProjectId] = React.useState<string>('')
   const [systemMonitorOpen, setSystemMonitorOpen] = React.useState(false)
+  const [portsPanelOpen, setPortsPanelOpen] = React.useState(false)
   const [llmOpen, setLlmOpen] = React.useState(false)
   const [repairJobId, setRepairJobId] = React.useState<string | null>(null)
   const [repairDialogOpen, setRepairDialogOpen] = React.useState(false)
@@ -5291,13 +5542,6 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // the initial network load then skips flashing the skeleton over it.
   const hydratedFromCacheRef = React.useRef(false)
 
-  // Client-side project cache (stale-while-revalidate). A page refresh used
-  // to blank the dashboard until /api/projects resolved — which, with a slow
-  // or unreachable remote device, could take many seconds. The last good
-  // list is cached in localStorage and painted immediately on mount; the
-  // network refresh overlays it. Entries older than 10 minutes are ignored.
-  const PROJECTS_CACHE_MAX_AGE_MS = 10 * 60 * 1000
-
   // Data fetching
   const fetchProjects = React.useCallback(async (opts?: { fresh?: boolean }) => {
     // If a reorder POST is in-flight, skip this auto-refresh cycle so we
@@ -5320,20 +5564,27 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         if (serialized !== lastProjectsSerializedRef.current) {
           lastProjectsSerializedRef.current = serialized
           setProjects(parsed)
+          // "Last updated" only moves when DATA actually moved — this setState
+          // re-renders the whole tree, so it must not fire on every 8s poll
+          // with identical data (was: unconditional → constant idle churn).
+          setLastRefreshed(new Date().toISOString())
           // Persist for instant next-refresh paint (stale-while-revalidate).
           // Best-effort: quota or serialization failures must never break
           // the refresh itself.
           try {
             localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify({ ts: Date.now(), data: parsed }))
           } catch { /* ignore */ }
-        }
-        setLastRefreshed(new Date().toISOString())
-        // Publish projects for cross-component consumers (e.g. HermesBridgeToggle)
-        try {
-          window.__dashboardProjects = parsed
-          window.dispatchEvent(new CustomEvent('projects-updated'))
-        } catch {
-          // ignore
+          // Publish projects for cross-component consumers (e.g. HermesBridgeToggle)
+          try {
+            window.__dashboardProjects = parsed
+            window.dispatchEvent(new CustomEvent('projects-updated'))
+          } catch {
+            // ignore
+          }
+        } else if (opts?.fresh) {
+          // A manual refresh with unchanged data still deserves a timestamp
+          // update so the footer reflects that the check DID happen.
+          setLastRefreshed(new Date().toISOString())
         }
       } else if (res.status === 401) {
         // Logged out — drop the cache so a later user doesn't see a stale
@@ -5451,31 +5702,24 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     setLoading(false)
   }, [fetchProjects, fetchNotifications, fetchDevices])
 
-  // Initial load — hydrate the project list from the localStorage cache
-  // (instant paint, no skeleton), then refresh everything from the network.
-  // The cached snapshot may briefly show stale statuses; the first network
-  // response (≤ one poll cycle) reconciles it. Entries older than the max
-  // age are ignored so long-dead sessions don't paint old state.
+  // Initial load — the project list was already hydrated from the localStorage
+  // cache inside the useState initializers (first render shows data). Here we
+  // only mark the refs (serialized-diff guard + skeleton suppression) and kick
+  // off the network revalidation. The cached snapshot may briefly show stale
+  // statuses; the first network response (≤ one poll cycle) reconciles it.
   React.useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PROJECTS_CACHE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (Array.isArray(parsed?.data) && Date.now() - (parsed.ts ?? 0) < PROJECTS_CACHE_MAX_AGE_MS) {
-          lastProjectsSerializedRef.current = JSON.stringify(parsed.data)
-          hydratedFromCacheRef.current = true
-          setProjects(parsed.data)
-          setLoading(false)
-        } else {
-          localStorage.removeItem(PROJECTS_CACHE_KEY)
-        }
-      }
-    } catch { try { localStorage.removeItem(PROJECTS_CACHE_KEY) } catch { /* ignore */ } }
+    const init = readProjectsCacheOnce()
+    if (init.hit) {
+      lastProjectsSerializedRef.current = JSON.stringify(init.data)
+      hydratedFromCacheRef.current = true
+    }
     const id = requestAnimationFrame(() => { loadData() })
     return () => cancelAnimationFrame(id)
   }, []) // Initial load only
 
-  // Fetch global activity when projects change (but not on initial empty state)
+  // Fetch global activity when projects change. With the cache initializer,
+  // a cache hit fires this on the FIRST render — in parallel with the network
+  // load instead of chained behind it (was: session → projects → activity).
   React.useEffect(() => {
     if (projects.length > 0) {
       fetchGlobalActivity()
@@ -5507,6 +5751,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
   // Device health polling every 30 seconds
   const prevDeviceStatusRef = React.useRef<Record<string, string>>({})
+  // Fresh device list for the poller without re-subscribing the effect on
+  // every identity change (the poll reads the ref, deps stay on length).
+  const devicesRef = React.useRef<Device[]>([])
+  devicesRef.current = devices
   React.useEffect(() => {
     // Capture current device statuses for change detection
     const currentStatuses: Record<string, string> = {}
@@ -5517,8 +5765,36 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   }, [devices])
   React.useEffect(() => {
     if (devices.length === 0) return
+    // Update ONE device row in the top-level devices array without churning
+    // object identities: returns the SAME array reference when nothing
+    // changed (status same + lastSeen not due for its 5-min refresh), so a
+    // stable poll does NOT re-render the whole dashboard every 30s.
+    const patchDevice = (deviceId: string, status: string, seen: boolean) => {
+      setDevices((prev) => {
+        const idx = prev.findIndex((d) => d.id === deviceId)
+        if (idx === -1) return prev
+        const d = prev[idx]
+        let nextStatus = status
+        let nextLastSeen = d.lastSeen
+        if (seen) {
+          const lastSeenMs = Date.parse(d.lastSeen || '') || 0
+          // Throttle lastSeen updates to every 5 min while online — updating
+          // it every poll re-creates the device object → full re-render.
+          if (Date.now() - lastSeenMs > 5 * 60_000) nextLastSeen = new Date().toISOString()
+        }
+        if (d.status === nextStatus && d.lastSeen === nextLastSeen) return prev
+        const next = [...prev]
+        next[idx] = { ...d, status: nextStatus, lastSeen: nextLastSeen }
+        return next
+      })
+    }
     const pollDeviceHealth = async () => {
-      for (const device of devices) {
+      // Skip while the tab is hidden — the 8s project poll already pauses;
+      // an invisible dashboard probing devices just burns battery/traffic.
+      if (typeof document !== 'undefined' && document.hidden) return
+      // All devices probed in PARALLEL (was a sequential for..of — 5s timeout
+      // each, so 4 unreachable devices blocked the loop for 20s+).
+      await Promise.all(devicesRef.current.map(async (device) => {
         try {
           const controller = new AbortController()
           const timeout = setTimeout(() => controller.abort(), 5000)
@@ -5529,11 +5805,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           clearTimeout(timeout)
           const isOnline = res.ok
           const prevStatus = prevDeviceStatusRef.current[device.id]
-          setDevices((prev) => prev.map((d) =>
-            d.id === device.id
-              ? { ...d, status: isOnline ? 'online' : 'offline', lastSeen: isOnline ? new Date().toISOString() : d.lastSeen }
-              : d
-          ))
+          patchDevice(device.id, isOnline ? 'online' : 'offline', isOnline)
           // Generate notification for status changes
           if (prevStatus && prevStatus !== (isOnline ? 'online' : 'offline')) {
             addAutoNotification(
@@ -5546,9 +5818,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           }
         } catch {
           const prevStatus = prevDeviceStatusRef.current[device.id]
-          setDevices((prev) => prev.map((d) =>
-            d.id === device.id ? { ...d, status: 'offline' } : d
-          ))
+          patchDevice(device.id, 'offline', false)
           if (prevStatus && prevStatus === 'online') {
             addAutoNotification(
               'error',
@@ -5557,7 +5827,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             )
           }
         }
-      }
+      }))
     }
     pollDeviceHealth()
     const interval = setInterval(pollDeviceHealth, 30000)
@@ -5853,6 +6123,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   React.useEffect(() => {
     const pushScore = () => {
       setHealthScoreHistory((prev) => {
+        // Only append when the score actually MOVED — a flat line every 30s
+        // re-created the array and re-rendered the whole dashboard for
+        // nothing (the history is a sparkline of CHANGES).
+        if (prev.length > 0 && prev[prev.length - 1] === dashboardStats.healthScore) return prev
         const next = [...prev, dashboardStats.healthScore].slice(-20)
         localStorage.setItem('health-score-history', JSON.stringify(next))
         return next
@@ -7930,7 +8204,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       </main>
 
       {/* ======================== FOOTER ======================== */}
-      <EnhancedFooter projects={projects} filteredCount={filteredProjects.length} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} onOpenSystemMonitor={() => setSystemMonitorOpen(true)} onRefresh={() => fetchProjects({ fresh: true })} onAddProject={() => { setEditingProject(null); setProjectFormMode('add'); setProjectFormOpen(true) }} />
+      <EnhancedFooter projects={projects} filteredCount={filteredProjects.length} onOpenDevices={() => setDeviceManagementOpen(true)} devices={devices} onOpenSystemMonitor={() => setSystemMonitorOpen(true)} onOpenPorts={() => setPortsPanelOpen(true)} onRefresh={() => fetchProjects({ fresh: true })} onAddProject={() => { setEditingProject(null); setProjectFormMode('add'); setProjectFormOpen(true) }} />
 
       {/* ======================== GLOBAL STATUS PANEL ======================== */}
       {!loading && projects.length > 0 && <GlobalStatusPanel projects={projects} />}
@@ -8092,6 +8366,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       {/* Gateway monitor */}
       {/* System resource monitor (merged gateway + system monitoring, single surface) */}
       <SystemMonitorDialog open={systemMonitorOpen} onClose={() => setSystemMonitorOpen(false)} />
+
+      {/* Live port occupancy panel */}
+      <PortsPanel open={portsPanelOpen} onClose={() => setPortsPanelOpen(false)} onKilled={() => fetchProjects({ fresh: true })} />
 
       {/* LLM config */}
       <LlmConfigDialog open={llmOpen} onClose={() => setLlmOpen(false)} />
