@@ -1744,7 +1744,7 @@ function ProjectFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md flex flex-col p-0 max-h-[calc(100vh-2rem)] gap-0 overflow-hidden">
+      <DialogContent className="sm:max-w-md flex flex-col p-0 max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
           <DialogTitle>{mode === 'add' ? t('dlg.projectForm.addTitle') : t('dlg.projectForm.editTitle')}</DialogTitle>
           <DialogDescription>{mode === 'add' ? t('dlg.projectForm.addDesc') : t('dlg.projectForm.editDesc')}</DialogDescription>
@@ -2041,7 +2041,7 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-xl max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] overflow-y-auto">
+      <DialogContent className="sm:max-w-xl max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Monitor className="h-5 w-5 text-emerald-600" />
@@ -2254,7 +2254,7 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-3xl max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] flex flex-col">
+      <DialogContent className="sm:max-w-3xl max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Network className="h-5 w-5 text-teal-600" />
@@ -2548,7 +2548,7 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Bot className="h-5 w-5 text-emerald-600" />
@@ -2885,8 +2885,12 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
+      {/* flex column capped to the viewport (base DialogContent provides the
+       * max-h safety net): header / progress / footer stay pinned, the body
+       * below flexes and scrolls, the terminal log shrinks first (own scroll)
+       * before the body ever scrolls — nothing overflows small screens. */}
+      <DialogContent className="flex flex-col gap-3 sm:max-w-2xl sm:gap-4">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2.5">
             <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
               <Wrench className="h-5 w-5" />
@@ -2919,7 +2923,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
         </DialogHeader>
 
         {/* round progress bar */}
-        <div className="h-1 overflow-hidden rounded-full bg-muted">
+        <div className="h-1 shrink-0 overflow-hidden rounded-full bg-muted">
           <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${progressPct}%` }} />
         </div>
 
@@ -2928,9 +2932,9 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
         ) : !job ? (
           <div className="flex items-center justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-amber-500" /></div>
         ) : (
-          <div className="space-y-3">
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
             {job.diagnosis && (
-              <div className="flex gap-3 rounded-xl border border-violet-200/80 dark:border-violet-900/50 bg-violet-50/60 dark:bg-violet-950/20 p-3.5">
+              <div className="flex shrink-0 gap-3 rounded-xl border border-violet-200/80 bg-violet-50/60 p-3.5 dark:border-violet-900/50 dark:bg-violet-950/20">
                 <div className="h-fit shrink-0 rounded-lg bg-violet-500/15 p-1.5">
                   <Bot className="h-4 w-4 text-violet-600 dark:text-violet-400" />
                 </div>
@@ -2945,7 +2949,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
               <motion.div
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="rounded-xl border border-amber-300/80 dark:border-amber-700/60 bg-amber-50/80 dark:bg-amber-950/30 p-4"
+                className="shrink-0 rounded-xl border border-amber-300/80 bg-amber-50/80 p-4 dark:border-amber-700/60 dark:bg-amber-950/30"
               >
                 <div className="flex items-start gap-3">
                   <div className="shrink-0 rounded-lg bg-amber-400/20 dark:bg-amber-500/15 p-2">
@@ -2977,7 +2981,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
               </motion.div>
             )}
 
-            <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="flex min-h-[8.5rem] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
               <div className="flex items-center gap-1.5 border-b border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
                 <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
                 <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
@@ -2992,7 +2996,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
                   </span>
                 )}
               </div>
-              <div ref={scrollRef} className="max-h-80 space-y-1 overflow-y-auto p-3 font-mono text-xs">
+              <div ref={scrollRef} className="max-h-48 min-h-0 space-y-1 overflow-y-auto p-3 font-mono text-xs sm:max-h-80">
                 {job.steps.length === 0 && (
                   <div className="space-y-2 py-2">
                     {[0, 1, 2].map((i) => (
@@ -3015,13 +3019,13 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
             </div>
 
             {job.status === 'success' && (
-              <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300">
+              <div className="flex shrink-0 items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 {t('dlg.repair.successNote')}
               </div>
             )}
             {job.status === 'failed' && job.error && (
-              <div className="rounded-xl border border-red-200 bg-red-50/60 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+              <div className="shrink-0 rounded-xl border border-red-200 bg-red-50/60 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
                 <p className="mb-1 flex items-center gap-1.5 font-semibold">
                   <XCircle className="h-3.5 w-3.5 shrink-0" />{t('dlg.repair.failedTitle')}
                 </p>
@@ -3030,7 +3034,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
             )}
           </div>
         )}
-        <DialogFooter className="items-center gap-2 sm:justify-between">
+        <DialogFooter className="shrink-0 items-center gap-2 sm:justify-between">
           <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
             {job ? `${t('dlg.repair.elapsed')} ${formatRepairDuration(elapsed)}` : ''}
           </span>
@@ -8286,7 +8290,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
       {/* Error detail dialog - shows full build error output */}
       <Dialog open={!!errorDialog} onOpenChange={(v) => !v && setErrorDialog(null)}>
-        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogContent className="max-w-2xl max-h-[80dvh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
@@ -8490,7 +8494,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
       {/* ======================== DEPENDENCY GRAPH DIALOG (Session 11) ======================== */}
       <Dialog open={depGraphOpen} onOpenChange={setDepGraphOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogContent className="sm:max-w-2xl max-h-[80dvh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <GitFork className="h-5 w-5 text-emerald-600" />
@@ -8834,7 +8838,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
       {/* ======================== PROJECT COMPARE (Session 12) ======================== */}
       <Dialog open={compareOpen} onOpenChange={(v) => { setCompareOpen(v); if (!v) { setCompareProjectA(null); setCompareProjectB(null) } }}>
-        <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[80dvh] overflow-y-auto">
           <DialogHeader>
             <div className="flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/15 ring-1 ring-violet-200/50 dark:ring-violet-800/30">
@@ -8931,7 +8935,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
       {/* ======================== AGENT DEPLOY GUIDE DIALOG ======================== */}
       <Dialog open={agentDeployGuideOpen} onOpenChange={setAgentDeployGuideOpen}>
-        <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="sm:max-w-3xl max-h-[85dvh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30">
