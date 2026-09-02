@@ -24,14 +24,18 @@
  *   - two consecutive unparseable turns abort the job cleanly
  */
 
-import { exec, spawn } from 'child_process';
+import { exec } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
 import { join, resolve, isAbsolute, relative, dirname } from 'path';
 import { db } from '@/lib/db';
 import { startProcess, stopProcess, checkPortStatus, getLogs } from '@/lib/process-manager';
 import { callLLM, extractJson, type LlmMessage } from '@/lib/llm-providers';
-import { isRepairCommandSafe, isStartCmdSafe, buildChildEnv, tail, headTail } from './repair-safety';
+// Canonical safety + exec primitives (tools/safety.ts, tools/exec.ts) —
+// command classification, child-env sanitization and the hardened
+// process-group runner all live there. No duplicate copies here.
+import { classifyRepairCommand, isStartCmdSafe, buildChildEnv } from './llm-repair/tools/safety';
+import { execTool, runShellProcess } from './llm-repair/tools/exec';
 import { inspectTool } from './llm-repair/tools/inspect';
 import { probeTool } from './llm-repair/tools/probe';
 import type { RepairJob, RepairStep, RepairKind, StartRepairOptions } from './llm-repair';
@@ -75,81 +79,27 @@ interface EnvSnapshot {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 // ============================= shell runner =============================
+// runShellProcess (spawn detached + whole-process-group kill on timeout)
+// is imported from ./llm-repair/tools/exec — the single hardened runner.
 
-export interface ShellResult {
-  exitCode: number | 'TIMEOUT' | 'ERROR';
-  signal?: string;
-  stdout: string;
-  stderr: string;
-  durationMs: number;
-  err?: string;
+// ============================= text helpers =============================
+
+/** Keep the tail of a blob (defaults to 400 chars) — for logs/errors. */
+function tail(text: string, max = 400): string {
+  if (!text) return '';
+  const t = text.trim();
+  return t.length > max ? t.slice(-max) : t;
 }
 
-const OUT_CAP = 256 * 1024;
-
-/**
- * Run a shell command with a HARD timeout that kills the whole process
- * group (spawn detached → kill(-pid)). exec()'s built-in timeout only kills
- * the shell, orphaning grandchildren — exactly how a stuck `npm run build`
- * kept holding the build lock in the incident that triggered this rewrite.
- */
-function runShell(cmd: string, opts: { cwd: string; timeoutMs: number; env?: NodeJS.ProcessEnv }): Promise<ShellResult> {
-  return new Promise<ShellResult>((resolveRun) => {
-    const started = Date.now();
-    let child: ReturnType<typeof spawn>;
-    try {
-      child = spawn(cmd, {
-        shell: true,
-        cwd: opts.cwd,
-        env: opts.env,
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-    } catch (e: any) {
-      resolveRun({ exitCode: 'ERROR', stdout: '', stderr: '', durationMs: 0, err: String(e?.message || e) });
-      return;
-    }
-    let out = '';
-    let errOut = '';
-    let timedOut = false;
-    let settled = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      // SIGTERM the whole group; escalate to SIGKILL shortly after.
-      try {
-        if (child.pid) process.kill(-child.pid, 'SIGTERM');
-      } catch { /* group already gone */ }
-      setTimeout(() => {
-        try {
-          if (child.pid) process.kill(-child.pid, 'SIGKILL');
-        } catch { /* group already gone */ }
-      }, 4000);
-    }, opts.timeoutMs);
-    const finish = (r: ShellResult) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolveRun(r);
-    };
-    child.stdout?.on('data', (d: Buffer) => {
-      if (out.length < OUT_CAP) out += d.toString();
-    });
-    child.stderr?.on('data', (d: Buffer) => {
-      if (errOut.length < OUT_CAP) errOut += d.toString();
-    });
-    child.on('error', (e) => {
-      finish({ exitCode: 'ERROR', stdout: out, stderr: errOut, durationMs: Date.now() - started, err: String(e?.message || e) });
-    });
-    child.on('close', (code, signal) => {
-      finish({
-        exitCode: timedOut ? 'TIMEOUT' : code ?? (signal ? 127 : 0),
-        signal: signal ?? undefined,
-        stdout: out.length >= OUT_CAP ? out + '\n…(stdout truncated)' : out,
-        stderr: errOut.length >= OUT_CAP ? errOut + '\n…(stderr truncated)' : errOut,
-        durationMs: Date.now() - started,
-      });
-    });
-  });
+/** Keep head + tail with an ellipsis marker — for tool results where the
+ *  beginning (file headers) and end (log tails) both matter. */
+function headTail(text: string, max = 2200): string {
+  if (!text) return '';
+  const t = text.replace(/\r\n/g, '\n').trim();
+  if (t.length <= max) return t;
+  const headLen = Math.min(600, Math.floor(max * 0.35));
+  const tailLen = max - headLen;
+  return `${t.slice(0, headLen)}\n…(middle truncated, ${t.length} chars total)…\n${t.slice(-tailLen)}`;
 }
 
 // ============================= port / process probing =============================
@@ -634,25 +584,43 @@ async function toolTest(args: Record<string, any>, snap: EnvSnapshot, helpers: A
   const cmd = String(args.cmd || '').trim();
   if (!cmd) return 'ERROR: test requires "cmd".';
   const timeoutSec = Math.max(3, Math.min(180, Number(args.timeoutSec) || 20));
-  if (!isRepairCommandSafe(cmd)) {
-    helpers.log('approval', cmd);
+  // Classification + execution both happen inside execTool (tools/exec.ts).
+  // needsApproval is a structured envelope — THIS loop owns the human gate.
+  let res = await execTool({ action: 'run', cmd, timeoutMs: timeoutSec * 1000 }, snap.projectPath);
+  if (!res.ok) return `ERROR: ${res.error}`;
+  if (res.needsApproval) {
+    const why = `${res.reason}${res.detail ? ` (${res.detail})` : ''}`;
+    helpers.log('approval', `$ ${cmd} — ${why}`);
     const approved = await helpers.requestApproval(cmd);
     if (!approved) {
       helpers.log('denied', cmd);
       return 'DENIED: the user declined to run this command. Choose a different approach.';
     }
     helpers.log('approved', cmd);
+    const rerun = await execTool({ action: 'run', cmd, timeoutMs: timeoutSec * 1000, approved: true }, snap.projectPath);
+    if (!rerun.ok) return `ERROR: ${rerun.error}`;
+    res = rerun;
+  }
+  // Narrow the union: after the gate, an outcome must exist.
+  if (res.needsApproval || !('outcome' in res)) {
+    return 'ERROR: command still flagged after human approval — refusing to execute.';
   }
   helpers.log('command', `$ ${cmd}`);
-  const r = await runShell(cmd, { cwd: snap.projectPath, timeoutMs: timeoutSec * 1000, env: buildChildEnv() });
-  const parts = [
-    `exit code: ${String(r.exitCode)}${r.signal ? ` (signal ${r.signal})` : ''}`,
-    `duration: ${(r.durationMs / 1000).toFixed(1)}s${r.exitCode === 'TIMEOUT' ? ' — TIMED OUT and the process group was killed; treat a long silent hang as a probable deadlock, not as success' : ''}`,
-  ];
-  if (r.stdout.trim()) parts.push(`--- stdout ---\n${headTail(r.stdout, 1400)}`);
-  if (r.stderr.trim()) parts.push(`--- stderr ---\n${headTail(r.stderr, 700)}`);
-  if (r.err) parts.push(`--- spawn error ---\n${r.err}`);
-  helpers.log('output', headTail(`[exit ${String(r.exitCode)} ${(r.durationMs / 1000).toFixed(1)}s] ${tail(r.stdout || r.stderr || r.err || '', 220)}`, 320));
+  const o = res.outcome;
+  const parts: string[] = [];
+  if (o.kind === 'spawn-failed') {
+    parts.push(`spawn failed: ${o.error}`);
+    helpers.log('output', headTail(`[spawn failed] ${o.error}`, 320));
+    return parts.join('\n');
+  }
+  const exitLabel = o.kind === 'timed-out' ? 'TIMEOUT' : String(o.exitCode);
+  parts.push(
+    `exit code: ${exitLabel}`,
+    `duration: ${(o.durationMs / 1000).toFixed(1)}s${o.kind === 'timed-out' ? ' — TIMED OUT and the whole process group was killed; treat a long silent hang as a probable deadlock, not as success' : ''}`,
+  );
+  if (o.stdout.trim()) parts.push(`--- stdout ---\n${headTail(o.stdout, 1400)}`);
+  if (o.stderr.trim()) parts.push(`--- stderr ---\n${headTail(o.stderr, 700)}`);
+  helpers.log('output', headTail(`[exit ${exitLabel} ${(o.durationMs / 1000).toFixed(1)}s] ${tail(o.stdout || o.stderr || '', 220)}`, 320));
   return parts.join('\n');
 }
 
@@ -779,7 +747,7 @@ async function toolRunRetry(
   // 3. Rebuild jobs: build before start.
   if (job.kind === 'rebuild') {
     log('command', '$ npm run build');
-    const r = await runShell('npm run build', {
+    const r = await runShellProcess('npm run build', {
       cwd: fresh.project.path,
       timeoutMs: 300_000,
       env: buildChildEnv({ NODE_ENV: 'production' }),
@@ -856,7 +824,7 @@ async function execLegacyPlan(
   for (const raw of commands) {
     const c = String(raw || '').trim();
     if (!c) continue;
-    if (!isRepairCommandSafe(c)) {
+    if (!classifyRepairCommand(c).safe) {
       log('approval', c);
       const approved = await requestApproval(c);
       if (!approved) {
@@ -866,7 +834,7 @@ async function execLegacyPlan(
       log('approved', c);
     }
     log('command', `$ ${c}`);
-    const r = await runShell(c, { cwd: snap.projectPath, timeoutMs: 240_000, env: buildChildEnv() });
+    const r = await runShellProcess(c, { cwd: snap.projectPath, timeoutMs: 240_000, env: buildChildEnv() });
     if (tail(r.stdout, 300)) log('output', tail(r.stdout, 300));
     if (tail(r.stderr, 300)) log('output', `[stderr] ${tail(r.stderr, 300)}`);
   }

@@ -12,7 +12,11 @@
  *   - DANGEROUS_PATTERNS:     regexes that always require human approval
  *   - isRepairCommandSafe:    true when no approval is needed
  *   - needsApproval:          false when safe, true + reason when dangerous
+ *   - isStartCmdSafe:         gate for environment start commands (update_env)
  *   - buildChildEnv:          sanitized env (strips Next.js internals + DATABASE_*)
+ *
+ * The repair agent loop (repair-agent.ts) and the exec tool both classify
+ * through here — never keep a second copy of these lists anywhere.
  */
 
 // ---- allowlist (must match the first token of the command) --------------
@@ -25,7 +29,27 @@ export const SAFE_REPAIR_PREFIXES = [
   'bundle', 'composer', 'artisan', 'dotnet', 'mvn', 'gradle', 'php',
   'ruby', 'rails', 'gem',
   'mkdir', 'touch', 'cp', 'mv', 'sed', 'echo',
+  // Read-only inspection commands — safe to auto-run inside the agent's
+  // `test` tool so the LLM can verify facts (file existence, process state)
+  // itself without burning a human-approval round-trip.
+  'ls', 'cat', 'head', 'tail', 'grep', 'find', 'stat', 'file', 'wc', 'du',
+  'ps', 'lsof', 'ss', 'which', 'whoami', 'id', 'uname', 'date', 'printenv',
 ];
+
+// ---- start-command allowlist (update_env) ------------------------------
+
+const SAFE_START_PREFIXES = [
+  'npm', 'npx', 'yarn', 'pnpm', 'bun', 'python', 'python3', 'go', 'cargo', 'make',
+  'node', 'deno', 'flask', 'gunicorn', 'uvicorn', 'django', 'dotnet', 'php',
+  'ruby', 'rails', 'bundle', 'docker', 'sh', 'bash', './', 'PORT=',
+];
+
+/** Gate for start commands proposed via update_env — looser than the repair
+ *  allowlist (these run on every start, not once) but still no sudo/cd. */
+export function isStartCmdSafe(cmd: string): boolean {
+  const c = (cmd || '').trim();
+  return c.length > 0 && c.length <= 500 && SAFE_START_PREFIXES.some((p) => c.startsWith(p));
+}
 
 // ---- dangerous patterns ------------------------------------------------
 
