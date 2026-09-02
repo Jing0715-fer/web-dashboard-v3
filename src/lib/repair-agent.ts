@@ -354,7 +354,8 @@ Non-negotiable rules:
 6. If the server listens on a different port than configured: probe with "listen":true, update_env the correct port, then run_retry.
 7. Destructive commands (rm -rf …) go through a human approval gate — propose them ONLY when genuinely necessary. Never use sudo or cd.
 8. Never use or suggest port 3000 — it is the dashboard's own port.
-9. Exactly one action per reply. JSON only, no fences. "thought" is shown to the user — keep it one short Chinese sentence.`;
+9. EACCES/EPERM in a tool result means the file/dir is read-only or owned by another user. Options: propose "chmod u+w <file>" via the test tool (it goes through the human approval gate), or finish and tell the user to fix ownership manually (chmod/chown). Never claim success while a write failed, and never propose sudo.
+10. Exactly one action per reply. JSON only, no fences. "thought" is shown to the user — keep it one short Chinese sentence.`;
 }
 
 /** Cheap facts gathered before the first LLM turn so its first decision is
@@ -651,7 +652,17 @@ async function toolPatch(args: Record<string, any>, snap: EnvSnapshot): Promise<
     return `ERROR: "search" text found ${count} times. Provide a longer/unique search string, or set "all": true to replace every occurrence.`;
   }
   const next = args.all === true ? content.split(search).join(replace) : content.replace(search, replace);
-  writeFileSync(abs, next);
+  try {
+    writeFileSync(abs, next);
+  } catch (e: unknown) {
+    const err = e as NodeJS.ErrnoException | null;
+    const code = err?.code || '';
+    const msg = String(err?.message || e).slice(0, 200);
+    if (code === 'EACCES' || code === 'EPERM') {
+      return `ERROR: permission denied (code ${code}) writing ${file}: ${msg}. The file is not writable by the dashboard process user — likely a read-only file (verify with test: stat ${file}) or wrong owner. Fix: run 'chmod u+w ${file}' (or chown it to the dashboard user), then call patch again. The repair agent itself will not change file permissions without human approval.`;
+    }
+    return `ERROR: write failed on ${file} (code ${code || 'UNKNOWN'}): ${msg}`;
+  }
   return `patched ${file}: replaced ${args.all === true ? count : 1} occurrence(s)\n- search:  ${headTail(search, 150)}\n+ replace: ${headTail(replace, 150)}`;
 }
 
@@ -953,14 +964,18 @@ export async function runAgentRepair(job: RepairJob, opts: StartRepairOptions, h
       continue;
     }
 
-    // ---- Dispatch the tool ----
+    // ---- Dispatch the tool (fault-isolated) ----
+    // Any throw from ANY tool (EACCES on write, ENOENT, a db hiccup, a bug in
+    // a future tool …) becomes a TOOL_RESULT error message the LLM can react
+    // to — the job only dies from LLM/parse failures, never from tool throws.
     const { action, args, thought } = parsed;
     if (thought) {
       job.diagnosis = String(thought).slice(0, 300);
       log('llm', `思路: ${job.diagnosis}`);
     }
 
-    switch (action) {
+    try {
+      switch (action) {
       case 'inspect': {
         log('tool', `inspect ${inspectLabel(args)}`);
         const r = await toolInspect(args, snap);
@@ -1026,6 +1041,19 @@ export async function runAgentRepair(job: RepairJob, opts: StartRepairOptions, h
         });
         break;
       }
+      }
+    } catch (e: unknown) {
+      // Fault isolation: the tool threw (permission error, fs error, …) —
+      // feed it back as data instead of letting it kill the job.
+      const msg = String((e as Error)?.message || e).slice(0, 400);
+      const hint = /EACCES|EPERM/.test(msg)
+        ? ' This is a PERMISSION problem — the dashboard process user cannot read/write that path. Verify the file mode (test: stat <path>), and if it is read-only or wrongly owned, tell the user to fix it manually (chmod u+w / chown); the repair agent will not change ownership or permissions on its own.'
+        : ' Check the arguments and try a different approach.';
+      log('error', `工具 ${action} 异常: ${tail(msg, 240)}`);
+      messages.push({
+        role: 'user',
+        content: `TOOL_RESULT (${action}): ERROR — the tool crashed with: ${msg}.${hint}\nChoose your next action accordingly (or finish with giveUp:true if this is unfixable without human help).`,
+      });
     }
 
     // Bound the conversation: keep the initial context + the most recent

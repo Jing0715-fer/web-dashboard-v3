@@ -39,6 +39,19 @@ const REFUSE_OUTSIDE_PROJECT =
 const REFUSE_SECRET_FILE =
   'Refusing to read a credential / secret file. Inspect the file content indirectly (e.g. its git history or a sanitized copy) instead.';
 
+/** Render a filesystem error (EACCES / EPERM / EISDIR / …) as agent-readable
+ *  data instead of letting it crash the loop. Includes the remediation hint
+ *  so the LLM can propose the right human action instead of guessing. */
+function fsError(e: unknown, path: string): string {
+  const err = e as NodeJS.ErrnoException | null;
+  const code = err?.code || '';
+  const msg = String(err?.message || e).slice(0, 200);
+  if (code === 'EACCES' || code === 'EPERM') {
+    return `Permission denied (code ${code}) on ${path}: ${msg}. The file or directory is not accessible by the dashboard process user — this usually needs a MANUAL fix outside the repair loop (e.g. chmod u+w <file>, or chown to the dashboard user). You can verify the mode with the test tool: stat <path>.`;
+  }
+  return `Filesystem error (code ${code || 'UNKNOWN'}) on ${path}: ${msg}`;
+}
+
 // Path patterns that are always denied, regardless of project root.
 const SECRET_FILENAMES = new Set([
   '.env',
@@ -85,11 +98,18 @@ function doLs(absPath: string, maxEntries: number): ToolResult {
   if (!existsSync(absPath)) {
     return { ok: false, error: `Directory not found: ${absPath}` };
   }
-  const stat = statSync(absPath);
-  if (!stat.isDirectory()) {
-    return { ok: false, error: `Not a directory: ${absPath}` };
+  let stat: import('fs').Stats;
+  let allEntries: import('fs').Dirent[];
+  try {
+    stat = statSync(absPath);
+    if (!stat.isDirectory()) {
+      return { ok: false, error: `Not a directory: ${absPath}` };
+    }
+    allEntries = readdirSync(absPath, { withFileTypes: true });
+  } catch (e: unknown) {
+    // EACCES / EPERM and friends are DATA for the agent, not a crash.
+    return { ok: false, error: fsError(e, absPath) };
   }
-  const allEntries = readdirSync(absPath, { withFileTypes: true });
   const truncated = allEntries.length > maxEntries;
   const entries = allEntries
     .slice(0, maxEntries)
@@ -104,14 +124,20 @@ function doCat(absPath: string, maxBytes: number): ToolResult {
   if (!existsSync(absPath)) {
     return { ok: false, error: `File not found: ${absPath}` };
   }
-  const stat = statSync(absPath);
-  if (!stat.isFile()) {
-    return { ok: false, error: `Not a regular file: ${absPath}` };
+  let stat: import('fs').Stats;
+  let content: string;
+  try {
+    stat = statSync(absPath);
+    if (!stat.isFile()) {
+      return { ok: false, error: `Not a regular file: ${absPath}` };
+    }
+    if (stat.size > 5 * 1024 * 1024) {
+      return { ok: false, error: `File too large to read safely (${stat.size} bytes, limit 5MB)` };
+    }
+    content = readFileSync(absPath, 'utf8');
+  } catch (e: unknown) {
+    return { ok: false, error: fsError(e, absPath) };
   }
-  if (stat.size > 5 * 1024 * 1024) {
-    return { ok: false, error: `File too large to read safely (${stat.size} bytes, limit 5MB)` };
-  }
-  let content = readFileSync(absPath, 'utf8');
   let truncated = false;
   if (content.length > maxBytes) {
     content = content.slice(0, maxBytes) + `\n... [truncated to ${maxBytes} of ${stat.size} bytes] ...`;
@@ -170,16 +196,20 @@ function doExists(absPath: string): ToolResult {
   if (!existsSync(absPath)) {
     return { ok: true, data: { path: absPath, exists: false } };
   }
-  const stat = statSync(absPath);
-  return {
-    ok: true,
-    data: {
-      path: absPath,
-      exists: true,
-      type: stat.isDirectory() ? 'dir' : stat.isFile() ? 'file' : 'other',
-      size: stat.isFile() ? stat.size : undefined,
-    },
-  };
+  try {
+    const stat = statSync(absPath);
+    return {
+      ok: true,
+      data: {
+        path: absPath,
+        exists: true,
+        type: stat.isDirectory() ? 'dir' : stat.isFile() ? 'file' : 'other',
+        size: stat.isFile() ? stat.size : undefined,
+      },
+    };
+  } catch (e: unknown) {
+    return { ok: false, error: fsError(e, absPath) };
+  }
 }
 
 // ---- Public entry point ------------------------------------------------
