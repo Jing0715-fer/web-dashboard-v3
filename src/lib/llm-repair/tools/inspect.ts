@@ -22,7 +22,7 @@
  *   - Reads capped at 200KB to keep token usage bounded.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, statSync, realpathSync } from 'fs';
 import { join, relative, resolve, basename } from 'path';
 
 // ---- Tool result envelope (shared by all repair tools) ----------------
@@ -89,13 +89,14 @@ function doLs(absPath: string, maxEntries: number): ToolResult {
   if (!stat.isDirectory()) {
     return { ok: false, error: `Not a directory: ${absPath}` };
   }
-  const entries = readdirSync(absPath, { withFileTypes: true })
+  const allEntries = readdirSync(absPath, { withFileTypes: true });
+  const truncated = allEntries.length > maxEntries;
+  const entries = allEntries
     .slice(0, maxEntries)
     .map((entry) => ({
       name: entry.name,
       type: entry.isDirectory() ? 'dir' : entry.isSymbolicLink() ? 'symlink' : 'file',
     }));
-  const truncated = readdirSync(absPath, { withFileTypes: true }).length > maxEntries;
   return { ok: true, data: { path: absPath, entries, truncated } };
 }
 
@@ -135,7 +136,7 @@ function doFind(absRoot: string, pattern: string, maxResults: number): ToolResul
     // Resolve symlinks once per dir to avoid loops; bail on second visit.
     let real: string;
     try {
-      real = require('fs').realpathSync(dir);
+      real = realpathSync(dir);
     } catch {
       real = dir;
     }

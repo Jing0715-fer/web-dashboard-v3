@@ -98,12 +98,18 @@ interface LsofEntry {
 async function doLsof(port: number): Promise<ToolResult> {
   if (!isValidPort(port)) return { ok: false, error: `Invalid port: ${port}` };
   // -nP: numeric addresses, no service-name resolution (faster, deterministic)
-  // -F pcun: machine-parseable fields: pid, command, user, fdType, name
-  //          (we don't need name since we filter by port already)
-  const { stdout } = await execp(
-    `lsof -nP -iTCP:${port} -sTCP:LISTEN -F pcu 2>/dev/null`,
-    { timeout: EXEC_TIMEOUT_MS, maxBuffer: 256 * 1024 },
-  );
+  // -F pcu: machine-parseable fields: pid, command, user
+  // NOTE: lsof exits NON-ZERO when nothing is listening — that is the normal
+  // "port is free" answer, not an error. Never let it reject the promise.
+  let stdout = '';
+  try {
+    ({ stdout } = await execp(`lsof -nP -iTCP:${port} -sTCP:LISTEN -F pcu 2>/dev/null`, {
+      timeout: EXEC_TIMEOUT_MS,
+      maxBuffer: 256 * 1024,
+    }));
+  } catch {
+    return { ok: true, data: { port, entries: [] } };
+  }
   const entries: LsofEntry[] = [];
   let current: Partial<LsofEntry> | null = null;
   for (const line of stdout.split('\n')) {
@@ -116,7 +122,6 @@ async function doLsof(port: number): Promise<ToolResult> {
     } else if (current) {
       if (tag === 'c') current.command = value;
       else if (tag === 'u') current.user = value;
-      else if (tag === 'f') current.fdType = value;
     }
   }
   if (current?.pid) entries.push(current as LsofEntry);
@@ -138,12 +143,18 @@ async function doListening(ports: number[]): Promise<ToolResult> {
   }
   // One lsof call, regex matches LISTEN entries for any of the requested ports.
   // Uses grep -E for portable regex across macOS BSD grep and Linux GNU grep.
-  // Avoids N subprocess calls.
+  // NOTE: grep exits non-zero when NOTHING matches (all requested ports are
+  // free) — that is the normal answer, not an error. Never let it reject.
   const portList = ports.join('|');
-  const { stdout } = await execp(
-    `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(${portList}) \\(LISTEN\\)'`,
-    { timeout: EXEC_TIMEOUT_MS, maxBuffer: 512 * 1024 },
-  );
+  let stdout = '';
+  try {
+    ({ stdout } = await execp(
+      `lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | grep -E ':(${portList}) \\(LISTEN\\)'`,
+      { timeout: EXEC_TIMEOUT_MS, maxBuffer: 512 * 1024 },
+    ));
+  } catch {
+    return { ok: true, data: { requested: ports, listening: [] } };
+  }
   const set = new Set<number>();
   for (const line of stdout.split('\n')) {
     const m = line.match(/(?::|->)(\d+)\s+\(LISTEN\)/);
@@ -169,10 +180,17 @@ async function doPs(query: string): Promise<ToolResult> {
   // -axo pid,ppid,command: full table of (pid, parent, command)
   // grep -F: fixed-string match (no regex metachars)
   // Use head -n 40 to bound output (the agent usually only cares about a few rows).
-  const { stdout } = await execp(
-    `ps -axo pid,ppid,command | grep -F -- "${validated}" | grep -v 'grep -F' | head -n 40`,
-    { timeout: EXEC_TIMEOUT_MS, maxBuffer: 256 * 1024 },
-  );
+  // head is the last pipeline stage so "no matches" still exits 0 — but wrap
+  // anyway: any exec hiccup simply means "no matching processes".
+  let stdout = '';
+  try {
+    ({ stdout } = await execp(
+      `ps -axo pid,ppid,command | grep -F -- "${validated}" | grep -v 'grep -F' | head -n 40`,
+      { timeout: EXEC_TIMEOUT_MS, maxBuffer: 256 * 1024 },
+    ));
+  } catch {
+    return { ok: true, data: { query: validated, count: 0, processes: [] } };
+  }
   const processes: { pid: number; ppid: number; command: string }[] = [];
   for (const line of stdout.split('\n')) {
     if (!line.trim()) continue;

@@ -2457,6 +2457,7 @@ const REPAIR_LOG_STYLES: Record<string, string> = {
   command: 'text-teal-600 dark:text-teal-300',
   output: 'text-zinc-400 dark:text-zinc-500 text-[11px] whitespace-pre-wrap',
   llm: 'text-violet-600 dark:text-violet-300',
+  tool: 'text-cyan-700 dark:text-cyan-300',
   success: 'text-emerald-600 dark:text-emerald-400 font-medium',
   error: 'text-red-600 dark:text-red-400',
   warn: 'text-amber-600 dark:text-amber-400',
@@ -2624,6 +2625,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
           <span className="shrink-0 select-none tabular-nums text-zinc-400/60 dark:text-zinc-600">{formatRepairClock(s.ts)}</span>
           <span className={`min-w-0 break-all whitespace-pre-wrap leading-relaxed ${REPAIR_LOG_STYLES[s.level] || REPAIR_LOG_STYLES.info}`}>
             {s.level === 'command' && <span className="select-none text-teal-600/70 dark:text-teal-500/70">$ </span>}
+            {s.level === 'tool' && <span className="select-none text-cyan-700/70 dark:text-cyan-400/70">❯ </span>}
             {s.level === 'approval' && <ShieldAlert className="mr-1 inline h-3 w-3 -mt-0.5 text-amber-500" />}
             {s.level === 'approved' && <ShieldCheck className="mr-1 inline h-3 w-3 -mt-0.5 text-emerald-500" />}
             {s.level === 'denied' && <ShieldX className="mr-1 inline h-3 w-3 -mt-0.5 text-zinc-400" />}

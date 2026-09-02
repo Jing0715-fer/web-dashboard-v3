@@ -199,11 +199,11 @@ export const dialogs = {
 
   // ---- LLM auto-repair dialog ----
   'dlg.repair.title': 'AI Auto-Repair',
-  'dlg.repair.statusRunning': 'Repairing · round {round}/{max}',
+  'dlg.repair.statusRunning': 'Repairing · step {round}/{max}',
   'dlg.repair.statusSuccess': 'Repaired',
   'dlg.repair.statusFailed': 'Could not repair',
-  'dlg.repair.descRebuild': '{project} · {env} · rebuild failed — the LLM diagnoses it, runs repair commands and retries',
-  'dlg.repair.descStart': '{project} · {env} · start failed — the LLM diagnoses it, runs repair commands and retries',
+  'dlg.repair.descRebuild': '{project} · {env} · rebuild failed — the AI diagnoses it with inspect/probe/test tools, fixes it, and retries with health verification',
+  'dlg.repair.descStart': '{project} · {env} · start failed — the AI diagnoses it with inspect/probe/test tools, fixes it, and retries with health verification',
   'dlg.repair.creating': 'Creating repair job…',
   'dlg.repair.notFound': 'This repair job no longer exists (it may belong to a previous server process). Trigger the action again.',
   'dlg.repair.diagnosis': 'LLM diagnosis:',
@@ -211,7 +211,7 @@ export const dialogs = {
   'dlg.repair.failedTitle': 'Could not auto-repair:',
   'dlg.repair.background': 'Keep running in background',
   'dlg.repair.logTitle': 'repair.log',
-  'dlg.repair.round': 'Round {round} of {max}',
+  'dlg.repair.round': 'Step {round} of {max}',
   'dlg.repair.elapsed': 'Elapsed',
   'dlg.repair.successNote': 'The environment is running again — repair finished.',
   'dlg.repair.waitingApproval': 'Paused — waiting for your approval…',

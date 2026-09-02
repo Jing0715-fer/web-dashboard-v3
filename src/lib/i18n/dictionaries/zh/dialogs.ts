@@ -195,11 +195,11 @@ export const dialogs = {
 
   // ---- LLM 自动修复对话框 ----
   'dlg.repair.title': 'AI 自动修复',
-  'dlg.repair.statusRunning': '修复中 · 第 {round}/{max} 轮',
+  'dlg.repair.statusRunning': '修复中 · 第 {round}/{max} 步',
   'dlg.repair.statusSuccess': '已修复',
   'dlg.repair.statusFailed': '未能修复',
-  'dlg.repair.descRebuild': '{project} · {env} · 重建失败 — LLM 诊断并自动执行修复命令后重试',
-  'dlg.repair.descStart': '{project} · {env} · 启动失败 — LLM 诊断并自动执行修复命令后重试',
+  'dlg.repair.descRebuild': '{project} · {env} · 重建失败 — AI 通过探查/测试工具诊断修复，并健康验证后重试',
+  'dlg.repair.descStart': '{project} · {env} · 启动失败 — AI 通过探查/测试工具诊断修复，并健康验证后重试',
   'dlg.repair.creating': '正在创建修复任务…',
   'dlg.repair.notFound': '修复任务不存在（可能属于上一个服务进程）。请重新触发操作。',
   'dlg.repair.diagnosis': 'LLM 诊断：',
@@ -207,7 +207,7 @@ export const dialogs = {
   'dlg.repair.failedTitle': '未能自动修复：',
   'dlg.repair.background': '后台继续',
   'dlg.repair.logTitle': 'repair.log',
-  'dlg.repair.round': '第 {round} / {max} 轮',
+  'dlg.repair.round': '第 {round} / {max} 步',
   'dlg.repair.elapsed': '已用时',
   'dlg.repair.successNote': '环境已恢复运行 — 修复完成。',
   'dlg.repair.waitingApproval': '已暂停 — 等待你的审批…',
