@@ -998,11 +998,6 @@ function SortableProjectCardImpl({
           {batchMode && (
             <Checkbox checked={selected} onCheckedChange={() => onToggleSelect(project.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
           )}
-          {project.name === 'Hermes Web' && (
-            <span onClick={(e) => e.stopPropagation()}>
-              <HermesBridgeToggle />
-            </span>
-          )}
           <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`shrink-0 cursor-pointer transition-colors ${starred ? 'text-zinc-800 dark:text-zinc-200' : 'text-zinc-300 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-300'}`}>
             {starred ? <Pin className="h-4 w-4 fill-current" /> : <Star className="h-4 w-4" />}
           </button>
@@ -1182,7 +1177,7 @@ function SortableProjectCardImpl({
       >
 
         {/* Drag handle lives inline in the header flow (before the icon) — no overlap. */}
-        {/* Hermes Bridge toggle is rendered in the bottom action row, not the card top */}
+        {/* Hermes Bridge toggle renders once, inline with the dev env tag in the env list — NOT in the bottom action row (kept Stop All from overflowing the card) */}
 
         {rebuilding && (
           <div className="absolute top-0 left-0 right-0 h-[3px] overflow-hidden rounded-t-xl z-20 bg-zinc-100 dark:bg-zinc-800" role="progressbar" aria-label={t('surf.rebuildInProgress')}>
@@ -1371,7 +1366,6 @@ function SortableProjectCardImpl({
               <span className={`h-1.5 w-1.5 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-zinc-400 dark:bg-zinc-500'}`} />
               {t('card.preview.runningFraction', { running: runningEnvs, total: totalEnvs })}
             </Badge>
-            {project.name === 'Hermes Web' && <HermesBridgeToggle />}
             <span className="text-[10px] text-muted-foreground dark:text-zinc-400 hidden sm:inline" title={new Date(project.createdAt).toLocaleString()}>{formatTimeAgo(project.createdAt, t)}</span>
           </div>
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
