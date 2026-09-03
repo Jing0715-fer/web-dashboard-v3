@@ -239,17 +239,20 @@ Steps you MUST complete:
 1. Inspect the project files (package.json, bun.lock, config files, README) to understand the stack, scripts, and how it starts.
 2. If dependencies are missing or incomplete, install them with the project's own package manager (bun install / npm install / pip install -r requirements.txt / go mod download etc).
 3. Choose a "dev" startup command and a free port. NEVER use port 3000 (reserved for the dashboard itself)${s.usedPorts.length > 0 ? ` and never use these already-assigned ports: ${usedPorts}` : ''}.
-4. VERIFY the dev startup command ACTUALLY WORKS: run it in the background, wait up to 90 seconds, then check the port responds (curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:PORT/ or use a TCP connection check). Read the process output to diagnose failures.
-5. If it fails, DEBUG: read the error output, fix the problem (install missing packages, adjust the command or the port, fix trivial config issues), and retry. Keep iterating until the service successfully responds on its port.
-6. Determine the PRODUCTION startup: check package.json (or equivalent) for build/start scripts. If they exist, run the production build once (npm run build / bun run build, budget ~3 minutes), then verify the production start command (e.g. npm run start) on a DIFFERENT port (dev port + 1 unless taken). If the production build or start fails, debug briefly (max 2 fix attempts — install missing deps, fix trivial issues); if it still fails, still include a best-guess production entry (build && start with a distinct port) and mention the failure in "summary". If the project has NO build script at all, use the dev command with NODE_ENV=production on a distinct port as the production entry.
-7. STOP every process you started (kill them all) so all ports are free again.
-8. Finally, reply with ONLY a JSON object (no markdown fences, no extra text):
+4. PRE-FLIGHT CLEANUP before starting any server: if the project has a .next/dev/lock file, a dev server for this project is (or was) already running — read the file, get the owning PID (JSON field "pid"), KILL that process tree first (Windows: taskkill /PID <pid> /T /F, otherwise kill -9 <pid>) and only THEN delete the lock file. NEVER delete .next/dev/lock while its process is still alive: two dev servers sharing one .next directory deadlock and every HTTP request then hangs forever. Also verify the port you chose is actually free.
+5. VERIFY the dev startup command ACTUALLY WORKS: run it in the background and poll the port in a SHORT LOOP (one curl/TCP check per 5-10 seconds, print every result) for up to 240 seconds. On Windows the FIRST compile of "next dev" regularly takes 2-4 minutes — TCP connects but HTTP still hangs means compilation is in progress: KEEP POLLING, do NOT restart the server, do NOT touch .next/dev/lock. Read the process output/log to diagnose real failures.
+6. If it fails, DEBUG: read the error output, fix the problem (install missing packages, adjust the command or the port, fix trivial config issues), and retry. Keep iterating until the service successfully responds on its port.
+7. Determine the PRODUCTION startup — ONLY AFTER the dev verification passed: check package.json (or equivalent) for build/start scripts. If they exist, run the production build once (npm run build / bun run build, budget ~3 minutes), then verify the production start command (e.g. npm run start) on a DIFFERENT port (dev port + 1 unless taken). If the production build or start fails, debug briefly (max 2 fix attempts — install missing deps, fix trivial issues); if it still fails, still include a best-guess production entry (build && start with a distinct port) and mention the failure in "summary". If you already spent more than ~4 minutes in total, SKIP the production build entirely and return the best-guess production entry instead. If the project has NO build script at all, use the dev command with NODE_ENV=production on a distinct port as the production entry.
+8. STOP every process you started (kill them all) so all ports are free again.
+9. Finally, reply with ONLY a JSON object (no markdown fences, no extra text):
 {"projectName":"...","description":"one sentence","icon":"one of folder,globe,code,database,smartphone,shopping-cart,layout,palette,cpu,book-open,music,gamepad-2,bar-chart,shield,camera,map,cloud,terminal,rocket,puzzle,package,zap,laptop,atom,flame,server","summary":"what you did, problems found and fixed, production verification result","environments":[{"name":"dev","cmd":"the verified command","port":NUMBER,"envVars":{"KEY":"value"}},{"name":"production","cmd":"the production command (build && start when possible)","port":NUMBER,"envVars":{"NODE_ENV":"production","KEY":"value"}}]}
 
 Rules:
 - BUDGET DISCIPLINE (a supervisor kills runs that go silent): keep exploration MINIMAL — read package.json and the main entry file(s), at most ~8 files total. NEVER read node_modules, lockfiles, test files, or docs. Aim for ≤ 35 tool calls overall.
-- Time budget: dev boot wait ≤ 90s (poll the port every few seconds instead of one long sleep), production build ≤ 3 min, overall target ≤ 6 minutes. If you are running out of budget, STOP exploring and return your best current valid JSON immediately — a partially verified config is far better than a timeout.
+- Time budget: dev boot wait ≤ 240s (poll in a short loop — never one long sleep; on Windows the first "next dev" compile takes 2-4 minutes), production build ≤ 3 min, overall target ≤ 6 minutes. If you are running out of budget, STOP exploring and return your best current valid JSON immediately — a partially verified config is far better than a timeout.
 - If a port you chose is occupied, either kill the occupying process or move to the next free port. Do NOT retry the same port in a loop.
+- A supervisor KILLS the whole attempt after 5 minutes of total silence: never run a command that blocks without printing anything for more than ~2 minutes (the production build is the ONLY exception). For every wait, loop with short sleeps and print each iteration.
+- NEVER run the production build before the dev verification passed, and NEVER delete .next/dev/lock without first killing the PID inside it.
 - The environments array MUST contain BOTH the verified "dev" entry AND a "production" entry, using DIFFERENT ports (e.g. dev=4001, production=4002).
 - The production command must be a single shell command; combine build+start with && (e.g. "npm run build && npm run start"). Use bun run instead of npm run if the project uses bun.
 - envVars values must be strings. Include HOST=0.0.0.0 and PORT as string when the server needs them; production envVars must include NODE_ENV=production.
@@ -310,39 +313,141 @@ function killTree(pid: number | undefined) {
   } catch { /* best effort */ }
 }
 
-/**
- * Zombie sweep: kill any leftover process whose CWD is exactly the analyzed
- * project directory. The dsh agent starts servers (npm run dev …) as background
- * jobs; if it is killed mid-run (timeout/cancel/stall) those jobs survive
- * killTree and keep ports occupied, which derails the retry attempt. Sweeping
- * by /proc/<pid>/cwd catches them regardless of how they were spawned.
- */
-function killProjectOrphans(s: AnalysisSession, why: string): number {
-  try {
-    if (platform() === 'win32') return 0;
-    const myCwd = process.cwd();
-    // Safety: never sweep a directory that contains the dashboard itself (would
-    // kill the dashboard server / its node_modules workers).
-    if (myCwd === s.path || myCwd.startsWith(s.path + '/')) return 0;
-    const victims: number[] = [];
-    for (const ent of readdirSync('/proc')) {
-      if (!/^\d+$/.test(ent)) continue;
-      const pid = Number(ent);
-      if (pid === process.pid) continue;
-      try {
-        const cwd = readlinkSync(join('/proc', ent, 'cwd'));
-        if (cwd === s.path) victims.push(pid);
-      } catch { continue; } // exited or not ours
+/** PowerShell zombie sweep for Windows (see sweepWindowsOrphans). ASCII-only
+ *  on purpose: PowerShell 5.1 reads BOM-less .ps1 files as the system codepage. */
+const SWEEP_PS1 = `param(
+  [string]$ProjPath,
+  [string]$ExcludePids = ''
+)
+$ErrorActionPreference = 'SilentlyContinue'
+$proj = $ProjPath.TrimEnd('\\').TrimEnd('/')
+$projFwd = $proj.Replace('\\', '/')
+$probe1 = $proj + '\\'
+$probe2 = $projFwd + '/'
+$excl = @{}
+foreach ($e in ($ExcludePids -split ',')) {
+  $t = 0
+  if ([int]::TryParse($e.Trim(), [ref]$t)) { $excl[$t] = $true }
+}
+function Test-CmdlineMatch([string]$cl) {
+  if (-not $cl) { return $false }
+  if ($cl.IndexOf($probe1, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+  if ($cl.IndexOf($probe2, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
+  return ($cl.Trim('"').Trim() -ieq $proj)
+}
+# Only kill processes that actually own a LISTENING port (spares editors'
+# language servers etc.). $null = cmdlet unavailable -> no port filter.
+$listenerPids = $null
+try { $listenerPids = @(Get-NetTCPConnection -State Listen | ForEach-Object { [int]$_.OwningProcess }) } catch { $listenerPids = $null }
+$victims = @{}
+$names = @{}
+$procs = Get-CimInstance Win32_Process -Filter "Name='node.exe' OR Name='bun.exe' OR Name='npm.exe' OR Name='next.exe'"
+foreach ($p in $procs) {
+  $v = [int]$p.ProcessId
+  if ($excl.ContainsKey($v)) { continue }
+  if (-not (Test-CmdlineMatch $p.CommandLine)) { continue }
+  if ($null -ne $listenerPids -and -not ($listenerPids -contains $v)) { continue }
+  $victims[$v] = $true
+  $names[$v] = [string]$p.Name
+}
+# Next.js dev lock: JSON {"pid":...} of a live dev server for this project.
+$lock = Join-Path $proj '.next\\dev\\lock'
+if (Test-Path $lock) {
+  $lockPid = $null
+  try { $j = Get-Content $lock -Raw | ConvertFrom-Json; if ($j -and $j.pid) { $lockPid = [int]$j.pid } } catch {}
+  if ($lockPid -and -not $excl.ContainsKey($lockPid)) {
+    $lp = Get-CimInstance Win32_Process -Filter "ProcessId=$lockPid"
+    if ($lp -and $lp.Name -match '^(node|bun|next|npm)\\.exe$' -and ($null -eq $listenerPids -or ($listenerPids -contains $lockPid))) {
+      if (-not $victims.ContainsKey($lockPid)) { $victims[$lockPid] = $true; $names[$lockPid] = "$($lp.Name) (next dev lock)" }
     }
-    if (victims.length === 0) return 0;
-    pushProgress(s, 'note', `清理 ${victims.length} 个遗留进程（${why}）：PID ${victims.slice(0, 6).join(', ')}${victims.length > 6 ? '…' : ''}`);
-    for (const pid of victims) { try { process.kill(pid, 'SIGTERM'); } catch {} }
-    const hard = setTimeout(() => {
-      for (const pid of victims) { try { process.kill(pid, 'SIGKILL'); } catch {} }
-    }, 1500);
-    hard.unref?.();
-    return victims.length;
-  } catch { return 0; }
+  }
+}
+foreach ($v in @($victims.Keys)) {
+  Write-Output ("KILL " + $v + " " + $names[$v])
+  & taskkill /PID $v /T /f 2>$null | Out-Null
+}
+if (Test-Path $lock) { Remove-Item $lock -Force -ErrorAction SilentlyContinue }
+`;
+
+/**
+ * Zombie sweep: kill any leftover process belonging to the analyzed project.
+ * The dsh agent starts servers (npm run dev …) as background jobs; if it is
+ * killed mid-run (timeout/cancel/stall) those jobs survive killTree and keep
+ * ports occupied, which derails the retry attempt — the #1 cause of the
+ * "port occupied / retry inherits a dead .next/dev/lock" cascade.
+ *   - unix: sweep by /proc/<pid>/cwd — catches every spawn style.
+ *   - win32: .next/dev/lock PID + Win32_Process command-line scan (project
+ *     path in argv AND owning a listening port) → taskkill /T /F + unlock.
+ */
+function killProjectOrphans(s: AnalysisSession, why: string): Promise<number> {
+  if (platform() === 'win32') return sweepWindowsOrphans(s, why);
+  return new Promise((resolve) => {
+    try {
+      const myCwd = process.cwd();
+      // Safety: never sweep a directory that contains the dashboard itself (would
+      // kill the dashboard server / its node_modules workers).
+      if (myCwd === s.path || myCwd.startsWith(s.path + '/')) { resolve(0); return; }
+      const victims: number[] = [];
+      for (const ent of readdirSync('/proc')) {
+        if (!/^\d+$/.test(ent)) continue;
+        const pid = Number(ent);
+        if (pid === process.pid) continue;
+        try {
+          const cwd = readlinkSync(join('/proc', ent, 'cwd'));
+          if (cwd === s.path) victims.push(pid);
+        } catch { continue; } // exited or not ours
+      }
+      if (victims.length === 0) { resolve(0); return; }
+      pushProgress(s, 'note', `清理 ${victims.length} 个遗留进程（${why}）：PID ${victims.slice(0, 6).join(', ')}${victims.length > 6 ? '…' : ''}`);
+      for (const pid of victims) { try { process.kill(pid, 'SIGTERM'); } catch {} }
+      const hard = setTimeout(() => {
+        for (const pid of victims) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+      }, 1500);
+      hard.unref?.();
+      // Give the OS a beat to release the ports before the next attempt spawns.
+      const settle = setTimeout(() => resolve(victims.length), 700);
+      settle.unref?.();
+    } catch { resolve(0); }
+  });
+}
+
+/** Windows implementation of the orphan sweep (taskkill via PowerShell). */
+function sweepWindowsOrphans(s: AnalysisSession, why: string): Promise<number> {
+  return new Promise((resolve) => {
+    try {
+      const projPath = resolve(s.path);
+      const norm = (p: string) => p.toLowerCase().replace(/\\/g, '/');
+      const nProj = norm(projPath);
+      const nMine = norm(process.cwd());
+      // Safety: never sweep the dashboard's own directory tree (either direction).
+      if (!nProj || nProj === nMine || nMine.startsWith(nProj + '/') || nProj.startsWith(nMine + '/')) {
+        resolve(0);
+        return;
+      }
+      mkdirSync(LOG_DIR, { recursive: true });
+      const script = join(LOG_DIR, 'sweep-orphans.ps1');
+      writeFileSync(script, SWEEP_PS1, 'utf8');
+      const exclude = [String(process.pid)];
+      if (s.child?.pid) exclude.push(String(s.child.pid));
+      const child = spawn('powershell.exe', [
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-File', script, '-ProjPath', projPath, '-ExcludePids', exclude.join(','),
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let out = '';
+      const timer = setTimeout(() => { try { child.kill(); } catch {} }, 10_000);
+      timer.unref?.();
+      child.stdout!.on('data', (c: Buffer) => { out += c.toString(); });
+      child.on('error', () => { clearTimeout(timer); resolve(0); });
+      child.on('exit', () => {
+        clearTimeout(timer);
+        const lines = out.split(/\r?\n/).filter((l) => l.startsWith('KILL '));
+        if (lines.length > 0) {
+          pushProgress(s, 'note', `清理 ${lines.length} 个遗留进程（${why}）：${lines.map((l) => l.slice(5).trim()).slice(0, 6).join('；')}${lines.length > 6 ? '…' : ''}`);
+        }
+        resolve(lines.length);
+      });
+    } catch { resolve(0); }
+  });
 }
 
 /** Best-effort cleanup of every live session (used on server shutdown). */
@@ -351,7 +456,7 @@ function cleanupAllSessions() {
   for (const s of rt0.sessions.values()) {
     if (s.status === 'running') {
       killTree(s.child?.pid);
-      setTimeout(() => killProjectOrphans(s, 'harness 退出清理'), 1000).unref?.();
+      setTimeout(() => { void killProjectOrphans(s, 'harness 退出清理'); }, 1000).unref?.();
       // Leave a durable record so a wizard polling across the restart gets
       // a definitive "failed" answer instead of a 404.
       s.status = 'failed';
@@ -499,17 +604,20 @@ function runAttempt(s: AnalysisSession, feedback?: string) {
   enqueueRun(s, () => startAttempt(s, feedback));
 }
 
-function startAttempt(s: AnalysisSession, feedback?: string): Promise<void> {
+async function startAttempt(s: AnalysisSession, feedback?: string): Promise<void> {
   // A session cancelled while still queued must never spawn a run.
-  if (s.cancelled) return Promise.resolve();
+  if (s.cancelled) return;
   s.attempt += 1;
   s.lastLogSize = 0;
   s.lastEventLine = 0;
   s.lastActivityAt = Date.now();
   s.stalledNote = false;
-  // Clear orphans from a previous attempt before spawning a new run — a
-  // leftover dev server holding the port is the #1 cause of retry failures.
-  killProjectOrphans(s, `第 ${s.attempt} 次尝试前清扫`);
+  // Clear orphans from a previous attempt BEFORE spawning — awaited so the
+  // retry truly starts with free ports (on Windows this runs taskkill on
+  // leftover dev servers; a zombie holding .next/dev/lock or the port is
+  // the #1 cause of retry failures and "port occupied" cascades).
+  await killProjectOrphans(s, `第 ${s.attempt} 次尝试前清扫`);
+  if (s.cancelled) return; // cancelled while the sweep was running
   pushProgress(s, 'start', `第 ${s.attempt}/${s.maxAttempts} 次分析启动（deepseek-harness agent）`);
 
   const task = buildTask(s, feedback);
@@ -550,7 +658,7 @@ function startAttempt(s: AnalysisSession, feedback?: string): Promise<void> {
     pushProgress(s, 'error', '本次尝试超时，正在终止…');
     killTree(child.pid);
     // dsh background jobs can outlive the tree kill — sweep by project cwd.
-    setTimeout(() => killProjectOrphans(s, '超时清扫'), 2500).unref?.();
+    setTimeout(() => { void killProjectOrphans(s, '超时清扫'); }, 2500).unref?.();
   }, ATTEMPT_TIMEOUT_MS);
 
   // The run slot is held until the child is truly gone. 'error' (spawn
@@ -579,12 +687,24 @@ function startAttempt(s: AnalysisSession, feedback?: string): Promise<void> {
   });
 }
 
+/** dsh headless often writes NOTHING to stdout when killed mid-run — its real
+ *  activity lives in the tailed progress events. Use them as the "last output"
+ *  so failure messages explain what actually happened instead of "empty". */
+function lastProgressTail(s: AnalysisSession, max: number): string {
+  const items = s.progress
+    .slice(-8)
+    .filter((p) => p.kind === 'command' || p.kind === 'file' || p.kind === 'note' || p.kind === 'message')
+    .map((p) => p.text);
+  const text = items.join(' | ');
+  return text ? text.slice(-max) : '';
+}
+
 /** Shared exit path: evaluate output, sanitize, retry or finish, persist. */
 function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: string) {
   s.child = null;
   // Final sweep regardless of outcome — the task tells the agent to stop its
   // servers, but a supervisor-side guarantee is worth more than a promise.
-  setTimeout(() => killProjectOrphans(s, '会话收尾校验'), 2000).unref?.();
+  setTimeout(() => { void killProjectOrphans(s, '会话收尾校验'); }, 2000).unref?.();
   if (s.cancelled) {
     s.status = 'cancelled';
     pushProgress(s, 'error', '已取消');
@@ -617,7 +737,7 @@ function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: stri
     issueFeedback = `The returned JSON was structurally valid but failed validation and every environment was discarded. Fix these problems:\n${issues.map(i => `- ${i}`).join('\n')}\n`;
   }
   if (s.attempt < s.maxAttempts) {
-    const tail = stdout.trim().slice(-600) || '(no output)';
+    const tail = stdout.trim().slice(-600) || lastProgressTail(s, 600) || '(no output)';
     const stallNote = s.stalledAttempt === s.attempt
       ? 'The previous attempt STALLED — no agent activity for 5 minutes and the supervisor killed it (likely a hung command or a blocking wait). Avoid long blocking sleeps; poll with short sleeps instead. '
       : '';
@@ -627,7 +747,7 @@ function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: stri
     }, 1500);
   } else {
     s.status = 'failed';
-    s.error = `Agent 未能生成有效的启动配置（已尝试 ${s.attempt} 次）。${issueFeedback ? `校验问题：${issueFeedback.replace(/\n/g, ' ').slice(0, 300)} ` : ''}最后输出: ${stdout.trim().slice(-400) || 'empty'}`;
+    s.error = `Agent 未能生成有效的启动配置（已尝试 ${s.attempt} 次）。${issueFeedback ? `校验问题：${issueFeedback.replace(/\n/g, ' ').slice(0, 300)} ` : ''}最后输出: ${stdout.trim().slice(-400) || lastProgressTail(s, 400) || 'empty'}`;
     pushProgress(s, 'error', s.error);
     persistResult(s);
   }
@@ -686,7 +806,7 @@ export function startAnalysis(
       s.stalledAttempt = s.attempt;
       pushProgress(s, 'error', `Agent 已 ${Math.round(STALL_KILL_MS / 60000)} 分钟无任何活动，判定卡死，终止本次尝试`);
       killTree(s.child.pid);
-      setTimeout(() => killProjectOrphans(s, '卡死清扫'), 2500).unref?.();
+      setTimeout(() => { void killProjectOrphans(s, '卡死清扫'); }, 2500).unref?.();
     } else if (idleMs > 120_000) {
       if (!s.stalledNote) {
         s.stalledNote = true;
@@ -701,7 +821,7 @@ export function startAnalysis(
   setTimeout(() => {
     if (s.status === 'running') {
       killTree(s.child?.pid);
-      setTimeout(() => killProjectOrphans(s, '会话超时清扫'), 2500).unref?.();
+      setTimeout(() => { void killProjectOrphans(s, '会话超时清扫'); }, 2500).unref?.();
       s.status = 'failed';
       s.error = 'Session timed out';
       persistResult(s);
