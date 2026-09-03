@@ -112,6 +112,14 @@ export interface AnalysisSession {
   finishedAt?: number;
   /** LLM gateway base URL the dsh patch points at (resolved per analysis). */
   llmBaseUrl: string;
+  /** Dashboard project id this analysis is associated with. When set, the
+   *  engine auto-applies the verified result to that project server-side the
+   *  moment the session completes — closing the wizard before clicking
+   *  "save" can no longer lose the result. */
+  projectId?: string;
+  /** Server-side auto-apply outcome: {pending:true} while running, or the
+   *  terminal result ({ok, applied, envs, …}). Undefined until it starts. */
+  applyOutcome?: any;
 }
 
 interface EngineRuntime {
@@ -729,6 +737,14 @@ function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: stri
       if (issues.length > 0) {
         pushProgress(s, 'note', `配置校验提示（${issues.length} 项）：\n${issues.map(i => `· ${i}`).join('\n')}`);
       }
+      // Server-side auto-apply: persist the result to the associated project
+      // immediately — the wizard's "save" button becomes optional.
+      if (s.projectId) {
+        s.applyOutcome = { pending: true };
+        persistResult(s);
+        void autoApplyResult(s);
+        return;
+      }
       persistResult(s);
       return;
     }
@@ -753,6 +769,44 @@ function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: stri
   }
 }
 
+// ============================= server-side auto-apply =============================
+
+/**
+ * Fire-and-forget: apply a completed session's result to its project through
+ * the shared apply-analysis lib (the SAME code path as the wizard's manual
+ * "save" button). Dynamic import keeps Prisma out of the engine's
+ * module-evaluation path; failures are recorded on the session (and
+ * persisted) so the wizard can fall back to the manual save button.
+ */
+async function autoApplyResult(s: AnalysisSession): Promise<void> {
+  try {
+    if (!s.projectId || s.status !== 'completed' || !s.result) return;
+    const { applyAnalysisToProject } = await import('@/lib/apply-analysis');
+    const outcome = await applyAnalysisToProject(s.projectId, s.result);
+    s.applyOutcome = {
+      ok: outcome.ok,
+      status: outcome.status,
+      applied: outcome.applied,
+      dropped: outcome.dropped,
+      suggestedName: outcome.suggestedName,
+      summary: outcome.summary,
+      envs: outcome.envs,
+      error: outcome.error,
+    };
+    pushProgress(
+      s,
+      outcome.ok ? 'result' : 'error',
+      outcome.ok
+        ? `已自动保存 ${outcome.applied} 个环境配置到项目（关闭或刷新不会丢失）`
+        : `自动保存失败：${outcome.error || outcome.status} — 可在向导中手动保存`,
+    );
+    persistResult(s);
+  } catch (err: any) {
+    s.applyOutcome = { ok: false, status: 'error', error: String(err?.message || err) };
+    try { persistResult(s); } catch { /* ignore */ }
+  }
+}
+
 // ============================= public engine API =============================
 
 export function startAnalysis(
@@ -761,6 +815,7 @@ export function startAnalysis(
   usedPorts: number[],
   maxAttempts: number,
   llmBaseUrl: string,
+  projectId?: string,
 ): AnalysisSession {
   const rt0 = engineRuntime();
   const id = randomUUID();
@@ -787,6 +842,7 @@ export function startAnalysis(
     stalledAttempt: null,
     stalledNote: false,
     llmBaseUrl,
+    projectId: projectId || undefined,
   };
   rt0.sessions.set(id, s);
   pushProgress(s, 'note', `项目: ${name} (${path})`);
@@ -883,6 +939,10 @@ export function sessionView(s: AnalysisSession) {
     error: s.error,
   };
   if (s.restored) view.restored = true;
+  // Server-side auto-apply state for the wizard: registered sessions expose
+  // {pending} until the outcome lands (undefined = not registered → the
+  // wizard falls back to its manual save buttons).
+  if (s.projectId) view.applied = s.applyOutcome ?? { pending: true };
   // Queue visibility: a session that has not started spawning yet is queued.
   // queuePosition = sessions ahead of it (waiting + the one running);
   // queueLength = total sessions in the queue system right now.
@@ -941,6 +1001,8 @@ function persistResult(s: AnalysisSession) {
     };
     if (s.result !== null && s.result !== undefined) payload.result = s.result;
     if (s.error) payload.error = s.error;
+    if (s.projectId) payload.projectId = s.projectId;
+    if (s.applyOutcome !== undefined) payload.applied = s.applyOutcome;
     writeFileSync(join(RESULTS_DIR, `${s.id}.json`), JSON.stringify(payload, null, 2));
   } catch (err: any) {
     console.error('[harness] persistResult failed:', err?.message || err);
@@ -994,9 +1056,17 @@ function restoreSessionsFromDisk(): number {
           stalledNote: false,
           restored: true,
           llmBaseUrl: '',
+          projectId: data.projectId ? String(data.projectId) : undefined,
+          applyOutcome: data.applied,
         };
         engineRuntime().sessions.set(id, s);
         restored += 1;
+        // A completed session that never got its result applied (the server
+        // died mid-apply) → retry the server-side auto-apply now.
+        if (s.projectId && s.status === 'completed' && s.result && !(s.applyOutcome as any)?.ok) {
+          s.applyOutcome = { pending: true };
+          void autoApplyResult(s);
+        }
       } catch { /* corrupt file — skip it */ }
     }
   } catch { /* never fatal */ }

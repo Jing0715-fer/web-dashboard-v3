@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { proxyToAgent } from '@/lib/remote-agent';
 import { networkInterfaces } from 'os';
 import { requireApprovedUser } from '@/lib/auth';
+import { registerRemoteAutoApply, getAutoApplyOutcome } from '@/lib/harness/auto-apply';
 
 /**
  * Remote project auto-debug analysis — proxies to the device agent's
@@ -12,6 +13,13 @@ import { requireApprovedUser } from '@/lib/auth';
  *
  *   POST /api/devices/[id]/analyze-remote  {path, name, usedPorts?}  → {jobId}
  *   GET  /api/devices/[id]/analyze-remote?jobId=...                  → job status
+ *
+ * Every started job is registered with the server-side auto-apply watcher:
+ * when the remote analysis completes, the project + verified environments
+ * are created on the device automatically (no auto-start — that stays a user
+ * decision). Closing the dialog / reloading before clicking "add" can no
+ * longer lose the remote result. The GET response is enriched with `applied`
+ * so the dialog can render the auto-saved state.
  */
 
 function getLanIp(): string {
@@ -51,6 +59,17 @@ export async function POST(
     if (!result.ok) {
       return NextResponse.json({ error: result.data?.error || `Agent returned ${result.status}` }, { status: 502 });
     }
+
+    // Register for server-side auto-apply when the remote job completes.
+    if (result.data?.jobId) {
+      const registered = await registerRemoteAutoApply(
+        String(result.data.jobId),
+        id,
+        String(body.path),
+        body.name ? String(body.name) : undefined,
+      );
+      return NextResponse.json({ ...result.data, autoApply: registered ? 'registered' : 'unavailable' });
+    }
     return NextResponse.json(result.data);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
@@ -80,7 +99,10 @@ export async function GET(
     if (!result.ok) {
       return NextResponse.json({ error: result.data?.error || `Agent returned ${result.status}` }, { status: 502 });
     }
-    return NextResponse.json(result.data);
+    const data = result.data ?? {};
+    const applied = getAutoApplyOutcome(jobId);
+    if (applied !== undefined) (data as any).applied = applied;
+    return NextResponse.json(data);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

@@ -152,6 +152,7 @@ interface Project {
   description: string
   icon: string
   tags: string
+  notes?: string
   createdAt: string
   updatedAt: string
   environments: Environment[]
@@ -3205,9 +3206,15 @@ function DetailSheet({
   const [deviceCollapsed, setDeviceCollapsed] = React.useState(false)
   const [tagsCollapsed, setTagsCollapsed] = React.useState(() => parseTags(project?.tags || '').length === 0)
   const [envSummaryCollapsed, setEnvSummaryCollapsed] = React.useState(false)
-  // Project Notes state (Session 13)
+  // Project Notes state (Session 13) — persisted server-side via PUT
+  // /api/projects/:id (notes column). localStorage is only a migration
+  // source for notes written before the column existed (and an offline
+  // fallback for remote agents without notes support).
   const [projectNotes, setProjectNotes] = React.useState<string>(() => {
-    try { return project ? (localStorage.getItem(`project-notes-${project.id}`) || '') : '' } catch { return '' }
+    if (!project) return ''
+    const fromDb = typeof project.notes === 'string' ? project.notes : ''
+    if (fromDb) return fromDb
+    try { return localStorage.getItem(`project-notes-${project.id}`) || '' } catch { return '' }
   })
   const [editingNotes, setEditingNotes] = React.useState(false)
   const [notesDraft, setNotesDraft] = React.useState(projectNotes)
@@ -3299,13 +3306,37 @@ function DetailSheet({
   const handleSaveNotes = React.useCallback(async () => {
     if (!project) return
     setSavingNotes(true)
-    try {
-      localStorage.setItem(`project-notes-${project.id}`, notesDraft)
+    const keepLocalFallback = () => {
+      try { localStorage.setItem(`project-notes-${project.id}`, notesDraft) } catch { /* ignore */ }
       setProjectNotes(notesDraft)
       setEditingNotes(false)
-      addToast({ title: t('dlg.detail.notesSaved'), variant: 'success' })
+      addToast({ title: t('dlg.detail.notesSavedLocal'), variant: 'default' })
+    }
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: notesDraft }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const saved = typeof data?.project?.notes === 'string' ? data.project.notes : undefined
+        if (saved === undefined && project.deviceId) {
+          // Remote agent without notes support — keep the localStorage copy
+          // so the note is not lost on this browser.
+          keepLocalFallback()
+        } else {
+          // Server persisted the note — drop the legacy local copy.
+          try { localStorage.removeItem(`project-notes-${project.id}`) } catch { /* ignore */ }
+          setProjectNotes(notesDraft)
+          setEditingNotes(false)
+          addToast({ title: t('dlg.detail.notesSaved'), variant: 'success' })
+        }
+      } else {
+        keepLocalFallback()
+      }
     } catch {
-      addToast({ title: t('dlg.detail.notesSaveFailed'), variant: 'destructive' })
+      keepLocalFallback()
     }
     setSavingNotes(false)
   }, [notesDraft, project, t])
@@ -6173,7 +6204,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       const res = await fetch('/api/harness/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, name, usedPorts: [...usedPorts, 3000, 3100] }),
+        body: JSON.stringify({ path, name, projectId, usedPorts: [...usedPorts, 3000, 3100] }),
       })
       if (res.ok) {
         const data = await res.json()

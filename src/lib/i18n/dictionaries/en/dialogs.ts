@@ -330,6 +330,7 @@ export const dialogs = {
   'dlg.detail.descUpdated': 'Description updated',
   'dlg.detail.descUpdateFailed': 'Failed to update description',
   'dlg.detail.notesSaved': 'Notes saved',
+  'dlg.detail.notesSavedLocal': 'Saved locally (server unreachable) — it will be re-synced when you save again',
   'dlg.detail.notesSaveFailed': 'Failed to save notes',
   'dlg.detail.portUpdated': 'Port updated',
   'dlg.detail.portSaveFailed': 'Failed to save port',
@@ -695,6 +696,9 @@ export const dialogs = {
   'dlg.analyze.startNow': 'Start now',
   'dlg.analyze.done': 'Done',
   'dlg.analyze.retry': 'Re-analyze',
+  'dlg.analyze.autoSaving': 'Analysis complete — saving configuration automatically…',
+  'dlg.analyze.autoSavedLine': 'Auto-saved {count} environment configs — closing or refreshing will not lose them',
+  'dlg.analyze.autoSaveFailed': 'Auto-save failed — please save manually',
 
   // ---- remote project dialog ----
   'dlg.remoteProject.title': 'Add Remote Project',
@@ -724,6 +728,7 @@ export const dialogs = {
   'dlg.remoteProject.startedToast2': 'Remote project started',
   'dlg.remoteProject.addedToast': 'Remote project added',
   'dlg.remoteProject.addedDesc': '{count} environments configured on {device}.',
+  'dlg.remoteProject.autoSavedLine': 'Auto-added on the device — {count} environments saved (closing or refreshing will not lose them)',
   'dlg.remoteProject.startedDesc2': '{count} environments configured and started on {device}.',
   'dlg.remoteProject.applyFailed': 'Apply failed',
 

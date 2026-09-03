@@ -326,6 +326,7 @@ export const dialogs = {
   'dlg.detail.descUpdated': '描述已更新',
   'dlg.detail.descUpdateFailed': '更新描述失败',
   'dlg.detail.notesSaved': '备注已保存',
+  'dlg.detail.notesSavedLocal': '已保存到本地（服务器暂不可用）— 下次保存时会重新同步',
   'dlg.detail.notesSaveFailed': '保存备注失败',
   'dlg.detail.portUpdated': '端口已更新',
   'dlg.detail.portSaveFailed': '保存端口失败',
@@ -691,6 +692,9 @@ export const dialogs = {
   'dlg.analyze.startNow': '一键启动',
   'dlg.analyze.done': '完成',
   'dlg.analyze.retry': '重新分析',
+  'dlg.analyze.autoSaving': '分析完成 — 正在自动保存环境配置…',
+  'dlg.analyze.autoSavedLine': '已自动保存 {count} 个环境配置 — 关闭或刷新不会丢失',
+  'dlg.analyze.autoSaveFailed': '自动保存失败 — 请手动保存',
 
   // ---- 远程项目对话框 ----
   'dlg.remoteProject.title': '添加远程项目',
@@ -720,6 +724,7 @@ export const dialogs = {
   'dlg.remoteProject.startedToast2': '远程项目已启动',
   'dlg.remoteProject.addedToast': '远程项目已添加',
   'dlg.remoteProject.addedDesc': '已在 {device} 上配置 {count} 个环境。',
+  'dlg.remoteProject.autoSavedLine': '已自动添加到设备 — {count} 个环境配置已保存（关闭或刷新不会丢失）',
   'dlg.remoteProject.startedDesc2': '已在 {device} 上配置并启动 {count} 个环境。',
   'dlg.remoteProject.applyFailed': '应用失败',
 

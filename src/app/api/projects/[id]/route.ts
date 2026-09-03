@@ -76,7 +76,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, description, icon, tags } = body;
+    const { name, description, icon, tags, notes } = body;
 
     const existing = await db.project.findUnique({
       where: { id },
@@ -105,6 +105,8 @@ export async function PUT(
         ...(description !== undefined && { description }),
         ...(icon !== undefined && { icon }),
         ...(tags !== undefined && { tags }),
+        // Project notes (were localStorage-only → now persisted server-side).
+        ...(notes !== undefined && { notes: String(notes).slice(0, 20000) }),
       },
       include: { environments: true },
     });
@@ -120,6 +122,7 @@ export async function PUT(
         description !== undefined ? 'description updated' : null,
         icon !== undefined ? `icon → ${icon}` : null,
         tags !== undefined ? 'tags updated' : null,
+        notes !== undefined ? 'notes updated' : null,
       ].filter(Boolean).join(', ') || undefined,
     });
 

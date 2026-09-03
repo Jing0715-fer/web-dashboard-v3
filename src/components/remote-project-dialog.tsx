@@ -4,7 +4,7 @@ import * as React from 'react'
 import { motion } from 'framer-motion'
 import {
   MonitorSmartphone, Loader2, CheckCircle2, XCircle, Terminal, FileText,
-  Search, Play, CircleDot, Gauge, Server, Zap,
+  Search, Play, CircleDot, Gauge, Server, Zap, Save,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +20,21 @@ interface DeviceInfo { id: string; name: string; ip: string; port: number; statu
 
 interface ProgressItem { ts: number; kind: string; text: string }
 
+/** Server-side auto-apply outcome attached by the analyze-remote route. */
+interface AppliedInfo {
+  pending?: boolean
+  ok?: boolean
+  status?: string
+  applied?: number
+  projectId?: string | null
+  error?: string
+}
+
+/** sessionStorage key for the in-flight remote analysis (wizard restore). */
+const STORAGE_KEY = 'dashboard-remote-analysis'
+/** Bounded wait for the server-side auto-apply before manual fallback. */
+const AUTO_APPLY_WAIT_MS = 120_000
+
 const kindIcon: Record<string, React.ReactNode> = {
   start: <CircleDot className="h-3.5 w-3.5 text-sky-500" />,
   command: <Terminal className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />,
@@ -34,6 +49,10 @@ const kindIcon: Record<string, React.ReactNode> = {
  * enter the on-device path, the dashboard triggers the remote agent's
  * auto-debug analysis (LLM supplied by the dashboard's gateway) and shows
  * live progress until the service is verified to boot on the device.
+ *
+ * The verified result is applied on the device server-side automatically
+ * (dashboard-side auto-apply watcher) — closing the dialog or reloading
+ * can no longer lose it; this dialog adds progress + optional start.
  */
 export function RemoteProjectDialog({
   open,
@@ -59,16 +78,41 @@ export function RemoteProjectDialog({
   const [applied, setApplied] = React.useState(false)
   const [elapsed, setElapsed] = React.useState(0)
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const pendingSinceRef = React.useRef<number | null>(null)
+  const autoNotifiedRef = React.useRef<string | null>(null)
 
+  const clearRemoteSession = React.useCallback(() => {
+    try { sessionStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+  }, [])
+
+  // Reset on close; on open, restore an in-flight analysis (survives reload).
   React.useEffect(() => {
     if (!open) {
       setJobId(null); setJob(null); setError(null); setApplied(false); setElapsed(0); setPath(''); setName(''); setStarting(false)
-    } else if (devices.length > 0 && !deviceId) {
+      pendingSinceRef.current = null
+      return
+    }
+    try {
+      const raw = sessionStorage.getItem(STORAGE_KEY)
+      if (raw) {
+        const sess = JSON.parse(raw)
+        if (sess?.jobId && sess?.deviceId && devices.some((d) => d.id === sess.deviceId)) {
+          setJobId(sess.jobId)
+          setDeviceId(sess.deviceId)
+          if (sess.path) setPath(sess.path)
+          if (sess.name) setName(sess.name)
+          return
+        }
+        clearRemoteSession()
+      }
+    } catch { try { sessionStorage.removeItem(STORAGE_KEY) } catch {} }
+    if (devices.length > 0 && !deviceId) {
       setDeviceId(devices[0].id)
     }
-  }, [open, devices, deviceId])
+  }, [open, devices, deviceId, clearRemoteSession])
 
-  // Poll the remote analysis job.
+  // Poll the remote analysis job — and keep polling past the terminal state
+  // while the server-side auto-apply is still in flight.
   React.useEffect(() => {
     if (!jobId || !deviceId) return
     let stop = false
@@ -79,7 +123,16 @@ export function RemoteProjectDialog({
         if (res.ok) {
           const data = await res.json()
           if (!stop) { setJob(data); setError(null) }
-          if (data.status !== 'running') return
+          if (data.status !== 'running') {
+            if (data.applied?.pending) {
+              if (pendingSinceRef.current === null) pendingSinceRef.current = Date.now()
+              if (Date.now() - pendingSinceRef.current < AUTO_APPLY_WAIT_MS) {
+                if (!stop) { setElapsed(Math.floor((Date.now() - started) / 1000)); timer = window.setTimeout(tick, 1500) }
+                return
+              }
+            }
+            return
+          }
         }
       } catch (e: any) {
         if (!stop) setError(e?.message || t('dlg.common.networkError'))
@@ -89,6 +142,24 @@ export function RemoteProjectDialog({
     let timer = window.setTimeout(tick, 800)
     return () => { stop = true; window.clearTimeout(timer) }
   }, [jobId, deviceId])
+
+  // Auto-apply succeeded → toast + refresh the project list, once.
+  const autoOutcome = job?.applied && !job.applied.pending ? (job.applied as AppliedInfo) : null
+  const autoPending = !!job?.applied?.pending
+  React.useEffect(() => {
+    if (!autoOutcome?.ok || !jobId) return
+    const key = `${jobId}:auto`
+    if (autoNotifiedRef.current === key) return
+    autoNotifiedRef.current = key
+    setApplied(true)
+    clearRemoteSession()
+    addToast({
+      title: t('dlg.remoteProject.addedToast'),
+      description: t('dlg.remoteProject.addedDesc', { count: autoOutcome.applied ?? 0, device: devices.find((d) => d.id === deviceId)?.name ?? '' }),
+      variant: 'success',
+    })
+    onCompleted()
+  }, [autoOutcome, jobId, devices, deviceId, onCompleted, clearRemoteSession, t])
 
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
@@ -110,6 +181,11 @@ export function RemoteProjectDialog({
       if (res.ok) {
         const data = await res.json()
         setJobId(data.jobId)
+        autoNotifiedRef.current = null
+        pendingSinceRef.current = null
+        // Survive reload/close — the auto-apply watcher saves the result
+        // server-side regardless; this only restores the progress view.
+        try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId: data.jobId, deviceId, path: path.trim(), name: name.trim() })) } catch {}
         addToast({ title: t('dlg.remoteProject.startedToast'), description: t('dlg.remoteProject.startedDesc'), variant: 'success' })
       } else {
         const err = await res.json()
@@ -139,6 +215,7 @@ export function RemoteProjectDialog({
       })
       if (res.ok) {
         setApplied(true)
+        clearRemoteSession()
         addToast({
           title: autoStart ? t('dlg.remoteProject.startedToast2') : t('dlg.remoteProject.addedToast'),
           description: t(autoStart ? 'dlg.remoteProject.startedDesc2' : 'dlg.remoteProject.addedDesc', { count: job.result.environments?.length ?? 0, device: device.name }),
@@ -155,13 +232,15 @@ export function RemoteProjectDialog({
     } finally {
       setStarting(false)
     }
-  }, [job, deviceId, devices, path, name, onCompleted, onClose, t])
+  }, [job, deviceId, devices, path, name, onCompleted, onClose, clearRemoteSession, t])
 
   if (!open) return null
 
   const running = jobId && job?.status === 'running'
   const done = job?.status === 'completed'
   const failed = job?.status === 'failed'
+  const autoSavedOk = !!(autoOutcome?.ok)
+  const manualFallback = done && !autoSavedOk && !autoPending
   const pct = done ? 100 : failed ? 100 : running ? Math.min(90, 10 + (job?.progress?.length ?? 0) * 8) : 0
   const progressItems: ProgressItem[] = job?.progress ?? []
 
@@ -266,12 +345,49 @@ export function RemoteProjectDialog({
                     <span className="text-muted-foreground">:{e.port}</span>
                   </div>
                 ))}
+                {/* server-side auto-save status */}
+                {autoPending && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {t('dlg.analyze.autoSaving')}
+                  </div>
+                )}
+                {autoSavedOk && (
+                  <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300 pt-1">
+                    <Save className="h-3.5 w-3.5 shrink-0" />
+                    {t('dlg.remoteProject.autoSavedLine', { count: autoOutcome?.applied ?? 0 })}
+                  </div>
+                )}
+                {autoOutcome && !autoOutcome.ok && (
+                  <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
+                    <XCircle className="h-3.5 w-3.5 shrink-0" />
+                    {t('dlg.analyze.autoSaveFailed')}
+                  </div>
+                )}
               </div>
             )}
 
             <div className="flex items-center gap-2 justify-end">
               {running && <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.remoteProject.background')}</Button>}
-              {done && !applied && (
+              {/* server already applied — offer start + done, no add button needed */}
+              {done && autoSavedOk && (
+                <>
+                  <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.remoteProject.done')}</Button>
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => apply(true)} disabled={starting}>
+                    {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
+                    {t('dlg.remoteProject.startRemote')}
+                  </Button>
+                </>
+              )}
+              {/* auto-apply still working — nothing to click yet (bounded wait) */}
+              {done && autoPending && !manualFallback && (
+                <span className="text-[11px] text-muted-foreground mr-auto flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {t('dlg.analyze.autoSaving')}
+                </span>
+              )}
+              {/* manual fallback: auto-apply unavailable/failed/expired */}
+              {manualFallback && !applied && (
                 <>
                   <Button variant="outline" size="sm" onClick={() => apply(false)} disabled={starting}>{t('dlg.remoteProject.addOnly')}</Button>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => apply(true)} disabled={starting}>
@@ -280,8 +396,8 @@ export function RemoteProjectDialog({
                   </Button>
                 </>
               )}
-              {applied && <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.remoteProject.done')}</Button>}
-              {failed && <Button size="sm" variant="outline" onClick={() => { setJobId(null); setJob(null) }}>{t('dlg.remoteProject.retry')}</Button>}
+              {applied && !autoSavedOk && <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.remoteProject.done')}</Button>}
+              {failed && <Button size="sm" variant="outline" onClick={() => { setJobId(null); setJob(null); clearRemoteSession() }}>{t('dlg.remoteProject.retry')}</Button>}
             </div>
           </>
         )}

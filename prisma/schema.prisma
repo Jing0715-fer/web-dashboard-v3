@@ -28,6 +28,9 @@ model Project {
   description String        @default("")
   icon        String        @default("folder")
   tags        String        @default("[]")
+  // Project notes — used to be localStorage-only (lost when switching
+  // browsers/devices); now persisted server-side.
+  notes       String        @default("")
   order       Int           @default(0)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt

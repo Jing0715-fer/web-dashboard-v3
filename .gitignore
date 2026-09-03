@@ -69,3 +69,6 @@ mini-services/*/agent-config.json
 mini-services/*/.agent-session.env
 mini-services/*/agent.pid
 upload/
+
+# remote auto-apply watcher runtime queue (server state, not source)
+db/harness-apply-queue.json

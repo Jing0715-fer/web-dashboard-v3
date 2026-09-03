@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { existsSync, statSync } from 'fs';
 import { resolve, basename } from 'path';
 import { requireApprovedUser } from '@/lib/auth';
+import { db } from '@/lib/db';
 import {
   ensureEngine,
   startAnalysis,
@@ -12,9 +13,14 @@ import {
 
 /**
  * POST /api/harness/analyze — start a deepseek-harness analysis session for
- * a local project directory. Body: {path, name?, usedPorts?, maxAttempts?}.
- * Returns {sessionId, ...sessionView} — same shape as the former
+ * a local project directory. Body: {path, name?, usedPorts?, maxAttempts?,
+ * projectId?}. Returns {sessionId, ...sessionView} — same shape as the former
  * standalone harness-agent so the frontend wizard is unchanged.
+ *
+ * When the body carries a projectId, the engine auto-applies the verified
+ * result to that project server-side the moment the analysis completes —
+ * closing the wizard / reloading before clicking "save" can no longer lose
+ * the result (sessionView exposes it as `applied`).
  */
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -45,6 +51,20 @@ export async function POST(req: NextRequest) {
       : [];
     const maxAttempts = Math.min(Math.max(Number(body?.maxAttempts) || 3, 1), 5);
 
+    // Associate the session with a dashboard project for server-side
+    // auto-apply. Only valid for existing LOCAL projects (remote projects
+    // have their own on-device flow).
+    let projectId: string | undefined;
+    if (body?.projectId) {
+      try {
+        const project = await db.project.findUnique({
+          where: { id: String(body.projectId) },
+          select: { id: true, deviceId: true },
+        });
+        if (project && !project.deviceId) projectId = project.id;
+      } catch { /* best effort — fall back to manual save */ }
+    }
+
     // dsh (spawned locally) must reach this server's in-process LLM gateway.
     let llmBaseUrl: string;
     try {
@@ -53,8 +73,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: String(e?.message || e) }, { status: 503 });
     }
 
-    const s = startAnalysis(path, String(body?.name || basename(path)), usedPorts, maxAttempts, llmBaseUrl);
-    return NextResponse.json({ sessionId: s.id, ...sessionView(s) });
+    const s = startAnalysis(path, String(body?.name || basename(path)), usedPorts, maxAttempts, llmBaseUrl, projectId);
+    return NextResponse.json({
+      sessionId: s.id,
+      autoApply: s.projectId ? 'registered' : 'unavailable',
+      ...sessionView(s),
+    });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message || e) }, { status: 500 });
   }

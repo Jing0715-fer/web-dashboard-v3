@@ -4,7 +4,7 @@ import * as React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Bot, Terminal, FileText, Search, CheckCircle2, XCircle, Loader2,
-  Play, Zap, RefreshCw, ChevronDown, Sparkles, Gauge, CircleDot,
+  Play, Zap, RefreshCw, Sparkles, Gauge, CircleDot, Save,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +27,22 @@ interface ProgressItem {
   text: string
 }
 
+/** Server-side auto-apply outcome attached by the proxy route:
+ *   undefined      → not registered (manual save fallback)
+ *   {pending:true}  → watcher is still waiting/applying
+ *   {ok, applied,…} → terminal outcome of the server-side apply
+ */
+interface AppliedInfo {
+  pending?: boolean
+  ok?: boolean
+  status?: string
+  applied?: number
+  dropped?: Array<{ name: string; reason: string }>
+  suggestedName?: string
+  envs?: Array<{ id: string; name: string; port: number }>
+  error?: string
+}
+
 interface SessionView {
   id: string
   status: 'running' | 'completed' | 'failed' | 'cancelled'
@@ -38,6 +54,7 @@ interface SessionView {
   queuePosition?: number
   queueLength?: number
   restored?: boolean
+  applied?: AppliedInfo
 }
 
 const kindIcon: Record<ProgressItem['kind'], React.ReactNode> = {
@@ -78,11 +95,17 @@ function phaseEstimate(items: ProgressItem[], attempt: number, elapsed: number):
   return { pct: Math.min(pct + creep, 95), label }
 }
 
+/** How long the wizard keeps polling after completion while the server-side
+ *  auto-apply is still pending before falling back to manual save buttons. */
+const AUTO_APPLY_WAIT_MS = 120_000
+
 /**
  * AnalyzeWizard — live progress of the deepseek-harness agent analyzing a
  * project: installs dependencies, generates the startup command and
- * auto-debugs it until the service actually boots, then lets the user apply
- * the config and one-click start the project.
+ * auto-debugs it until the service actually boots. The verified config is
+ * saved server-side automatically the moment the analysis completes
+ * (closing/refreshing never loses the result); this dialog only adds
+ * one-click start and a summary on top.
  */
 export function AnalyzeWizard({
   session,
@@ -105,12 +128,23 @@ export function AnalyzeWizard({
   const [elapsed, setElapsed] = React.useState(0)
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const phaseRef = React.useRef<{ attempt: number; pct: number }>({ attempt: 0, pct: 0 })
+  /** First time we saw the session completed while auto-apply was pending. */
+  const pendingSinceRef = React.useRef<number | null>(null)
+  /** Guard so the auto-saved toast + card refresh fire exactly once. */
+  const autoNotifiedRef = React.useRef<string | null>(null)
 
   const sessionId = session?.sessionId
 
-  // Poll the harness session for live progress.
+  // Terminal auto-apply outcome (from the enriched session view).
+  const autoOutcome = view?.applied && !view.applied.pending ? view.applied : null
+  const autoPending = !!(view?.applied?.pending)
+  const autoSavedOk = !!(autoOutcome?.ok)
+
+  // Poll the harness session for live progress — and keep polling past the
+  // terminal state while the server-side auto-apply is still in flight, so
+  // the user sees "auto-saved" instead of having to press anything.
   React.useEffect(() => {
-    if (!sessionId) { setView(null); setError(null); setApplied(false); setElapsed(0); return }
+    if (!sessionId) { setView(null); setError(null); setApplied(false); setElapsed(0); pendingSinceRef.current = null; autoNotifiedRef.current = null; return }
     let stop = false
     const started = Date.now()
     const tick = async () => {
@@ -119,7 +153,18 @@ export function AnalyzeWizard({
         if (res.ok) {
           const data = await res.json()
           if (!stop) { setView(data); setError(null) }
-          if (data.status !== 'running') return
+          if (data.status !== 'running') {
+            // Auto-apply still in flight → keep polling (bounded).
+            if (data.applied?.pending) {
+              if (pendingSinceRef.current === null) pendingSinceRef.current = Date.now()
+              if (Date.now() - pendingSinceRef.current < AUTO_APPLY_WAIT_MS) {
+                if (!stop) { setElapsed(Math.floor((Date.now() - started) / 1000)); timer = window.setTimeout(tick, 1500) }
+                return
+              }
+              // Timed out — the manual save buttons below are the fallback.
+            }
+            return
+          }
         } else if (res.status === 404) {
           // Session is gone (harness-agent restarted / GC'd) — stop polling
           // with a clear failed state instead of spinning forever.
@@ -136,6 +181,35 @@ export function AnalyzeWizard({
     let timer = window.setTimeout(tick, 600)
     return () => { stop = true; window.clearTimeout(timer) }
   }, [sessionId])
+
+  // Auto-apply finished successfully → toast + refresh the project card, once.
+  React.useEffect(() => {
+    if (!session || !autoSavedOk || !view) return
+    const key = `${session.sessionId}:${view.status}`
+    if (autoNotifiedRef.current === key) return
+    autoNotifiedRef.current = key
+    setApplied(true)
+    addToast({
+      title: t('dlg.analyze.appliedToast'),
+      description: t('dlg.analyze.appliedCreated', { count: autoOutcome?.applied ?? 0 }),
+      variant: 'success',
+    })
+    if (Array.isArray(autoOutcome?.dropped) && autoOutcome.dropped.length > 0) {
+      addToast({
+        title: t('dlg.analyze.dropped', { count: autoOutcome.dropped.length }),
+        description: autoOutcome.dropped.map((d: any) => `${d.name}: ${d.reason}`).join('；').slice(0, 300),
+        variant: 'warning',
+      })
+    }
+    if (autoOutcome?.suggestedName && session.name && autoOutcome.suggestedName !== session.name) {
+      addToast({
+        title: t('dlg.analyze.suggested'),
+        description: t('dlg.analyze.suggestedDesc', { suggested: autoOutcome.suggestedName, name: session.name }),
+        variant: 'default',
+      })
+    }
+    onApplied()
+  }, [session, autoSavedOk, view, autoOutcome, onApplied, t])
 
   // Auto-scroll the progress feed.
   React.useEffect(() => {
@@ -191,6 +265,16 @@ export function AnalyzeWizard({
     }
   }, [session, view, onApplied, onStartEnv, onClose, t])
 
+  /** Start the dev environment from the server-applied env list. */
+  const startFromAuto = React.useCallback(() => {
+    if (!session) return
+    const envs = autoOutcome?.envs ?? []
+    const dev = envs.find(e => e.name === 'dev') ?? envs[0]
+    if (!dev) return
+    onStartEnv(session.projectId, dev.id)
+    onClose()
+  }, [session, autoOutcome, onStartEnv, onClose])
+
   const cancel = React.useCallback(async () => {
     if (!sessionId) return
     try { await fetch(`/api/harness/sessions/${sessionId}/cancel`, { method: 'POST' }) } catch { /* ignore */ }
@@ -205,6 +289,9 @@ export function AnalyzeWizard({
   const maxAttempts = view?.maxAttempts ?? 3
   const done = status === 'completed'
   const failed = status === 'failed' || status === 'cancelled'
+  // Manual save buttons only appear when the server-side auto-apply is not
+  // in charge: no registration, failed auto-apply, or the pending wait timed out.
+  const manualFallback = done && !autoSavedOk && !(autoPending && pendingSinceRef.current !== null && Date.now() - pendingSinceRef.current < AUTO_APPLY_WAIT_MS)
 
   // Monotonic per attempt: max() is idempotent, so mutating the ref during
   // render is safe even under StrictMode double-render.
@@ -213,6 +300,7 @@ export function AnalyzeWizard({
   const pct = done || failed ? 100 : Math.max(phaseRef.current.pct, est.pct)
   phaseRef.current.pct = pct
   const envs = view?.result?.environments ?? []
+  const hasAutoEnvs = (autoOutcome?.envs?.length ?? 0) > 0
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o && status !== 'running') onClose() }}>
@@ -306,6 +394,25 @@ export function AnalyzeWizard({
                 </div>
               ))}
             </div>
+            {/* server-side auto-save status */}
+            {autoPending && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t('dlg.analyze.autoSaving')}
+              </div>
+            )}
+            {autoSavedOk && (
+              <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300 pt-1">
+                <Save className="h-3.5 w-3.5 shrink-0" />
+                {t('dlg.analyze.autoSavedLine', { count: autoOutcome?.applied ?? 0 })}
+              </div>
+            )}
+            {autoOutcome && !autoOutcome.ok && (
+              <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
+                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                {t('dlg.analyze.autoSaveFailed')}
+              </div>
+            )}
           </div>
         )}
 
@@ -316,7 +423,27 @@ export function AnalyzeWizard({
               <Button variant="outline" size="sm" onClick={cancel}>{t('dlg.analyze.cancel')}</Button>
             </>
           )}
-          {done && !applied && (
+          {/* server already saved — offer start + done, no save button needed */}
+          {done && autoSavedOk && (
+            <>
+              <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.analyze.done')}</Button>
+              {hasAutoEnvs && (
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={startFromAuto}>
+                  <Play className="h-3.5 w-3.5 mr-1.5" />
+                  {t('dlg.analyze.startNow')}
+                </Button>
+              )}
+            </>
+          )}
+          {/* auto-apply still working — nothing to click yet (bounded wait) */}
+          {done && autoPending && !manualFallback && (
+            <span className="text-[11px] text-muted-foreground mr-auto flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {t('dlg.analyze.autoSaving')}
+            </span>
+          )}
+          {/* manual fallback: auto-apply unavailable/failed/expired */}
+          {manualFallback && !applied && (
             <>
               <Button variant="outline" size="sm" onClick={() => apply(false)} disabled={applying}>
                 {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
@@ -328,7 +455,7 @@ export function AnalyzeWizard({
               </Button>
             </>
           )}
-          {applied && (
+          {applied && !autoSavedOk && (
             <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.analyze.done')}</Button>
           )}
           {failed && (
