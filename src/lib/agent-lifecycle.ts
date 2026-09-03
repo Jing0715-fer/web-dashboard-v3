@@ -16,6 +16,20 @@ import { logActivity } from '@/lib/activity';
 // Agent service directories shipped with the project (platform variants).
 export const AGENT_DIRS = ['agent', 'agent-linux', 'agent-macos', 'agent-win', 'agent-windows'];
 
+/**
+ * apiKeys that were accidentally COMMITTED to the repo: the author's own
+ * machine identity in mini-services/agent-linux/agent-config.json was
+ * git-tracked before the .gitignore rule (ignore rules do NOT apply to
+ * already-tracked files), so every clone shipped it. ensureLocalAgent's
+ * identity-adoption then handed that SAME key to each machine's local
+ * agent — paired machines ended up sharing one identity, and each side's
+ * localAgentApiKeys() filtered the PEER'S Device row out of /api/devices
+ * and the project sync as "self" ("paired successfully but we can't see
+ * each other, 0 projects"). Any config carrying one of these keys is
+ * NOT this machine's identity: regenerate a fresh one instead of adopting.
+ */
+const POISONED_AGENT_KEYS = new Set(['remote-device-3101-key']);
+
 export interface LocalAgentInfo {
   port: number;
   apiKey: string;
@@ -361,16 +375,30 @@ export async function ensureLocalAgent(): Promise<
   // health response (dashboardDb / pushProjects) → kill & respawn so the
   // new code takes over.
   let restarted = false;
+  let restartReason = '';
   if (detected?.running) {
     const check = await agentOutdated(detected.port);
     if (check.outdated) {
       await stopAgentOnPort(detected.port);
       restarted = true;
+      restartReason = `old agent lacked ${check.why}`;
+    } else if (detected.apiKey && POISONED_AGENT_KEYS.has(detected.apiKey)) {
+      // Running with the repo-committed SHARED key: every clone of the
+      // repo runs the same identity — kill it so the spawn path below
+      // rewrites a fresh per-machine key (pairing rows refresh at the
+      // next join / heartbeat).
+      await stopAgentOnPort(detected.port);
+      restarted = true;
+      restartReason = 'repo-committed shared key (identity collision across clones)';
+    }
+    if (restarted) {
       logActivity({
         type: 'pair',
-        level: 'info',
-        message: 'Local agent restarted (code upgrade)',
-        detail: `port ${detected.port} · old agent lacked ${check.why}`,
+        level: restartReason.includes('shared key') ? 'warning' : 'info',
+        message: restartReason.includes('shared key')
+          ? 'Local agent identity regenerated (unique key)'
+          : 'Local agent restarted (code upgrade)',
+        detail: `port ${detected.port} · ${restartReason}`,
       });
     }
   }
@@ -416,6 +444,21 @@ export async function ensureLocalAgent(): Promise<
     apiKey = String(cfg.apiKey || apiKey);
     name = String(cfg.name || name);
   } catch { /* first run — defaults above */ }
+  // Identity hygiene: NEVER adopt a repo-committed shared key — clones
+  // would all run the same identity and filter each other out of their
+  // device lists (see POISONED_AGENT_KEYS). The author's machine name
+  // that shipped with it ('dev-laptop-2') is dropped the same way so
+  // paired machines are distinguishable in the UI.
+  if (POISONED_AGENT_KEYS.has(apiKey)) {
+    apiKey = randomBytes(24).toString('hex');
+    name = os.hostname();
+    logActivity({
+      type: 'pair',
+      level: 'warning',
+      message: 'Local agent identity regenerated',
+      detail: `${cfgDir}/agent-config.json carried the repo-committed shared key — fresh per-machine key + hostname written`,
+    });
+  }
   // .agent-session.env records the actually-used port (start.sh writes
   // it; a stale file could pin an outdated port).
   try {

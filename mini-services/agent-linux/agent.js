@@ -83,8 +83,18 @@ function loadConfigFile(configPath) {
 // Merge config file with CLI args (CLI takes precedence)
 const fileConfig = cliArgs.config ? loadConfigFile(cliArgs.config) : {};
 const PORT = parseInt(cliArgs.port || fileConfig.port || '3100', 10);
-const API_KEY = cliArgs.apiKey || fileConfig.apiKey || crypto.randomBytes(32).toString('hex');
-const AGENT_NAME = cliArgs.name || fileConfig.name || os.hostname();
+let API_KEY = cliArgs.apiKey || fileConfig.apiKey || crypto.randomBytes(32).toString('hex');
+let AGENT_NAME = cliArgs.name || fileConfig.name || os.hostname();
+// Identity hygiene: 'remote-device-3101-key' was accidentally committed in
+// mini-services/agent-linux/agent-config.json (git-tracked before the
+// .gitignore rule) — every clone adopted the SAME identity and paired
+// machines filtered each other out of their device lists ("paired but
+// can't see each other"). Refuse it; regenerate a per-machine key.
+if (API_KEY === 'remote-device-3101-key') {
+  API_KEY = crypto.randomBytes(32).toString('hex');
+  if (AGENT_NAME === 'dev-laptop-2') AGENT_NAME = os.hostname();
+  console.warn('[Agent] Refused the repo-committed shared key — fresh per-machine identity generated');
+}
 const HOST = IS_WINDOWS ? '0.0.0.0' : (cliArgs.host || fileConfig.host || '0.0.0.0');
 
 console.log(`[Agent] Config: port=${PORT}, name=${AGENT_NAME}, host=${HOST}`);

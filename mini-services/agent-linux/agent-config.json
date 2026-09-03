@@ -1,7 +1,0 @@
-{
-  "port": 3101,
-  "apiKey": "remote-device-3101-key",
-  "name": "dev-laptop-2",
-  "dbPath": "/home/z/my-project/mini-services/agent-linux/db/agent.db",
-  "updatedAt": "2026-08-31T01:50:25.737Z"
-}

@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { proxyToAgent } from '@/lib/remote-agent'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as os from 'os'
 
 /**
  * Remote project sync — stale-while-revalidate.
@@ -88,6 +89,53 @@ export function localAgentApiKeys(): Set<string> {
   return keys
 }
 
+// ---- self-row identification (key + ADDRESS, not key alone) ----
+
+let localIfaceCache: { at: number; ips: Set<string> } | null = null;
+
+/** IPv4/IPv6 addresses of THIS machine (loopback included), 30s-cached. */
+function localInterfaceIps(): Set<string> {
+  if (localIfaceCache && Date.now() - localIfaceCache.at < 30_000) return localIfaceCache.ips;
+  const ips = new Set<string>(['localhost', '::1']);
+  try {
+    for (const ifaces of Object.values(os.networkInterfaces())) {
+      for (const i of ifaces || []) {
+        if (i && i.address) ips.add(i.address.toLowerCase());
+      }
+    }
+  } catch { /* interfaces unavailable */ }
+  localIfaceCache = { at: Date.now(), ips };
+  return ips;
+}
+
+/** True when `ip` is an address of THIS machine (loopback or a local
+ * network interface address). */
+export function isLocalAddress(ip: string | null | undefined): boolean {
+  const host = String(ip || '').trim().toLowerCase();
+  if (!host) return false;
+  if (host.startsWith('127.')) return true;
+  return localInterfaceIps().has(host);
+}
+
+/**
+ * A Device row IS this machine only when BOTH hold: its apiKey matches a
+ * co-located agent's key AND its address is one of this machine's own.
+ * Key-only matching used to hide REAL peers: the repo accidentally shipped
+ * one shared agent-config.json (tracked before the .gitignore rule), every
+ * clone adopted the same key, and each side filtered the other's Device
+ * row out of /api/devices and the project sync — "paired successfully but
+ * we can't see each other, 0 projects". The address check makes that
+ * failure mode impossible: a peer on another LAN IP is shown and synced
+ * even if its key happens to collide with a local one.
+ */
+export function isSelfDeviceRow(
+  device: { apiKey: string | null; ip: string | null },
+  localKeys: Set<string>
+): boolean {
+  if (!device?.apiKey || !localKeys.has(device.apiKey)) return false;
+  return isLocalAddress(device.ip);
+}
+
 /**
  * Self-mirror corruption heal. Versions before the deviceId-IS-NULL guard
  * could feed this dashboard's OWN projects back through its own agent and
@@ -99,10 +147,14 @@ export function localAgentApiKeys(): Set<string> {
  */
 async function healSelfMirroredProjects(localKeys: Set<string>): Promise<number> {
   if (localKeys.size === 0) return 0;
-  const selfRows = await db.device.findMany({
+  const keyRows = await db.device.findMany({
     where: { apiKey: { in: [...localKeys] } },
-    select: { id: true, name: true },
+    select: { id: true, name: true, ip: true },
   });
+  // Key match alone is NOT proof of "self" (shared-key collision — see
+  // isSelfDeviceRow): only rows whose address is one of THIS machine's
+  // own may be healed.
+  const selfRows = keyRows.filter((r) => isLocalAddress(r.ip));
   if (selfRows.length === 0) return 0;
   const res = await db.project.updateMany({
     where: { deviceId: { in: selfRows.map((r) => r.id) } },
@@ -155,7 +207,10 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   }
 
   const allDevices = await db.device.findMany()
-  const devices = allDevices.filter((d) => !localKeys.has(d.apiKey))
+  // Self rows (co-located agent) are skipped — but ONLY rows whose address
+  // is actually this machine's (see isSelfDeviceRow): a peer carrying a
+  // colliding key stays visible and synced.
+  const devices = allDevices.filter((d) => !isSelfDeviceRow(d, localKeys))
   const remoteResults = await Promise.allSettled(
     devices.map(async (device) => {
       // Offline devices get a short probe budget; online ones the full (but

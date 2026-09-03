@@ -112,6 +112,16 @@ if [ -f "agent-config.json" ]; then
     if [ -z "$AGENT_KEY" ]; then
         AGENT_KEY="$DEFAULT_API_KEY"
     fi
+    # Identity hygiene: a repo-committed shared key means every clone runs
+    # the SAME identity — paired machines then filter each other out of
+    # their device lists. Refuse it and generate a per-machine key.
+    if [ "$AGENT_KEY" = "remote-device-3101-key" ]; then
+        AGENT_KEY=$(node -e "process.stdout.write(require('crypto').randomBytes(24).toString('hex'))" 2>/dev/null || openssl rand -hex 24)
+        echo "[WARN] agent-config.json carried the repo-committed shared key — fresh unique key generated"
+    fi
+    if [ "$AGENT_NAME" = "dev-laptop-2" ]; then
+        AGENT_NAME=$(hostname 2>/dev/null || uname -n)
+    fi
     echo "[INFO] API Key loaded from agent-config.json"
 else
     AGENT_KEY="$DEFAULT_API_KEY"

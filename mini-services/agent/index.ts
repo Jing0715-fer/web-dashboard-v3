@@ -37,8 +37,20 @@ function getArg(name: string, defaultValue: string): string {
 }
 
 const PORT = parseInt(getArg('port', '3100'), 10);
-const API_KEY = getArg('apiKey', randomBytes(32).toString('hex'));
-const AGENT_NAME = getArg('name', hostname());
+let API_KEY = getArg('apiKey', randomBytes(32).toString('hex'));
+let AGENT_NAME = getArg('name', hostname());
+// Identity hygiene: 'remote-device-3101-key' was accidentally committed in
+// mini-services/agent-linux/agent-config.json (git-tracked before the
+// .gitignore rule — ignore rules don't apply to already-tracked files), so
+// every clone adopted the SAME identity and paired machines filtered each
+// other out of their device lists ("paired but can't see each other, 0
+// projects"). Refuse it even when passed via --apiKey by a stale dashboard:
+// regenerate a fresh per-machine key.
+if (API_KEY === 'remote-device-3101-key') {
+  API_KEY = randomBytes(32).toString('hex');
+  if (AGENT_NAME === 'dev-laptop-2') AGENT_NAME = hostname();
+  console.warn('[Agent] Refused the repo-committed shared key — fresh per-machine identity generated');
+}
 const HOST = IS_WINDOWS ? '0.0.0.0' : getArg('host', '0.0.0.0');
 const DASHBOARD_URL = getArg('dashboard', '').replace(/\/+$/, '');
 

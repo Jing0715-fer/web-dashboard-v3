@@ -1,7 +1,7 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { localAgentApiKeys, invalidateRemoteProjectCache, getDevicePush } from '@/lib/remote-sync'
+import { localAgentApiKeys, isSelfDeviceRow, invalidateRemoteProjectCache, getDevicePush } from '@/lib/remote-sync'
 import { requireApprovedUser } from '@/lib/auth';
 
 export async function GET(req: Request) {
@@ -25,10 +25,14 @@ export async function GET(req: Request) {
     // the local agent's real status lives in the join dialog's Local Agent
     // panel instead. The row itself is kept in the DB: it still anchors the
     // self-mirror heal in remote-sync.
+    // "Self" = key match AND a local address (isSelfDeviceRow) — a peer
+    // whose key merely collides with ours (repo-committed shared identity)
+    // must stay visible, otherwise paired machines vanish from each
+    // other's lists.
     const localKeys = localAgentApiKeys()
 
     const result = devices
-      .filter((d) => !localKeys.has(d.apiKey))
+      .filter((d) => !isSelfDeviceRow(d, localKeys))
       .map(({ _count, ...device }) => ({
         ...device,
         projectCount: _count.projects,
