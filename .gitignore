@@ -68,3 +68,4 @@ mini-services/harness-agent/.dsh-home/
 mini-services/*/agent-config.json
 mini-services/*/.agent-session.env
 mini-services/*/agent.pid
+upload/
