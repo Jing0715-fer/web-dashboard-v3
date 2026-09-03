@@ -744,6 +744,7 @@ export const dialogs = {
   'dlg.meshPairing.generateFailed': '生成配对码失败',
   'dlg.meshPairing.devicePaired': '设备已接入',
   'dlg.meshPairing.devicePairedDesc': '如未显示请稍候刷新',
+  'dlg.meshPairing.addressHint': '已自动选择与默认网关同子网的网卡（VMware 等虚拟网卡已降权）。若对方设备无法访问，可点上方其他地址切换。',
 
   // ---- 加入网络对话框 ----
   'dlg.meshJoin.title': '加入其他仪表盘',

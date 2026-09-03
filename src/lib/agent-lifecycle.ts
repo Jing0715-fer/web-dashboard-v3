@@ -35,42 +35,122 @@ function openSyncAppend(logFile: string): number {
 }
 
 /**
- * Ranked LAN IP detection.
+ * Ranked LAN IP detection — v2 (gateway-subnet aware).
  *
- * os.networkInterfaces() order is arbitrary — on machines with VPN / Clash /
- * Surge TUN adapters the FIRST non-internal IPv4 is often the fake-IP range
- * (198.18.0.0/15) which is unroutable from other devices. Ranking:
- *   1. 192.168.0.0/16  — typical home/office LAN (best)
- *   2. 10.0.0.0/8      — larger private nets
- *   3. 172.16.0.0/12   — docker/ corp nets
- *   4. 100.64.0.0/10   — CGNAT (Tailscale & friends) — reachable, keep last
+ * os.networkInterfaces() order is arbitrary, and plain range ranking is NOT
+ * enough on multi-NIC machines: a VMware VMnet8 adapter (192.168.253.1) and
+ * the real WLAN (192.168.101.47) are BOTH 192.168.0.0/16, so the virtual
+ * adapter used to win the tie by enumeration order. The user then advertises
+ * an address no other device can ever reach ("paired but we can't see each
+ * other"). v2 adds two decisive signals:
+ *
+ *   1. DEFAULT-GATEWAY SUBNET — the NIC that actually routes to the internet
+ *      shares a subnet with the default gateway; virtual host-only adapters
+ *      never do. Parsed once per 60s from the OS route table.
+ *   2. VIRTUAL-ADAPTER NAME PENALTY — vmware/vmnet/virtualbox/vEthernet/
+ *      docker/wsl/tap/tun/... get demoted below every physical NIC.
+ *
+ * Range ranking stays as a tie-breaker (192.168 > 10 > 172.16 > CGNAT).
  * Excluded entirely:
  *   - 198.18.0.0/15 — benchmark range hijacked by fake-IP VPN modes
  *   - 169.254.0.0/16 — link-local
+ *
+ * `preferIp` (optional): an address this machine was PROVABLY reached on
+ * (e.g. the Host header IP of the current browser session) — ranked first
+ * when present among the candidates.
  */
-export function lanIpCandidates(): string[] {
-  const ifaces = Object.values(os.networkInterfaces()).flat();
-  const ips: string[] = [];
-  for (const i of ifaces) {
-    if (!i || i.family !== 'IPv4' || i.internal) continue;
-    const [a, b] = i.address.split('.').map(Number);
-    if (a === 198 && (b === 18 || b === 19)) continue; // fake-IP VPN
-    if (a === 169 && b === 254) continue; // link-local
-    ips.push(i.address);
-  }
-  const rank = (ip: string): number => {
-    const [a, b] = ip.split('.').map(Number);
-    if (a === 192 && b === 168) return 0;
-    if (a === 10) return 1;
-    if (a === 172 && b >= 16 && b <= 31) return 2;
-    if (a === 100 && b >= 64 && b <= 127) return 3; // CGNAT / tailscale
-    return 4;
-  };
-  return ips.sort((x, y) => rank(x) - rank(y));
+export interface LanIpCandidate {
+  address: string;
+  interface: string;
+  score: number;
 }
 
-export function lanIp(): string {
-  return lanIpCandidates()[0] || '127.0.0.1';
+const VIRTUAL_IFACE_RE =
+  /vmware|vmnet|virtualbox|vbox|hyper-?v|vethernet|docker|wsl|tap|tun|tailscale|zerotier|radmin|parallels|vnic|awdl|bridge|loopback|anydesk|clash|surge|wireguard|wg\d|llw/i;
+
+function parseGatewayIp(text: string): string | null {
+  // Windows `route print -4`: "0.0.0.0  0.0.0.0  <gateway>  <iface-ip>  <metric>"
+  const mWin = text.match(/^\s*0\.0\.0\.0\s+0\.0\.0\.0\s+(\d{1,3}(?:\.\d{1,3}){3})\s+(\d{1,3}(?:\.\d{1,3}){3})/m);
+  if (mWin) return mWin[1];
+  // macOS `route -n get default`: "gateway: 192.168.1.1"
+  const mMac = text.match(/gateway:\s*(\d{1,3}(?:\.\d{1,3}){3})/i);
+  if (mMac) return mMac[1];
+  // Linux `ip route show default`: "default via 192.168.1.1 dev eth0"
+  const mLin = text.match(/via\s+(\d{1,3}(?:\.\d{1,3}){3})/);
+  if (mLin) return mLin[1];
+  // Linux `route -n`: "0.0.0.0  192.168.1.1  0.0.0.0  UG ..."
+  const mLin2 = text.match(/^\s*0\.0\.0\.0\s+(\d{1,3}(?:\.\d{1,3}){3})\s+0\.0\.0\.0\s+UG/m);
+  if (mLin2) return mLin2[1];
+  return null;
+}
+
+let gatewayCache: { ip: string | null; at: number } | null = null;
+
+/** Default gateway IP (the physical LAN's router), cached 60s. */
+function defaultGateway(): string | null {
+  if (gatewayCache && Date.now() - gatewayCache.at < 60_000) return gatewayCache.ip;
+  const run = (cmd: string): string => {
+    try { return execSync(cmd, { timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).toString(); }
+    catch { return ''; }
+  };
+  let ip: string | null = null;
+  try {
+    if (process.platform === 'win32') {
+      ip = parseGatewayIp(run('route print -4 0.0.0.0'));
+    } else if (process.platform === 'darwin') {
+      ip = parseGatewayIp(run('route -n get default'));
+    } else {
+      ip = parseGatewayIp(run('ip route show default')) || parseGatewayIp(run('route -n'));
+    }
+  } catch { /* no route table access */ }
+  gatewayCache = { ip, at: Date.now() };
+  return ip;
+}
+
+function sameSubnet(a: string, b: string, mask: string): boolean {
+  const m = mask.split('.').map(Number);
+  const A = a.split('.').map(Number);
+  const B = b.split('.').map(Number);
+  if (m.length !== 4 || A.length !== 4 || B.length !== 4 || m.some((v) => !Number.isFinite(v))) return false;
+  return A.every((v, i) => (v & m[i]) === (B[i] & m[i]));
+}
+
+/** Range tie-breaker (lower = better). */
+function rangeRank(ip: string): number {
+  const [a, b] = ip.split('.').map(Number);
+  if (a === 192 && b === 168) return 0;               // typical home/office LAN
+  if (a === 10) return 1;                             // larger private nets
+  if (a === 172 && b >= 16 && b <= 31) return 2;      // docker / corp
+  if (a === 100 && b >= 64 && b <= 127) return 3;     // CGNAT (Tailscale & friends)
+  return 4;
+}
+
+export function lanIpCandidatesDetailed(preferIp?: string): LanIpCandidate[] {
+  const gateway = defaultGateway();
+  const out: LanIpCandidate[] = [];
+  for (const [name, ifaces] of Object.entries(os.networkInterfaces())) {
+    for (const i of ifaces || []) {
+      if (!i || i.family !== 'IPv4' || i.internal) continue;
+      const [a, b] = i.address.split('.').map(Number);
+      if (a === 198 && (b === 18 || b === 19)) continue; // fake-IP VPN
+      if (a === 169 && b === 254) continue;              // link-local
+      if (a === 0) continue;                             // 0.0.0.0 bind-all artifact
+      let score = -rangeRank(i.address);               // range tie-breaker
+      if (gateway && sameSubnet(i.address, gateway, i.netmask || '255.255.255.0')) score += 100;
+      if (VIRTUAL_IFACE_RE.test(name)) score -= 50;    // virtual NIC demotion
+      if (preferIp && preferIp === i.address) score += 200;
+      out.push({ address: i.address, interface: name, score });
+    }
+  }
+  return out.sort((x, y) => y.score - x.score);
+}
+
+export function lanIpCandidates(preferIp?: string): string[] {
+  return lanIpCandidatesDetailed(preferIp).map((c) => c.address);
+}
+
+export function lanIp(preferIp?: string): string {
+  return lanIpCandidates(preferIp)[0] || '127.0.0.1';
 }
 
 export async function probeAgent(port: number): Promise<boolean> {
@@ -91,10 +171,13 @@ export async function probeAgent(port: number): Promise<boolean> {
  *     peers see the device online with 0 projects forever);
  *   - `pushProjects` — heartbeat pushes the project list to paired
  *     dashboards (without it a firewalled peer can never see this
- *     machine's projects).
- * New agents always include BOTH markers (true or false); a missing field
- * means the process is executing pre-upgrade code — `git pull` hot-reloads
- * the dashboard but NOT the spawned agent process, so it must be respawned.
+ *     machine's projects);
+ *   - `smartIp` — gateway-subnet-aware LAN IP detection (without it the
+ *     agent keeps self-reporting virtual-adapter addresses like VMware
+ *     VMnet 192.168.253.x, which poisons the peer's Device row).
+ * New agents always include ALL markers; a missing field means the process
+ * is executing pre-upgrade code — `git pull` hot-reloads the dashboard but
+ * NOT the spawned agent process, so it must be respawned.
  */
 async function agentOutdated(port: number): Promise<{ outdated: boolean; why: string }> {
   try {
@@ -107,6 +190,7 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     const d = data as Record<string, unknown>;
     if (!('dashboardDb' in d)) return { outdated: true, why: 'dashboard-DB serving' };
     if (!('pushProjects' in d)) return { outdated: true, why: 'heartbeat project push' };
+    if (!('smartIp' in d)) return { outdated: true, why: 'smart LAN IP detection' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };

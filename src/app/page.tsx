@@ -5836,8 +5836,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     fetch('/api/network-info')
       .then((r) => r.json())
       .then((data) => {
-        const externalIp = data.ips?.find((ip: { internal: boolean }) => !ip.internal)
-        if (externalIp) setLanIp(externalIp.address)
+        // bestIp = gateway-subnet-aware pick (virtual NICs like VMware VMnet
+        // demoted) — the raw `ips` list is interface-enumeration order and on
+        // multi-NIC Windows machines starts with the VMware adapter.
+        if (data.bestIp) setLanIp(data.bestIp)
         else if (data.ips?.length > 0) setLanIp(data.ips[0].address)
       })
       .catch(() => {})

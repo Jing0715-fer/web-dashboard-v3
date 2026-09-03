@@ -20,6 +20,15 @@ interface PairInfo {
   dashboardUrl: string
   command: string
   curlCommand: string
+  /** Gateway-subnet-aware advertised IP (server-ranked). */
+  advertisedIp?: string
+  /** Full ranked candidate list (best first). */
+  ips?: string[]
+}
+
+interface RankedIp {
+  address: string
+  interface: string
 }
 
 /**
@@ -46,6 +55,31 @@ export function MeshPairingDialog({
   const [copied, setCopied] = React.useState<string | null>(null)
   const [countdown, setCountdown] = React.useState(0)
   const [showCli, setShowCli] = React.useState(false)
+  // Ranked address candidates from /api/network-info (gateway-subnet aware —
+  // virtual NICs like VMware VMnet 192.168.253.x are demoted). The user can
+  // switch when the auto-pick doesn't match their actual LAN.
+  const [candidates, setCandidates] = React.useState<RankedIp[]>([])
+  const [pickedIp, setPickedIp] = React.useState<string>('')
+
+  const loadCandidates = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/network-info')
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data.rankedIps) && data.rankedIps.length > 0) {
+          setCandidates(data.rankedIps)
+          setPickedIp((prev) => (prev && data.rankedIps.some((c: RankedIp) => c.address === prev) ? prev : data.rankedIps[0].address))
+        } else if (data.bestIp) {
+          setCandidates([{ address: data.bestIp, interface: '' }])
+          setPickedIp((prev) => prev || data.bestIp)
+        }
+      }
+    } catch { /* address picker stays hidden */ }
+  }, [])
+
+  React.useEffect(() => {
+    if (open) loadCandidates()
+  }, [open, loadCandidates])
 
   const generate = React.useCallback(async () => {
     setLoading(true)
@@ -91,11 +125,16 @@ export function MeshPairingDialog({
   if (!open) return null
 
   // Pair response now carries the REAL dashboard port — advertise
-  // http://<lan-ip>:<port> instead of a hardcoded :3000.
+  // http://<lan-ip>:<port> instead of a hardcoded :3000. The ADDRESS comes
+  // from the gateway-subnet-aware ranking (candidates[0] default, user can
+  // switch via the chips row); the server's advertisedIp confirms the pick
+  // until the network-info fetch lands.
   const dashPort = pair?.port || 3000
-  const lanDashboardUrl = `http://${lanIp}:${dashPort}`
+  const effectiveIp = pickedIp || pair?.advertisedIp || lanIp
+  const lanDashboardUrl = `http://${effectiveIp}:${dashPort}`
   const lanCommand = pair ? `node agent.js --pair ${lanDashboardUrl} --code ${pair.code}` : ''
   const expired = countdown <= 0
+  const alternates = candidates.filter((c) => c.address !== effectiveIp)
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
@@ -163,6 +202,27 @@ export function MeshPairingDialog({
                   {copied === 'url' ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
                 </button>
               </div>
+              {/* Multi-NIC machines: alternate addresses the auto-pick may have
+                  missed (e.g. the ranked pick was demoted wrongly). Clicking a
+                  chip switches the advertised address above. */}
+              {alternates.length > 0 && (
+                <div className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-1">
+                    {alternates.map((c) => (
+                      <button
+                        key={c.address}
+                        type="button"
+                        onClick={() => setPickedIp(c.address)}
+                        title={c.interface}
+                        className="rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors bg-muted hover:bg-muted/70 text-muted-foreground dark:hover:bg-zinc-800"
+                      >
+                        {c.address}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-4">{t('dlg.meshPairing.addressHint')}</p>
+                </div>
+              )}
               {/* One join is enough — pairing is mutual. */}
               <div className="flex items-start gap-1.5 rounded-lg border border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-900/40 dark:bg-emerald-950/20 px-2.5 py-1.5">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />

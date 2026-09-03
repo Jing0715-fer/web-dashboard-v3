@@ -11,6 +11,7 @@ import {
   addPersistedHeartbeatTarget,
   lanIp,
   lanIpCandidates,
+  lanIpCandidatesDetailed,
   LocalAgentInfo,
 } from '@/lib/agent-lifecycle';
 
@@ -74,6 +75,20 @@ function hostFromReq(req: NextRequest): string {
   return host;
 }
 
+/**
+ * IPv4 address embedded in a Host header, when the requester dialed us by
+ * a literal IP ("192.168.101.47:3000" → "192.168.101.47"). Empty for
+ * localhost / hostname access — the smart detector runs instead.
+ */
+function ipFromHostHeader(req: NextRequest): string {
+  try {
+    const host = hostFromReq(req);
+    const hostname = new URL(`http://${host}`).hostname;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) && !hostname.startsWith('127.')) return hostname;
+  } catch { /* odd host header */ }
+  return '';
+}
+
 /** Dashboard port as the user browses it (Host header). '' → 3000. */
 function dashboardPortFromHost(host: string): number {
   try {
@@ -88,13 +103,22 @@ function dashboardPortFromHost(host: string): number {
  * anchor) with a device registering via /api/mesh/register so the JOINER
  * can mirror us into its own device list — pairing becomes mutual instead
  * of one-directional. Null when this machine has no agent identity yet.
+ *
+ * `observedIp`: the address the JOINER actually reached this dashboard on
+ * (Host header of the register request). Handing THAT back as peer.ip beats
+ * any self-detected address — it is proven reachable from the joiner's side
+ * (user report: Win advertised its VMware VMnet 192.168.253.x, so the Mac's
+ * peer row pointed at a dead address and mutual visibility never worked).
  */
-async function localPeerInfo(detected?: LocalAgentInfo | null) {
+async function localPeerInfo(detected?: LocalAgentInfo | null, observedIp?: string) {
   const d = detected ?? await detectLocalAgent();
   if (!d) return null;
+  const prefer = /^\d{1,3}(\.\d{1,3}){3}$/.test(String(observedIp || ''))
+    ? String(observedIp)
+    : undefined;
   return {
     name: d.name,
-    ip: lanIp(),
+    ip: lanIp(prefer),
     port: d.port,
     apiKey: d.apiKey,
     running: d.running,
@@ -138,6 +162,20 @@ interface TargetProbe {
   detail?: string;
   host?: string;
   status?: number;
+}
+
+/** Probe a remote AGENT's health endpoint (apiKey-authenticated). Used by
+ * the register guard to verify an address BEFORE writing it into the DB —
+ * a virtual-adapter report (VMware 192.168.253.x) never answers. */
+async function probeRemoteAgent(ip: string, port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://${ip}:${port}/api/agent/health`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** Pre-flight probe of a remote dashboard: GET {target}/api/mesh/ping. */
@@ -250,6 +288,11 @@ export async function POST(req: NextRequest) {
         expiresAt: entry.expiresAt,
         port: dashPort,
         dashboardUrl: `${proto}://${host}`,
+        // Gateway-subnet-aware advertised address (virtual NICs like VMware
+        // VMnet demoted; the browser's own access IP preferred) + the full
+        // ranked candidate list for the pairing dialog's address picker.
+        advertisedIp: lanIp(ipFromHostHeader(req)),
+        ips: lanIpCandidates(ipFromHostHeader(req)),
         command: `node agent.js --pair ${proto}://${host} --code ${code}`,
         curlCommand: `curl -X POST ${proto}://${host}/api/mesh/register -H 'Content-Type: application/json' -d '{"code":"${code}","name":"<device-name>","ip":"<device-ip>","port":3100,"apiKey":"<agent-api-key>"}'`,
       });
@@ -270,6 +313,12 @@ export async function POST(req: NextRequest) {
       // address and the device shows offline forever (user report:
       // dev-laptop-2 registered 192.168.253.1:3100 while the agent now runs
       // on 192.168.101.43:3101). The stored apiKey IS the credential.
+      //
+      // v2 guard — probe BEFORE writing a CHANGED address: agents on
+      // multi-NIC machines still self-report virtual-adapter IPs (VMware
+      // VMnet 192.168.253.1). When the NEW address doesn't answer but the
+      // STORED one does, keep the working row (log it) instead of letting
+      // every 60s heartbeat "self-heal" the device back to a dead address.
       if (!code) {
         const keyRow = apiKey
           ? await db.device.findFirst({ where: { apiKey: String(apiKey) } })
@@ -280,19 +329,41 @@ export async function POST(req: NextRequest) {
             { status: 400 },
           );
         }
-        const ipChanged = keyRow.ip !== String(ip);
+        const badRange = (v: string) => /^169\.254\./.test(v) || /^198\.1[89]\./.test(v);
+        let writeIp = String(ip);
+        let guarded = false;
+        if (String(ip) !== keyRow.ip && !badRange(String(ip))) {
+          const [newOk, oldOk] = await Promise.all([
+            probeRemoteAgent(String(ip), Number(port) || keyRow.port),
+            probeRemoteAgent(keyRow.ip, keyRow.port),
+          ]);
+          if (!newOk && oldOk) {
+            writeIp = keyRow.ip;
+            guarded = true;
+          }
+        }
+        const ipChanged = keyRow.ip !== writeIp;
         const portChanged = keyRow.port !== Number(port);
         const device = await db.device.update({
           where: { id: keyRow.id },
           data: {
             name: String(name),
-            ip: String(ip),
+            ip: writeIp,
             port: Number(port),
             status: 'online',
             lastSeen: new Date(),
           },
         });
-        if (ipChanged || portChanged) {
+        if (guarded) {
+          logActivity({
+            type: 'pair',
+            level: 'warning',
+            message: `Device '${device.name}' kept its working address`,
+            deviceId: device.id,
+            deviceName: device.name,
+            detail: `reported ${ip}:${port} is unreachable — kept ${keyRow.ip}:${keyRow.port} (likely a virtual adapter)`,
+          });
+        } else if (ipChanged || portChanged) {
           logActivity({
             type: 'pair',
             level: 'success',
@@ -380,8 +451,12 @@ export async function POST(req: NextRequest) {
       // Trust note: the joiner already receives peer.apiKey in this very
       // response (the pair code is the trust anchor), so heartbeat-ing at
       // its URL discloses nothing new.
+      //
+      // peer.ip prefers the address the JOINER just used to reach us (Host
+      // header of this very request) — proven reachable, immune to both
+      // sides' virtual-adapter misdetections (Win/VMware 192.168.253.x).
       const me = await detectLocalAgent();
-      const peer = await localPeerInfo(me);
+      const peer = await localPeerInfo(me, ipFromHostHeader(req));
 
       let mutualHeartbeat = false;
       const joinerDashboardUrl = String(body?.dashboardUrl || '').trim().replace(/\/+$/, '');
@@ -463,9 +538,17 @@ export async function POST(req: NextRequest) {
 
       // Reported IP: the user can override which address gets advertised
       // (auto-detect ranks LAN ranges first, but VPN / multi-NIC setups may
-      // need the explicit choice). Falls back to the ranked best candidate.
+      // need the explicit choice). Otherwise prefer the address the user's
+      // BROWSER is browsing this dashboard on (Host header — provably
+      // reachable from this machine's LAN), falling back to the
+      // gateway-subnet-aware ranked candidate (VMware/VirtualBox virtual
+      // adapters are demoted; user report: Win advertised VMnet
+      // 192.168.253.1 instead of WLAN 192.168.101.47 → the Mac could never
+      // reach it back, so mutual visibility failed with "paired but can't
+      // see each other").
       const bodyIp = String(body?.ip || '').trim();
-      const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(bodyIp) ? bodyIp : lanIp();
+      const hostHeaderIp = ipFromHostHeader(req);
+      const ip = /^\d{1,3}(\.\d{1,3}){3}$/.test(bodyIp) ? bodyIp : (hostHeaderIp || lanIp());
 
       // Our own dashboard URL, advertised to the target so it can wire ITS
       // agent's heartbeat back at us (mutual pairing from ONE join). The
@@ -536,9 +619,15 @@ export async function POST(req: NextRequest) {
           let peerSummary: { name: string; ip: string; port: number } | null = null;
           const peer = data?.peer;
           if (peer && peer.apiKey && peer.port) {
-            const peerIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(String(peer.ip))
-              ? String(peer.ip)
-              : lanIp();
+            // Prefer the address the user JUST successfully reached (the
+            // target URL's hostname) over the target's self-reported
+            // peer.ip — multi-NIC targets self-report virtual-adapter
+            // addresses that no one can reach back on.
+            let targetHost = '';
+            try { targetHost = new URL(target).hostname; } catch { /* validated above */ }
+            const peerIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(targetHost)
+              ? targetHost
+              : (/^\d{1,3}(\.\d{1,3}){3}$/.test(String(peer.ip)) ? String(peer.ip) : lanIp());
             const peerPort = Number(peer.port);
             const existingPeer = await db.device.findFirst({
               where: { OR: [{ apiKey: String(peer.apiKey) }, { ip: peerIp, port: peerPort }] },
@@ -706,14 +795,23 @@ export async function GET(req: NextRequest) {
   }
   if (action === 'local-agent') {
     const detected = await detectLocalAgent();
-    const ips = lanIpCandidates();
+    // Gateway-subnet-aware ranking with the browser's own access address
+    // (Host header) preferred — the advertised ip is what the PEER writes
+    // into its Device table, so a virtual-adapter address here breaks the
+    // reverse leg of mutual pairing.
+    const detailed = lanIpCandidatesDetailed(ipFromHostHeader(req));
+    const ips = detailed.map((c) => c.address);
     return NextResponse.json({
       agent: detected,
       ip: ips[0] || '127.0.0.1',
-      // All routable candidates (VPN fake-IP ranges excluded, LAN ranges
-      // first) — the UI shows them so the user can verify the advertised
-      // address or override it in manual mode.
+      // All routable candidates (fake-IP/link-local excluded, gateway
+      // subnet first, virtual NICs demoted) — the UI shows them so the user
+      // can verify the advertised address or override it in manual mode.
       ips,
+      // Interface names aligned with `ips` so the join dialog can label
+      // which NIC each candidate came from (e.g. "WLAN" vs "VMware
+      // Network Adapter VMnet8").
+      ipInterfaces: detailed.map((c) => c.interface),
       hostname: os.hostname(),
     });
   }

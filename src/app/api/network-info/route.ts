@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import os from 'os'
 import { requireApprovedUser } from '@/lib/auth';
+import { lanIpCandidatesDetailed } from '@/lib/agent-lifecycle';
 
 export async function GET(req: Request) {
   // Auth guard (Task 11-a)
@@ -37,9 +38,18 @@ export async function GET(req: Request) {
       }
     }
 
+    // Gateway-subnet-aware ranking (virtual adapters like VMware VMnet
+    // 192.168.253.x demoted — user report: the pairing dialog advertised the
+    // VMware address instead of the WLAN one, so peers could never connect).
+    // `ip` in each entry marks whether it is the machine's best guess.
+    const ranked = lanIpCandidatesDetailed()
+    const best = ranked[0]?.address || ''
+
     const info = {
       hostname: os.hostname(),
+      bestIp: best,
       ips,
+      rankedIps: ranked.map((c) => ({ address: c.address, interface: c.interface })),
       platform: os.platform(),
       arch: os.arch(),
       totalMemory: os.totalmem(),

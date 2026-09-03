@@ -47,29 +47,76 @@ console.log(`[Agent] API Key: ${API_KEY}`);
 
 // ======================== MESH PAIRING SUPPORT ========================
 
-// Ranked LAN IP detection (mirrors the dashboard's lanIpCandidates — see
-// src/app/api/mesh/[action]/route.ts). The FIRST non-internal IPv4 is often
-// a VPN / Clash TUN fake-IP (198.18.0.0/15) or a stale virtual NIC —
-// advertising it would register an UNREACHABLE address in the dashboard DB
-// and the device would show offline forever.
-function lanIpCandidates(): string[] {
-  const ips: string[] = [];
-  for (const i of Object.values(networkInterfaces()).flat()) {
-    if (!i || i.family !== 'IPv4' || i.internal) continue;
-    const [a, b] = i.address.split('.').map(Number);
-    if (a === 198 && (b === 18 || b === 19)) continue; // VPN fake-IP range
-    if (a === 169 && b === 254) continue;              // link-local
-    ips.push(i.address);
-  }
-  const rank = (ip: string): number => {
-    const [a, b] = ip.split('.').map(Number);
-    if (a === 192 && b === 168) return 0;               // typical home/office LAN
-    if (a === 10) return 1;                             // larger private nets
-    if (a === 172 && b >= 16 && b <= 31) return 2;      // docker / corp
-    if (a === 100 && b >= 64 && b <= 127) return 3;     // CGNAT (Tailscale & friends)
-    return 4;
+// Ranked LAN IP detection v2 — gateway-subnet aware (mirrors the
+// dashboard's lanIpCandidates — see src/lib/agent-lifecycle.ts). The
+// FIRST non-internal IPv4 is often a VPN / Clash TUN fake-IP (198.18.0.0/15)
+// or a stale virtual NIC — and plain range ranking is NOT enough on
+// multi-NIC machines: VMware VMnet8 (192.168.253.1) and the real WLAN
+// (192.168.101.47) are BOTH 192.168.0.0/16, so the virtual adapter wins
+// the tie by enumeration order (user report: the heartbeat kept
+// "self-healing" the peer's Device row to a dead VMware address).
+// v2 adds: default-gateway-subnet preference + virtual-adapter name demotion.
+const VIRTUAL_IFACE_RE =
+  /vmware|vmnet|virtualbox|vbox|hyper-?v|vethernet|docker|wsl|tap|tun|tailscale|zerotier|radmin|parallels|vnic|awdl|bridge|loopback|anydesk|clash|surge|wireguard|wg\d|llw/i;
+
+function parseGatewayIp(text: string): string | null {
+  const mWin = text.match(/^\s*0\.0\.0\.0\s+0\.0\.0\.0\s+(\d{1,3}(?:\.\d{1,3}){3})\s+(\d{1,3}(?:\.\d{1,3}){3})/m);
+  if (mWin) return mWin[1];
+  const mMac = text.match(/gateway:\s*(\d{1,3}(?:\.\d{1,3}){3})/i);
+  if (mMac) return mMac[1];
+  const mLin = text.match(/via\s+(\d{1,3}(?:\.\d{1,3}){3})/);
+  if (mLin) return mLin[1];
+  const mLin2 = text.match(/^\s*0\.0\.0\.0\s+(\d{1,3}(?:\.\d{1,3}){3})\s+0\.0\.0\.0\s+UG/m);
+  if (mLin2) return mLin2[1];
+  return null;
+}
+
+let gatewayCache: { ip: string | null; at: number } | null = null;
+function defaultGateway(): string | null {
+  if (gatewayCache && Date.now() - gatewayCache.at < 60_000) return gatewayCache.ip;
+  const run = (cmd: string): string => {
+    try { return execSync(cmd, { timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).toString(); }
+    catch { return ''; }
   };
-  return ips.sort((x, y) => rank(x) - rank(y));
+  let ip: string | null = null;
+  try {
+    if (IS_WINDOWS) ip = parseGatewayIp(run('route print -4 0.0.0.0'));
+    else if (platform() === 'darwin') ip = parseGatewayIp(run('route -n get default'));
+    else ip = parseGatewayIp(run('ip route show default')) || parseGatewayIp(run('route -n'));
+  } catch { /* no route table access */ }
+  gatewayCache = { ip, at: Date.now() };
+  return ip;
+}
+
+function sameSubnet(a: string, b: string, mask: string): boolean {
+  const m = mask.split('.').map(Number);
+  const A = a.split('.').map(Number);
+  const B = b.split('.').map(Number);
+  if (m.length !== 4 || A.length !== 4 || B.length !== 4 || m.some((v) => !Number.isFinite(v))) return false;
+  return A.every((v, i) => (v & m[i]) === (B[i] & m[i]));
+}
+
+function lanIpCandidates(): string[] {
+  const gateway = defaultGateway();
+  const scored: Array<{ ip: string; score: number }> = [];
+  for (const [name, ifaces] of Object.entries(networkInterfaces())) {
+    for (const i of ifaces || []) {
+      if (!i || i.family !== 'IPv4' || i.internal) continue;
+      const [a, b] = i.address.split('.').map(Number);
+      if (a === 198 && (b === 18 || b === 19)) continue; // VPN fake-IP range
+      if (a === 169 && b === 254) continue;              // link-local
+      if (a === 0) continue;                             // 0.0.0.0 artifact
+      let score = 0;
+      if (a === 192 && b === 168) score += 4;            // typical home/office LAN
+      else if (a === 10) score += 3;                     // larger private nets
+      else if (a === 172 && b >= 16 && b <= 31) score += 2;
+      else if (a === 100 && b >= 64 && b <= 127) score += 1; // CGNAT
+      if (gateway && sameSubnet(i.address, gateway, i.netmask || '255.255.255.0')) score += 100;
+      if (VIRTUAL_IFACE_RE.test(name)) score -= 50;      // virtual NIC demotion
+      scored.push({ ip: i.address, score });
+    }
+  }
+  return scored.sort((x, y) => y.score - x.score).map((s) => s.ip);
 }
 
 // Persist runtime config (port + apiKey + name + dashboardUrl) so the
@@ -771,7 +818,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.3.0',
+        version: '1.4.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -782,6 +829,7 @@ const server = createServer(async (req, res) => {
         // respawned by ensureLocalAgent (git pull cannot hot-reload a
         // spawned agent process).
         pushProjects: true, // heartbeat pushes the project list
+        smartIp: true,      // gateway-subnet-aware LAN IP detection
       });
       return;
     }

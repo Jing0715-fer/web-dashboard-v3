@@ -748,6 +748,7 @@ export const dialogs = {
   'dlg.meshPairing.generateFailed': 'Failed to generate pairing code',
   'dlg.meshPairing.devicePaired': 'Device joined',
   'dlg.meshPairing.devicePairedDesc': 'If it does not appear, refresh in a moment',
+  'dlg.meshPairing.addressHint': 'Auto-picked: the NIC sharing the default gateway\u2019s subnet (virtual adapters like VMware are demoted). If the other device can\u2019t reach it, tap another address above.',
 
   // ---- mesh join dialog ----
   'dlg.meshJoin.title': 'Join Another Dashboard',
