@@ -23,11 +23,46 @@ import * as path from 'path'
  *  - Mutating routes (start/stop/restart/rebuild/sync/device changes) call
  *    invalidateRemoteProjectCache() so the very next GET re-syncs for real
  *    instead of serving a stale snapshot of process statuses.
+ *  - HEARTBEAT PUSH FALLBACK: agents push their project list to every paired
+ *    dashboard with each 60s heartbeat (recorded via /api/mesh/register).
+ *    When the direct pull below fails (typically the peer's firewall blocks
+ *    inbound connections — Windows Defender), a fresh push keeps the device
+ *    ONLINE and its projects visible read-only. One-way networks (A can
+ *    reach B, B cannot reach A) still get data in BOTH directions.
  */
 
 const FRESH_MS = 6_000 // serve from cache with no background refresh
 const ONLINE_TIMEOUT_MS = 6_000
 const OFFLINE_TIMEOUT_MS = 1_500
+
+// ---- heartbeat push store ----
+// Agents re-register with every paired dashboard each 60s heartbeat and
+// now attach their project list. A device whose DIRECT pull fails (peer
+// firewall) still serves this last-pushed data: the agent is demonstrably
+// alive (it just pushed) and its projects stay visible read-only.
+const PUSH_STALE_MS = 5 * 60_000 // heartbeat is 60s — allow a few missed beats
+export const PUSH_FRESH_MS = 2 * 60_000 // UI badge threshold ("push mode")
+
+export interface DevicePush {
+  at: number
+  projects: any[]
+  ip: string
+  port: number
+}
+
+const pushStore = new Map<string, DevicePush>()
+
+/** Record a heartbeat-pushed project list for a device (trusted: the
+ *  register endpoint authenticates the agent by its stored apiKey). */
+export function recordDevicePush(deviceId: string, projects: any[], ip: string, port: number): void {
+  if (!Array.isArray(projects)) return
+  pushStore.set(deviceId, { at: Date.now(), projects, ip, port })
+}
+
+/** Last heartbeat push for a device (null when it never pushed). */
+export function getDevicePush(deviceId: string): DevicePush | null {
+  return pushStore.get(deviceId) ?? null
+}
 
 const AGENT_DIRS = ['agent', 'agent-linux', 'agent-macos', 'agent-win', 'agent-windows']
 
@@ -130,9 +165,34 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
       const timeout =
         device.status === 'offline' ? OFFLINE_TIMEOUT_MS : ONLINE_TIMEOUT_MS
       const config = { ip: device.ip, port: device.port, apiKey: device.apiKey }
+      const enrich = (projects: any[], online: boolean) =>
+        projects.map((p: any) => ({
+          ...p,
+          deviceId: device.id,
+          deviceName: device.name,
+          deviceIp: device.ip,
+          deviceStatus: online ? ('online' as const) : ('offline' as const),
+          environments: (p.environments || []).map((e: any) => ({
+            ...e,
+            status: e.status || 'stopped',
+          })),
+        }))
       try {
         const result = await proxyToAgent(config, '/projects', 'GET', undefined, timeout)
         if (!result.ok) {
+          // Direct pull failed — BUT a fresh heartbeat push proves the agent
+          // is alive (its machine just can't ACCEPT inbound connections,
+          // e.g. Windows Defender Firewall). Stay online + serve pushed
+          // projects read-only instead of flipping to offline/0-projects.
+          const push = pushStore.get(device.id)
+          if (push && Date.now() - push.at < PUSH_STALE_MS) {
+            if (device.status !== 'online') {
+              await db.device
+                .update({ where: { id: device.id }, data: { status: 'online', lastSeen: new Date(push.at) } })
+                .catch(() => {})
+            }
+            return enrich(push.projects, true)
+          }
           if (device.status !== 'offline') {
             await db.device
               .update({ where: { id: device.id }, data: { status: 'offline' } })
@@ -147,18 +207,12 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
             .catch(() => {})
         }
         const projects: any[] = result.data?.projects || []
-        return projects.map((p: any) => ({
-          ...p,
-          deviceId: device.id,
-          deviceName: device.name,
-          deviceIp: device.ip,
-          deviceStatus: 'online' as const,
-          environments: (p.environments || []).map((e: any) => ({
-            ...e,
-            status: e.status || 'stopped',
-          })),
-        }))
+        return enrich(projects, true)
       } catch {
+        const push = pushStore.get(device.id)
+        if (push && Date.now() - push.at < PUSH_STALE_MS) {
+          return enrich(push.projects, true)
+        }
         if (device.status !== 'offline') {
           await db.device
             .update({ where: { id: device.id }, data: { status: 'offline' } })

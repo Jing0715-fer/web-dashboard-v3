@@ -155,18 +155,26 @@ async function reRegisterWithDashboards(): Promise<void> {
 }
 
 async function reRegisterWithDashboard(target: string): Promise<void> {
-  const payload = {
+  const payload: Record<string, unknown> = {
     name: AGENT_NAME,
     ip: lanIpCandidates()[0] || '127.0.0.1',
     port: PORT,
     apiKey: API_KEY,
   };
+  // PUSH the project list with every heartbeat: a peer whose firewall
+  // blocks INBOUND connections (Windows Defender — outbound still works)
+  // records this data and serves it read-only, so one-way networks get
+  // project visibility in BOTH directions. A listing failure must not
+  // break the row self-heal — push only what we got.
+  try {
+    payload.projects = await buildPeerProjects();
+  } catch { /* listing failed — heartbeat still updates the row */ }
   try {
     const res = await fetch(`${target}/api/mesh/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
     if (res.ok) {
       const data: any = await res.json().catch(() => ({}));
@@ -395,6 +403,32 @@ async function safeAgentProjects(): Promise<any[]> {
     console.warn(`[Agent] agent-DB listing unavailable: ${err?.message}`);
     return [];
   }
+}
+
+/**
+ * The project list served to peers — GET /api/agent/projects AND every
+ * heartbeat push (one source of truth). Co-located dashboard projects
+ * (deviceId IS NULL) merged with standalone agent-DB projects, each env
+ * status refreshed from the live port state.
+ */
+async function buildPeerProjects(): Promise<any[]> {
+  const [dashProjects, agentProjects] = await Promise.all([
+    listDashProjects(),
+    safeAgentProjects(),
+  ]);
+  const projects: any[] = [...dashProjects, ...agentProjects];
+
+  const allPorts = projects.flatMap(p => p.environments.map(e => e.port));
+  const portChecks = await Promise.all(allPorts.map(p => checkPortStatus(p).then(ok => [p, ok] as const)));
+  const activePorts = new Map(portChecks);
+
+  return projects.map(project => ({
+    ...project,
+    environments: project.environments.map(env => ({
+      ...env,
+      status: activePorts.get(env.port) ? 'running' : 'stopped',
+    })),
+  }));
 }
 
 // ======================== LOG DIRECTORY (Cross-Platform) ========================
@@ -737,12 +771,17 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.1.0',
+        version: '1.3.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
         // (dashboards use it to explain what the listing contains).
         dashboardDb: !!DASHBOARD_DB_PATH,
+        // Feature markers for the dashboard's auto-upgrade check: a MISSING
+        // field means the process is executing pre-upgrade code and gets
+        // respawned by ensureLocalAgent (git pull cannot hot-reload a
+        // spawned agent process).
+        pushProjects: true, // heartbeat pushes the project list
       });
       return;
     }
@@ -781,24 +820,7 @@ const server = createServer(async (req, res) => {
     if (pathname === '/api/agent/projects' && req.method === 'GET') {
       // Dashboard machines: serve the co-located dashboard's OWN projects
       // (deviceId IS NULL) merged with standalone agent-DB projects.
-      const [dashProjects, agentProjects] = await Promise.all([
-        listDashProjects(),
-        safeAgentProjects(),
-      ]);
-      const projects: any[] = [...dashProjects, ...agentProjects];
-
-      const allPorts = projects.flatMap(p => p.environments.map(e => e.port));
-      const portChecks = await Promise.all(allPorts.map(p => checkPortStatus(p).then(ok => [p, ok] as const)));
-      const activePorts = new Map(portChecks);
-
-      const enriched = projects.map(project => ({
-        ...project,
-        environments: project.environments.map(env => ({
-          ...env,
-          status: activePorts.get(env.port) ? 'running' : 'stopped',
-        })),
-      }));
-
+      const enriched = await buildPeerProjects();
       sendJSON(res, 200, { projects: enriched });
       return;
     }

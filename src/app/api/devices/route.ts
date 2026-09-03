@@ -1,7 +1,7 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { localAgentApiKeys, invalidateRemoteProjectCache } from '@/lib/remote-sync'
+import { localAgentApiKeys, invalidateRemoteProjectCache, getDevicePush } from '@/lib/remote-sync'
 import { requireApprovedUser } from '@/lib/auth';
 
 export async function GET(req: Request) {
@@ -32,6 +32,11 @@ export async function GET(req: Request) {
       .map(({ _count, ...device }) => ({
         ...device,
         projectCount: _count.projects,
+        // Heartbeat-push state: a device whose direct agent connection is
+        // firewalled off still pushes its project list every 60s — the UI
+        // shows a "push mode" badge and contextual messages from this.
+        pushedAt: getDevicePush(device.id)?.at ?? null,
+        pushProjectCount: getDevicePush(device.id)?.projects?.length ?? 0,
       }))
 
     return NextResponse.json(result)

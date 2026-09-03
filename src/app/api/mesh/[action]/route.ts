@@ -1,21 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { randomBytes } from 'crypto';
-import { promises as fs } from 'fs';
-import { existsSync, openSync, closeSync } from 'fs';
-import { spawn, execSync } from 'child_process';
 import * as os from 'os';
-import * as path from 'path';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
-import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
+import { invalidateRemoteProjectCache, recordDevicePush } from '@/lib/remote-sync';
+import {
+  detectLocalAgent,
+  ensureLocalAgent,
+  addPersistedHeartbeatTarget,
+  lanIp,
+  lanIpCandidates,
+  LocalAgentInfo,
+} from '@/lib/agent-lifecycle';
 
 /**
  * Device mesh pairing — simple device interconnection.
  *
  *   POST /api/mesh/pair          → create a pairing code for this dashboard
  *   GET  /api/mesh/pair          → current pending pairing info (code + one-liner)
- *   POST /api/mesh/register      → a remote agent registers itself with {code, name, ip, port, apiKey, dashboardUrl?}
+ *   POST /api/mesh/register      → a remote agent registers itself with {code, name, ip, port, apiKey, dashboardUrl?, projects?}
  *   GET  /api/mesh/ping          → OPEN probe: "is a dashboard running here?" (used by pre-flight checks)
  *   GET  /api/mesh/check?target= → pre-flight probe of ANOTHER dashboard (join dialog "test connection")
  *   GET  /api/mesh/local-agent   → auto-detect the agent running on THIS machine (for web-UI join)
@@ -28,6 +32,11 @@ import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
  * DB, and both agents' heartbeats get wired at each other (joiner side wires
  * itself in 'join'; target side wires itself in 'register' via the joiner's
  * advertised dashboardUrl). No reverse join is ever needed.
+ *
+ * Agents attach their project list to every 60s heartbeat (recorded here in
+ * 'register'), so a peer whose firewall blocks INBOUND connections (Windows
+ * Defender) still shows up online with its projects — data flows in both
+ * directions even on one-way networks.
  *
  * Two ways to join a mesh:
  *   A. CLI (agent-only devices):  node agent.js --pair http://<dashboard-host>:3000 --code <CODE>
@@ -59,70 +68,19 @@ function registerRateLimited(clientIp: string): boolean {
   return entry.count > REGISTER_LIMIT;
 }
 
-// Agent service directories shipped with the project (platform variants).
-const AGENT_DIRS = ['agent', 'agent-linux', 'agent-macos', 'agent-win', 'agent-windows'];
-
-function existsSyncSafe(p: string): boolean {
-  try { return existsSync(p); } catch { return false; }
-}
-
-/** Append-mode fd for the agent log (never fails the request — stdout is
- *  an acceptable fallback). */
-function openSyncAppend(logFile: string): number {
-  try { return openSync(logFile, 'a'); } catch { return 1; }
-}
-
 function hostFromReq(req: NextRequest): string {
   const url = new URL(req.url);
   const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || url.host;
   return host;
 }
 
-/**
- * Ranked LAN IP detection.
- *
- * os.networkInterfaces() order is arbitrary — on machines with VPN / Clash /
- * Surge TUN adapters the FIRST non-internal IPv4 is often the fake-IP range
- * (198.18.0.0/15) which is unroutable from other devices. Ranking:
- *   1. 192.168.0.0/16  — typical home/office LAN (best)
- *   2. 10.0.0.0/8      — larger private nets
- *   3. 172.16.0.0/12   — docker/ corp nets
- *   4. 100.64.0.0/10   — CGNAT (Tailscale & friends) — reachable, keep last
- * Excluded entirely:
- *   - 198.18.0.0/15 — benchmark range hijacked by fake-IP VPN modes
- *   - 169.254.0.0/16 — link-local
- */
-function lanIpCandidates(): string[] {
-  const ifaces = Object.values(os.networkInterfaces()).flat();
-  const ips: string[] = [];
-  for (const i of ifaces) {
-    if (!i || i.family !== 'IPv4' || i.internal) continue;
-    const [a, b] = i.address.split('.').map(Number);
-    if (a === 198 && (b === 18 || b === 19)) continue; // fake-IP VPN
-    if (a === 169 && b === 254) continue; // link-local
-    ips.push(i.address);
-  }
-  const rank = (ip: string): number => {
-    const [a, b] = ip.split('.').map(Number);
-    if (a === 192 && b === 168) return 0;
-    if (a === 10) return 1;
-    if (a === 172 && b >= 16 && b <= 31) return 2;
-    if (a === 100 && b >= 64 && b <= 127) return 3; // CGNAT / tailscale
-    return 4;
-  };
-  return ips.sort((x, y) => rank(x) - rank(y));
-}
-
-function lanIp(): string {
-  return lanIpCandidates()[0] || '127.0.0.1';
-}
-
-interface LocalAgentInfo {
-  port: number;
-  apiKey: string;
-  name: string;
-  running: boolean;
-  dir: string;
+/** Dashboard port as the user browses it (Host header). '' → 3000. */
+function dashboardPortFromHost(host: string): number {
+  try {
+    const p = new URL(`http://${host}`).port;
+    if (p) return Number(p) || 3000;
+  } catch { /* odd host header */ }
+  return 3000;
 }
 
 /**
@@ -141,15 +99,6 @@ async function localPeerInfo(detected?: LocalAgentInfo | null) {
     apiKey: d.apiKey,
     running: d.running,
   };
-}
-
-/** Dashboard port as the user browses it (Host header). '' → 3000. */
-function dashboardPortFromHost(host: string): number {
-  try {
-    const p = new URL(`http://${host}`).port;
-    if (p) return Number(p) || 3000;
-  } catch { /* odd host header */ }
-  return 3000;
 }
 
 /**
@@ -206,284 +155,33 @@ async function probeDashboard(target: string, timeoutMs = 4000): Promise<TargetP
   }
 }
 
-/** Best-effort merge-patch of an agent dir's agent-config.json. */
-async function patchAgentConfig(
-  dir: string,
-  mutate: (cfg: Record<string, unknown>) => Record<string, unknown>,
-): Promise<boolean> {
+/**
+ * "Already paired?" check for the join flow. The user only needs ONE join
+ * per pair of machines (pairing is mutual), but they often try the reverse
+ * join out of habit — and THAT direction may be network-blocked (e.g. the
+ * Windows firewall refusing the Mac's inbound connection). When the target
+ * is unreachable we look for an existing Device row of that machine (by the
+ * URL host IP, or by hostname → device name) and report "already paired"
+ * instead of a scary failure.
+ */
+async function findPairedDeviceForTarget(target: string) {
+  let hostname = '';
+  try { hostname = new URL(target).hostname; } catch { return null; }
+  if (!hostname) return null;
+  const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+  const base = hostname.replace(/\.local$/i, '');
   try {
-    const cfgPath = path.join(process.cwd(), 'mini-services', dir, 'agent-config.json');
-    const cfg = JSON.parse(await fs.readFile(cfgPath, 'utf-8'));
-    await fs.writeFile(cfgPath, JSON.stringify(mutate(cfg), null, 2), 'utf-8');
-    return true;
-  } catch { return false; }
-}
-
-/**
- * Add a dashboard URL to an agent dir's persisted heartbeat target list
- * (new agents heartbeat to ALL of them; the legacy single `dashboardUrl`
- * field is also refreshed for pre-upgrade agents). Takes effect at the next
- * agent boot when the agent is not currently running.
- */
-async function addPersistedHeartbeatTarget(dir: string, target: string): Promise<void> {
-  await patchAgentConfig(dir, (cfg) => {
-    const list = Array.isArray(cfg.dashboardUrls) ? cfg.dashboardUrls.map(String) : [];
-    return {
-      ...cfg,
-      dashboardUrl: target,
-      dashboardUrls: [...new Set([...list, target])].slice(0, 8),
-      updatedAt: new Date().toISOString(),
-    };
-  });
-}
-
-/**
- * Start (or verify) the LOCAL agent service — shared by the 'ensure-agent'
- * action and the join flow, so joining never requires a separate
- * "start the agent first" step (one click fewer for the user).
- *
- * Returns the agent's coordinates (port / apiKey / name / dir) plus whether
- * it was just started or auto-upgraded.
- */
-async function ensureLocalAgent(): Promise<
-  | { ok: true; agent: LocalAgentInfo; started: boolean; restarted: boolean }
-  | { ok: false; error: string }
-> {
-  const detected = await detectLocalAgent();
-
-  // Auto-upgrade: a long-running agent started BEFORE a code pull keeps
-  // executing the OLD code (git pull only hot-reloads the dashboard, not
-  // the spawned agent process). Old agents report no `dashboardDb` field
-  // → kill & respawn so the new code (co-located dashboard DB serving)
-  // takes over. Without this, paired peers see the device "online" with
-  // 0 projects forever no matter how many times the user pulls.
-  let restarted = false;
-  if (detected?.running && (await agentOutdated(detected.port))) {
-    await stopAgentOnPort(detected.port);
-    restarted = true;
-    logActivity({
-      type: 'pair',
-      level: 'info',
-      message: 'Local agent restarted (code upgrade)',
-      detail: `port ${detected.port} · old agent lacked dashboard-DB support`,
+    const row = await db.device.findFirst({
+      where: {
+        OR: [
+          ...(isIp ? [{ ip: hostname }] : []),
+          { name: hostname },
+          { name: base },
+        ],
+      },
     });
-  }
-
-  if (detected?.running && !restarted) {
-    return { ok: true, agent: detected, started: false, restarted };
-  }
-
-  // Pick the agent directory + entry to spawn:
-  //   - mini-services/agent (TypeScript, self-contained node_modules +
-  //     initialized db) via bun when the bun CLI is available;
-  //   - platform agent.js bundle via node otherwise.
-  // NOTE: process.versions.bun is useless here — `next dev` spawns a
-  // node runtime for the server even under `bun run dev`, so probe the
-  // bun CLI itself.
-  const root = process.cwd();
-  let bunAvailable = false;
-  try {
-    execSync('bun --version', { stdio: 'ignore', timeout: 3000 });
-    bunAvailable = true;
-  } catch { /* no bun CLI */ }
-  const platformDir = os.platform() === 'darwin' ? 'agent-macos' : os.platform() === 'win32' ? 'agent-windows' : 'agent-linux';
-  const preferTs = bunAvailable && existsSyncSafe(path.join(root, 'mini-services', 'agent', 'index.ts'));
-  const dir = preferTs ? 'agent' : platformDir;
-  const base = path.join(root, 'mini-services', dir);
-  const entry = preferTs ? path.join(base, 'index.ts') : path.join(base, 'agent.js');
-  const runtime = preferTs ? 'bun' : 'node';
-  if (!existsSyncSafe(entry)) {
-    return { ok: false, error: `Agent entry not found: ${path.join('mini-services', dir, path.basename(entry))}` };
-  }
-
-  // Config: reuse the PERSISTED identity. Prefer the directory where an
-  // agent was actually detected (its config holds this machine's paired
-  // identity); fall back to the spawn directory on first run. A new random
-  // key each boot would orphan every already-paired dashboard row.
-  let port = 3101;
-  let apiKey = randomBytes(24).toString('hex');
-  let name = os.hostname();
-  const cfgDir = detected?.dir ?? dir;
-  try {
-    const cfg = JSON.parse(await fs.readFile(path.join(root, 'mini-services', cfgDir, 'agent-config.json'), 'utf-8'));
-    port = Number(cfg.port) || port;
-    apiKey = String(cfg.apiKey || apiKey);
-    name = String(cfg.name || name);
-  } catch { /* first run — defaults above */ }
-  // .agent-session.env records the actually-used port (start.sh writes
-  // it; a stale file could pin an outdated port).
-  try {
-    const envTxt = await fs.readFile(path.join(root, 'mini-services', cfgDir, '.agent-session.env'), 'utf-8');
-    const m = envTxt.match(/^AGENT_PORT=(\d+)\s*$/m);
-    if (m) port = parseInt(m[1], 10);
-  } catch { /* no session file */ }
-
-  const logFile = path.join('/tmp', 'dashboard-agent.log');
-  const out = openSyncAppend(logFile);
-  const child = spawn(runtime, [entry, '--port', String(port), '--apiKey', apiKey, '--name', name], {
-    cwd: base,
-    detached: true,
-    stdio: ['ignore', out, out],
-    env: { ...process.env, DATABASE_URL: `file:${path.join(base, 'db', 'agent.db')}` },
-  });
-  child.unref();
-  if (out !== 1 && out !== 2) { try { closeSync(out); } catch { /* already closed */ } }
-
-  logActivity({
-    type: 'pair',
-    level: 'info',
-    message: `Local agent started (port ${port})`,
-    detail: `${dir} · pid ${child.pid}`,
-  });
-
-  // Give the process a moment to bind, then verify.
-  await new Promise((r) => setTimeout(r, 1500));
-  const running = await probeAgent(port);
-  return { ok: true, agent: { port, apiKey, name, dir, running }, started: true, restarted };
-}
-
-async function probeAgent(port: number): Promise<boolean> {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/agent/health`, {
-      signal: AbortSignal.timeout(1500),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * True when the RUNNING agent on this port predates the dashboard-DB
- * support: its /api/agent/health response lacks the `dashboardDb` marker
- * (new agents always include the field, true or false). Such an agent
- * keeps serving its own EMPTY agent.db — remote peers see the device
- * online but with 0 projects, which is exactly the stale-agent failure
- * mode reported after a git pull upgraded the dashboard code but the
- * long-running agent process kept executing the old code.
- */
-async function agentOutdated(port: number): Promise<boolean> {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/agent/health`, {
-      signal: AbortSignal.timeout(1500),
-    });
-    if (!res.ok) return false; // can't tell — do NOT restart
-    const data = await res.json().catch(() => null);
-    return !!data && typeof data === 'object' && !('dashboardDb' in (data as Record<string, unknown>));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * PIDs currently LISTENING on `port`. Cross-platform best-effort:
- *   darwin / linux: `lsof -ti tcp:PORT` (falls back to `ss -tlnp` parsing)
- *   win32:         `netstat -ano | findstr ":PORT "` (LISTENING lines)
- * The port's listener was just health-verified to BE our agent, so killing
- * the owning pid(s) is surgical — no command-line pattern guessing that
- * would miss agents started via start.sh (whose argv lacks the full path).
- */
-function portListenerPids(port: number): number[] {
-  const pids = new Set<number>();
-  const addAll = (text: string, re: RegExp) => {
-    for (const m of text.matchAll(re)) {
-      const n = Number(m[1]);
-      if (Number.isFinite(n) && n > 0 && n !== process.pid) pids.add(n);
-    }
-  };
-  try {
-    addAll(execSync(`lsof -ti tcp:${port} 2>/dev/null`, { timeout: 2000 }).toString(), /(\d+)/g);
-  } catch { /* no lsof (common on linux) or nothing listening */ }
-  if (pids.size === 0) {
-    try {
-      const ss = execSync('ss -tlnp 2>/dev/null', { timeout: 2000 }).toString();
-      for (const line of ss.split('\n')) {
-        if (!line.includes(`:${port} `)) continue;
-        addAll(line, /pid=(\d+)/g);
-      }
-    } catch { /* no ss / nothing listening */ }
-  }
-  if (pids.size === 0 && process.platform === 'win32') {
-    try {
-      const ns = execSync(`netstat -ano | findstr ":${port} "`, { timeout: 3000 }).toString();
-      for (const line of ns.split('\n')) {
-        if (!line.includes('LISTENING')) continue;
-        const parts = line.trim().split(/\s+/);
-        const pid = Number(parts[parts.length - 1]);
-        if (Number.isFinite(pid) && pid > 0) pids.add(pid);
-      }
-    } catch { /* nothing listening */ }
-  }
-  return [...pids];
-}
-
-/** Stop the agent listening on `port` and wait for the port to actually
- * free, so the respawn below doesn't race into EADDRINUSE. */
-async function stopAgentOnPort(port: number): Promise<void> {
-  for (const pid of portListenerPids(port)) {
-    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
-  }
-  for (let i = 0; i < 16; i++) {
-    if (!(await probeAgent(port))) return; // listener is gone
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  // Still answering after 4s — force kill, then give the OS a beat.
-  for (const pid of portListenerPids(port)) {
-    try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
-  }
-  await new Promise((r) => setTimeout(r, 300));
-}
-
-/**
- * Auto-detect the agent service on this machine.
- * Reads agent-config.json (written by the agent on startup) from each
- * mini-services/agent-* dir, prefers a live (health-probe OK) instance.
- *
- * If the recorded port is dead but an agent is listening on a NEIGHBOURING
- * port (started manually with --port, stale .agent-session.env, …), the scan
- * finds it: all probes run in parallel and closed ports reject in ~1ms, so
- * the sweep adds no latency to the dead-config case.
- */
-const AGENT_SCAN_PORTS = [3100, 3101, 3102, 3103, 3104, 3105];
-
-async function detectLocalAgent(): Promise<LocalAgentInfo | null> {
-  const root = process.cwd();
-  const candidates: Array<Omit<LocalAgentInfo, 'running'>> = [];
-  for (const dir of AGENT_DIRS) {
-    const base = path.join(root, 'mini-services', dir);
-    try {
-      const cfg = JSON.parse(await fs.readFile(path.join(base, 'agent-config.json'), 'utf-8'));
-      let port = Number(cfg.port) || 3100;
-      // start.sh writes the actually-used port here (agent-config.json may
-      // hold the default 3100 when a different port was picked).
-      try {
-        const envTxt = await fs.readFile(path.join(base, '.agent-session.env'), 'utf-8');
-        const m = envTxt.match(/^AGENT_PORT=(\d+)\s*$/m);
-        if (m) port = parseInt(m[1], 10);
-      } catch { /* no session file */ }
-      if (cfg.apiKey) {
-        candidates.push({
-          port,
-          apiKey: String(cfg.apiKey),
-          name: String(cfg.name || os.hostname()),
-          dir,
-        });
-      }
-    } catch { /* no config in this dir */ }
-  }
-  if (candidates.length === 0) return null;
-  for (const c of candidates) {
-    if (await probeAgent(c.port)) return { ...c, running: true };
-  }
-  // Recorded port is dead — sweep the usual agent ports (and any other
-  // candidates' ports) for a live agent before declaring "not running".
-  const scanPorts = [...new Set([...AGENT_SCAN_PORTS, ...candidates.map((c) => c.port)])];
-  const alive = await Promise.all(
-    scanPorts.map(async (p) => ((await probeAgent(p)) ? p : null)),
-  );
-  const livePort = alive.find((p) => p != null) ?? null;
-  if (livePort != null) return { ...candidates[0], port: livePort, running: true };
-  return { ...candidates[0], running: false };
+    return row ?? null;
+  } catch { return null; }
 }
 
 export async function POST(req: NextRequest) {
@@ -604,6 +302,12 @@ export async function POST(req: NextRequest) {
             detail: `${keyRow.ip}:${keyRow.port} → ${device.ip}:${device.port}`,
           });
         }
+        // Heartbeat project push: agents attach their project list to every
+        // heartbeat. Paired dashboards whose direct pull is firewalled off
+        // serve this data read-only (remote-sync push fallback).
+        if (Array.isArray(body?.projects)) {
+          recordDevicePush(device.id, body.projects, String(ip), Number(port));
+        }
         return NextResponse.json({
           ok: true,
           deviceId: device.id,
@@ -661,6 +365,9 @@ export async function POST(req: NextRequest) {
       }
       // The code stays valid until expiry so several devices can join with
       // the same code within the 5-minute window.
+      if (Array.isArray(body?.projects)) {
+        recordDevicePush(device.id, body.projects, String(ip), Number(port));
+      }
 
       // Mutual pairing, two halves:
       //   1) hand our own agent's coordinates (peer) to the joiner so BOTH
@@ -773,8 +480,35 @@ export async function POST(req: NextRequest) {
       // hang followed by a bare TimeoutError. A reachable-but-unknown
       // server (404) falls through — the register call below then reports
       // its own precise error.
+      //
+      // Already-paired shortcut BEFORE reporting failure: pairing is mutual
+      // from ONE join, so an unreachable target that we already have a
+      // Device row for means the reverse join the user is attempting is
+      // simply unnecessary — say so instead of failing (user report: "win
+      // joins mac OK, mac joining win times out — isn't pairing supposed to
+      // be bidirectional?"). Typical cause: the target's firewall (Windows)
+      // blocks inbound connections, but data still flows via heartbeats.
       const probe = await probeDashboard(target, 4000);
       if (!probe.reachable) {
+        const paired = await findPairedDeviceForTarget(target);
+        if (paired) {
+          logActivity({
+            type: 'pair',
+            level: 'info',
+            message: `Reverse join to '${paired.name}' skipped — already paired (mutual)`,
+            deviceId: paired.id,
+            deviceName: paired.name,
+            detail: `target unreachable (${probe.reason}) but pairing already established`,
+          });
+          return NextResponse.json({
+            ok: true,
+            alreadyPaired: true,
+            deviceName: paired.name,
+            detail: `${paired.ip}:${paired.port}`,
+            target,
+            reason: probe.reason,
+          });
+        }
         const label = probe.reason === 'timeout' ? '连接超时'
           : probe.reason === 'refused' ? '连接被拒绝'
           : probe.reason === 'dns' ? '域名解析失败'
@@ -900,7 +634,28 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         );
       } catch (e) {
+        // Network died mid-join (target dashboard unreachable) — the
+        // already-paired shortcut applies here too.
         const c = classifyNetError(e);
+        const paired = await findPairedDeviceForTarget(target);
+        if (paired) {
+          logActivity({
+            type: 'pair',
+            level: 'info',
+            message: `Reverse join to '${paired.name}' skipped — already paired (mutual)`,
+            deviceId: paired.id,
+            deviceName: paired.name,
+            detail: `register failed (${c.reason}) but pairing already established`,
+          });
+          return NextResponse.json({
+            ok: true,
+            alreadyPaired: true,
+            deviceName: paired.name,
+            detail: `${paired.ip}:${paired.port}`,
+            target,
+            reason: c.reason,
+          });
+        }
         return NextResponse.json(
           { error: `无法连接对方仪表盘（${c.detail}）— ${joinFailHint(c.reason)}`, reason: c.reason },
           { status: 502 },

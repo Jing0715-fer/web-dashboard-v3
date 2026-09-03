@@ -153,6 +153,28 @@ export function JoinMeshDialog({
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
+        // Already-paired shortcut: the reverse join the user attempted is
+        // unnecessary (pairing is mutual from ONE join) — typically because
+        // the target's firewall blocks inbound connections, but the pair
+        // itself plus heartbeat pushes are already working. Say so instead
+        // of a scary failure (user report: "win joins mac OK, mac joining
+        // win times out — isn't pairing bidirectional?").
+        if (data?.alreadyPaired) {
+          addToast({
+            title: t('dlg.meshJoin.alreadyPairedToast'),
+            description: t('dlg.meshJoin.alreadyPairedDesc', {
+              name: data.deviceName ?? '',
+              target: data.target ?? '',
+            }),
+            variant: 'success',
+          })
+          onJoined?.()
+          setCode('')
+          setTarget('')
+          setCheckResult(null)
+          onClose()
+          return
+        }
         const baseDesc = data?.mutual
           ? t('dlg.meshJoin.joinedMutualDesc', {
               target: data.target,

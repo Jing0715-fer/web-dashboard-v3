@@ -20,7 +20,7 @@ import {
   TrendingUp, TrendingDown, Pin, PinOff, ArrowUp, GitFork, Tags, Clipboard,
   SearchX,
   Cloud, Container, Wrench, Building, House, Box,
-  EyeOff, KeyRound, Sparkles,
+  EyeOff, KeyRound, Sparkles, Radio,
   ShieldAlert, ShieldCheck, ShieldX, Minimize2,
   UserPlus,
 } from 'lucide-react'
@@ -139,6 +139,10 @@ interface Device {
   updatedAt: string
   projectCount?: number
   icon?: string
+  // Heartbeat-push state (devices behind a firewall that blocks inbound
+  // connections still push their project list every 60s).
+  pushedAt?: number | null
+  pushProjectCount?: number
 }
 
 interface Project {
@@ -4971,6 +4975,15 @@ function DeviceManagementPanel({
                 <div className="flex items-center gap-2">
                   <AnimatedStatusDot status={device.status === 'online' ? 'running' : 'offline'} size="md" />
                   <span className="font-medium text-sm truncate">{device.name}</span>
+                  {/* Push-mode badge: this device is behind a firewall that
+                    * blocks INBOUND connections — it still heartbeats its
+                    * data out every 60s, so it's genuinely online with fresh
+                    * projects even though a direct probe fails. */}
+                  {device.status === 'online' && !!device.pushedAt && Date.now() - device.pushedAt < 120_000 && (
+                    <Badge variant="outline" className="text-[9px] shrink-0 border-cyan-300 text-cyan-700 bg-cyan-50 dark:border-cyan-700 dark:text-cyan-300 dark:bg-cyan-900/20" title={t('dlg.devicePanel.pushBadgeHint')}>
+                      <Radio className="h-2.5 w-2.5 mr-0.5" />{t('dlg.devicePanel.pushBadge')}
+                    </Badge>
+                  )}
                   <Badge variant="outline" className={`text-[9px] ml-auto shrink-0 ${device.status === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20' : device.status === 'error' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}>
                     {device.status === 'online' ? t('dlg.common.online') : device.status === 'error' ? t('dlg.devicePanel.statusError') : t('dlg.common.offline')}
                   </Badge>
@@ -5008,11 +5021,15 @@ function DeviceManagementPanel({
                     className={`text-[10px] px-2 py-1 rounded-md ${
                       testResults[device.id]!.success
                         ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
+                        : !!device.pushedAt && Date.now() - device.pushedAt < 120_000
+                        ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300'
                         : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
                     }`}
                   >
                     {testResults[device.id]!.success
                       ? t('dlg.devicePanel.connectedIn', { latency: testResults[device.id]!.latency })
+                      : !!device.pushedAt && Date.now() - device.pushedAt < 120_000
+                      ? t('dlg.devicePanel.unreachablePush', { latency: testResults[device.id]!.latency })
                       : t('dlg.devicePanel.unreachable', { latency: testResults[device.id]!.latency })
                     }
                   </motion.div>
@@ -5827,11 +5844,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     return () => cancelAnimationFrame(id)
   }, [])
 
-  // Auto-refresh every 8 seconds, pauses on tab blur
+  // Auto-refresh every 8 seconds, pauses on tab blur. Devices are polled too:
+  // a paired peer's status changes server-side (heartbeat re-register,
+  // push-fallback sync) and the panel would otherwise show a stale
+  // Online/Offline badge until a full page reload (devices were previously
+  // only fetched at boot + after mutations).
   React.useEffect(() => {
     let interval: ReturnType<typeof setInterval> | null = null
     const startInterval = () => {
-      interval = setInterval(fetchProjects, 8000)
+      interval = setInterval(() => { fetchProjects(); fetchDevices() }, 8000)
     }
     const stopInterval = () => {
       if (interval) { clearInterval(interval); interval = null }
@@ -5846,7 +5867,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       stopInterval()
       document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [fetchProjects])
+  }, [fetchProjects, fetchDevices])
 
   // Handlers
   const handleAddProject = React.useCallback(() => {
