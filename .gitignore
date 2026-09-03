@@ -62,7 +62,7 @@ worklog.md
 
 # local env
 .env
-mini-services/harness-agent/.dsh-home/
+.dsh-home/
 
 # Agent runtime state (rewritten on every spawn/heartbeat — identity data must not churn in PRs)
 mini-services/*/agent-config.json

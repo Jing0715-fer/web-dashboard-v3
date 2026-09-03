@@ -1,5 +1,17 @@
+import { spawn, ChildProcess } from 'child_process';
+import {
+  existsSync, readdirSync, statSync, mkdirSync, appendFileSync, readlinkSync,
+  writeFileSync, unlinkSync, rmSync, readFileSync,
+} from 'fs';
+import { join, resolve, basename } from 'path';
+import { randomUUID } from 'crypto';
+import * as zlib from 'zlib';
+import { tmpdir, platform } from 'os';
+import * as fzstd from 'fzstd';
+
 /**
- * Harness Agent — deepseek-harness (dsh) orchestration layer for the dashboard.
+ * Harness engine — the former mini-services/harness-agent(:3022), now running
+ * IN-PROCESS inside the dashboard server (single port).
  *
  * Responsibilities:
  *   - Runs `dsh --profile headless` as the LLM agent that analyzes a project
@@ -9,51 +21,67 @@
  *     re-runs with the failure feedback (up to N attempts).
  *   - Streams live progress by tailing the dsh session event log
  *     (a zstd-compressed JSONL file written incrementally by dsh).
+ *   - dsh talks to the in-process LLM gateway (/api/llm/v1) through a
+ *     per-attempt task patch whose baseURL is resolved from the live server.
  *
- * API:
- *   POST /api/harness/analyze            {path, name?, usedPorts?, maxAttempts?}
- *   GET  /api/harness/sessions/:id       → {status, progress[], result?, error?}
- *   GET  /api/harness/sessions/:id/events → SSE progress stream
- *   POST /api/harness/sessions/:id/cancel
- *   GET  /api/harness/health
+ * The engine state (sessions, run queue, timers) is a globalThis singleton so
+ * every route handler shares ONE instance even across dev-mode hot reloads.
  */
 
-import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { spawn, ChildProcess } from 'child_process';
-import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, appendFileSync, readlinkSync, writeFileSync, unlinkSync, rmSync } from 'fs';
-import { join, resolve, basename } from 'path';
-import { randomUUID } from 'crypto';
-import { zstdDecompressSync } from 'zlib';
-import { homedir, tmpdir, platform } from 'os';
-
-const PORT = 3022;
 const DSH_BIN = resolve(process.cwd(), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
 const DSH_HOME = resolve(process.cwd(), '.dsh-home');
-const PATCH_PATH = resolve(process.cwd(), 'task-patch.yml');
 const GATEWAY_KEY = 'local-gateway-key';
 const ATTEMPT_TIMEOUT_MS = 8 * 60 * 1000; // per dsh run
 const STALL_KILL_MS = 5 * 60 * 1000; // no activity at all → kill the attempt
 const MAX_ATTEMPTS = 3;
 const LOG_DIR = join(tmpdir(), 'harness-agent-logs');
-if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
 /** Terminal-session snapshots, used to rebuild sessions after a restart. */
 const RESULTS_DIR = join(LOG_DIR, 'results');
 /** Attempt logs and dsh session dirs older than this are deleted. */
 const ARTIFACT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Fallback loopback candidates for the LLM gateway base URL. */
+const GATEWAY_FALLBACK_PORTS = [3000];
 
-console.log(`[harness-agent] dsh bin: ${DSH_BIN}`);
-console.log(`[harness-agent] DSH_HOME: ${DSH_HOME}`);
+// ============================= zstd (bun/node portable) =============================
 
-// ============================= session store =============================
+/** Decompress one zstd frame — native zlib on modern Node, fzstd elsewhere. */
+function decompressFrame(buf: Buffer): string {
+  const zstdNative = (zlib as any).zstdDecompressSync;
+  if (typeof zstdNative === 'function') {
+    return zstdNative.call(zlib, buf).toString();
+  }
+  const out = fzstd.decompress(new Uint8Array(buf));
+  return Buffer.from(out).toString();
+}
 
-interface ProgressItem {
+/** Decompress a multi-frame zstd file into text. */
+function readZstdFrames(file: string): string {
+  const buf = readFileSync(file);
+  let out = '';
+  const frames: number[] = [];
+  for (let i = 0; i < buf.length - 4; i++) {
+    if (buf[i] === 0x28 && buf[i + 1] === 0xb5 && buf[i + 2] === 0x2f && buf[i + 3] === 0xfd) frames.push(i);
+  }
+  if (frames.length === 0) {
+    try { return decompressFrame(buf); } catch { return ''; }
+  }
+  for (let k = 0; k < frames.length; k++) {
+    const piece = buf.slice(frames[k], k + 1 < frames.length ? frames[k + 1] : buf.length);
+    try { out += decompressFrame(piece); } catch { /* partial frame */ }
+  }
+  return out;
+}
+
+// ============================= engine state (globalThis singleton) =============================
+
+export interface ProgressItem {
   ts: number;
   attempt: number;
   kind: 'start' | 'command' | 'file' | 'message' | 'result' | 'error' | 'note';
   text: string;
 }
 
-interface AnalysisSession {
+export interface AnalysisSession {
   id: string;
   path: string;
   name: string;
@@ -82,9 +110,34 @@ interface AnalysisSession {
   restored?: boolean;
   /** Wall-clock time the session reached a terminal state (persisted). */
   finishedAt?: number;
+  /** LLM gateway base URL the dsh patch points at (resolved per analysis). */
+  llmBaseUrl: string;
 }
 
-const sessions = new Map<string, AnalysisSession>();
+interface EngineRuntime {
+  sessions: Map<string, AnalysisSession>;
+  runQueue: string[];
+  activeRunId: string | null;
+  runChain: Promise<void>;
+  initialized: boolean;
+  gatewayBaseUrl: string | null;
+}
+
+const g = globalThis as any;
+
+function engineRuntime(): EngineRuntime {
+  if (!g.__dashboardHarnessEngine) {
+    g.__dashboardHarnessEngine = {
+      sessions: new Map<string, AnalysisSession>(),
+      runQueue: [],
+      activeRunId: null,
+      runChain: Promise.resolve(),
+      initialized: false,
+      gatewayBaseUrl: null,
+    } satisfies EngineRuntime;
+  }
+  return g.__dashboardHarnessEngine;
+}
 
 function pushProgress(s: AnalysisSession, kind: ProgressItem['kind'], text: string) {
   s.progress.push({ ts: Date.now(), attempt: s.attempt, kind, text });
@@ -93,24 +146,6 @@ function pushProgress(s: AnalysisSession, kind: ProgressItem['kind'], text: stri
 }
 
 // ============================= dsh session log tailing =============================
-
-/** Decompress a multi-frame zstd file into text. */
-function readZstdFrames(file: string): string {
-  const buf = readFileSync(file);
-  let out = '';
-  const frames: number[] = [];
-  for (let i = 0; i < buf.length - 4; i++) {
-    if (buf[i] === 0x28 && buf[i + 1] === 0xb5 && buf[i + 2] === 0x2f && buf[i + 3] === 0xfd) frames.push(i);
-  }
-  if (frames.length === 0) {
-    try { return zstdDecompressSync(buf).toString(); } catch { return ''; }
-  }
-  for (let k = 0; k < frames.length; k++) {
-    const piece = buf.slice(frames[k], k + 1 < frames.length ? frames[k + 1] : buf.length);
-    try { out += zstdDecompressSync(piece).toString(); } catch { /* partial frame */ }
-  }
-  return out;
-}
 
 function normalizeCwd(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '');
@@ -222,6 +257,49 @@ Rules:
 - Your final message must be the JSON object only — it is parsed programmatically.${feedback ? `\n\nIMPORTANT — a previous attempt failed. Fix the issue and succeed this time:\n${feedback}` : ''}`;
 }
 
+/** Write the dsh agent-layer patch with the live LLM gateway base URL. */
+function writeTaskPatch(llmBaseUrl: string, attemptFile: string): string {
+  const yml = `# Agent-layer composition patch: route dsh's LLM through the
+# dashboard's in-process llm-gateway (OpenAI-compatible bridge over
+# z-ai-web-dev-sdk / the configured provider) and widen the bash timeout.
+- id: llm-pi-ai
+  config:
+    providers:
+      zai-gateway:
+        apiKeyEnv: ZAI_GATEWAY_KEY
+        api: openai-completions
+        baseURL: ${llmBaseUrl.replace(/\/$/, '')}
+        compat:
+          supportsDeveloperRole: false
+          supportsUsageInStreaming: false
+          maxTokensField: max_tokens
+        models:
+          - id: glm-4-plus
+            contextWindow: 131072
+            maxTokens: 8192
+            input: [text]
+
+- id: agent-default-model
+  config:
+    provider: zai-gateway
+    model: glm-4-plus
+
+- id: bash-sandbox
+  config:
+    timeoutMs: 600000
+
+# This host has no bwrap/landlock sandbox backend — run commands directly.
+- id: sandbox-policy
+  config:
+    mode: danger-full-access
+- id: approval
+  config:
+    policy: never
+`;
+  writeFileSync(attemptFile, yml);
+  return attemptFile;
+}
+
 // ============================= run orchestration =============================
 
 function killTree(pid: number | undefined) {
@@ -243,8 +321,8 @@ function killProjectOrphans(s: AnalysisSession, why: string): number {
   try {
     if (platform() === 'win32') return 0;
     const myCwd = process.cwd();
-    // Safety: never sweep a directory that contains the harness itself (would
-    // kill the dashboard / harness-agent / their node_modules workers).
+    // Safety: never sweep a directory that contains the dashboard itself (would
+    // kill the dashboard server / its node_modules workers).
     if (myCwd === s.path || myCwd.startsWith(s.path + '/')) return 0;
     const victims: number[] = [];
     for (const ent of readdirSync('/proc')) {
@@ -267,16 +345,17 @@ function killProjectOrphans(s: AnalysisSession, why: string): number {
   } catch { return 0; }
 }
 
-/** Best-effort cleanup of every live session (used on harness shutdown). */
+/** Best-effort cleanup of every live session (used on server shutdown). */
 function cleanupAllSessions() {
-  for (const s of sessions.values()) {
+  const rt0 = engineRuntime();
+  for (const s of rt0.sessions.values()) {
     if (s.status === 'running') {
       killTree(s.child?.pid);
       setTimeout(() => killProjectOrphans(s, 'harness 退出清理'), 1000).unref?.();
       // Leave a durable record so a wizard polling across the restart gets
       // a definitive "failed" answer instead of a 404.
       s.status = 'failed';
-      s.error = 'harness-agent 服务重启，分析被中断';
+      s.error = '分析引擎随服务器重启，本次分析被中断';
       pushProgress(s, 'error', s.error);
       persistResult(s);
     }
@@ -374,11 +453,6 @@ function sanitizeConfig(config: any): { config: any; issues: string[] } {
 
 // ============================= run orchestration =============================
 
-/** FIFO of session ids waiting for their turn (attempt not yet spawned). */
-const runQueue: string[] = [];
-/** Session id currently holding the single run slot (spawned, not exited). */
-let activeRunId: string | null = null;
-
 /**
  * Serialize dsh runs — the LLM backend rate-limits concurrent agents hard.
  * The run slot is held from spawn until the dsh child exits (startAttempt
@@ -387,19 +461,21 @@ let activeRunId: string | null = null;
  * A watchdog frees the slot after 2x the attempt timeout so a lost exit
  * event can never wedge the queue forever.
  */
-let runChain: Promise<void> = Promise.resolve();
 function enqueueRun(s: AnalysisSession, fn: () => void | Promise<void>): Promise<void> {
-  runQueue.push(s.id);
+  const rt0 = engineRuntime();
+  rt0.runQueue.push(s.id);
   const run = async () => {
-    const idx = runQueue.indexOf(s.id);
-    if (idx !== -1) runQueue.splice(idx, 1);
-    activeRunId = s.id;
+    const rt = engineRuntime();
+    const idx = rt.runQueue.indexOf(s.id);
+    if (idx !== -1) rt.runQueue.splice(idx, 1);
+    rt.activeRunId = s.id;
     let watchdogTimer: any = null;
     const watchdog = new Promise<void>((resolve) => {
       watchdogTimer = setTimeout(() => {
-        if (activeRunId === s.id) {
-          console.error(`[harness-agent] run-slot watchdog fired for session ${s.id} — continuing the queue`);
-          activeRunId = null;
+        const rt2 = engineRuntime();
+        if (rt2.activeRunId === s.id) {
+          console.error(`[harness] run-slot watchdog fired for session ${s.id} — continuing the queue`);
+          rt2.activeRunId = null;
         }
         resolve();
       }, ATTEMPT_TIMEOUT_MS * 2);
@@ -409,11 +485,12 @@ function enqueueRun(s: AnalysisSession, fn: () => void | Promise<void>): Promise
       await Promise.race([fn(), watchdog]);
     } finally {
       if (watchdogTimer) clearTimeout(watchdogTimer);
-      if (activeRunId === s.id) activeRunId = null;
+      const rt3 = engineRuntime();
+      if (rt3.activeRunId === s.id) rt3.activeRunId = null;
     }
   };
-  const next = runChain.then(run, run);
-  runChain = next.catch(() => {});
+  const next = rt0.runChain.then(run, run);
+  rt0.runChain = next.catch(() => {});
   return next;
 }
 
@@ -437,9 +514,10 @@ function startAttempt(s: AnalysisSession, feedback?: string): Promise<void> {
 
   const task = buildTask(s, feedback);
   const logFile = join(LOG_DIR, `${s.id}-attempt${s.attempt}.log`);
+  const patchFile = writeTaskPatch(s.llmBaseUrl, join(LOG_DIR, `${s.id}-attempt${s.attempt}.yml`));
   s.logFile = logFile;
 
-  const child = spawn('node', [DSH_BIN, '--profile', 'headless', '--patch', PATCH_PATH, task], {
+  const child = spawn('node', [DSH_BIN, '--profile', 'headless', '--patch', patchFile, task], {
     cwd: s.path,
     env: {
       ...process.env,
@@ -486,7 +564,7 @@ function startAttempt(s: AnalysisSession, feedback?: string): Promise<void> {
       try {
         handleAttemptExit(s, code, stdout);
       } catch (err: any) {
-        console.error('[harness-agent] attempt exit handler failed:', err?.message || err);
+        console.error('[harness] attempt exit handler failed:', err?.message || err);
         s.status = 'failed';
         s.error = `Attempt exit handler crashed: ${String(err?.message || err)}`;
         persistResult(s);
@@ -555,7 +633,16 @@ function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: stri
   }
 }
 
-function startAnalysis(path: string, name: string, usedPorts: number[], maxAttempts: number): AnalysisSession {
+// ============================= public engine API =============================
+
+export function startAnalysis(
+  path: string,
+  name: string,
+  usedPorts: number[],
+  maxAttempts: number,
+  llmBaseUrl: string,
+): AnalysisSession {
+  const rt0 = engineRuntime();
   const id = randomUUID();
   const s: AnalysisSession = {
     id,
@@ -579,8 +666,9 @@ function startAnalysis(path: string, name: string, usedPorts: number[], maxAttem
     lastActivityAt: Date.now(),
     stalledAttempt: null,
     stalledNote: false,
+    llmBaseUrl,
   };
-  sessions.set(id, s);
+  rt0.sessions.set(id, s);
   pushProgress(s, 'note', `项目: ${name} (${path})`);
   runAttempt(s);
 
@@ -619,12 +707,77 @@ function startAnalysis(path: string, name: string, usedPorts: number[], maxAttem
       persistResult(s);
     }
     setTimeout(() => {
-      sessions.delete(id);
+      engineRuntime().sessions.delete(id);
       deleteResultFile(id); // keep disk in sync with the in-memory store
     }, 60 * 60 * 1000);
   }, 60 * 60 * 1000).unref?.();
 
   return s;
+}
+
+export function getSession(id: string): AnalysisSession | undefined {
+  return engineRuntime().sessions.get(id);
+}
+
+export function listSessions(): AnalysisSession[] {
+  return Array.from(engineRuntime().sessions.values()).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function cancelSession(id: string): AnalysisSession | undefined {
+  const s = engineRuntime().sessions.get(id);
+  if (!s) return undefined;
+  s.cancelled = true;
+  killTree(s.child?.pid);
+  setTimeout(() => killProjectOrphans(s, '取消清扫'), 2500).unref?.();
+  if (s.status === 'running') {
+    s.status = 'cancelled';
+    persistResult(s);
+  }
+  return s;
+}
+
+export function engineHealth() {
+  const rt0 = engineRuntime();
+  return {
+    status: 'ok',
+    dsh: existsSync(DSH_BIN),
+    sessions: rt0.sessions.size,
+    inProcess: true,
+  };
+}
+
+/** View shape consumed by the dashboard wizard — identical to the old service. */
+export function sessionView(s: AnalysisSession) {
+  const rt0 = engineRuntime();
+  const view: any = {
+    id: s.id,
+    path: s.path,
+    name: s.name,
+    status: s.status,
+    attempt: s.attempt,
+    maxAttempts: s.maxAttempts,
+    createdAt: s.createdAt,
+    updatedAt: s.updatedAt,
+    progress: s.progress,
+    result: s.result,
+    error: s.error,
+  };
+  if (s.restored) view.restored = true;
+  // Queue visibility: a session that has not started spawning yet is queued.
+  // queuePosition = sessions ahead of it (waiting + the one running);
+  // queueLength = total sessions in the queue system right now.
+  if (s.status === 'running') {
+    const active = rt0.activeRunId !== null;
+    const pos = rt0.runQueue.indexOf(s.id);
+    if (pos !== -1) {
+      view.queuePosition = pos + (active ? 1 : 0);
+      view.queueLength = rt0.runQueue.length + (active ? 1 : 0);
+    } else if (rt0.activeRunId === s.id) {
+      view.queuePosition = 0;
+      view.queueLength = rt0.runQueue.length + 1;
+    }
+  }
+  return view;
 }
 
 // ============================= result persistence =============================
@@ -670,7 +823,7 @@ function persistResult(s: AnalysisSession) {
     if (s.error) payload.error = s.error;
     writeFileSync(join(RESULTS_DIR, `${s.id}.json`), JSON.stringify(payload, null, 2));
   } catch (err: any) {
-    console.error('[harness-agent] persistResult failed:', err?.message || err);
+    console.error('[harness] persistResult failed:', err?.message || err);
   }
 }
 
@@ -680,7 +833,7 @@ function deleteResultFile(sessionId: string) {
 
 /**
  * Rebuild lightweight terminal sessions from RESULTS_DIR so the dashboard
- * wizard keeps getting answers (instead of 404) after a harness restart.
+ * wizard keeps getting answers (instead of 404) after a server restart.
  * Restored sessions never re-enter the run queue and are invisible to the
  * stall supervisor (no poller, lastActivityAt = finishedAt).
  */
@@ -692,7 +845,7 @@ function restoreSessionsFromDisk(): number {
       try {
         if (!file.endsWith('.json')) continue;
         const id = file.slice(0, -'.json'.length);
-        if (!/^[a-f0-9-]{8,}$/.test(id) || sessions.has(id)) continue;
+        if (!/^[a-f0-9-]{8,}$/.test(id) || engineRuntime().sessions.has(id)) continue;
         const data = JSON.parse(readFileSync(join(RESULTS_DIR, file), 'utf8'));
         const status = ['completed', 'failed', 'cancelled'].includes(data.status) ? data.status : 'failed';
         const finishedAt = Number(data.finishedAt) || Date.now();
@@ -720,8 +873,9 @@ function restoreSessionsFromDisk(): number {
           stalledAttempt: null,
           stalledNote: false,
           restored: true,
+          llmBaseUrl: '',
         };
-        sessions.set(id, s);
+        engineRuntime().sessions.set(id, s);
         restored += 1;
       } catch { /* corrupt file — skip it */ }
     }
@@ -793,164 +947,73 @@ function cleanupOldArtifacts(): { logs: number; dshSessions: number } {
 function runArtifactCleanup() {
   try {
     const { logs, dshSessions } = cleanupOldArtifacts();
-    console.log(`[harness-agent] disk cleanup: removed ${logs} old attempt log(s), ${dshSessions} old dsh session dir(s) (TTL 7d)`);
+    console.log(`[harness] disk cleanup: removed ${logs} old attempt log(s), ${dshSessions} old dsh session dir(s) (TTL 7d)`);
   } catch { /* never fatal */ }
 }
 
-// ============================= HTTP layer =============================
+// ============================= gateway base URL resolution =============================
 
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-    req.on('error', reject);
-  });
-}
+/**
+ * Resolve the loopback base URL of this dashboard's LLM gateway, used by the
+ * dsh child process. Candidates: the request's own origin (covers custom
+ * ports) and the standard 127.0.0.1:3000. Each is probed against
+ * /api/llm/v1/models and must answer an OpenAI-style JSON list. The winner
+ * is cached for the process lifetime.
+ */
+export async function resolveGatewayBaseUrl(requestOrigin?: string): Promise<string> {
+  const rt0 = engineRuntime();
+  if (rt0.gatewayBaseUrl) return rt0.gatewayBaseUrl;
 
-function json(res: ServerResponse, status: number, data: any) {
-  const body = JSON.stringify(data);
-  // A route that already started writing (e.g. an SSE stream that errored
-  // mid-flight) must not attempt writeHead again — that second throw used to
-  // escape the async handler and kill the whole service.
-  if (res.headersSent) {
-    try { res.end(body); } catch { /* connection already gone */ }
-    return;
+  const candidates: string[] = [];
+  for (const p of GATEWAY_FALLBACK_PORTS) candidates.push(`http://127.0.0.1:${p}`);
+  if (requestOrigin && !candidates.includes(requestOrigin.replace(/\/$/, ''))) {
+    candidates.push(requestOrigin.replace(/\/$/, ''));
   }
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-  res.end(body);
-}
 
-function sessionView(s: AnalysisSession) {
-  const view: any = {
-    id: s.id,
-    path: s.path,
-    name: s.name,
-    status: s.status,
-    attempt: s.attempt,
-    maxAttempts: s.maxAttempts,
-    createdAt: s.createdAt,
-    updatedAt: s.updatedAt,
-    progress: s.progress,
-    result: s.result,
-    error: s.error,
-  };
-  if (s.restored) view.restored = true;
-  // Queue visibility: a session that has not started spawning yet is queued.
-  // queuePosition = sessions ahead of it (waiting + the one running);
-  // queueLength = total sessions in the queue system right now.
-  if (s.status === 'running') {
-    const active = activeRunId !== null;
-    const pos = runQueue.indexOf(s.id);
-    if (pos !== -1) {
-      view.queuePosition = pos + (active ? 1 : 0);
-      view.queueLength = runQueue.length + (active ? 1 : 0);
-    } else if (activeRunId === s.id) {
-      view.queuePosition = 0;
-      view.queueLength = runQueue.length + 1;
-    }
+  for (const base of candidates) {
+    try {
+      const res = await fetch(`${base}/api/llm/v1/models`, { signal: AbortSignal.timeout(2500) });
+      if (!res.ok) continue;
+      const data: any = await res.json().catch(() => null);
+      if (data && data.object === 'list' && Array.isArray(data.data)) {
+        rt0.gatewayBaseUrl = base;
+        console.log(`[harness] llm gateway base URL resolved: ${base}/api/llm/v1`);
+        return base;
+      }
+    } catch { /* probe next candidate */ }
   }
-  return view;
+  throw new Error(
+    `LLM gateway unreachable — tried ${candidates.join(', ')} (dashboard must be running on this machine)`,
+  );
 }
 
-const server = createServer(async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+// ============================= boot-time init =============================
 
-  const url = (req.url || '').split('?')[0];
+/**
+ * One-time engine init: restore terminal sessions, schedule artifact
+ * cleanup, register shutdown handlers that kill running dsh children.
+ * Called from instrumentation.register() and defensively from every route.
+ */
+export function ensureEngine(): void {
+  const rt0 = engineRuntime();
+  if (rt0.initialized) return;
+  rt0.initialized = true;
   try {
-    if (req.method === 'GET' && (url === '/api/harness/health' || url === '/health')) {
-      return json(res, 200, { status: 'ok', dsh: existsSync(DSH_BIN), sessions: sessions.size, port: PORT });
-    }
+    if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true });
+  } catch { /* best-effort */ }
+  try {
+    const restoredCount = restoreSessionsFromDisk();
+    console.log(`[harness] restored ${restoredCount} finished session(s) from ${RESULTS_DIR}`);
+  } catch { /* ignore */ }
+  runArtifactCleanup();
+  const artifactCleanupTimer = setInterval(runArtifactCleanup, 3600_000);
+  artifactCleanupTimer.unref?.();
+  // Don't leave dsh runs + project servers behind when the server stops.
+  process.on('SIGTERM', () => { cleanupAllSessions(); process.exit(0); });
+  process.on('SIGINT', () => { cleanupAllSessions(); process.exit(0); });
+  console.log(`[harness] in-process engine ready (dsh available: ${existsSync(DSH_BIN)})`);
+}
 
-    // Session list (additive convenience route, also aliased as /sessions).
-    if (req.method === 'GET' && (url === '/api/harness/sessions' || url === '/sessions')) {
-      const list = Array.from(sessions.values())
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .map(sessionView);
-      return json(res, 200, { sessions: list, count: list.length });
-    }
-
-    if (req.method === 'POST' && url === '/api/harness/analyze') {
-      const body = JSON.parse((await readBody(req)) || '{}');
-      const path = resolve(String(body.path || ''));
-      if (!existsSync(path) || !statSync(path).isDirectory()) {
-        return json(res, 400, { error: `Invalid project path: ${path}` });
-      }
-      const usedPorts = Array.isArray(body.usedPorts) ? body.usedPorts.map(Number).filter((n: any) => Number.isInteger(n)) : [];
-      const maxAttempts = Math.min(Math.max(Number(body.maxAttempts) || MAX_ATTEMPTS, 1), 5);
-      const s = startAnalysis(path, String(body.name || basename(path)), usedPorts, maxAttempts);
-      return json(res, 200, { sessionId: s.id, ...sessionView(s) });
-    }
-
-    const sessMatch = url.match(/^\/api\/harness\/sessions\/([a-f0-9-]+)(\/events|\/cancel)?$/);
-    if (sessMatch) {
-      const s = sessions.get(sessMatch[1]);
-      if (!s) return json(res, 404, { error: 'Session not found' });
-      const action = sessMatch[2];
-      if (!action && req.method === 'GET') return json(res, 200, sessionView(s));
-      if (action === '/cancel' && req.method === 'POST') {
-        s.cancelled = true;
-        killTree(s.child?.pid);
-        setTimeout(() => killProjectOrphans(s, '取消清扫'), 2500).unref?.();
-        if (s.status === 'running') {
-          s.status = 'cancelled';
-          persistResult(s);
-        }
-        return json(res, 200, sessionView(s));
-      }
-      if (action === '/events' && req.method === 'GET') {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          Connection: 'keep-alive',
-        });
-        let lastCount = 0;
-        const send = () => {
-          const items = s.progress.slice(lastCount);
-          lastCount = s.progress.length;
-          if (items.length > 0 || s.status !== 'running') {
-            res.write(`data: ${JSON.stringify({ status: s.status, progress: items, attempt: s.attempt, result: s.result, error: s.error })}\n\n`);
-          }
-          if (s.status !== 'running') {
-            res.write('data: [DONE]\n\n');
-            res.end();
-            clearInterval(timer);
-          }
-        };
-        // Start the interval BEFORE the initial flush: a terminal session
-        // (e.g. one restored from disk) ends the stream inside send(), which
-        // must be able to clear an already-initialized timer (TDZ crash fix).
-        const timer = setInterval(send, 2000);
-        send();
-        req.on('close', () => clearInterval(timer));
-        return;
-      }
-    }
-
-    json(res, 404, { error: `No route: ${req.method} ${url}` });
-  } catch (err: any) {
-    console.error('[harness-agent] error:', err);
-    json(res, 500, { error: String(err?.message || err) });
-  }
-});
-
-// Restart recovery + disk hygiene — both best-effort and never fatal.
-try {
-  const restoredCount = restoreSessionsFromDisk();
-  console.log(`[harness-agent] restored ${restoredCount} finished session(s) from ${RESULTS_DIR}`);
-} catch { /* ignore */ }
-runArtifactCleanup();
-const artifactCleanupTimer = setInterval(runArtifactCleanup, 3600_000);
-artifactCleanupTimer.unref?.();
-
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[harness-agent] listening on http://0.0.0.0:${PORT}`);
-  console.log(`[harness-agent] dsh available: ${existsSync(DSH_BIN)}`);
-});
-
-// Don't leave dsh runs + project servers behind when the harness stops.
-process.on('SIGTERM', () => { cleanupAllSessions(); process.exit(0); });
-process.on('SIGINT', () => { cleanupAllSessions(); process.exit(0); });
+export function dshAvailable(): boolean {
+  return existsSync(DSH_BIN);
+}

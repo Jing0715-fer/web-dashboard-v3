@@ -6163,16 +6163,17 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     setProjectFormOpen(true)
   }, [])
 
-  // Launch a harness-agent (deepseek-harness) analysis session for a local
-  // project and open the live-progress wizard. The agent installs deps,
-  // generates the startup command and auto-debugs it until the service boots.
+  // Launch a deepseek-harness analysis session (in-process engine, no
+  // separate service) for a local project and open the live-progress wizard.
+  // The agent installs deps, generates the startup command and auto-debugs
+  // it until the service boots.
   const startHarnessAnalysis = React.useCallback(async (projectId: string, name: string, path: string) => {
     try {
       const usedPorts = Array.from(new Set(projects.flatMap(p => p.environments?.map(e => e.port) ?? [])))
       const res = await fetch('/api/harness/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, name, usedPorts: [...usedPorts, 3000, 3100, 3021, 3022] }),
+        body: JSON.stringify({ path, name, usedPorts: [...usedPorts, 3000, 3100] }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -6204,7 +6205,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           toast({ title: t('dlg.toast.projectCreated'), variant: 'success' })
           addAutoNotification('success', t('dlg.notif.projectCreatedTitle'), t('dlg.notif.projectCreatedDesc', { name: data.name }), data.name)
 
-          // Local projects → harness-agent (deepseek-harness) analyzes, installs deps,
+          // Local projects → deepseek-harness analyzes, installs deps,
           // generates and VERIFIES the startup command (auto-debug until success).
           if (newProjectId && !data.deviceId) {
             startHarnessAnalysis(newProjectId, data.name, data.path)
@@ -6307,7 +6308,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         toast({ title: t('dlg.toast.refetchFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
       }
     } else {
-      // Local project → harness-agent (deepseek-harness) full auto-debug analyze
+      // Local project → deepseek-harness full auto-debug analyze
       startHarnessAnalysis(project.id, project.name, project.path)
     }
   }, [toast, fetchProjects, devices, startHarnessAnalysis])

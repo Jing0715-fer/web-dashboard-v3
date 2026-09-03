@@ -6,8 +6,9 @@ import { requireApprovedUser } from '@/lib/auth';
 
 /**
  * Remote project auto-debug analysis — proxies to the device agent's
- * analyze-project endpoint, supplying this dashboard's llm-gateway URL so
- * the remote device needs no LLM credentials of its own.
+ * analyze-project endpoint, supplying this dashboard's in-process LLM
+ * gateway URL (same port as the dashboard itself) so the remote device
+ * needs no LLM credentials of its own.
  *
  *   POST /api/devices/[id]/analyze-remote  {path, name, usedPorts?}  → {jobId}
  *   GET  /api/devices/[id]/analyze-remote?jobId=...                  → job status
@@ -38,13 +39,14 @@ export async function POST(
     if (!body?.path) return NextResponse.json({ error: 'path is required' }, { status: 400 });
 
     const usedPorts = Array.isArray(body.usedPorts) ? body.usedPorts : [];
-    const llmBaseUrl = `http://${getLanIp()}:3021/v1`;
+    // In-process gateway lives on the dashboard port itself (formerly :3021).
+    const llmBaseUrl = `http://${getLanIp()}:3000/api/llm/v1`;
 
     const result = await proxyToAgent(
       { ip: device.ip, port: device.port, apiKey: device.apiKey },
       '/analyze-project',
       'POST',
-      { path: body.path, name: body.name, llmBaseUrl, usedPorts: [...usedPorts, 3000, 3100, 3021, 3022] }
+      { path: body.path, name: body.name, llmBaseUrl, usedPorts: [...usedPorts, 3000, 3100] }
     );
     if (!result.ok) {
       return NextResponse.json({ error: result.data?.error || `Agent returned ${result.status}` }, { status: 502 });

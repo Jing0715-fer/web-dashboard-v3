@@ -1,7 +1,5 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
-import { writeFileSync } from 'fs'
-import { join } from 'path'
 import { publicCatalog } from '@/lib/llm-providers'
 import { requireAdmin, requireApprovedUser } from '@/lib/auth';
 
@@ -91,32 +89,9 @@ export async function PUT(request: Request) {
       },
     })
 
-    // Sync the llm-gateway (mini-services/llm-gateway/config.json) so the
-    // deepseek-harness agent layer also uses the configured provider.
-    // When a real provider+key is set the gateway proxies to it; otherwise
-    // it keeps using the built-in z-ai SDK.
-    try {
-      const gatewayConfigPath = join(process.cwd(), 'mini-services', 'llm-gateway', 'config.json')
-      const useProxy = config.provider !== 'zai' && !!config.apiKey && !!config.baseUrl && config.provider !== ''
-      writeFileSync(
-        gatewayConfigPath,
-        JSON.stringify(
-          {
-            mode: useProxy ? 'proxy' : 'zai',
-            provider: config.provider || 'zai',
-            apiKey: config.apiKey || '',
-            baseUrl: config.baseUrl || '',
-            model: config.model || '',
-            updatedAt: new Date().toISOString(),
-          },
-          null,
-          2,
-        ),
-      )
-    } catch (e) {
-      // Gateway sync is best-effort — never fail the save because of it.
-      console.error('Failed to sync llm-gateway config:', e)
-    }
+    // The in-process LLM gateway (/api/llm/v1) reads this same DB row live on
+    // every request, so a provider change here applies to dsh analysis
+    // immediately — no config file sync needed anymore.
 
     // Respond with the same masked shape as GET so a save→reopen cycle
     // never leaks the full key either.
