@@ -785,6 +785,11 @@ function DashboardClockWidget() {
 
 const HERMES_BRIDGE_NAME = 'Hermes Bridge'
 
+/** Compact display form of a device hostname: strips the mDNS `.local` suffix
+ *  (e.g. "liijingdeMacBook-Air-8.local" → "liijingdeMacBook-Air-8") so the
+ *  badge fits next to the project name. Full hostname stays in the tooltip. */
+const displayDeviceName = (name: string) => (name || '').replace(/\.local$/i, '')
+
 function HermesBridgeToggle() {
   const { bridgeRunning } = useBridgeStatus()
 
@@ -1009,9 +1014,9 @@ function SortableProjectCardImpl({
             <div className="flex items-center gap-2">
               <span className="font-medium truncate">{highlightText(project.name, searchQuery)}</span>
               {isRemote && (
-                <span className="shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700/70 text-zinc-500 dark:text-zinc-400 font-medium">
-                  <span className={`h-1.5 w-1.5 rounded-full ${deviceOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                  {project.deviceName}
+                <span className="min-w-0 shrink inline-flex items-center gap-1 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700/70 text-zinc-500 dark:text-zinc-400 font-medium max-w-[220px]" title={project.deviceName || undefined}>
+                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${deviceOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                  <span className="truncate min-w-0">{displayDeviceName(project.deviceName || '')}</span>
                 </span>
               )}
               <Badge variant="outline" className="text-[11px] font-medium shrink-0 gap-1.5 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 tabular-nums">
@@ -1202,17 +1207,17 @@ function SortableProjectCardImpl({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <CardTitle className="text-[13px] font-semibold truncate tracking-tight text-foreground dark:text-zinc-100 leading-tight min-w-0 shrink">{highlightText(project.name, searchQuery)}</CardTitle>
+                  <CardTitle className="text-[13px] font-semibold truncate tracking-tight text-foreground dark:text-zinc-100 leading-tight min-w-0 shrink-0 max-w-[60%]">{highlightText(project.name, searchQuery)}</CardTitle>
                   {/* Tags inline with the title — single row, clipped when narrow */}
-                  <div className="flex items-center gap-1 min-w-0 overflow-hidden max-w-[55%]">
+                  <div className="flex items-center gap-1 min-w-0 shrink overflow-hidden max-w-[40%]">
                     {tags.map((tag) => (
                       <Badge key={tag} variant="secondary" className={`text-[10px] px-1.5 py-0 rounded cursor-default shrink-0 whitespace-nowrap font-medium ${getTagColor(tag)}`}>{tag}</Badge>
                     ))}
                   </div>
                   {isRemote && (
-                    <span className="shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700/70 text-zinc-500 dark:text-zinc-400 font-medium">
-                      <span className={`h-1.5 w-1.5 rounded-full ${deviceOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                      {project.deviceName}
+                    <span className="min-w-0 shrink inline-flex items-center gap-1 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700/70 text-zinc-500 dark:text-zinc-400 font-medium max-w-[45%]" title={project.deviceName || undefined}>
+                      <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${deviceOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                      <span className="truncate min-w-0">{displayDeviceName(project.deviceName || '')}</span>
                     </span>
                   )}
                 </div>
@@ -5294,7 +5299,7 @@ function LoadingSkeleton({ viewMode }: { viewMode: ViewMode }) {
     )
   }
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {Array.from({ length: 6 }).map((_, i) => (
         <ProjectCardSkeleton key={i} />
       ))}
@@ -7839,7 +7844,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 </div>
               )}
               {viewMode === 'grid' ? (
-                <div key={`grid-${filterStatus}-${filterTags.join(',')}-${searchQuery}-${groupBy}`} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 4xl:grid-cols-7 gap-3">
+                <div key={`grid-${filterStatus}-${filterTags.join(',')}-${searchQuery}-${groupBy}`} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                   {groupBy === 'tags' ? (
                     <>
                       {tagGroupedProjects.map((group) => (
