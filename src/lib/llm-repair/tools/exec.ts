@@ -35,6 +35,9 @@
 
 import { spawn } from 'child_process';
 import { buildChildEnv, classifyRepairCommand } from './safety';
+// Tree kill — kill(-pid) process-group signals are a POSIX concept that
+// throws on Windows, so a timed-out command was never actually killed there.
+import { killTree } from '../../port-utils';
 
 const STDOUT_CAP = 4_000;
 const STDERR_CAP = 4_000;
@@ -127,6 +130,7 @@ export function runShellProcess(
         env: opts.env,
         detached: true, // own process group → we can kill(-pid) the whole tree
         stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true, // no console-window flash on the user's desktop
       });
     } catch (e: unknown) {
       resolveRun({
@@ -144,19 +148,11 @@ export function runShellProcess(
     let settled = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      // SIGTERM the whole group; escalate to SIGKILL shortly after.
-      try {
-        if (child.pid) process.kill(-child.pid, 'SIGTERM');
-      } catch {
-        /* group already gone */
-      }
-      setTimeout(() => {
-        try {
-          if (child.pid) process.kill(-child.pid, 'SIGKILL');
-        } catch {
-          /* group already gone */
-        }
-      }, 4000);
+      // Kill the whole tree: on Windows kill(-pid) throws and NOTHING dies
+      // (taskkill /T /F is the only reliable group kill there); on Unix the
+      // group signal fires exactly as before.
+      killTree(child.pid);
+      setTimeout(() => killTree(child.pid, true), 4000);
     }, opts.timeoutMs);
     const finish = (r: ShellResult) => {
       if (settled) return;

@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
+import { existsSync, openSync, cpSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { db } from '@/lib/db';
 import { requireApprovedUser } from '@/lib/auth';
+import { getPidOnPort } from '@/lib/process-manager';
+import { killTree } from '@/lib/port-utils';
 
 const execAsync = promisify(exec);
 
@@ -54,32 +59,23 @@ export async function POST(req: NextRequest) {
     // For Next.js projects: build = "bun run build", start = cmd
     // For non-Next.js: just restart using the cmd
 
-    // Kill existing process on the port
+    // Kill existing process on the port — cross-platform (lsof is Unix-only;
+    // on Windows getPidOnPort resolves the owner via netstat and killTree
+    // uses taskkill /T /F so `next dev` workers die with their parent).
     try {
-      const { stdout: pids } = await execAsync(`lsof -ti :${prodEnv.port}`, {
-        env: buildEnv(),
-      });
-      if (pids.trim()) {
-        for (const pid of pids.trim().split('\n')) {
-          try { process.kill(parseInt(pid), 'SIGTERM'); } catch {}
-        }
+      const pid = await getPidOnPort(prodEnv.port);
+      if (pid) {
+        killTree(pid);
         await new Promise(resolve => setTimeout(resolve, 2000));
-        try {
-          await execAsync(`kill -9 ${pids.trim().split('\n').join(' ')}`, {
-            env: buildEnv(),
-          });
-        } catch {}
       }
     } catch {
       // Port not in use
     }
 
     // Check if it's a Next.js project (has next.config)
-    const isNextJs = await execAsync(`test -f ${projectDir}/next.config.js || test -f ${projectDir}/next.config.mjs || test -f ${projectDir}/next.config.ts`, {
-      env: buildEnv(),
-    })
-      .then(() => true)
-      .catch(() => false);
+    const isNextJs = ['next.config.js', 'next.config.mjs', 'next.config.ts'].some(
+      (f) => existsSync(join(projectDir, f)),
+    );
 
     if (isNextJs) {
       // Build Next.js project
@@ -92,52 +88,39 @@ export async function POST(req: NextRequest) {
       console.log('[RebuildProject] Build output:', buildOut);
       if (buildErr) console.log('[RebuildProject] Build stderr:', buildErr);
 
-      // Copy static assets for standalone mode
-      const standaloneDir = `${projectDir}/.next/standalone`;
-      const hasStandalone = await execAsync(`test -d ${standaloneDir}`, {
-        env: buildEnv(),
-      })
-        .then(() => true)
-        .catch(() => false);
+      // Copy static assets for standalone mode — fs.cpSync is cross-platform
+      // (the previous `cp -r` shell call does not exist on Windows).
+      const standaloneDir = join(projectDir, '.next', 'standalone');
+      const hasStandalone = existsSync(standaloneDir);
 
       if (hasStandalone) {
-        await execAsync(`cp -r ${projectDir}/.next/static ${standaloneDir}/.next/`, {
-          env: buildEnv(),
-        });
         try {
-          await execAsync(`cp -r ${projectDir}/public ${standaloneDir}/`, {
-            env: buildEnv(),
-          });
-        } catch {}
+          cpSync(join(projectDir, '.next', 'static'), join(standaloneDir, '.next', 'static'), { recursive: true });
+        } catch { /* static dir optional */ }
+        try {
+          cpSync(join(projectDir, 'public'), join(standaloneDir, 'public'), { recursive: true });
+        } catch { /* public dir optional */ }
 
-        // Start from standalone
+        // Start from standalone — detached spawn with env passed explicitly
+        // (no `sh -c 'KEY=v node server.js &'` — that syntax is POSIX-only).
         let envObj: Record<string, string> = {};
         try { envObj = JSON.parse(prodEnv.envVars || '{}'); } catch { /* ignore */ }
-        const envStr = Object.entries(envObj)
-          .map(([k, v]) => `${k}=${shellQuote(v)}`)
-          .join(' ');
-        const portStr = `PORT=${prodEnv.port}`;
-        const logFile = `/tmp/${project.name.toLowerCase().replace(/\s+/g, '-')}.log`;
-        execAsync(
-          `sh -c 'cd ${shellQuote(standaloneDir)} && ${envStr} ${portStr} NODE_ENV=production node server.js >> ${shellQuote(logFile)} 2>&1 &'`,
-          { env: buildEnv() }
-        );
+        const logFile = rebuildLogPath(project.name);
+        startDetachedLogged({ command: 'node', args: ['server.js'] }, standaloneDir, buildEnv({
+          NODE_ENV: 'production',
+          PORT: String(prodEnv.port),
+          ...envObj,
+        }), logFile);
       } else {
         // Start using the cmd (e.g., "npm run start")
-        const logFile = `/tmp/${project.name.toLowerCase().replace(/\s+/g, '-')}.log`;
-        execAsync(
-          `sh -c 'cd ${shellQuote(projectDir)} && ${cmd} >> ${shellQuote(logFile)} 2>&1 &'`,
-          { env: buildEnv() }
-        );
+        const logFile = rebuildLogPath(project.name);
+        startDetachedLogged({ shellCmd: cmd }, projectDir, buildEnv(), logFile);
       }
     } else {
       // Non-Next.js: just restart using the cmd
       console.log(`[RebuildProject] Restarting ${project.name}...`);
-      const logFile = `/tmp/${project.name.toLowerCase().replace(/\s+/g, '-')}.log`;
-      execAsync(
-        `sh -c 'cd ${shellQuote(projectDir)} && ${cmd} >> ${shellQuote(logFile)} 2>&1 &'`,
-        { env: buildEnv() }
-      );
+      const logFile = rebuildLogPath(project.name);
+      startDetachedLogged({ shellCmd: cmd }, projectDir, buildEnv(), logFile);
     }
 
     await new Promise(resolve => setTimeout(resolve, 2000));
@@ -149,7 +132,46 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Minimal shell quoting — wraps in single quotes, escapes any embedded single quotes.
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
+// Log file for the rebuilt service — os.tmpdir() so it also works on Windows.
+function rebuildLogPath(projectName: string): string {
+  return join(tmpdir(), `${projectName.toLowerCase().replace(/\s+/g, '-')}.log`);
+}
+
+/** Fire-and-forget detached start with stdout/stderr appended to a log file.
+ *  Replaces the previous `sh -c 'cd … && cmd >> log 2>&1 &'` — POSIX-only
+ *  syntax that failed with ENOENT on Windows. `shellCmd` runs through the
+ *  platform shell; `command`+`args` spawn directly (no shell quoting at all). */
+function startDetachedLogged(
+  target: { shellCmd: string } | { command: string; args?: string[] },
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  logFile: string,
+): void {
+  try {
+    const out = openSync(logFile, 'a');
+    const err = openSync(logFile, 'a');
+    const child =
+      'shellCmd' in target
+        ? spawn(target.shellCmd, {
+            shell: true,
+            cwd,
+            env,
+            detached: true,
+            stdio: ['ignore', out, err],
+            windowsHide: true,
+          })
+        : spawn(target.command, target.args ?? [], {
+            cwd,
+            env,
+            detached: true,
+            stdio: ['ignore', out, err],
+            windowsHide: true,
+          });
+    child.on('error', () => {
+      /* logged via the log file / route error path */
+    });
+    child.unref();
+  } catch (e: unknown) {
+    console.error('[RebuildProject] detached start failed:', e);
+  }
 }

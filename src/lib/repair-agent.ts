@@ -8,7 +8,7 @@
  *
  *   ┌─ loop (max job.maxRounds steps) ──────────────────────────────┐
  *   │ LLM replies ONE JSON action → system executes the matching    │
- *   │ tool (inspect / probe / test / patch / update_env /           │
+ *   │ tool (inspect / probe / clean / test / patch / update_env /   │
  *   │ run_retry / finish) → result is fed back as the next message  │
  *   └───────────────────────────────────────────────────────────────┘
  *
@@ -26,8 +26,20 @@
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
-import { join, resolve, isAbsolute, relative, dirname } from 'path';
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, rmSync } from 'fs';
+import { join, resolve, isAbsolute, relative, dirname, sep } from 'path';
+// Cross-platform port/process primitives — the Unix-only lsof/ss/ps calls
+// made the agent blind AND unable to ever verify a fix on Windows (the
+// run_retry health poll always answered "not listening").
+import {
+  IS_WINDOWS,
+  findPidsOnPortWindows,
+  windowsTaskList,
+  netstatListeningWindows,
+  parseNetstatRow,
+  processCommandLines,
+  formatBytes,
+} from '@/lib/port-utils';
 import { db } from '@/lib/db';
 import { startProcess, stopProcess, checkPortStatus, getLogs } from '@/lib/process-manager';
 import { callLLM, extractJson, type LlmMessage } from '@/lib/llm-providers';
@@ -56,7 +68,7 @@ export interface AgentOutcome {
   error?: string;
 }
 
-const TOOL_NAMES = ['inspect', 'probe', 'test', 'patch', 'update_env', 'run_retry', 'finish'] as const;
+const TOOL_NAMES = ['inspect', 'probe', 'clean', 'test', 'patch', 'update_env', 'run_retry', 'finish'] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 
 type ParsedTurn =
@@ -114,7 +126,18 @@ export interface PortFacts {
   httpErr?: string;
 }
 
-async function lsofLines(port: number): Promise<string> {
+/** Owner detail for a listening port: lsof/ss rows (Unix) or pid+image via
+ *  netstat+tasklist (Windows). '' when nothing is listening / no tools. */
+async function portDetailLines(port: number): Promise<string> {
+  if (IS_WINDOWS) {
+    const pids = await findPidsOnPortWindows(port);
+    if (pids.length === 0) return '';
+    const tasks = await windowsTaskList();
+    return pids
+      .slice(0, 4)
+      .map((p) => `netstat: pid ${p} (${tasks.get(p) || 'image unknown'}) LISTENING on ${port}`)
+      .join('\n');
+  }
   try {
     const { stdout } = await execp(`lsof -iTCP:${port} -sTCP:LISTEN -n -P 2>/dev/null`, { timeout: 8000 });
     const s = (stdout || '').trim();
@@ -144,7 +167,7 @@ async function httpCheck(port: number, path: string, timeoutMs = 2500): Promise<
 
 /** Probe a port: listening state, owning process, and a quick HTTP check. */
 export async function probePort(port: number, doHttp = true): Promise<PortFacts> {
-  const detail = await lsofLines(port);
+  const detail = await portDetailLines(port);
   let http = false;
   let httpStatus: number | undefined;
   let httpErr: string | undefined;
@@ -183,25 +206,34 @@ async function waitForPort(port: number, totalMs: number): Promise<PortFacts> {
   return facts;
 }
 
-/** `ps aux` lines whose command line contains `pattern` (filtered in JS — no
- *  shell injection through the pattern). */
+/** Rows from the full process listing whose command line contains `pattern`
+ *  (filtered in JS — no shell injection). Cross-platform: `ps aux` on Unix,
+ *  wmic/PowerShell command lines on Windows. */
 async function psGrep(pattern: string, maxLines = 15): Promise<string[]> {
   const p = String(pattern || '').trim();
   if (!p || p.length > 200) return [];
-  try {
-    const { stdout } = await execp('ps aux', { timeout: 8000, maxBuffer: 4 * 1024 * 1024 });
-    const lower = p.toLowerCase();
-    return stdout
-      .split('\n')
-      .filter((l) => l.toLowerCase().includes(lower))
-      .slice(0, maxLines)
-      .map((l) => l.slice(0, 200));
-  } catch {
-    return [];
-  }
+  const rows = await processCommandLines(400);
+  const lower = p.toLowerCase();
+  return rows
+    .filter((l) => l.toLowerCase().includes(lower))
+    .slice(0, maxLines)
+    .map((l) => l.slice(0, 200));
 }
 
+/** All listening TCP ports with owner info — ss (Unix) / netstat+tasklist
+ *  (Windows). '' when no tool output is available. */
 async function listeningLines(): Promise<string> {
+  if (IS_WINDOWS) {
+    const rows = (await netstatListeningWindows()).split('\n').filter(Boolean).slice(0, 45);
+    if (rows.length === 0) return '';
+    const tasks = await windowsTaskList();
+    return rows
+      .map((r) => {
+        const m = parseNetstatRow(r);
+        return m ? `${r}  [${tasks.get(m.pid) || 'pid ' + m.pid}]`.slice(0, 160) : r.slice(0, 160);
+      })
+      .join('\n');
+  }
   try {
     const { stdout } = await execp('ss -tlnp 2>/dev/null', { timeout: 8000, maxBuffer: 2 * 1024 * 1024 });
     return stdout
@@ -319,12 +351,25 @@ async function loadEnvSnapshot(job: RepairJob): Promise<EnvSnapshot | null> {
 
 // ============================= prompt =============================
 
+/** Platform descriptor injected into every prompt — the LLM cannot pick the
+ *  right commands (rm vs del, ps vs tasklist) without knowing the OS, and
+ *  Windows lacks the entire Unix userland the old prompt assumed. */
+function platformDesc(): string {
+  if (IS_WINDOWS) {
+    return 'Windows (win32); the shell is cmd.exe. Unix commands (rm, ls, cat, head, tail, grep, find, ps, lsof, ss, sed, sh) DO NOT EXIST here — shell proposals using them fail with "不是内部或外部命令". Use the dashboard tools instead: inspect (read/list/find files), clean (delete files/dirs), probe (ports/processes). If a shell command is truly needed, use Windows built-ins only: dir, type, tasklist, netstat -ano, findstr.';
+  }
+  if (process.platform === 'darwin') return 'macOS (darwin); BSD userland — lsof is available, ss is not.';
+  return 'Linux (GNU userland).';
+}
+
 function agentSystemPrompt(kind: RepairKind): string {
   const retryDesc =
     kind === 'rebuild'
       ? 'runs the production build (npm run build), then restarts the process and VERIFIES health by polling the port; returns the outcome plus fresh logs'
       : 'restarts the process and VERIFIES health by polling the port; returns the outcome plus fresh logs';
   return `You are a senior DevOps repair agent. You are repairing a project environment that failed to start or build. You work in a TOOL LOOP: every turn you reply with exactly ONE JSON action; the system executes it and sends you the result as the next user message. Keep acting until the environment is verifiably healthy, or the problem is proven unfixable.
+
+Platform: ${platformDesc()}
 
 Reply format — ONLY this JSON object, no markdown fences, no prose:
 {"thought":"简短中文说明（展示给用户）","action":"<tool>","<tool arguments>": ...}
@@ -334,6 +379,8 @@ Available actions:
     read: file content (head or tail 4000 chars; binary detected; secret files like .env/*.key/*.db are refused). list: directory entries (dotfiles included). find: recursive search by name substring (node_modules/.git skipped).
 - {"action":"probe","port":4000,"ps":"node","listen":true}
     port: LISTENING? which pid/command owns it? quick HTTP check on / and /health. ps: process search — the query may only contain letters/digits/dot/dash/underscore (a single word like "node" or "server.js"). listen: all listening TCP ports with owning processes. You may combine several fields in one call.
+- {"action":"clean","path":"relative/path"}
+    Removes a file or whole directory tree INSIDE the project via the dashboard's own file API — cross-platform (no shell needed, works on Windows). Build-artifact paths (.next, node_modules/.cache, dist, build, out, .cache, coverage, .turbo, …) run WITHOUT approval; anything else requires one human approval. ALWAYS prefer clean over rm/del/rmdir shell commands.
 - {"action":"test","cmd":"shell command","timeoutSec":20}
     Runs a short diagnostic command in the project directory (cwd = project root). Returns exit code + stdout/stderr tails. Non-zero exit is DATA, not a failure of the loop.
 - {"action":"patch","file":"relative/path","search":"exact existing text","replace":"replacement","all":false}
@@ -347,15 +394,16 @@ Available actions:
 
 Non-negotiable rules:
 1. VERIFY BEFORE YOU ASSERT. Never claim a file exists or is missing without inspect. Never claim a process is or is not running without probe. Never claim a command works without test. A wrong guess wastes a whole repair step.
-2. The failure report you were given can be WRONG or stale — e.g. "start failed" while the service actually runs fine (started outside the dashboard, port already serving). When the error mentions a port or is unclear, probe that port FIRST.
-3. NEVER run \`npm run build\` / \`next build\` while a dev server may be holding the build directory: first inspect .next/dev/lock and probe for dev-server processes. Building with a held lock DEADLOCKS (hangs for minutes with zero output). If a build under \`test\` times out, suspect exactly this deadlock.
-4. Transient build-time warnings (symlink notices, deprecation notes) are usually NOT the root cause. Follow the actual error text.
-5. Be minimal: prefer one precise patch or update_env over broad commands. After changing anything, call run_retry to verify, and iterate on its feedback (it returns fresh logs).
-6. If the server listens on a different port than configured: probe with "listen":true, update_env the correct port, then run_retry.
-7. Destructive commands (rm -rf …) go through a human approval gate — propose them ONLY when genuinely necessary. Never use sudo or cd.
-8. Never use or suggest port 3000 — it is the dashboard's own port.
-9. EACCES/EPERM in a tool result means the file/dir is read-only or owned by another user. Options: propose "chmod u+w <file>" via the test tool (it goes through the human approval gate), or finish and tell the user to fix ownership manually (chmod/chown). Never claim success while a write failed, and never propose sudo.
-10. Exactly one action per reply. JSON only, no fences. "thought" is shown to the user — keep it one short Chinese sentence.`;
+2. The failure report you were given can be WRONG or stale — e.g. "start failed" while the service actually runs fine (started outside the dashboard, port already serving). When the error mentions a port or is unclear, probe that port FIRST. Log files found INSIDE the project directory (dev.out.log, dev.err.log, npm-debug.log, …) may be STALE leftovers from earlier manual runs — cross-check with probe before trusting any port or "Ready" line they mention.
+3. Turbopack / Next.js build-state corruption: errors like "panicked at … turbo-persistence", "static_sorted_file.rs", or "⚠ Turbopack's filesystem cache has been deleted because we previously detected an internal error in Turbopack" mean the persistent build cache is CORRUPT. Deleting only .next/dev/lock is NOT enough — call {"action":"clean","path":".next"} to remove the whole .next directory, then run_retry (first boot rebuilds from scratch and may be slower). The same recipe applies to other corrupted build caches (dist/build/.vite/.turbo).
+4. NEVER run \`npm run build\` / \`next build\` while a dev server may be holding the build directory: first inspect .next/dev/lock and probe for dev-server processes. Building with a held lock DEADLOCKS (hangs for minutes with zero output). If a build under \`test\` times out, suspect exactly this deadlock.
+5. Transient build-time warnings (symlink notices, deprecation notes) are usually NOT the root cause. Follow the actual error text.
+6. Be minimal: prefer one precise patch or update_env over broad commands. After changing anything, call run_retry to verify, and iterate on its feedback (it returns fresh logs).
+7. If the server listens on a different port than configured: probe with "listen":true, update_env the correct port, then run_retry.
+8. Destructive shell commands (rm -rf …, rmdir /s …) go through a human approval gate AND don't exist on every platform — use the clean tool instead (it handles approval itself for non-artifact paths). Never use sudo or cd.
+9. Never use or suggest port 3000 — it is the dashboard's own port.
+10. EACCES/EPERM in a tool result means the file/dir is read-only, owned by another user, or LOCKED by a running process (Windows: open handles cannot be deleted). For locked build dirs: stop the process first (run_retry's start path does that), then clean again. Otherwise: propose "chmod u+w <file>" via the test tool (it goes through the human approval gate), or finish and tell the user to fix ownership manually. Never claim success while a write failed, and never propose sudo.
+11. Exactly one action per reply. JSON only, no fences. "thought" is shown to the user — keep it one short Chinese sentence.`;
 }
 
 /** Cheap facts gathered before the first LLM turn so its first decision is
@@ -363,6 +411,7 @@ Non-negotiable rules:
  *  fresh logs. Directly answers the "phantom failure" class of incidents. */
 async function preflight(snap: EnvSnapshot): Promise<string> {
   const lines: string[] = [];
+  lines.push(`- platform: ${process.platform}${IS_WINDOWS ? ' (Windows — probes use netstat/tasklist)' : ''}`);
   const pf = await probePort(snap.port);
   const firstDetail = pf.detail ? ` — owner: ${pf.detail.split('\n')[0].slice(0, 160)}` : '';
   lines.push(
@@ -386,6 +435,7 @@ function buildContextMessage(snap: EnvSnapshot, opts: StartRepairOptions, pre: s
   return `A project environment failed and needs repair. Investigate with the tools, fix it, and verify with run_retry.
 
 Project: ${snap.projectName} (at ${snap.projectPath})
+Platform: ${platformDesc()}
 Environment: ${snap.envName} (port ${snap.port})
 Current start command: ${snap.cmd}
 Current envVars: ${JSON.stringify(snap.envVars)}
@@ -454,6 +504,9 @@ function validateArgs(action: ToolName, o: any): string | null {
       return null;
     case 'probe':
       if (o.port == null && !o.ps && o.listen !== true) return 'probe requires at least one of: "port" (number), "ps" (string), "listen" (true)';
+      return null;
+    case 'clean':
+      if (typeof o.path !== 'string' || !o.path.trim()) return 'clean requires "path" (relative path inside the project, e.g. ".next")';
       return null;
     case 'test':
       if (typeof o.cmd !== 'string' || !o.cmd.trim()) return 'test requires "cmd" (shell command string, cwd is the project directory)';
@@ -717,6 +770,124 @@ async function toolUpdateEnv(args: Record<string, any>, snap: EnvSnapshot): Prom
   return `environment updated: ${notes.join('; ')}`;
 }
 
+// ============================= clean tool =============================
+
+/** Build-artifact directories whose removal is auto-approved for the clean
+ *  tool — regenerable state, never source. Anything else needs a human click.
+ *  Normalized to forward slashes for cross-platform comparison. */
+const CLEAN_WHITELIST = [
+  '.next',
+  'node_modules/.cache',
+  'node_modules/.vite',
+  'node_modules/.prisma',
+  'node_modules/.temp',
+  'dist',
+  'build',
+  'out',
+  '.turbo',
+  '.cache',
+  '.parcel-cache',
+  '.nuxt',
+  '.output',
+  '.vite',
+  'coverage',
+  'tmp',
+  '.tmp',
+  '.eslintcache',
+];
+
+function isAutoCleanTarget(root: string, abs: string): boolean {
+  const rel = relative(root, abs);
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return false;
+  const norm = rel.split(sep).join('/');
+  return CLEAN_WHITELIST.some((w) => norm === w || norm.startsWith(w + '/'));
+}
+
+/** Count files + total bytes under a path (bounded walk — never hangs on
+ *  huge node_modules, reports capped=true when the walk was cut short). */
+function treeStats(absPath: string): { files: number; bytes: number; capped: boolean } {
+  let files = 0;
+  let bytes = 0;
+  let steps = 0;
+  const stack: string[] = [absPath];
+  const LIMIT = 25_000;
+  while (stack.length && steps < LIMIT) {
+    steps++;
+    const cur = stack.pop()!;
+    let st;
+    try {
+      st = statSync(cur);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) {
+      try {
+        for (const e of readdirSync(cur)) stack.push(join(cur, e));
+      } catch {
+        /* unreadable subdirectory — skip */
+      }
+    } else {
+      files++;
+      bytes += st.size;
+    }
+  }
+  return { files, bytes, capped: steps >= LIMIT };
+}
+
+/** Remove a file or directory tree inside the project — the cross-platform
+ *  answer to "rm -rf / del / rmdir" (fs.rmSync needs no shell, so it works
+ *  identically on Windows). Build artifacts are auto-approved; anything else
+ *  goes through the same human gate as dangerous shell commands. */
+async function toolClean(
+  args: Record<string, any>,
+  snap: EnvSnapshot,
+  helpers: AgentHelpers,
+): Promise<string> {
+  const rawPath = String(args.path || '').trim();
+  if (!rawPath) return 'ERROR: clean requires "path".';
+  const root = resolve(snap.projectPath);
+  const abs = safeResolve(snap.projectPath, rawPath);
+  if (!abs) return 'ERROR: path must stay inside the project directory.';
+  if (abs === root) return 'ERROR: refusing to clean the project root itself.';
+  const rel = relative(root, abs).split(sep).join('/');
+  if (rel === 'node_modules') {
+    return 'ERROR: refusing to remove node_modules itself — if it is broken, reinstall instead (test: "npm install" / "bun install").';
+  }
+  if (!existsSync(abs)) return `nothing to do: ${rawPath} does not exist (already clean).`;
+
+  // A running dev server holds .next locks (on Windows, open handles cannot
+  // be deleted at all) — stop the env's own process before removing.
+  if (snap.status === 'running') {
+    helpers.log('info', '停止环境进程以释放文件占用…');
+    await stopProcess(snap.projectId, snap.envName, snap.port);
+  }
+
+  const auto = isAutoCleanTarget(root, abs);
+  if (!auto) {
+    helpers.log('approval', `clean ${rawPath} — 目标不在构建产物白名单内，等待人工确认`);
+    const approved = await helpers.requestApproval(`remove ${rawPath}`);
+    if (!approved) {
+      helpers.log('denied', `clean ${rawPath}`);
+      return 'DENIED: the user declined this deletion. Choose a different approach.';
+    }
+    helpers.log('approved', `clean ${rawPath}`);
+  }
+
+  const stats = treeStats(abs);
+  try {
+    rmSync(abs, { recursive: true, force: true });
+  } catch (e: unknown) {
+    const err = e as NodeJS.ErrnoException | null;
+    const code = err?.code || '';
+    const msg = String(err?.message || e).slice(0, 200);
+    if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES' || code === 'ENOTEMPTY') {
+      return `ERROR: could not remove ${rawPath} (code ${code}): ${msg}. The files are locked by a still-running process (or antivirus on Windows). Probe for processes holding it, stop them, then clean again.`;
+    }
+    return `ERROR: removal of ${rawPath} failed (code ${code || 'UNKNOWN'}): ${msg}`;
+  }
+  return `cleaned ${rawPath}: removed ${stats.files}${stats.capped ? '+' : ''} file(s), ${formatBytes(stats.bytes)}. The next run_retry rebuilds this state from scratch — the first boot may be slower than usual.`;
+}
+
 /** Restart + health-verified retry — the heart of the loop. Success is
  *  defined by the PORT actually listening (polled for up to 25s), not by
  *  startProcess() merely having spawned a child. */
@@ -802,11 +973,24 @@ async function toolRunRetry(
   // 6. Spawned but never listened — clean up the zombie, feed logs back.
   await stopProcess(job.projectId, fresh.name, fresh.port);
   await db.environment.update({ where: { id: fresh.id }, data: { status: 'stopped', pid: null } });
-  const logs = getLogs(job.projectId, fresh.name).slice(-40).join('\n');
+  const logs = getLogs(job.projectId, fresh.name).slice(-40);
+  const logText = logs.join('\n');
+  // If the fresh output advertises a DIFFERENT local port, surface it — the
+  // classic case is a server that ignores the requested port (PORT env,
+  // busy-port auto-increment) and the fix is update_env to the real one.
+  const bannerMatches = logText.match(/Local:\s*https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/gi) || [];
+  let portNote = '';
+  if (bannerMatches.length) {
+    const m = bannerMatches[bannerMatches.length - 1].match(/:(\d+)\s*$/);
+    const reported = m ? Number(m[1]) : 0;
+    if (reported && reported !== fresh.port) {
+      portNote = `\nNOTE: the most recent startup banner advertises "Local: http://localhost:${reported}" — if that line came from THIS attempt, the server picked port ${reported} instead of ${fresh.port}. Probe ${reported}; if it is actually listening there, update_env {"port":${reported}} and run_retry. If the banner is from an older run, ignore this note.`;
+    }
+  }
   return {
     outcome: 'failed',
     error: 'started but the port never listened',
-    message: `RETRY FAILED: the process was spawned (pid ${result.pid}) but port ${fresh.port} never became listening within 25s — the process was stopped again.\nrecent process logs:\n${headTail(logs, 1600) || '(no logs)'}\nHint: if the server actually listens on a DIFFERENT port, use probe with "listen":true to find it, then update_env the correct port and run_retry again.`,
+    message: `RETRY FAILED: the process was spawned (pid ${result.pid}) but port ${fresh.port} never became listening within 25s — the process was stopped again.\nrecent process logs:\n${headTail(logText, 1600) || '(no logs)'}${portNote}\nHint: if the server actually listens on a DIFFERENT port, use probe with "listen":true to find it, then update_env the correct port and run_retry again.`,
   };
 }
 
@@ -959,7 +1143,7 @@ export async function runAgentRepair(job: RepairJob, opts: StartRepairOptions, h
       lastError = r.message;
       messages.push({
         role: 'user',
-        content: `TOOL_RESULT (legacy plan + retry):\n${headTail(r.message, 1800)}\nContinue with proper tool actions (inspect / probe / test / patch / update_env / run_retry) to finish the repair.`,
+        content: `TOOL_RESULT (legacy plan + retry):\n${headTail(r.message, 1800)}\nContinue with proper tool actions (inspect / probe / clean / test / patch / update_env / run_retry) to finish the repair.`,
       });
       continue;
     }
@@ -990,6 +1174,14 @@ export async function runAgentRepair(job: RepairJob, opts: StartRepairOptions, h
         messages.push({ role: 'user', content: `TOOL_RESULT (probe):\n${headTail(r, 2000)}` });
         break;
       }
+      case 'clean': {
+        // toolClean logs approval/denial itself (same human gate as test).
+        log('tool', `clean ${String(args.path || '')}`);
+        const r = await toolClean(args, snap, helpers);
+        log(r.startsWith('ERROR') || r.startsWith('DENIED') ? 'error' : 'success', headTail(r, 300));
+        messages.push({ role: 'user', content: `TOOL_RESULT (clean):\n${headTail(r, 900)}` });
+        break;
+      }
       case 'test': {
         // toolTest logs the command / approval / output itself.
         const r = await toolTest(args, snap, helpers);
@@ -1017,7 +1209,7 @@ export async function runAgentRepair(job: RepairJob, opts: StartRepairOptions, h
         lastError = r.error || r.message;
         messages.push({
           role: 'user',
-          content: `TOOL_RESULT (run_retry):\n${headTail(r.message, 2000)}\nAnalyze the logs above and continue (inspect / probe / test / patch / update_env), or call finish with giveUp:true if truly unfixable.`,
+          content: `TOOL_RESULT (run_retry):\n${headTail(r.message, 2000)}\nAnalyze the logs above and continue (inspect / probe / clean / test / patch / update_env), or call finish with giveUp:true if truly unfixable.`,
         });
         break;
       }

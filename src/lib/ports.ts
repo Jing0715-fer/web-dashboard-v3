@@ -26,6 +26,16 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { readFileSync, readlinkSync } from 'fs';
+// Cross-platform primitives — ss/lsof/ps do not exist on Windows, which left
+// the Ports panel empty there; netstat+tasklist provide the same facts.
+import {
+  IS_WINDOWS,
+  netstatListeningWindows,
+  parseNetstatRow,
+  windowsTaskList,
+  processCommandLines,
+  killTree,
+} from '@/lib/port-utils';
 
 const execp = promisify(exec);
 
@@ -165,6 +175,13 @@ function parseLsof(stdout: string): RawListener[] {
 
 /** Full command line for a pid ('' when unavailable). */
 async function pidCommand(pid: number): Promise<string> {
+  // Windows has no `ps` — the command line comes from the shared wmic/
+  // PowerShell listing (processCommandLines).
+  if (IS_WINDOWS) {
+    const rows = await processCommandLines(600);
+    const hit = rows.find((l) => l.startsWith(`${pid} `));
+    return hit ? hit.slice(String(pid).length + 1).slice(0, 300) : '';
+  }
   try {
     const { stdout } = await execp(`ps -p ${pid} -o args= 2>/dev/null`, { timeout: 4000 });
     return (stdout || '').trim().slice(0, 300);
@@ -186,18 +203,30 @@ function pidCwd(pid: number): string {
 /** List ALL listening TCP ports with owning process info. */
 export async function listListeningPorts(): Promise<PortEntry[]> {
   let raw: RawListener[] = [];
-  try {
-    const { stdout } = await execp('ss -tlnp 2>/dev/null', { timeout: 6000, maxBuffer: 4 * 1024 * 1024 });
-    raw = parseSsLines(stdout);
-  } catch {
-    /* fall through to lsof */
-  }
-  if (raw.length === 0) {
+  if (IS_WINDOWS) {
+    // netstat -ano rows + tasklist image names ("TCP  0.0.0.0:3102 … LISTENING  1234").
+    const rows = (await netstatListeningWindows()).split('\n').filter(Boolean);
+    if (rows.length) {
+      const tasks = await windowsTaskList();
+      for (const row of rows) {
+        const parsed = parseNetstatRow(row);
+        if (parsed) raw.push({ port: parsed.port, pid: parsed.pid, name: tasks.get(parsed.pid) || '' });
+      }
+    }
+  } else {
     try {
-      const { stdout } = await execp('lsof -iTCP -sTCP:LISTEN -n -P 2>/dev/null', { timeout: 6000, maxBuffer: 4 * 1024 * 1024 });
-      raw = parseLsof(stdout);
+      const { stdout } = await execp('ss -tlnp 2>/dev/null', { timeout: 6000, maxBuffer: 4 * 1024 * 1024 });
+      raw = parseSsLines(stdout);
     } catch {
-      /* no tools — return empty */
+      /* fall through to lsof */
+    }
+    if (raw.length === 0) {
+      try {
+        const { stdout } = await execp('lsof -iTCP -sTCP:LISTEN -n -P 2>/dev/null', { timeout: 6000, maxBuffer: 4 * 1024 * 1024 });
+        raw = parseLsof(stdout);
+      } catch {
+        /* no tools — return empty */
+      }
     }
   }
 
@@ -207,14 +236,23 @@ export async function listListeningPorts(): Promise<PortEntry[]> {
   const pids = [...new Set(raw.map((r) => r.pid).filter((p): p is number => p != null))];
   const cmdByPid = new Map<number, string>();
   if (pids.length) {
-    try {
-      const { stdout } = await execp(`ps -o pid=,args= -p ${pids.join(',')} 2>/dev/null`, { timeout: 5000, maxBuffer: 4 * 1024 * 1024 });
-      for (const line of stdout.split('\n')) {
-        const m = line.trim().match(/^(\d+)\s+(.*)$/);
+    if (IS_WINDOWS) {
+      // wmic / PowerShell rows: "1234 C:\…\bun.exe next dev -p 3102"
+      const rows = await processCommandLines(600);
+      for (const line of rows) {
+        const m = line.match(/^(\d+)\s+(.*)$/);
         if (m) cmdByPid.set(parseInt(m[1], 10), m[2].slice(0, 300));
       }
-    } catch {
-      /* leave map empty — commands show as '' */
+    } else {
+      try {
+        const { stdout } = await execp(`ps -o pid=,args= -p ${pids.join(',')} 2>/dev/null`, { timeout: 5000, maxBuffer: 4 * 1024 * 1024 });
+        for (const line of stdout.split('\n')) {
+          const m = line.trim().match(/^(\d+)\s+(.*)$/);
+          if (m) cmdByPid.set(parseInt(m[1], 10), m[2].slice(0, 300));
+        }
+      } catch {
+        /* leave map empty — commands show as '' */
+      }
     }
   }
 
@@ -261,6 +299,17 @@ export async function killProcessByPid(pid: number): Promise<KillResult> {
   }
   if (!pidAlive(pid)) {
     return { success: true }; // already gone — idempotent
+  }
+  if (IS_WINDOWS) {
+    // No POSIX signals here: TerminateProcess via killTree (taskkill /T /F)
+    // also reaps the child tree, which a bare process.kill would leave alive
+    // holding the port.
+    killTree(pid);
+    for (let i = 0; i < 12; i++) {
+      await sleep(250);
+      if (!pidAlive(pid)) return { success: true };
+    }
+    return { success: false, error: `pid ${pid} survived taskkill (may be a service or owned by another user)` };
   }
   try {
     process.kill(pid, 'SIGTERM');

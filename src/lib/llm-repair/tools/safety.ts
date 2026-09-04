@@ -34,6 +34,13 @@ export const SAFE_REPAIR_PREFIXES = [
   // itself without burning a human-approval round-trip.
   'ls', 'cat', 'head', 'tail', 'grep', 'find', 'stat', 'file', 'wc', 'du',
   'ps', 'lsof', 'ss', 'which', 'whoami', 'id', 'uname', 'date', 'printenv',
+  // Windows read-only built-ins (the agent prompt steers Windows repairs to
+  // the inspect/probe/clean tools, but dir/tasklist/netstat still help when
+  // the LLM genuinely needs a shell fact — none of these can mutate state).
+  'dir', 'type', 'tasklist', 'netstat', 'findstr', 'where',
+  // NOTE: del / rmdir / rd stay OUT of the allowlist on purpose — deleting
+  // via shell should pass the human-approval gate; the cross-platform
+  // `clean` tool is the preferred path (auto-approved for build artifacts).
 ];
 
 // ---- start-command allowlist (update_env) ------------------------------

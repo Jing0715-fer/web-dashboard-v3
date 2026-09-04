@@ -1,8 +1,12 @@
 import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { mkdirSync, existsSync, readFileSync, appendFileSync, writeFileSync, statSync, readdirSync, readFileSync as readFile } from 'fs';
-import { join } from 'path';
-import { homedir } from 'os';
+import { join, delimiter as PATH_DELIMITER } from 'path';
+import { homedir, tmpdir } from 'os';
+// Cross-platform primitives — TCP-connect port truth, netstat/tasklist
+// parsing, tree kills. On Windows lsof/ss/ps/kill(-pid) do not exist, and the
+// previous Unix-only checks made every Start fail its 30s health verification.
+import { IS_WINDOWS, tcpPortOpen, findPidsOnPortWindows, netstatListeningWindows, killTree } from '@/lib/port-utils';
 
 const execp = promisify(exec);
 
@@ -14,8 +18,10 @@ const globalForProcesses = globalThis as unknown as { __dashboardProcesses?: Map
 const processes: Map<string, ChildProcess> = globalForProcesses.__dashboardProcesses ?? new Map();
 globalForProcesses.__dashboardProcesses = processes;
 
-// Log directory
-const LOG_DIR = '/tmp/web-dashboard-logs';
+// Log directory — os.tmpdir() so logs also work on Windows (a literal /tmp
+// would silently land on the current drive's root there). On Linux this is
+// still /tmp/web-dashboard-logs.
+const LOG_DIR = join(tmpdir(), 'web-dashboard-logs');
 const MAX_LOG_SIZE = 1024 * 1024; // 1MB max log file size
 
 // Reserved ports that MUST NOT be killed by stopProcess / restartProcess
@@ -88,10 +94,27 @@ function isValidPort(port: number): boolean {
 }
 
 /**
- * Check if a port is currently in use (listening)
+ * Check if a port is currently in use (listening).
+ *
+ * Ground truth is a raw TCP connect — works on every OS with no external
+ * tools (the previous lsof+ss-only implementation always answered "free" on
+ * Windows, so startProcess could NEVER verify startup and killed healthy
+ * servers after the timeout). OS-specific listings are only a fallback to
+ * catch listeners bound to a non-loopback address exclusively.
  */
 export async function checkPortStatus(port: number): Promise<boolean> {
   if (!isValidPort(port)) return false;
+  // 1. Universal: something accepted a connection on loopback.
+  if (await tcpPortOpen(port)) return true;
+  // 2. Platform listing fallback (non-loopback-only listeners).
+  if (IS_WINDOWS) {
+    const rows = await netstatListeningWindows();
+    if (rows) {
+      const re = new RegExp(`:${port}\\s`);
+      return re.test(rows);
+    }
+    return false;
+  }
   try {
     // Try lsof first
     const { stdout: lsofOut } = await execp(`lsof -iTCP:${port} -sTCP:LISTEN -n -P 2>/dev/null`);
@@ -117,7 +140,19 @@ export async function batchCheckPorts(ports: number[]): Promise<Set<number>> {
   if (validPorts.length === 0) return new Set();
   
   const activePorts = new Set<number>();
-  
+
+  if (IS_WINDOWS) {
+    // netstat -ano rows: TCP  0.0.0.0:3102  0.0.0.0:0  LISTENING  12345
+    const rows = (await netstatListeningWindows()).split('\n').filter(Boolean);
+    for (const row of rows) {
+      const m = row.match(/\S+:(\d+)\s+\S+\s+LISTENING\s+\d+\s*$/);
+      if (!m) continue;
+      const p = parseInt(m[1], 10);
+      if (validPorts.includes(p)) activePorts.add(p);
+    }
+    return activePorts;
+  }
+
   try {
     // Single ss call to get all listening ports
     const { stdout } = await execp('ss -tlnp 2>/dev/null');
@@ -153,6 +188,13 @@ export async function getPidOnPort(port: number): Promise<number | null> {
   // CRITICAL: never return the dashboard's own PID, regardless of port.
   // This prevents the dashboard from killing itself.
   if (RESERVED_PORTS.has(port)) return null;
+
+  // Windows: netstat -ano carries the owning PID on every LISTENING row.
+  if (IS_WINDOWS) {
+    const pids = await findPidsOnPortWindows(port);
+    const pid = pids.find((p) => p !== SELF_PID);
+    return pid ?? null;
+  }
 
   // Try lsof first
   try {
@@ -200,7 +242,10 @@ function parseCommand(cmd: string): { useShell: boolean; command: string; args: 
   const needsShell = shellOperators.some(op => cmd.includes(op)) || hasVarSubstitution;
 
   if (needsShell) {
-    return { useShell: true, command: '/bin/sh', args: ['-c', cmd] };
+    // /bin/sh does not exist on Windows — spawning it fails with ENOENT.
+    return IS_WINDOWS
+      ? { useShell: true, command: 'cmd.exe', args: ['/d', '/s', '/c', cmd] }
+      : { useShell: true, command: '/bin/sh', args: ['-c', cmd] };
   }
 
   const parts = cmd.split(' ');
@@ -300,10 +345,11 @@ export async function startProcess(
     return { success: false, error: `Port ${port} is already in use` };
   }
 
-  // Kill any existing tracked process
+  // Kill any existing tracked process (tree kill — on Windows killing only
+  // the parent leaves `next dev` workers alive holding the port).
   const existing = processes.get(key);
   if (existing) {
-    try { existing.kill('SIGTERM'); } catch { /* ignore */ }
+    killTree(existing.pid);
     processes.delete(key);
   }
 
@@ -351,19 +397,28 @@ export async function startProcess(
     // that `npm run dev` / `next dev` can find the project's own binaries.
     // Also ensure global npm/yarn/bun paths are included.
     const projectNodeBin = join(cwd, 'node_modules', '.bin');
-    const globalBinPaths = [
-      join(homedir(), '.local', 'bin'),
-      join(homedir(), '.bun', 'bin'),
-      '/usr/local/bin',
-      '/usr/bin',
-      '/bin',
-    ].filter(existsSync);
+    const globalBinPaths = (
+      IS_WINDOWS
+        ? [
+            join(homedir(), 'AppData', 'Roaming', 'npm'), // npm -g shims
+            join(homedir(), '.bun', 'bin'), // bun + bunx
+          ]
+        : [
+            join(homedir(), '.local', 'bin'),
+            join(homedir(), '.bun', 'bin'),
+            '/usr/local/bin',
+            '/usr/bin',
+            '/bin',
+          ]
+    ).filter(existsSync);
     const pathParts = [
       ...(existsSync(projectNodeBin) ? [projectNodeBin] : []),
       ...globalBinPaths,
       process.env.PATH || '',
     ];
-    env.PATH = pathParts.join(':');
+    // ':' is wrong on Windows (delimiter is ';') — a single malformed entry
+    // made child PATH resolution depend on CreateProcess fallbacks.
+    env.PATH = pathParts.join(PATH_DELIMITER);
 
     // Strip leading VAR=value assignments (e.g. "PORT=4001 npm run dev")
     // and fold them into the child env so argv stays exec-able.
@@ -430,7 +485,9 @@ export async function startProcess(
     // "started" for processes that had already crashed or never bound.
     const VERIFY_TIMEOUT_MS = (() => {
       const n = parseInt(process.env.START_VERIFY_TIMEOUT_MS || '', 10);
-      return Number.isFinite(n) && n > 0 ? n : 30_000;
+      // 45s default: cold boots after a build-cache clean (turbopack rebuilds
+      // from scratch) can easily exceed the old 30s on slower machines.
+      return Number.isFinite(n) && n > 0 ? n : 45_000;
     })();
     const POLL_MS = 750;
     const deadline = Date.now() + VERIFY_TIMEOUT_MS;
@@ -461,8 +518,9 @@ export async function startProcess(
           : `Port ${port} did not become active within ${elapsed}s — the process is running but not listening on it. It may still be compiling/building; check the logs and retry later.`;
         appendLog(key, `[${new Date().toISOString()}] [FAIL] ${reason}`);
         // Kill the half-started process so a retry (manual or LLM repair) does
-        // not race a zombie that may grab the port a minute later.
-        try { child.kill('SIGTERM'); } catch { /* already gone */ }
+        // not race a zombie that may grab the port a minute later. Tree kill:
+        // on Windows a bare SIGTERM leaves `next dev` workers holding the port.
+        killTree(child.pid);
         return { success: false, error: reason };
       }
 
@@ -497,27 +555,20 @@ export async function stopProcess(
   
   const key = getLogKey(projectId, envName);
 
-  // Try to kill via tracked process first
+  // Try to kill via tracked process first (tree kill — see killTree for why
+  // a bare SIGTERM is not enough on Windows).
   const child = processes.get(key);
   if (child && child.pid) {
-    try {
-      process.kill(child.pid, 'SIGTERM');
-      appendLog(key, `[${new Date().toISOString()}] Sent SIGTERM to tracked process ${child.pid}`);
-    } catch {
-      // Process might already be dead
-    }
+    killTree(child.pid);
+    appendLog(key, `[${new Date().toISOString()}] Killing tracked process tree ${child.pid}`);
     processes.delete(key);
   }
 
   // Also try to kill via port
   const pid = await getPidOnPort(port);
   if (pid) {
-    try {
-      process.kill(pid, 'SIGTERM');
-      appendLog(key, `[${new Date().toISOString()}] Sent SIGTERM to process ${pid} on port ${port}`);
-    } catch {
-      // Process might already be dead
-    }
+    killTree(pid);
+    appendLog(key, `[${new Date().toISOString()}] Killing process tree ${pid} on port ${port}`);
   }
 
   // Wait and verify
@@ -527,12 +578,8 @@ export async function stopProcess(
     // Force kill
     const pid2 = await getPidOnPort(port);
     if (pid2) {
-      try {
-        process.kill(pid2, 'SIGKILL');
-        appendLog(key, `[${new Date().toISOString()}] Force killed process ${pid2}`);
-      } catch {
-        // ignore
-      }
+      killTree(pid2, true);
+      appendLog(key, `[${new Date().toISOString()}] Force killed process tree ${pid2}`);
     }
   }
 

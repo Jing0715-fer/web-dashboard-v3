@@ -27,6 +27,17 @@
 
 import { exec } from 'child_process';
 import { promisify } from 'util';
+// Cross-platform port/process primitives — lsof/ss/ps do not exist on
+// Windows, which left the probe tool blind there ("ss unavailable",
+// "no matching processes" for a server that was actually running).
+import {
+  IS_WINDOWS,
+  findPidsOnPortWindows,
+  windowsTaskList,
+  netstatListeningWindows,
+  parseNetstatRow,
+  processCommandLines,
+} from '../../port-utils';
 
 const execp = promisify(exec);
 
@@ -97,6 +108,20 @@ interface LsofEntry {
 
 async function doLsof(port: number): Promise<ToolResult> {
   if (!isValidPort(port)) return { ok: false, error: `Invalid port: ${port}` };
+  // Windows: no lsof — netstat -ano rows carry the owning PID, tasklist maps
+  // it to an image name ("bun.exe"), which is what the entries shape needs.
+  if (IS_WINDOWS) {
+    const pids = await findPidsOnPortWindows(port);
+    if (pids.length === 0) return { ok: true, data: { port, entries: [] } };
+    const tasks = await windowsTaskList();
+    return {
+      ok: true,
+      data: {
+        port,
+        entries: pids.slice(0, 8).map((pid) => ({ pid, command: tasks.get(pid) || '', user: '', fdType: 'netstat' })),
+      },
+    };
+  }
   // -nP: numeric addresses, no service-name resolution (faster, deterministic)
   // -F pcu: machine-parseable fields: pid, command, user
   // NOTE: lsof exits NON-ZERO when nothing is listening — that is the normal
@@ -141,6 +166,16 @@ async function doListening(ports: number[]): Promise<ToolResult> {
   if (invalid.length > 0) {
     return { ok: false, error: `invalid ports: ${invalid.join(', ')}` };
   }
+  // Windows: one netstat -ano call, LISTENING rows parsed in JS.
+  if (IS_WINDOWS) {
+    const rows = (await netstatListeningWindows()).split('\n').filter(Boolean);
+    const set = new Set<number>();
+    for (const row of rows) {
+      const parsed = parseNetstatRow(row);
+      if (parsed && ports.includes(parsed.port)) set.add(parsed.port);
+    }
+    return { ok: true, data: { requested: ports, listening: ports.filter((p) => set.has(p)) } };
+  }
   // One lsof call, regex matches LISTEN entries for any of the requested ports.
   // Uses grep -E for portable regex across macOS BSD grep and Linux GNU grep.
   // NOTE: grep exits non-zero when NOTHING matches (all requested ports are
@@ -177,6 +212,21 @@ async function doListening(ports: number[]): Promise<ToolResult> {
 async function doPs(query: string): Promise<ToolResult> {
   const validated = validateName(query);
   if (typeof validated !== 'string') return { ok: false, error: validated.error };
+  // Windows: no `ps` — full command lines come from wmic/PowerShell
+  // (see processCommandLines); rows look like "1234 C:\…\bun.exe next dev".
+  if (IS_WINDOWS) {
+    const rows = await processCommandLines(400);
+    const lower = validated.toLowerCase();
+    const processes: { pid: number; ppid: number; command: string }[] = [];
+    for (const line of rows) {
+      if (!line.toLowerCase().includes(lower)) continue;
+      const m = line.match(/^(\d+)\s+(.*)$/);
+      if (!m) continue;
+      processes.push({ pid: Number(m[1]), ppid: 0, command: m[2].slice(0, 200) });
+      if (processes.length >= 40) break;
+    }
+    return { ok: true, data: { query: validated, count: processes.length, processes } };
+  }
   // -axo pid,ppid,command: full table of (pid, parent, command)
   // grep -F: fixed-string match (no regex metachars)
   // Use head -n 40 to bound output (the agent usually only cares about a few rows).
@@ -209,21 +259,18 @@ async function doPidAlive(pid: number): Promise<ToolResult> {
   if (!Number.isInteger(pid) || pid <= 0) {
     return { ok: false, error: `Invalid pid: ${pid}` };
   }
-  // `ps -p <pid> -o pid=` returns the pid on stdout when alive, and exits
-  // non-zero (no output) when the PID is gone. Capture both branches.
-  let stdout = '';
+  // Signal-0 probe via Node itself — works on every platform (the previous
+  // `ps -p` implementation silently answered "dead" for every pid on Windows
+  // because ps does not exist there).
   try {
-    ({ stdout } = await execp(`ps -p ${pid} -o pid= 2>/dev/null`, {
-      timeout: 4_000,
-      maxBuffer: 16 * 1024,
-    }));
-  } catch {
-    // Non-zero exit = PID is gone.
+    process.kill(pid, 0);
+    return { ok: true, data: { pid, alive: true } };
+  } catch (e: unknown) {
+    const code = (e as NodeJS.ErrnoException)?.code;
+    // EPERM: the process exists but belongs to another user — still alive.
+    if (code === 'EPERM') return { ok: true, data: { pid, alive: true } };
     return { ok: true, data: { pid, alive: false } };
   }
-  const trimmed = stdout.trim();
-  const alive = trimmed.length > 0 && Number(trimmed) === pid;
-  return { ok: true, data: { pid, alive } };
 }
 
 // ---- health ------------------------------------------------------------
