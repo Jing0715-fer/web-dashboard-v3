@@ -246,7 +246,7 @@ function buildTask(s: AnalysisSession, feedback?: string): string {
 Steps you MUST complete:
 1. Inspect the project files (package.json, bun.lock, config files, README) to understand the stack, scripts, and how it starts. Also note the tech stack (framework + language + key libraries) — you will use it to write the "description" field.
 2. If dependencies are missing or incomplete, install them with the project's own package manager (bun install / npm install / pip install -r requirements.txt / go mod download etc).
-3. Choose a "dev" startup command and a free port. NEVER use port 3000 (reserved for the dashboard itself)${s.usedPorts.length > 0 ? ` and never use these already-assigned ports: ${usedPorts}` : ''}.
+3. Choose a "dev" startup command and a free port. NEVER use port 3000 (reserved for the dashboard itself) and NEVER use ports 3100-3105 (reserved for the mesh agent service)${s.usedPorts.length > 0 ? ` and never use these already-assigned ports: ${usedPorts}` : ''}.
 4. PRE-FLIGHT CLEANUP before starting any server: if the project has a .next/dev/lock file, a dev server for this project is (or was) already running — read the file, get the owning PID (JSON field "pid"), KILL that process tree first (Windows: taskkill /PID <pid> /T /F, otherwise kill -9 <pid>) and only THEN delete the lock file. NEVER delete .next/dev/lock while its process is still alive: two dev servers sharing one .next directory deadlock and every HTTP request then hangs forever. Also verify the port you chose is actually free.
 5. VERIFY the dev startup command ACTUALLY WORKS: run it in the background and poll the port in a SHORT LOOP (one curl/TCP check per 5-10 seconds, print every result) for up to 240 seconds. On Windows the FIRST compile of "next dev" regularly takes 2-4 minutes — TCP connects but HTTP still hangs means compilation is in progress: KEEP POLLING, do NOT restart the server, do NOT touch .next/dev/lock. Read the process output/log to diagnose real failures.
 6. If it fails, DEBUG: read the error output, fix the problem (install missing packages, adjust the command or the port, fix trivial config issues), and retry. Keep iterating until the service successfully responds on its port.
@@ -459,8 +459,9 @@ function sweepWindowsOrphans(s: AnalysisSession, why: string): Promise<number> {
 }
 
 /** Best-effort cleanup of every live session (used on server shutdown). */
-function cleanupAllSessions() {
+function cleanupAllSessions(): number {
   const rt0 = engineRuntime();
+  let killed = 0;
   for (const s of rt0.sessions.values()) {
     if (s.status === 'running') {
       killTree(s.child?.pid);
@@ -471,8 +472,10 @@ function cleanupAllSessions() {
       s.error = '分析引擎随服务器重启，本次分析被中断';
       pushProgress(s, 'error', s.error);
       persistResult(s);
+      killed++;
     }
   }
+  return killed;
 }
 
 function parseConfigJson(text: string): any | null {
@@ -1199,8 +1202,31 @@ export function ensureEngine(): void {
   const artifactCleanupTimer = setInterval(runArtifactCleanup, 3600_000);
   artifactCleanupTimer.unref?.();
   // Don't leave dsh runs + project servers behind when the server stops.
-  process.on('SIGTERM', () => { cleanupAllSessions(); process.exit(0); });
-  process.on('SIGINT', () => { cleanupAllSessions(); process.exit(0); });
+  // LOUD shutdown: the dashboard used to die SILENTLY on any stray SIGTERM
+  // (process managers, port sweeps, shell cleanup) — the dev log just ended
+  // mid-line with no explanation, which made "server died right after X"
+  // reports undiagnosable. Always say WHY we are going down, and what we
+  // cleaned up, before exiting.
+  const shutdown = (signal: string) => {
+    let cleaned = 0;
+    try {
+      cleaned = cleanupAllSessions();
+    } catch { /* best-effort */ }
+    try {
+      console.error(`[harness] ${signal} received — shutting down dashboard server (killed ${cleaned} tracked child process group(s)). If you did NOT stop the server yourself, find the sender: check taskkill/pkill history, the mesh agent lifecycle (stopAgentOnPort), and any port-sweep scripts.`);
+    } catch { /* ignore */ }
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('uncaughtException', (e) => {
+    console.error('[harness] uncaughtException — dashboard server crashing:', e);
+    try { cleanupAllSessions(); } catch { /* best-effort */ }
+    process.exit(70);
+  });
+  process.on('unhandledRejection', (e) => {
+    console.error('[harness] unhandledRejection (not fatal):', e);
+  });
   console.log(`[harness] in-process engine ready (dsh available: ${existsSync(DSH_BIN)})`);
 }
 

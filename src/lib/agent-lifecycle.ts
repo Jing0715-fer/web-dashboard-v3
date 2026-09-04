@@ -179,6 +179,27 @@ export async function probeAgent(port: number): Promise<boolean> {
 }
 
 /**
+ * Strict health probe: the response must be JSON that positively looks like
+ * OUR mesh agent's health payload. Used when scanning *neighbouring* ports —
+ * a user project that happens to listen there and answers 200 must never be
+ * adopted as "the local agent" (its port would then be targeted by agent
+ * restarts, killing the user's process).
+ */
+async function probeAgentHealthShape(port: number): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/agent/health`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => null);
+    if (!data || typeof data !== 'object') return false;
+    return looksLikeOurAgent(data as Record<string, unknown>);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True when the RUNNING agent on this port predates features the dashboard
  * now depends on:
  *   - `dashboardDb` — co-located dashboard-DB project serving (without it
@@ -192,7 +213,27 @@ export async function probeAgent(port: number): Promise<boolean> {
  * New agents always include ALL markers; a missing field means the process
  * is executing pre-upgrade code — `git pull` hot-reloads the dashboard but
  * NOT the spawned agent process, so it must be respawned.
+ *
+ * POSITIVE IDENTIFICATION GUARD: before any of the markers are even looked
+ * at, the response must look like OUR agent's health payload (status:'ok' +
+ * string name + number uptime + string version). Without this guard, any
+ * *user project* that happens to run on a scanned port (3100-3105) and
+ * answers 200 JSON to /api/agent/health — a Next.js API route, a status
+ * endpoint, any catch-all returning JSON — was misread as "an outdated
+ * agent" and SIGTERMed by stopAgentOnPort. That killed real user processes
+ * that the LLM had legitimately assigned to 310x ports (the usedPorts hint
+ * only excluded 3000 and 3100). Now a foreign 200-JSON response is simply
+ * "not our agent" → no restart, no kill.
  */
+function looksLikeOurAgent(d: Record<string, unknown>): boolean {
+  return (
+    d.status === 'ok' &&
+    typeof d.name === 'string' &&
+    typeof d.uptime === 'number' &&
+    typeof d.version === 'string'
+  );
+}
+
 async function agentOutdated(port: number): Promise<{ outdated: boolean; why: string }> {
   try {
     const res = await fetch(`http://127.0.0.1:${port}/api/agent/health`, {
@@ -202,6 +243,8 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     const data = await res.json().catch(() => null);
     if (!data || typeof data !== 'object') return { outdated: false, why: '' };
     const d = data as Record<string, unknown>;
+    // Foreign process on a scanned port — NOT our agent, never touch it.
+    if (!looksLikeOurAgent(d)) return { outdated: false, why: '' };
     if (!('dashboardDb' in d)) return { outdated: true, why: 'dashboard-DB serving' };
     if (!('pushProjects' in d)) return { outdated: true, why: 'heartbeat project push' };
     if (!('smartIp' in d)) return { outdated: true, why: 'smart LAN IP detection' };
@@ -313,9 +356,11 @@ export async function detectLocalAgent(): Promise<LocalAgentInfo | null> {
   }
   // Recorded port is dead — sweep the usual agent ports (and any other
   // candidates' ports) for a live agent before declaring "not running".
+  // A plain 200 is NOT enough here: a user project the LLM put on a 310x
+  // port would also answer 200 — require OUR agent's health shape.
   const scanPorts = [...new Set([...AGENT_SCAN_PORTS, ...candidates.map((c) => c.port)])];
   const alive = await Promise.all(
-    scanPorts.map(async (p) => ((await probeAgent(p)) ? p : null)),
+    scanPorts.map(async (p) => ((await probeAgentHealthShape(p)) ? p : null)),
   );
   const livePort = alive.find((p) => p != null) ?? null;
   if (livePort != null) return { ...candidates[0], port: livePort, running: true };

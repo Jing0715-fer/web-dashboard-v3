@@ -1085,6 +1085,8 @@ export const dialogs = {
   // ---- 共享错误回退文案 ----
   'dlg.toast.serverReturnedError': '服务器返回了错误',
   'dlg.toast.serverErrorStatus': '服务器错误：{status} {text}',
+  'dlg.toast.actionRouteMissing': '服务器对此接口返回了 404——仪表盘服务器运行的代码比界面旧（或请求被代理层拦截）。请拉取最新代码并重启服务器（bun run dev）后重试。',
+  'dlg.toast.serverDown': '无法连接仪表盘服务器——服务器可能已崩溃或被停止。请重启服务器（bun run dev）后重试。',
 
   // ---- mesh join 补充 ----
   'dlg.meshJoin.keyPlaceholder': '密钥…',

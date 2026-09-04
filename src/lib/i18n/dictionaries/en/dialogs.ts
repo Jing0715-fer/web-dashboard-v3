@@ -1089,6 +1089,8 @@ export const dialogs = {
   // ---- shared error fallbacks ----
   'dlg.toast.serverReturnedError': 'Server returned an error',
   'dlg.toast.serverErrorStatus': 'Server error: {status} {text}',
+  'dlg.toast.actionRouteMissing': 'The server returned 404 for this API route — the dashboard server is running older code than the interface (or a proxy intercepted the request). Pull the latest code and restart the server (bun run dev), then try again.',
+  'dlg.toast.serverDown': 'Cannot reach the dashboard server — it crashed or was stopped. Restart it (bun run dev) and try again.',
 
   // ---- mesh join extras ----
   'dlg.meshJoin.keyPlaceholder': 'key…',

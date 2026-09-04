@@ -6381,11 +6381,19 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // it until the service boots.
   const startHarnessAnalysis = React.useCallback(async (projectId: string, name: string, path: string) => {
     try {
-      const usedPorts = Array.from(new Set(projects.flatMap(p => p.environments?.map(e => e.port) ?? [])))
+      // usedPorts hint: every env port in the DB + the dashboard's own port +
+      // the mesh-agent scan range (3100-3105, see AGENT_SCAN_PORTS in
+      // agent-lifecycle.ts). Without the agent range the LLM happily assigns
+      // projects to 310x ports, where the agent lifecycle's port sweep and
+      // health probes would then interact with (or kill) the user's process.
+      const usedPorts = Array.from(new Set([
+        ...projects.flatMap(p => p.environments?.map(e => e.port) ?? []),
+        3000, 3100, 3101, 3102, 3103, 3104, 3105,
+      ]))
       const res = await fetch('/api/harness/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, name, projectId, usedPorts: [...usedPorts, 3000, 3100] }),
+        body: JSON.stringify({ path, name, projectId, usedPorts }),
       })
       if (res.ok) {
         const data = await res.json()
@@ -6776,8 +6784,12 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             repairJobIdFromResponse = errData.repair.jobId
           }
         } catch {
-          // 响应不是 JSON，使用 statusText
-          errorDetail = t('dlg.toast.serverErrorStatus', { status: res.status, text: res.statusText })
+          // 响应不是 JSON：路由本身不存在（Next.js 的 HTML 404 页面）。
+          // 这意味着服务器上运行的代码比界面旧（拉了新代码但没重启）
+          // 或请求被代理层接管。给出可操作的修复指引而不是裸 404。
+          errorDetail = res.status === 404
+            ? t('dlg.toast.actionRouteMissing')
+            : t('dlg.toast.serverErrorStatus', { status: res.status, text: res.statusText })
         }
         if (repairJobIdFromResponse) {
           setRepairJobId(repairJobIdFromResponse)
@@ -6801,7 +6813,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         }
       }
     } catch {
-      toast({ title: t('dlg.toast.failedActionEnv', { action: ['start', 'stop', 'restart', 'rebuild'].includes(action) ? t(`dlg.act.${action}` as Parameters<typeof t>[0]) : action, env: envLabel }), description: t('dlg.toast.networkErrorDetail'), variant: 'destructive' })
+      // fetch 本身抛错 = 连不上服务器（崩溃/被杀/被代理拦截），
+      // 而不是环境启动失败 — 指引重启而不是查看控制台。
+      toast({ title: t('dlg.toast.failedActionEnv', { action: ['start', 'stop', 'restart', 'rebuild'].includes(action) ? t(`dlg.act.${action}` as Parameters<typeof t>[0]) : action, env: envLabel }), description: t('dlg.toast.serverDown'), variant: 'destructive' })
     } finally {
       // NOTE: when LLM auto-repair kicks in, the backend keeps working in the
       // background — the env op itself has finished, so we release the lock.
