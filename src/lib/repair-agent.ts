@@ -49,6 +49,7 @@ import { callLLM, extractJson, type LlmMessage } from '@/lib/llm-providers';
 import { classifyRepairCommand, isStartCmdSafe, buildChildEnv } from './llm-repair/tools/safety';
 import { execTool, runShellProcess } from './llm-repair/tools/exec';
 import { inspectTool } from './llm-repair/tools/inspect';
+import { stripAnsiAndControls, countReplacementChars } from './llm-repair/tools/text';
 import { probeTool } from './llm-repair/tools/probe';
 import type { RepairJob, RepairStep, RepairKind, StartRepairOptions } from './llm-repair';
 
@@ -356,7 +357,7 @@ async function loadEnvSnapshot(job: RepairJob): Promise<EnvSnapshot | null> {
  *  Windows lacks the entire Unix userland the old prompt assumed. */
 function platformDesc(): string {
   if (IS_WINDOWS) {
-    return 'Windows (win32); the shell is cmd.exe. Unix commands (rm, ls, cat, head, tail, grep, find, ps, lsof, ss, sed, sh) DO NOT EXIST here — shell proposals using them fail with "不是内部或外部命令". Use the dashboard tools instead: inspect (read/list/find files), clean (delete files/dirs), probe (ports/processes). If a shell command is truly needed, use Windows built-ins only: dir, type, tasklist, netstat -ano, findstr.';
+    return 'Windows (win32); the shell is cmd.exe. Unix commands (rm, ls, cat, head, tail, grep, find, ps, lsof, ss, sed, sh) DO NOT EXIST here — shell proposals using them fail with "不是内部或外部命令". Use the dashboard tools instead: inspect (read/list/find files), clean (delete files/dirs), probe (ports/processes). The inspect read tool ALREADY decodes ANSI color codes, UTF-16 (PowerShell redirection) and non-UTF8 logs automatically — NEVER use powershell / type / more to read a file; just inspect it. If a shell command is truly needed, use Windows built-ins only: dir, type, tasklist, netstat -ano, findstr.';
   }
   if (process.platform === 'darwin') return 'macOS (darwin); BSD userland — lsof is available, ss is not.';
   return 'Linux (GNU userland).';
@@ -376,7 +377,7 @@ Reply format — ONLY this JSON object, no markdown fences, no prose:
 
 Available actions:
 - {"action":"inspect","path":"relative/path","mode":"read|list|find","pattern":"server.js","tail":false}
-    read: file content (head or tail 4000 chars; binary detected; secret files like .env/*.key/*.db are refused). list: directory entries (dotfiles included). find: recursive search by name substring (node_modules/.git skipped).
+    read: file content (4000 chars from head or tail — *.log files DEFAULT to tail). ANSI color codes, UTF-16 (PowerShell redirect) and non-UTF8 bytes are decoded/stripped AUTOMATICALLY — build logs are directly readable, no shell needed. Binary and secret files (.env/*.key/*.pem/*.db) are refused. list: directory entries (dotfiles included). find: recursive search by name substring (node_modules/.git skipped).
 - {"action":"probe","port":4000,"ps":"node","listen":true}
     port: LISTENING? which pid/command owns it? quick HTTP check on / and /health. ps: process search — the query may only contain letters/digits/dot/dash/underscore (a single word like "node" or "server.js"). listen: all listening TCP ports with owning processes. You may combine several fields in one call.
 - {"action":"clean","path":"relative/path"}
@@ -403,7 +404,8 @@ Non-negotiable rules:
 8. Destructive shell commands (rm -rf …, rmdir /s …) go through a human approval gate AND don't exist on every platform — use the clean tool instead (it handles approval itself for non-artifact paths). Never use sudo or cd.
 9. Never use or suggest port 3000 — it is the dashboard's own port.
 10. EACCES/EPERM in a tool result means the file/dir is read-only, owned by another user, or LOCKED by a running process (Windows: open handles cannot be deleted). For locked build dirs: stop the process first (run_retry's start path does that), then clean again. Otherwise: propose "chmod u+w <file>" via the test tool (it goes through the human approval gate), or finish and tell the user to fix ownership manually. Never claim success while a write failed, and never propose sudo.
-11. Exactly one action per reply. JSON only, no fences. "thought" is shown to the user — keep it one short Chinese sentence.`;
+11. NEVER pipe command output through interactive pagers or editors (more, less, man, vim, nano, notepad, code) and never use "start" to open windows — they hang forever waiting for keyboard input in a headless shell and waste whole steps. Read files with inspect (read mode) instead.
+12. Exactly one action per reply. JSON only, no fences. "thought" is shown to the user — keep it one short Chinese sentence.`;
 }
 
 /** Cheap facts gathered before the first LLM turn so its first decision is
@@ -446,8 +448,10 @@ ${opts.initialError || '(none)'}
 
 ${kind === 'rebuild' && opts.buildStderr ? `=== BUILD STDERR (tail) ===\n${tail(opts.buildStderr, 2500)}\n` : ''}=== RECENT PROCESS LOGS (tail) ===
 ${(() => {
+    // slice(-4000): the newest lines (the actual failure) sit at the END —
+    // the old slice(0, 4000) kept the head and cut the error right off.
     const logs = getLogs(snap.projectId, snap.envName).slice(-50);
-    return logs.length ? logs.join('\n').slice(0, 4000) : '(no logs)';
+    return logs.length ? logs.join('\n').slice(-4000) : '(no logs)';
   })()}
 
 === package.json (summary) ===
@@ -566,7 +570,11 @@ ${rels.join('\n')}`
   }
 
   // read (mode "read") — cat via the committed primitive (refuses secret
-  // files: .env, *.key, *.pem, *.db, …), then head/tail slice + binary check.
+  // files: .env, *.key, *.pem, *.db, …), then decode/sanitize + binary check.
+  // The decoder (tools/text.ts) already handled UTF-16 / BOM / OEM-codepage
+  // input; here we strip ANSI color codes + stray control chars so build
+  // logs render as text. Only files that STILL contain NUL after all that
+  // are refused as genuinely binary.
   return inspectTool({ action: 'cat', path: rawPath, max: 200_000 }, root).then((r) => {
     if (!r.ok) {
       const abs = resolve(root, rawPath);
@@ -578,11 +586,22 @@ ${rels.join('\n')}`
       return `ERROR: ${r.error}${hint}`;
     }
     const d = r.data as { size: number; truncated: boolean; content: string };
-    if (d.content.includes('\u0000')) return `# ${rawPath} — binary/non-UTF8 file (${d.size} bytes), cannot display as text.`;
-    const tailMode = args.tail === true;
-    const slice = tailMode ? d.content.slice(-4000) : d.content.slice(0, 4000);
-    const marker = d.content.length > 4000 ? (tailMode ? ` (showing last 4000 of ${d.content.length} chars)` : ` (showing first 4000 of ${d.content.length} chars)`) : '';
-    return `# ${rawPath} (${d.size} bytes${marker}${tailMode ? ', tail' : ''})\n${slice}`;
+    const { text, stripped } = stripAnsiAndControls(d.content);
+    if (text.includes('\u0000')) {
+      return `# ${rawPath} — binary file (${d.size} bytes, NUL bytes survive decoding), cannot display as text.`;
+    }
+    // Log files matter at the END (errors come last) — default to tail for
+    // *.log unless the LLM explicitly asked for the head.
+    const autoTail = args.tail == null && /\.log$/i.test(rawPath);
+    const tailMode = args.tail === true || autoTail;
+    const slice = tailMode ? text.slice(-4000) : text.slice(0, 4000);
+    const marker = text.length > 4000 ? (tailMode ? ` (showing last 4000 of ${text.length} chars)` : ` (showing first 4000 of ${text.length} chars)`) : '';
+    const notes: string[] = [];
+    if (stripped) notes.push('ANSI escapes/control chars stripped');
+    const bad = countReplacementChars(text);
+    if (bad > 20) notes.push(`${bad} undecodable characters (non-UTF8 text, best-effort decode — ASCII parts are reliable)`);
+    if (autoTail) notes.push('auto-tail for .log');
+    return `# ${rawPath} (${d.size} bytes${marker}${tailMode ? ', tail' : ''})${notes.length ? ` — ${notes.join('; ')}` : ''}\n${slice}`;
   });
 }
 
@@ -959,8 +978,12 @@ async function toolRunRetry(
     };
   }
 
-  // 5. Wait for the port to actually listen (boot grace).
-  const pf = await waitForPort(fresh.port, 25_000);
+  // 5. Wait for the port to actually listen (boot grace). 45s to MATCH
+  // startProcess's own verification budget: after a cache clean the first
+  // boot rebuilds from scratch, and a 25s window here would kill a process
+  // that the normal Start path (45s) would have accepted.
+  const BOOT_GRACE_MS = 45_000;
+  const pf = await waitForPort(fresh.port, BOOT_GRACE_MS);
   if (pf.listening) {
     await db.environment.update({ where: { id: fresh.id }, data: { status: 'running', pid: result.pid ?? null } });
     log('success', `修复成功 — 环境已在端口 ${fresh.port} 上运行 (pid ${result.pid})${pf.http ? `，HTTP ${pf.httpStatus}` : ''}`);
@@ -990,7 +1013,7 @@ async function toolRunRetry(
   return {
     outcome: 'failed',
     error: 'started but the port never listened',
-    message: `RETRY FAILED: the process was spawned (pid ${result.pid}) but port ${fresh.port} never became listening within 25s — the process was stopped again.\nrecent process logs:\n${headTail(logText, 1600) || '(no logs)'}${portNote}\nHint: if the server actually listens on a DIFFERENT port, use probe with "listen":true to find it, then update_env the correct port and run_retry again.`,
+    message: `RETRY FAILED: the process was spawned (pid ${result.pid}) but port ${fresh.port} never became listening within ${Math.round(BOOT_GRACE_MS / 1000)}s — the process was stopped again.\nrecent process logs:\n${headTail(logText, 1600) || '(no logs)'}${portNote}\nHint: if the server actually listens on a DIFFERENT port, use probe with "listen":true to find it, then update_env the correct port and run_retry again.`,
   };
 }
 

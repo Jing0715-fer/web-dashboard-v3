@@ -120,10 +120,13 @@ export function startRepairJob(opts: StartRepairOptions): string {
     steps: [],
     startedAt: Date.now(),
     round: 0,
-    // Agent step budget: each step = one LLM turn + one tool call. 12 steps
-    // comfortably covers inspect → probe → patch → update_env → run_retry →
-    // one corrective iteration, with room to spare.
-    maxRounds: 12,
+    // Agent step budget: each step = one LLM turn + one tool call. 15 steps
+    // cover inspect → probe → patch → update_env → run_retry plus a corrective
+    // iteration or two. Raised from 12 after the SciWrite prod incident, where
+    // a stream of unreadable-log shell workarounds (now fixed by log decoding
+    // + the interactive-command refusal) starved the budget before a single
+    // repair attempt happened — the margin absorbs LLM flakiness too.
+    maxRounds: 15,
   };
   jobs.set(id, job);
   activeByEnv.set(opts.envId, id);

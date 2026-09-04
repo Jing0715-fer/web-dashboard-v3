@@ -24,6 +24,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync, realpathSync } from 'fs';
 import { join, relative, resolve, basename } from 'path';
+import { decodeTextBuffer } from './text';
 
 // ---- Tool result envelope (shared by all repair tools) ----------------
 
@@ -134,7 +135,13 @@ function doCat(absPath: string, maxBytes: number): ToolResult {
     if (stat.size > 5 * 1024 * 1024) {
       return { ok: false, error: `File too large to read safely (${stat.size} bytes, limit 5MB)` };
     }
-    content = readFileSync(absPath, 'utf8');
+    // Read as a Buffer and decode smartly: real build logs are often UTF-16LE
+    // (PowerShell redirect) or OEM-codepage/ANSI-colored, and a bare utf8
+    // read misclassified them as "binary" — the incident that left the repair
+    // agent blind for 10 straight steps. UTF-16/BOM handling lives in
+    // tools/text.ts; undecodable bytes become U+FFFD (ASCII error lines stay
+    // readable), NULs are preserved so callers can still detect true binaries.
+    content = decodeTextBuffer(readFileSync(absPath));
   } catch (e: unknown) {
     return { ok: false, error: fsError(e, absPath) };
   }

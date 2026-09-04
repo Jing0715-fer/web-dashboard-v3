@@ -44,6 +44,14 @@ const STDERR_CAP = 4_000;
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_TIMEOUT_MS = 240_000;
 
+// Interactive pagers / editors / window-openers hang forever in a headless
+// shell (stdio stdin is 'ignore' — `more` still waits on some platforms,
+// notepad/vim block on a console that doesn't exist). The incident log showed
+// `type build.log | more +9999` burning a 10s timeout step. Match the token
+// only as a command start or after a pipe/sequence separator so quoted
+// strings containing e.g. "more" mid-command don't false-positive.
+const INTERACTIVE_CMD_RE = /(?:^|[|;&]\s*)(more|less|man|view|vim|vi|nano|emacs|notepad|code|start|ed)\b/i;
+
 // ---- Shared envelope --------------------------------------------------
 
 export type ToolResult =
@@ -226,6 +234,17 @@ export async function execTool(args: ExecArgs, projectPath: string): Promise<Exe
   }
   if (typeof args.cmd !== 'string') {
     return { ok: false, error: 'cmd must be a string' };
+  }
+
+  // Hard-refuse interactive commands BEFORE classification/execution — they
+  // don't need human approval, they need to not run at all (they would hang
+  // until the timeout and waste a whole repair step + a timeout kill cycle).
+  if (INTERACTIVE_CMD_RE.test(args.cmd)) {
+    return {
+      ok: false,
+      error:
+        'Interactive pager/editor/window command refused — it hangs forever without a keyboard and burns a full timeout cycle. Read files with the inspect tool (read mode; *.log defaults to tail) instead of `more`/`less`/editors.',
+    };
   }
 
   if (args.approved !== true) {
