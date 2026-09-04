@@ -48,6 +48,7 @@ export async function applyRemoteAnalysis(input: RemoteApplyInput): Promise<Remo
         name: analysis.projectName || name,
         description: analysis.description || '',
         icon: analysis.icon || 'server',
+        ...(analysis.repoUrl ? { repoUrl: analysis.repoUrl } : {}),
       });
     } else {
       const createRes = await proxyToAgent(cfg, '/projects', 'POST', {
@@ -55,6 +56,7 @@ export async function applyRemoteAnalysis(input: RemoteApplyInput): Promise<Remo
         path: projectPath,
         description: analysis.description || '',
         icon: analysis.icon || 'server',
+        ...(analysis.repoUrl ? { repoUrl: analysis.repoUrl } : {}),
       });
       if (!createRes.ok) {
         return fail(createRes.data?.error || 'Failed to create project on device');

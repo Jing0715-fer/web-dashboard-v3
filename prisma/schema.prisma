@@ -28,6 +28,9 @@ model Project {
   description String        @default("")
   icon        String        @default("folder")
   tags        String        @default("[]")
+  // Git repository URL (https://github.com/user/repo) — powers the one-click
+  // "Pull latest code" action. Empty string = no repo configured.
+  repoUrl     String        @default("")
   // Project notes — used to be localStorage-only (lost when switching
   // browsers/devices); now persisted server-side.
   notes       String        @default("")

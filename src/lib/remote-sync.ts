@@ -319,6 +319,10 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
         pid: e.pid ?? null,
       }))
       const tagsStr = typeof remote.tags === 'string' ? remote.tags : JSON.stringify(remote.tags || [])
+      // Older agents don't send repoUrl at all (undefined) — in that case skip
+      // the field entirely so a locally-set value on the cached row survives;
+      // a string (incl. '') means the agent did report it.
+      const agentRepoUrl = typeof remote.repoUrl === 'string' ? remote.repoUrl.trim() : undefined
       const cached = cachedById.get(remote.id)
       if (
         cached &&
@@ -327,6 +331,7 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
         cached.description === (remote.description || '') &&
         cached.icon === (remote.icon || 'folder') &&
         cached.tags === tagsStr &&
+        (agentRepoUrl === undefined || cached.repoUrl === agentRepoUrl) &&
         cached.deviceId === remote.deviceId &&
         cached.environments.length === envData.length &&
         cached.environments.every((ce, i) =>
@@ -350,6 +355,7 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
             description: remote.description || '',
             icon: remote.icon || 'folder',
             tags: tagsStr,
+            ...(agentRepoUrl !== undefined && { repoUrl: agentRepoUrl }),
             deviceId: remote.deviceId,
           },
           create: {
@@ -359,6 +365,7 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
             description: remote.description || '',
             icon: remote.icon || 'folder',
             tags: tagsStr,
+            repoUrl: agentRepoUrl ?? '',
             deviceId: remote.deviceId,
             order: remote.order ?? 0,
           },

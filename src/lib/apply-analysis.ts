@@ -35,6 +35,26 @@ export interface ApplyAnalysisOutcome {
 
 const ALLOWED_ICONS = ['folder', 'globe', 'code', 'database', 'smartphone', 'shopping-cart', 'layout', 'palette', 'cpu', 'book-open', 'music', 'gamepad-2', 'bar-chart', 'shield', 'camera', 'map', 'cloud', 'terminal', 'rocket', 'puzzle', 'package', 'zap', 'laptop', 'atom', 'flame', 'server'];
 
+/** Normalize an https git URL (strip credentials/tokens, trailing slash).
+ *  Returns '' for anything that is not a clean https URL. */
+function normalizeHttpsRepoUrl(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (!s) return '';
+  // Accept git@host:owner/repo (SSH) by converting to the https form.
+  const ssh = s.match(/^git@([\w.-]+):([\w./-]+?)(?:\.git)?$/);
+  const candidate = ssh ? `https://${ssh[1]}/${ssh[2]}` : s.replace(/\.git$/, '');
+  if (!/^https:\/\/[\w.-]+\/[\w./-]+$/i.test(candidate)) return '';
+  try {
+    const u = new URL(candidate);
+    u.username = '';
+    u.password = '';
+    u.hash = '';
+    return u.toString().replace(/\/$/, '');
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Validate, sanitize and persist an analysis result onto a project.
  * Mirrors the validation rules of the classic analyze route:
@@ -137,10 +157,15 @@ export async function applyAnalysisToProject(projectId: string, analysis: any): 
     const sanitizedDesc = String(project.description || analysis.description || '').slice(0, 500);
     const userIconIsDefault = !project.icon || project.icon === 'folder';
     const sanitizedIcon = userIconIsDefault && ALLOWED_ICONS.includes(analysis.icon) ? analysis.icon : project.icon;
+    // Auto-discovered git remote (agent runs `git remote get-url origin`):
+    // only fills an EMPTY repoUrl — a URL the user typed always wins. Any
+    // credentials in the URL are stripped before persisting.
+    const analysisRepoUrl = normalizeHttpsRepoUrl(analysis.repoUrl);
+    const repoUrl = !project.repoUrl && analysisRepoUrl ? analysisRepoUrl : (project.repoUrl || '');
 
     await db.project.update({
       where: { id: projectId },
-      data: { description: sanitizedDesc, icon: sanitizedIcon },
+      data: { description: sanitizedDesc, icon: sanitizedIcon, ...(repoUrl !== project.repoUrl ? { repoUrl } : {}) },
     });
 
     for (const env of validatedEnvs) {

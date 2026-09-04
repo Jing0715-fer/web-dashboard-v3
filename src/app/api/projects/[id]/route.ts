@@ -5,6 +5,24 @@ import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
 
+/** Normalize a repo URL: trim, https-only, strip credentials. Returns ''
+ *  for invalid input so the DB never holds a malformed URL. Exported from
+ *  the POST /api/projects route — duplicated here to keep route bundles
+ *  independent. */
+function normalizeRepoUrl(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (!s) return '';
+  if (!/^https:\/\/[\w.-]+\//i.test(s) && !/^https:\/\/[^/\s]+$/i.test(s)) return '';
+  try {
+    const u = new URL(s);
+    u.username = '';
+    u.password = '';
+    return u.toString().replace(/\/$/, '');
+  } catch {
+    return '';
+  }
+}
+
 // GET /api/projects/[id]
 export async function GET(
   _req: NextRequest,
@@ -65,6 +83,15 @@ export async function GET(
   }
 }
 
+/** Tags arrive from two callers: the edit form sends an ARRAY of strings
+ *  (ProjectFormDialog onSubmit) while the detail sheet sends a pre-serialized
+ *  JSON string. Prisma's column is a String, so normalize both. */
+function normalizeTags(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (Array.isArray(raw)) return JSON.stringify(raw.filter((t) => typeof t === 'string'));
+  return '[]';
+}
+
 // PUT /api/projects/[id]
 export async function PUT(
   req: NextRequest,
@@ -76,7 +103,7 @@ export async function PUT(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { name, description, icon, tags, notes } = body;
+    const { name, description, icon, tags, notes, repoUrl } = body;
 
     const existing = await db.project.findUnique({
       where: { id },
@@ -104,9 +131,11 @@ export async function PUT(
         ...(name !== undefined && { name }),
         ...(description !== undefined && { description }),
         ...(icon !== undefined && { icon }),
-        ...(tags !== undefined && { tags }),
+        ...(tags !== undefined && { tags: normalizeTags(tags) }),
         // Project notes (were localStorage-only → now persisted server-side).
         ...(notes !== undefined && { notes: String(notes).slice(0, 20000) }),
+        // Git repository URL ('' clears it; malformed input normalizes to '').
+        ...(repoUrl !== undefined && { repoUrl: normalizeRepoUrl(repoUrl) }),
       },
       include: { environments: true },
     });
@@ -123,6 +152,7 @@ export async function PUT(
         icon !== undefined ? `icon → ${icon}` : null,
         tags !== undefined ? 'tags updated' : null,
         notes !== undefined ? 'notes updated' : null,
+        repoUrl !== undefined ? `repo → ${project.repoUrl || '(none)'}` : null,
       ].filter(Boolean).join(', ') || undefined,
     });
 

@@ -97,6 +97,32 @@ export async function GET(req: Request) {
   }
 }
 
+/** Normalize a repo URL: trim, https-only, strip credentials. Returns ''
+ *  for invalid input so the DB never holds a malformed URL. */
+function normalizeRepoUrl(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (!s) return '';
+  if (!/^https:\/\/[\w.-]+\//i.test(s) && !/^https:\/\/[^/\s]+$/i.test(s)) return '';
+  try {
+    const u = new URL(s);
+    u.username = '';
+    u.password = '';
+    return u.toString().replace(/\/$/, '');
+  } catch {
+    return '';
+  }
+}
+
+/** Tags arrive from two callers: the project form sends an ARRAY of strings
+ *  while the detail sheet sends a pre-serialized JSON string. Prisma's column
+ *  is a String, so normalize both. (POST used to drop tags entirely — the
+ *  tags picked in the Add Project form were silently lost.) */
+function normalizeTags(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (Array.isArray(raw)) return JSON.stringify(raw.filter((t) => typeof t === 'string'));
+  return '[]';
+}
+
 // POST /api/projects - Create a new project (local or remote)
 export async function POST(req: NextRequest) {
   // Auth guard (Task 11-a)
@@ -104,7 +130,7 @@ export async function POST(req: NextRequest) {
   if (authGuard.error) return authGuard.error;
   try {
     const body = await req.json();
-    const { path, name, description, icon, deviceId } = body;
+    const { path, name, description, icon, tags, deviceId, repoUrl } = body;
 
     if (!path) {
       return NextResponse.json({ error: 'Project path is required' }, { status: 400 });
@@ -119,6 +145,10 @@ export async function POST(req: NextRequest) {
         path,
         description: description || '',
         icon: icon || 'folder',
+        // Tags picked in the form (array) or pre-serialized (string).
+        ...(tags !== undefined && { tags: normalizeTags(tags) }),
+        // Git repository URL for the one-click pull action ('' = none).
+        repoUrl: normalizeRepoUrl(repoUrl),
         deviceId: deviceId || null,
       },
       include: { environments: true },
