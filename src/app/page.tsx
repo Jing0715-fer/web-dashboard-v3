@@ -959,6 +959,43 @@ function EnvOpPending({ action, t }: { action: string; t?: I18nContextValue['t']
   )
 }
 
+/** Version badge — branch @ sha as a styled lozenge (sm: card GitHub row /
+ *  md: detail sheet). Amber variant when the checkout is dirty; the tooltip
+ *  keeps the full context (branch@sha · age · dirty count · device). */
+function VersionBadge({ version, size = 'sm', deviceName, className = '' }: {
+  version: ProjectVersion
+  size?: 'sm' | 'md'
+  deviceName?: string | null
+  className?: string
+}) {
+  const t = useT()
+  const branch = version.branch || 'HEAD'
+  const ago = versionTimeAgo(version.committedAt)
+  const dirtyCount = typeof version.dirty === 'number' && version.dirty > 0 ? version.dirty : 0
+  const isMd = size === 'md'
+  const tip = `${branch}@${version.sha}${ago ? ` · ${ago}` : ''}${dirtyCount > 0 ? ` · ${t('card.repo.dirtyCount', { count: dirtyCount })}` : ''}${deviceName ? ` · ${deviceName}` : ''}`
+  return (
+    <span
+      title={tip}
+      className={`inline-flex items-center rounded-full border font-mono shrink-0 transition-colors ${isMd ? 'h-6 px-2 gap-1.5 text-[11px]' : 'h-[18px] px-1.5 gap-1 text-[10px]'} ${dirtyCount > 0
+        ? 'border-amber-300/70 dark:border-amber-500/35 bg-amber-50/80 dark:bg-amber-500/10'
+        : 'border-zinc-200 dark:border-zinc-700/80 bg-zinc-50/90 dark:bg-zinc-800/60 hover:border-zinc-300 dark:hover:border-zinc-600'
+        } ${className}`}
+    >
+      <GitBranch className={`${isMd ? 'h-3 w-3' : 'h-2.5 w-2.5'} shrink-0 opacity-60`} />
+      <span className={`font-sans font-medium truncate ${isMd ? 'max-w-[120px]' : 'max-w-[84px]'} text-zinc-600 dark:text-zinc-300`}>{branch}</span>
+      <span className="opacity-40 shrink-0">@</span>
+      <span className={`truncate ${isMd ? 'max-w-[76px]' : 'max-w-[60px]'} text-zinc-500 dark:text-zinc-400`}>{version.sha}</span>
+      {ago && <span className={`${isMd ? '' : 'hidden sm:inline'} font-sans text-[9px] leading-none opacity-60 shrink-0`}>{ago}</span>}
+      {dirtyCount > 0 && (isMd ? (
+        <span className="font-sans text-[10px] leading-none text-amber-600 dark:text-amber-400 shrink-0">{t('card.repo.dirtyCount', { count: dirtyCount })}</span>
+      ) : (
+        <span aria-label={t('card.repo.dirtyCount', { count: dirtyCount })} title={t('card.repo.dirtyCount', { count: dirtyCount })} className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+      ))}
+    </span>
+  )
+}
+
 function SortableProjectCardImpl({
   project, viewMode, searchQuery, onSelect, onEdit, onDelete,
   onEnvAction, onRebuildConfirm, selected, onToggleSelect, rebuilding,
@@ -1142,6 +1179,13 @@ function SortableProjectCardImpl({
                   <Github className="h-3 w-3 shrink-0" />
                   <span className="hidden md:inline">{t('card.repo.connect')}</span>
                 </button>
+              )}
+              {/* List-view version badge — same lozenge as the grid card,
+                  visible from lg up (the row is dense on small screens). */}
+              {version && version.sha && (
+                <span className="hidden lg:block shrink-0">
+                  <VersionBadge version={version} size="sm" deviceName={project.deviceId ? (project.deviceName || null) : null} />
+                </span>
               )}
             </div>
           </div>
@@ -1512,16 +1556,7 @@ function SortableProjectCardImpl({
                 </span>
               )}
               {version && version.sha && (
-                <span
-                  className="shrink-0 inline-flex items-center gap-1 font-mono text-[10px] text-zinc-500 dark:text-zinc-400"
-                  title={`${version.branch || 'HEAD'}@${version.sha}${versionTimeAgo(version.committedAt) ? ' · ' + versionTimeAgo(version.committedAt) : ''}${typeof version.dirty === 'number' && version.dirty > 0 ? ` · ${t('card.repo.dirtyCount', { count: version.dirty })}` : ''}${project.deviceId ? ` · ${project.deviceName || t('surf.unknownDevice')}` : ''}`}
-                >
-                  <span className="max-w-[120px] truncate">{(version.branch || 'HEAD')}@{version.sha}</span>
-                  {versionTimeAgo(version.committedAt) && <span className="hidden sm:inline font-sans text-[9px] opacity-70">· {versionTimeAgo(version.committedAt)}</span>}
-                  {typeof version.dirty === 'number' && version.dirty > 0 && (
-                    <span aria-label={t('card.repo.dirtyCount', { count: version.dirty })} className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
-                  )}
-                </span>
+                <VersionBadge version={version} size="sm" deviceName={project.deviceId ? (project.deviceName || null) : null} />
               )}
               <span className={`inline-flex items-center gap-1 shrink-0 text-[11px] font-medium ${pulling ? 'text-muted-foreground' : 'text-brand-strong dark:text-brand'}`}>
                 {pulling ? t('card.repo.pulling') : (<><span className="hidden sm:inline">{t('card.repo.pullAction')}</span><GitPullRequest className="h-3.5 w-3.5" /></>)}
@@ -4131,14 +4166,8 @@ function DetailSheet({
                           {(version && version.sha) || detailUpdateHint ? (
                             <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
                               {version && version.sha ? (<>
-                                <span className="font-mono">{version.branch || 'HEAD'}@{version.sha}</span>
-                                {version.committedAt && <span>· {new Date(version.committedAt).toLocaleString()}</span>}
-                                {typeof version.dirty === 'number' && version.dirty > 0 && (
-                                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400" title={t('card.repo.dirtyCount', { count: version.dirty })}>
-                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                                    {t('card.repo.dirtyCount', { count: version.dirty })}
-                                  </span>
-                                )}
+                                <VersionBadge version={version} size="md" deviceName={project.deviceId ? (project.deviceName || null) : null} />
+                                {version.committedAt && <span className="tabular-nums">· {new Date(version.committedAt).toLocaleString()}</span>}
                               </>) : null}
                               {detailUpdateHint && (
                                 <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium" title={detailUpdateTooltip ?? undefined}>
