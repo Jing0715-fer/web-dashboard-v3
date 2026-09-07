@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
-    "predev": "prisma generate && prisma db push",
+    "predev": "bun install || echo '[predev] bun install skipped (offline or bun unavailable) — run it manually if you see module-not-found errors' && prisma generate && prisma db push",
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",

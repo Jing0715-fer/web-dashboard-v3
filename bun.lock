@@ -94,9 +94,13 @@
   },
   "trustedDependencies": [
     "@google/genai",
+    "@prisma/engines",
     "@deepseek-ai/dsh-subprocess-local",
-    "koffi",
+    "@prisma/client",
     "protobufjs",
+    "prisma",
+    "koffi",
+    "@prisma/engines-version",
   ],
   "packages": {
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "https://registry.npmjs.com/@alloc/quick-lru/-/quick-lru-5.2.0.tgz", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],

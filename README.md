@@ -62,22 +62,28 @@ The dashboard runs on http://localhost:3000.
 
 ### Pulling updates (important!)
 
-`bun run dev` auto-runs a `predev` step (`prisma generate && prisma db push`)
-that regenerates the Prisma Client and syncs the SQLite schema, so a plain
-`git pull` + `bun run dev` is normally all you need after updating.
+`bun run dev` auto-runs a `predev` step that self-heals the environment:
 
-If you see a Prisma validation error like
-`Unknown argument 'repoUrl'. Available options are marked with ?`,
-your locally generated Prisma Client predates a schema change — fix it with:
+1. `bun install` — syncs `node_modules` with newly pulled dependencies
+2. `prisma generate` — regenerates the Prisma Client from the current schema
+3. `prisma db push` — syncs the SQLite columns
 
-```bash
-bunx prisma db push   # adds new columns AND regenerates the client
-bun run dev           # restart the dev server
-```
+So a plain `git pull` + `bun run dev` is normally all you need after updating.
+
+If you pulled a while ago and dev is already failing, run `bun install` once
+(the predev install step is skipped when bun is unavailable/offline), then
+`bun run dev` again. The two classic symptoms of a stale environment:
+
+| Error | Missing | Fix |
+|---|---|---|
+| `Module not found: Can't resolve 'fzstd'` | new dependency in `node_modules` | `bun install` |
+| Prisma `Unknown argument 'repoUrl'. Available options are marked with ?` | regenerated Prisma Client | `bun install` (prisma is trusted → auto-generates) or `bunx prisma db push` |
 
 > Why this happens: `bun install` skips dependency postinstall scripts unless
 > the package is listed in `trustedDependencies` — a stale
-> `node_modules/.prisma/client` therefore survives `git pull`.
+> `node_modules/.prisma/client` therefore survives `git pull`. Likewise, new
+> dependencies added by pulled commits only land on your machine after an
+> actual install.
 
 ### Remote devices
 
