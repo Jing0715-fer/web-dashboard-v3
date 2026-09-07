@@ -92,7 +92,30 @@ export async function POST(
       before = stdout.trim();
     } catch { /* unborn HEAD on a fresh repo */ }
 
-    const { stdout, stderr } = await execFileAsync('git', ['pull', '--ff-only'], {
+    // `git pull --ff-only` fails with "no tracking information" when the
+    // branch has no upstream configured (common for freshly cloned/mirrored
+    // checkouts). Detect that and fall back to pulling origin/<branch>.
+    const pullArgs = ['pull', '--ff-only'];
+    try {
+      await execFileAsync('git', ['rev-parse', '--abbrev-ref', '@{u}'], {
+        cwd: project.path,
+        timeout: 15000,
+        maxBuffer: 1024 * 512,
+      });
+    } catch {
+      // No upstream configured — fall back to origin/<current-branch>.
+      try {
+        const { stdout: branchOut } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+          cwd: project.path,
+          timeout: 15000,
+          maxBuffer: 1024 * 512,
+        });
+        const branch = branchOut.trim();
+        if (branch && branch !== 'HEAD') pullArgs.push('origin', branch);
+      } catch { /* detached HEAD — let the pull surface its own error */ }
+    }
+
+    const { stdout, stderr } = await execFileAsync('git', pullArgs, {
       cwd: project.path,
       timeout: 5 * 60 * 1000,
       maxBuffer: 1024 * 1024,

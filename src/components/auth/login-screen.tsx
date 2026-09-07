@@ -164,7 +164,7 @@ function GoogleSignInButton({ status }: { status: GoogleStatus | null }) {
         </TooltipProvider>
       )}
       {!loading && !configured && (
-        <p className="text-[11px] text-muted-foreground text-center">{t('login.google.notConfiguredShort')}</p>
+        <p className="text-[11px] text-foreground/75 dark:text-zinc-400 text-center">{t('login.google.notConfiguredShort')}</p>
       )}
     </div>
   )
@@ -173,7 +173,7 @@ function GoogleSignInButton({ status }: { status: GoogleStatus | null }) {
 function Divider() {
   const t = useT()
   return (
-    <div className="relative my-5" aria-hidden="true">
+    <div className="relative mb-7" aria-hidden="true">
       <div className="absolute inset-0 flex items-center">
         <motion.span
           initial={{ scaleX: 0 }}
@@ -274,7 +274,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
       <Divider />
       <div className="space-y-5">
         <div className="space-y-1.5">
-          <Label htmlFor="signin-email">{t('login.email')}</Label>
+          <Label htmlFor="signin-email" className="text-[13px] font-semibold">{t('login.email')}</Label>
           <div className={iconField}>
             <Mail className={iconGlyph} aria-hidden="true" />
             <Input
@@ -291,7 +291,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
         </div>
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <Label htmlFor="signin-password">{t('login.password')}</Label>
+            <Label htmlFor="signin-password" className="text-[13px] font-semibold">{t('login.password')}</Label>
           </div>
           <div className={iconField}>
             <Lock className={iconGlyph} aria-hidden="true" />
@@ -344,7 +344,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.4, ease: 'easeOut' }}
-            className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-3.5 py-2.5 pt-3 text-xs text-muted-foreground leading-relaxed"
+            className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-3.5 py-2.5 pt-3 text-xs text-foreground/70 dark:text-zinc-300 leading-relaxed"
           >
             <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
@@ -467,7 +467,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-5">
       <div className="space-y-1.5">
-        <Label htmlFor="register-name">{t('login.register.name')}</Label>
+        <Label htmlFor="register-name" className="text-[13px] font-semibold">{t('login.register.name')}</Label>
         <div className={iconField}>
           <User className={iconGlyph} aria-hidden="true" />
           <Input
@@ -485,7 +485,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <FieldError message={errors.name} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="register-email">{t('login.register.email')}</Label>
+        <Label htmlFor="register-email" className="text-[13px] font-semibold">{t('login.register.email')}</Label>
         <div className={iconField}>
           <Mail className={iconGlyph} aria-hidden="true" />
           <Input
@@ -503,7 +503,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <FieldError message={errors.email} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="register-password">{t('login.register.password')}</Label>
+        <Label htmlFor="register-password" className="text-[13px] font-semibold">{t('login.register.password')}</Label>
         <div className={iconField}>
           <Lock className={iconGlyph} aria-hidden="true" />
           <Input
@@ -530,7 +530,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
         <FieldError message={errors.password} />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="register-confirm">{t('login.register.confirm')}</Label>
+        <Label htmlFor="register-confirm" className="text-[13px] font-semibold">{t('login.register.confirm')}</Label>
         <div className={iconField}>
           <Lock className={iconGlyph} aria-hidden="true" />
           <Input
@@ -570,7 +570,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
           <ArrowRight className="h-4 w-4 ml-1.5 transition-transform duration-200 group-hover/btn:translate-x-0.5" aria-hidden="true" />
         )}
       </Button>
-      <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
+      <p className="text-[11px] text-foreground/75 dark:text-zinc-400 text-center leading-relaxed">
         {t('login.register.notice')}
       </p>
     </form>
@@ -654,7 +654,7 @@ function TiltTerminal() {
             <span className="font-mono text-[10px] font-semibold tracking-[0.14em] text-brand-strong dark:text-brand">LIVE</span>
           </span>
         </div>
-        <div className="px-4 py-3.5 font-mono text-xs leading-[1.75] space-y-0.5">
+        <div className="px-4 py-3 font-mono text-xs leading-[1.7] space-y-0.5">
           {lines.map((line, i) => (
             <motion.p
               key={line.text}
@@ -702,7 +702,7 @@ function HeroPanel() {
       variants={panelVariants}
       initial="hidden"
       animate="show"
-      className="relative hidden lg:flex h-full flex-col justify-center gap-10 xl:gap-12 p-10 xl:p-14"
+      className="relative hidden lg:flex h-full flex-col justify-center gap-8 xl:gap-10 p-10 xl:p-14"
     >
       {/* Display block — eyebrow, oversized wordmark, gradient tagline, subtitle. */}
       <div>
@@ -728,7 +728,7 @@ function HeroPanel() {
         <motion.p variants={itemVariants} className="login-gradient-text mt-4 text-3xl xl:text-4xl font-bold tracking-tight leading-snug max-w-xl">
           {t('login.tagline')}
         </motion.p>
-        <motion.p variants={itemVariants} className="mt-5 max-w-md text-base text-muted-foreground leading-relaxed">
+        <motion.p variants={itemVariants} className="mt-4 max-w-md text-base text-muted-foreground leading-relaxed">
           {t('login.subtitle')}
         </motion.p>
       </div>
@@ -738,7 +738,7 @@ function HeroPanel() {
           disconnected at the bottom of tall viewports; the flexible space
           sits between the display block and this group, the classic
           split-hero rhythm. */}
-      <div className="space-y-8">
+      <div className="space-y-6">
         <TiltTerminal />
 
         {/* Proof block — glass CountUp chips; labels wrap instead of
@@ -750,14 +750,14 @@ function HeroPanel() {
               aria-label={`${s.value}${s.suffix} — ${s.label}`}
               className="flex items-center gap-3 rounded-xl border border-border/60 dark:border-white/10 bg-white/55 dark:bg-white/5 backdrop-blur-md px-4 py-3 shadow-xs"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-brand/25 bg-brand-soft/70 text-brand-strong dark:text-brand">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-brand/25 bg-brand-soft/70 text-brand-strong dark:text-brand">
                 <s.icon className="h-4.5 w-4.5" />
               </span>
               <span className="min-w-0">
                 <span className="block text-lg font-bold leading-none tracking-tight">
                   <CountUp to={s.value} suffix={s.suffix} />
                 </span>
-                <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">{s.label}</span>
+                <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">{s.label}</span>
               </span>
             </li>
           ))}
@@ -878,7 +878,7 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
                       exit={{ opacity: 0, y: -8 }}
                       transition={{ duration: 0.22, ease: 'easeOut' }}
                     >
-                      <h2 className="text-2xl font-semibold tracking-tight">
+                      <h2 className="text-[1.6rem] font-bold tracking-tight">
                         {tab === 'signin' ? t('login.welcomeBack') : t('login.createAccount')}
                       </h2>
                       <p className="text-sm text-muted-foreground mt-1.5 mb-5">
@@ -932,7 +932,7 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.55, duration: 0.6 }}
-            className="mt-auto pb-7 pt-3 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70"
+            className="mt-auto pb-7 pt-3 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground"
           >
             <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden="true" />
             {t('login.footer')}

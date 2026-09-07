@@ -361,6 +361,20 @@ function getTagColor(tagName: string): string {
   return found?.color || TAG_CHIP
 }
 
+/** "https://github.com/owner/repo(.git)" → "owner/repo". Non-github hosts
+ *  fall back to the hostname. Used for the compact repo chip on cards. */
+function repoShortLabel(url: string): string {
+  try {
+    const u = new URL(url)
+    const segs = u.pathname.replace(/\.git\/?$/, '').split('/').filter(Boolean)
+    if (segs.length >= 2) return segs.slice(0, 2).join('/')
+    if (segs.length === 1) return segs[0]
+    return u.hostname
+  } catch {
+    return 'repo'
+  }
+}
+
 function getProjectStatus(project: Project): 'running' | 'stopped' | 'mixed' {
   const envs = project.environments || []
   if (envs.length === 0) return 'stopped'
@@ -891,7 +905,7 @@ function SortableProjectCardImpl({
   starred, onToggleStar, lanIp, currentHost, index = 0,
   batchMode = false, onDuplicate, onMoveToDevice, devices, onHover,
   focused = false, cardDensity = 'comfortable', onCompare, pinOrder, onReanalyze,
-  pendingOps = {}, onPull,
+  pendingOps = {}, onPull, pulling = false,
 }: {
   project: Project
   viewMode: ViewMode
@@ -921,6 +935,8 @@ function SortableProjectCardImpl({
   onReanalyze?: (p: Project) => void
   /** One-click "Pull latest code" — only invoked for local projects with a repoUrl. */
   onPull?: (p: Project) => void
+  /** True while a one-click git pull is in flight for this project. */
+  pulling?: boolean
   pendingOps?: Record<string, string>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
@@ -1031,9 +1047,16 @@ function SortableProjectCardImpl({
                 <span className={`h-1.5 w-1.5 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-zinc-400 dark:bg-zinc-500'}`} />
                 {runningEnvs}/{totalEnvs} running
               </Badge>
-              {project.repoUrl && (
-                <button type="button" className="shrink-0 cursor-pointer text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" title={project.repoUrl} aria-label={t('card.ctx.pullLatest')} onClick={(e) => { e.stopPropagation(); if (onPull && !project.deviceId) onPull(project); else window.open(project.repoUrl, '_blank', 'noreferrer') }}>
-                  <Github className="h-3.5 w-3.5" />
+              {project.repoUrl ? (
+                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[190px]" title={pulling ? t('card.repo.pulling') : `${project.repoUrl} · ${t('card.ctx.pullLatest')}`} onClick={(e) => { e.stopPropagation(); if (onPull && !project.deviceId) onPull(project); else window.open(project.repoUrl, '_blank', 'noreferrer') }}>
+                  {pulling ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Github className="h-3 w-3 shrink-0" />}
+                  <span className="truncate">{repoShortLabel(project.repoUrl)}</span>
+                  {!pulling && !project.deviceId && onPull && <GitPullRequest className="h-3 w-3 shrink-0 text-brand-strong dark:text-brand" />}
+                </button>
+              ) : !project.deviceId && (
+                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 text-[10px] font-medium text-zinc-400 dark:text-zinc-500 hover:text-brand-strong dark:hover:text-brand hover:border-brand/45 hover:bg-brand-soft/40 transition-colors cursor-pointer" title={t('card.repo.connectTooltip')} onClick={(e) => { e.stopPropagation(); onEdit(project) }}>
+                  <Github className="h-3 w-3 shrink-0" />
+                  <span className="hidden md:inline">{t('card.repo.connect')}</span>
                 </button>
               )}
               {project.name === 'Hermes Web' && <HermesBridgeToggle />}
@@ -1398,6 +1421,23 @@ function SortableProjectCardImpl({
             <span className="text-[10px] text-muted-foreground dark:text-zinc-400 hidden sm:inline" title={new Date(project.createdAt).toLocaleString()}>{formatTimeAgo(project.createdAt, t)}</span>
           </div>
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+            {/* GitHub repo segment — a first-class action (leftmost slot) so
+                "set the repo" and "one-click pull" are both immediately
+                visible on every local card. Configured → brand chip that
+                pulls; unconfigured → dashed "Connect repo" chip that opens
+                the edit dialog. Remote projects skip (pull runs there). */}
+            {!project.deviceId && (project.repoUrl ? (
+              <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" disabled={pulling || !onPull} className="inline-flex items-center justify-center rounded-md h-7 px-2.5 gap-1.5 border border-brand/30 bg-brand-soft/70 text-brand-strong dark:text-brand hover:bg-brand-soft hover:border-brand/50 cursor-pointer text-[11px] font-medium transition-colors max-w-[220px] disabled:opacity-60 disabled:pointer-events-none" onClick={(e) => { e.stopPropagation(); onPull?.(project) }}>
+                {pulling ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Github className="h-3 w-3 shrink-0" />}
+                <span className="truncate max-w-[120px]">{pulling ? t('card.repo.pulling') : repoShortLabel(project.repoUrl)}</span>
+                {!pulling && <GitPullRequest className="h-3 w-3 shrink-0" />}
+              </button></TooltipTrigger><TooltipContent>{project.repoUrl} — {t('card.ctx.pullLatest')}</TooltipContent></Tooltip></TooltipProvider>
+            ) : (
+              <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 px-2 gap-1.5 border border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400 hover:text-brand-strong dark:hover:text-brand hover:border-brand/45 hover:bg-brand-soft/40 cursor-pointer text-[11px] font-medium transition-colors" onClick={(e) => { e.stopPropagation(); onEdit(project) }}>
+                <Github className="h-3 w-3 shrink-0" />
+                <span className="hidden sm:inline whitespace-nowrap">{t('card.repo.connect')}</span>
+              </button></TooltipTrigger><TooltipContent>{t('card.repo.connectTooltip')}</TooltipContent></Tooltip></TooltipProvider>
+            ))}
             {(project.environments || []).some((e) => e.status === 'running') && (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><a
                 href={getOpenUrl((project.environments || []).find((e) => e.status === 'running')?.port || (project.environments || [])[0]?.port || 3000)}
@@ -1809,6 +1849,9 @@ function ProjectFormDialog({
             )}
             {repoUrl.trim() !== '' && repoUrlValid && selectedDeviceId && (
               <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.repoUrlRemoteHint')}</p>
+            )}
+            {repoUrl.trim() === '' && !selectedDeviceId && (
+              <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.repoUrlHint')}</p>
             )}
           </div>
           <div className="space-y-1">
@@ -3354,7 +3397,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit
 }: {
   project: Project | null
   open: boolean
@@ -3366,6 +3409,7 @@ function DetailSheet({
   devices?: Device[]
   onOpenDeviceManagement?: () => void
   onReanalyze?: (p: Project) => void
+  onEdit?: (p: Project) => void
 }) {
   const t = useT()
   const [activeTab, setActiveTab] = React.useState('overview')
@@ -3400,7 +3444,7 @@ function DetailSheet({
   // Collapsible sections state
   const [descCollapsed, setDescCollapsed] = React.useState(() => !project?.description)
   const [deviceCollapsed, setDeviceCollapsed] = React.useState(false)
-  const [repoCollapsed, setRepoCollapsed] = React.useState(() => !project?.repoUrl)
+  const [repoCollapsed, setRepoCollapsed] = React.useState(false)
   const [tagsCollapsed, setTagsCollapsed] = React.useState(() => parseTags(project?.tags || '').length === 0)
   const [envSummaryCollapsed, setEnvSummaryCollapsed] = React.useState(false)
   // Project Notes state (Session 13) — persisted server-side via PUT
@@ -4001,6 +4045,20 @@ function DetailSheet({
                               {t('dlg.detail.pullRemoteOnly')}
                             </p>
                           )}
+                        </div>
+                      ) : !project.deviceId ? (
+                        /* No repo yet (local) — actionable CTA instead of a
+                           dead-end note: one click opens the edit dialog where
+                           the Git Repository field lives. */
+                        <div className="flex items-center gap-3 flex-wrap rounded-lg border border-dashed border-zinc-300 dark:border-zinc-600 px-3.5 py-3">
+                          <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground flex-1 min-w-[180px]">
+                            {t('dlg.detail.noRepoHint')}
+                          </span>
+                          <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => onEdit?.(project)}>
+                            <Github className="h-3.5 w-3.5" />
+                            {t('dlg.detail.connectRepo')}
+                          </Button>
                         </div>
                       ) : (
                         <p className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -5775,6 +5833,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [searchDropdownOpen, setSearchDropdownOpen] = React.useState(false)
   const [rebuildConfirmProject, setRebuildConfirmProject] = React.useState<Project | null>(null)
   const [rebuildingProjectIds, setRebuildingProjectIds] = React.useState<Set<string>>(new Set())
+  // Projects with a one-click git pull in flight — drives the spinner on the
+  // repo chip in the card action bar.
+  const [pullingProjectIds, setPullingProjectIds] = React.useState<Set<string>>(new Set())
   // Per-env in-flight operations (envId → action). Drives the progress
   // spinners on env rows and blocks duplicate clicks while an operation runs.
   const [pendingEnvOps, setPendingEnvOps] = React.useState<Record<string, string>>({})
@@ -6677,9 +6738,12 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
   // One-click `git pull --ff-only` for a local project with a configured repo
   // (POST /api/projects/:id/pull). Shows a toast for the outcome; refreshes
-  // the card list so updatedAt / activity update.
+  // the card list so updatedAt / activity update. Tracks the in-flight ids so
+  // the repo chip on the card shows a spinner and blocks double-clicks.
   const handlePullProject = React.useCallback(async (project: Project) => {
     if (!project.repoUrl || project.deviceId) return
+    if (pullingProjectIds.has(project.id)) return
+    setPullingProjectIds((prev) => new Set(prev).add(project.id))
     toast({ title: t('dlg.detail.pulling'), description: project.repoUrl })
     try {
       const res = await fetch(`/api/projects/${project.id}/pull`, { method: 'POST' })
@@ -6697,8 +6761,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       }
     } catch (e: any) {
       toast({ title: t('dlg.detail.pullFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
+    } finally {
+      setPullingProjectIds((prev) => { const next = new Set(prev); next.delete(project.id); return next })
     }
-  }, [toast, fetchProjects, t])
+  }, [toast, fetchProjects, t, pullingProjectIds])
 
   const handleMoveProject = React.useCallback(async (projectId: string, targetDeviceId: string | null) => {
     try {
@@ -8263,6 +8329,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
                               rebuilding={rebuildingProjectIds.has(project.id)}
+                              pulling={pullingProjectIds.has(project.id)}
                               pendingOps={pendingEnvOps}
                               starred={starredIds.has(project.id)}
                               onToggleStar={toggleStar}
@@ -8313,6 +8380,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
                               rebuilding={rebuildingProjectIds.has(project.id)}
+                              pulling={pullingProjectIds.has(project.id)}
                               pendingOps={pendingEnvOps}
                               starred={starredIds.has(project.id)}
                               onToggleStar={toggleStar}
@@ -8362,6 +8430,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
                               rebuilding={rebuildingProjectIds.has(project.id)}
+                              pulling={pullingProjectIds.has(project.id)}
                               pendingOps={pendingEnvOps}
                               starred={starredIds.has(project.id)}
                               onToggleStar={toggleStar}
@@ -8398,6 +8467,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         selected={selectedIds.has(project.id)}
                         onToggleSelect={toggleSelect}
                         rebuilding={rebuildingProjectIds.has(project.id)}
+                        pulling={pullingProjectIds.has(project.id)}
                               pendingOps={pendingEnvOps}
                         starred={starredIds.has(project.id)}
                         onToggleStar={toggleStar}
@@ -8442,6 +8512,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
                               rebuilding={rebuildingProjectIds.has(project.id)}
+                              pulling={pullingProjectIds.has(project.id)}
                               pendingOps={pendingEnvOps}
                               starred={starredIds.has(project.id)}
                               onToggleStar={toggleStar}
@@ -8490,6 +8561,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
                               rebuilding={rebuildingProjectIds.has(project.id)}
+                              pulling={pullingProjectIds.has(project.id)}
                               pendingOps={pendingEnvOps}
                               starred={starredIds.has(project.id)}
                               onToggleStar={toggleStar}
@@ -8537,6 +8609,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
                               rebuilding={rebuildingProjectIds.has(project.id)}
+                              pulling={pullingProjectIds.has(project.id)}
                               pendingOps={pendingEnvOps}
                               starred={starredIds.has(project.id)}
                               onToggleStar={toggleStar}
@@ -8574,6 +8647,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         selected={selectedIds.has(project.id)}
                         onToggleSelect={toggleSelect}
                         rebuilding={rebuildingProjectIds.has(project.id)}
+                        pulling={pullingProjectIds.has(project.id)}
                               pendingOps={pendingEnvOps}
                         starred={starredIds.has(project.id)}
                         onToggleStar={toggleStar}
@@ -8748,6 +8822,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         onEnvAction={handleEnvAction}
         lanIp={lanIp}
         currentHost={currentHost}
+        onEdit={handleEditProject}
         onRefresh={() => {
           fetchProjects({ fresh: true })
           if (selectedProject) {
