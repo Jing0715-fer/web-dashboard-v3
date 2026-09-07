@@ -966,6 +966,7 @@ export const dialogs = {
   'card.ctx.pullLatest': '拉取最新代码',
   'card.repo.connect': '连接仓库',
   'card.repo.pulling': '拉取中…',
+  'card.repo.pullAction': '拉取',
   'card.repo.connectTooltip': '设置 GitHub 仓库，即可一键拉取最新代码',
   'card.ctx.unpin': '取消置顶',
   'card.ctx.pinToTop': '置顶',

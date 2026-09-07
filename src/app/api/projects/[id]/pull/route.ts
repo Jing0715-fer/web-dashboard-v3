@@ -132,7 +132,10 @@ export async function POST(
     } catch { /* unborn HEAD */ }
 
     const output = (stdout || stderr || '').trim();
-    const upToDate = /Already up to date/i.test(output);
+    // Locale-independent up-to-date detection: git output text ("Already up
+    // to date") only works on English git installs; identical before/after
+    // SHAs is the ground truth.
+    const upToDate = /Already up to date/i.test(output) || (before !== '' && before === after);
     const range = before && after && before !== after ? ` (${before} → ${after})` : '';
 
     await logActivity({
@@ -149,7 +152,7 @@ export async function POST(
       upToDate,
       before,
       after,
-      summary: upToDate ? 'Already up to date' : `${before} → ${after}`,
+      summary: upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done',
       output: output.slice(0, 4000),
     });
   } catch (e: any) {

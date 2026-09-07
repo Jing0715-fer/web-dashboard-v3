@@ -375,6 +375,19 @@ function repoShortLabel(url: string): string {
   }
 }
 
+/** Strip any credentials embedded in a stored repo URL before it is rendered
+ *  (toasts, tooltips, links) — mirrors the server-side sanitize so a
+ *  PAT-in-URL never reaches the UI or shared logs. */
+function sanitizeGitUrl(url: string): string {
+  try {
+    const u = new URL(url)
+    if (u.username || u.password) { u.username = ''; u.password = '' }
+    return u.toString()
+  } catch {
+    return url
+  }
+}
+
 function getProjectStatus(project: Project): 'running' | 'stopped' | 'mixed' {
   const envs = project.environments || []
   if (envs.length === 0) return 'stopped'
@@ -1027,7 +1040,7 @@ function SortableProjectCardImpl({
           {batchMode && (
             <Checkbox checked={selected} onCheckedChange={() => onToggleSelect(project.id)} onClick={(e) => e.stopPropagation()} className="shrink-0" />
           )}
-          <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`shrink-0 cursor-pointer transition-colors ${starred ? 'text-zinc-800 dark:text-zinc-200' : 'text-zinc-300 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-300'}`}>
+          <button type="button" aria-label={starred ? t('card.ctx.unpin') : t('card.ctx.pinToTop')} onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`shrink-0 cursor-pointer transition-colors ${starred ? 'text-zinc-800 dark:text-zinc-200' : 'text-zinc-300 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-300'}`}>
             {starred ? <Pin className="h-4 w-4 fill-current" /> : <Star className="h-4 w-4" />}
           </button>
           {starred && pinOrder != null && <span className="text-[8px] min-w-[14px] text-center px-0.5 py-0 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-semibold shrink-0">#{pinOrder}</span>}
@@ -1047,8 +1060,14 @@ function SortableProjectCardImpl({
                 <span className={`h-1.5 w-1.5 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-zinc-400 dark:bg-zinc-500'}`} />
                 {runningEnvs}/{totalEnvs} running
               </Badge>
+              {project.name === 'Hermes Web' && <HermesBridgeToggle />}
+            </div>
+            <div className="flex items-center gap-2 min-w-0">
+              <button type="button" className="flex-1 min-w-0 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate text-left cursor-pointer hover:text-foreground dark:hover:text-zinc-200 transition-colors" title={t('card.pathTooltip', { path: project.path })} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(project.path); addToast({ title: t('dlg.toast.pathCopied'), description: project.path, variant: 'success' }) }}>{highlightText(project.path, searchQuery)}</button>
+              {/* Repo chip lives on the path line (not the title row) so the
+                  title row never overflows; one-click pull stays reachable. */}
               {project.repoUrl ? (
-                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[190px]" title={pulling ? t('card.repo.pulling') : `${project.repoUrl} · ${t('card.ctx.pullLatest')}`} onClick={(e) => { e.stopPropagation(); if (onPull && !project.deviceId) onPull(project); else window.open(project.repoUrl, '_blank', 'noreferrer') }}>
+                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[200px]" title={pulling ? t('card.repo.pulling') : project.deviceId ? sanitizeGitUrl(project.repoUrl) : `${sanitizeGitUrl(project.repoUrl)} · ${t('card.ctx.pullLatest')}`} onClick={(e) => { e.stopPropagation(); if (onPull && !project.deviceId) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
                   {pulling ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Github className="h-3 w-3 shrink-0" />}
                   <span className="truncate">{repoShortLabel(project.repoUrl)}</span>
                   {!pulling && !project.deviceId && onPull && <GitPullRequest className="h-3 w-3 shrink-0 text-brand-strong dark:text-brand" />}
@@ -1059,9 +1078,7 @@ function SortableProjectCardImpl({
                   <span className="hidden md:inline">{t('card.repo.connect')}</span>
                 </button>
               )}
-              {project.name === 'Hermes Web' && <HermesBridgeToggle />}
             </div>
-            <button type="button" className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate text-left cursor-pointer hover:text-foreground dark:hover:text-zinc-200 transition-colors" title={t('card.pathTooltip', { path: project.path })} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(project.path); addToast({ title: t('dlg.toast.pathCopied'), description: project.path, variant: 'success' }) }}>{highlightText(project.path, searchQuery)}</button>
           </div>
           <div className="hidden sm:flex items-center gap-1.5 justify-end max-w-[200px] overflow-hidden">
             {tags.slice(0, 3).map((tag) => (
@@ -1158,7 +1175,7 @@ function SortableProjectCardImpl({
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</DropdownMenuItem>
                 {project.repoUrl && !project.deviceId && onPull && (
-                  <DropdownMenuItem onClick={() => onPull(project)} className="px-2.5 py-2 text-sm rounded-md"><GitPullRequest className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pullLatest')}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onPull(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md">{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />{t('surf.duplicate')}</DropdownMenuItem>
@@ -1188,7 +1205,7 @@ function SortableProjectCardImpl({
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</ContextMenuItem>
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</ContextMenuItem>
             {project.repoUrl && !project.deviceId && onPull && (
-              <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}><GitPullRequest className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pullLatest')}</ContextMenuItem>
+              <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}>{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</ContextMenuItem>
             )}
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.duplicate')}</ContextMenuItem>
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.unpin')}</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pinToTop')}</>}</ContextMenuItem>
@@ -1273,7 +1290,7 @@ function SortableProjectCardImpl({
                     </span>
                   )}
                   {project.repoUrl && (
-                    <button type="button" className="shrink-0 cursor-pointer text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" title={project.repoUrl} aria-label={t('card.ctx.pullLatest')} onClick={(e) => { e.stopPropagation(); if (onPull && !project.deviceId) onPull(project); else window.open(project.repoUrl, '_blank', 'noreferrer') }}>
+                    <button type="button" className="shrink-0 cursor-pointer text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" title={sanitizeGitUrl(project.repoUrl)} aria-label={t('card.ctx.pullLatest')} onClick={(e) => { e.stopPropagation(); if (onPull && !project.deviceId) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
                       <Github className="h-3 w-3" />
                     </button>
                   )}
@@ -1287,7 +1304,7 @@ function SortableProjectCardImpl({
                 </div>
                 <HealthTrendIcon trend={healthTrend} />
               </div>
-              <button type="button" onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`cursor-pointer transition-colors ml-0.5 ${starred ? 'text-zinc-800 dark:text-zinc-200' : 'text-zinc-300 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-300'}`}>
+              <button type="button" aria-label={starred ? t('card.ctx.unpin') : t('card.ctx.pinToTop')} onClick={(e) => { e.stopPropagation(); onToggleStar(project.id) }} className={`cursor-pointer transition-colors ml-0.5 ${starred ? 'text-zinc-800 dark:text-zinc-200' : 'text-zinc-300 dark:text-zinc-600 hover:text-zinc-600 dark:hover:text-zinc-300'}`}>
                 {starred ? <Pin className="h-3 w-3 fill-current" /> : <Star className="h-3 w-3" />}
               </button>
               {starred && pinOrder != null && <span className="text-[8px] min-w-[14px] text-center px-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-semibold shrink-0">#{pinOrder}</span>}
@@ -1412,6 +1429,26 @@ function SortableProjectCardImpl({
 
         {/* Action bar — tinted footer zone separates actions from content */}
         <div className="relative z-[1] mt-auto border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/40 rounded-b-xl">
+          {/* GitHub repository — its own full-width row, so long owner/repo
+              labels truncate gracefully instead of crowding (and overflowing)
+              the action bar below. Configured → whole row is one-click Pull;
+              unconfigured → dashed CTA row that opens the edit dialog.
+              Remote projects skip this row (pull runs on the host device). */}
+          {!project.deviceId && (project.repoUrl ? (
+            <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild><button type="button" disabled={pulling || !onPull} className="group/repo w-full flex items-center gap-2.5 h-9 pl-4 pr-3 sm:pl-5 border-b border-zinc-200/80 dark:border-zinc-800/80 bg-gradient-to-r from-brand-soft/70 to-brand-soft/15 hover:from-brand-soft hover:to-brand-soft/50 transition-colors cursor-pointer disabled:opacity-70 disabled:pointer-events-none" onClick={(e) => { e.stopPropagation(); onPull?.(project) }}>
+              {pulling ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-brand-strong dark:text-brand" /> : <Github className="h-3.5 w-3.5 shrink-0 text-zinc-600 dark:text-zinc-300 group-hover/repo:text-foreground dark:group-hover/repo:text-zinc-100 transition-colors" />}
+              <span className="flex-1 min-w-0 truncate text-left font-mono text-[11px] text-zinc-600 dark:text-zinc-300 group-hover/repo:text-foreground dark:group-hover/repo:text-zinc-100 transition-colors">{repoShortLabel(project.repoUrl)}</span>
+              <span className={`inline-flex items-center gap-1 shrink-0 text-[11px] font-medium ${pulling ? 'text-muted-foreground' : 'text-brand-strong dark:text-brand'}`}>
+                {pulling ? t('card.repo.pulling') : (<><span className="hidden sm:inline">{t('card.repo.pullAction')}</span><GitPullRequest className="h-3.5 w-3.5" /></>)}
+              </span>
+            </button></TooltipTrigger><TooltipContent>{sanitizeGitUrl(project.repoUrl)} — {t('card.ctx.pullLatest')}</TooltipContent></Tooltip></TooltipProvider>
+          ) : (
+            <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild><button type="button" className="group/repo w-full flex items-center gap-2.5 h-9 pl-4 pr-3 sm:pl-5 border-b border-dashed border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-brand-strong dark:hover:text-brand hover:border-brand/40 hover:bg-brand-soft/30 transition-colors cursor-pointer" onClick={(e) => { e.stopPropagation(); onEdit(project) }}>
+              <Github className="h-3.5 w-3.5 shrink-0" />
+              <span className="flex-1 min-w-0 truncate text-left text-[11px] font-medium">{t('card.repo.connect')}</span>
+              <Plus className="h-3.5 w-3.5 shrink-0 opacity-60 group-hover/repo:opacity-100 transition-opacity" />
+            </button></TooltipTrigger><TooltipContent>{t('card.repo.connectTooltip')}</TooltipContent></Tooltip></TooltipProvider>
+          ))}
           <div className="px-4 sm:px-5 pb-3 pt-2 flex items-center justify-between min-w-0">
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-[11px] font-medium px-2 py-0.5 gap-1.5 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 tabular-nums">
@@ -1421,23 +1458,6 @@ function SortableProjectCardImpl({
             <span className="text-[10px] text-muted-foreground dark:text-zinc-400 hidden sm:inline" title={new Date(project.createdAt).toLocaleString()}>{formatTimeAgo(project.createdAt, t)}</span>
           </div>
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            {/* GitHub repo segment — a first-class action (leftmost slot) so
-                "set the repo" and "one-click pull" are both immediately
-                visible on every local card. Configured → brand chip that
-                pulls; unconfigured → dashed "Connect repo" chip that opens
-                the edit dialog. Remote projects skip (pull runs there). */}
-            {!project.deviceId && (project.repoUrl ? (
-              <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" disabled={pulling || !onPull} className="inline-flex items-center justify-center rounded-md h-7 px-2.5 gap-1.5 border border-brand/30 bg-brand-soft/70 text-brand-strong dark:text-brand hover:bg-brand-soft hover:border-brand/50 cursor-pointer text-[11px] font-medium transition-colors max-w-[220px] disabled:opacity-60 disabled:pointer-events-none" onClick={(e) => { e.stopPropagation(); onPull?.(project) }}>
-                {pulling ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Github className="h-3 w-3 shrink-0" />}
-                <span className="truncate max-w-[120px]">{pulling ? t('card.repo.pulling') : repoShortLabel(project.repoUrl)}</span>
-                {!pulling && <GitPullRequest className="h-3 w-3 shrink-0" />}
-              </button></TooltipTrigger><TooltipContent>{project.repoUrl} — {t('card.ctx.pullLatest')}</TooltipContent></Tooltip></TooltipProvider>
-            ) : (
-              <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 px-2 gap-1.5 border border-dashed border-zinc-300 dark:border-zinc-600 text-zinc-500 dark:text-zinc-400 hover:text-brand-strong dark:hover:text-brand hover:border-brand/45 hover:bg-brand-soft/40 cursor-pointer text-[11px] font-medium transition-colors" onClick={(e) => { e.stopPropagation(); onEdit(project) }}>
-                <Github className="h-3 w-3 shrink-0" />
-                <span className="hidden sm:inline whitespace-nowrap">{t('card.repo.connect')}</span>
-              </button></TooltipTrigger><TooltipContent>{t('card.repo.connectTooltip')}</TooltipContent></Tooltip></TooltipProvider>
-            ))}
             {(project.environments || []).some((e) => e.status === 'running') && (
               <TooltipProvider><Tooltip><TooltipTrigger asChild><a
                 href={getOpenUrl((project.environments || []).find((e) => e.status === 'running')?.port || (project.environments || [])[0]?.port || 3000)}
@@ -1479,7 +1499,7 @@ function SortableProjectCardImpl({
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</DropdownMenuItem>
                 {project.repoUrl && !project.deviceId && onPull && (
-                  <DropdownMenuItem onClick={() => onPull(project)} className="px-2.5 py-2 text-sm rounded-md"><GitPullRequest className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pullLatest')}</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onPull(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md">{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />{t('surf.duplicate')}</DropdownMenuItem>
@@ -1514,7 +1534,7 @@ function SortableProjectCardImpl({
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">e</kbd></ContextMenuItem>
           {project.repoUrl && !project.deviceId && onPull && (
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}><GitPullRequest className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pullLatest')}</ContextMenuItem>
+            <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}>{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</ContextMenuItem>
           )}
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.unpin')}</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pinToTop')}</>}</ContextMenuItem>
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.duplicate')}</ContextMenuItem>
@@ -3999,16 +4019,16 @@ function DetailSheet({
                           <div className="flex items-center gap-2 min-w-0">
                             <Github className="h-4 w-4 shrink-0 text-foreground dark:text-zinc-200" />
                             <a
-                              href={project.repoUrl}
+                              href={sanitizeGitUrl(project.repoUrl)}
                               target="_blank"
                               rel="noreferrer"
                               className="text-sm font-mono truncate flex-1 hover:underline"
-                              title={project.repoUrl}
+                              title={sanitizeGitUrl(project.repoUrl)}
                             >
-                              {project.repoUrl.replace(/^https?:\/\/(www\.)?/, '')}
+                              {sanitizeGitUrl(project.repoUrl).replace(/^https?:\/\/(www\.)?/, '')}
                             </a>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => copyToClipboard(project.repoUrl!, t('dlg.detail.gitRepo'))}><Copy className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => window.open(project.repoUrl, '_blank', 'noreferrer')}><ExternalLink className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => copyToClipboard(sanitizeGitUrl(project.repoUrl!), t('dlg.detail.gitRepo'))}><Copy className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer')}><ExternalLink className="h-3.5 w-3.5" /></Button>
                           </div>
                           {!project.deviceId ? (
                             <>
@@ -5834,8 +5854,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [rebuildConfirmProject, setRebuildConfirmProject] = React.useState<Project | null>(null)
   const [rebuildingProjectIds, setRebuildingProjectIds] = React.useState<Set<string>>(new Set())
   // Projects with a one-click git pull in flight — drives the spinner on the
-  // repo chip in the card action bar.
+  // repo row in the card footer.
   const [pullingProjectIds, setPullingProjectIds] = React.useState<Set<string>>(new Set())
+  // Ref mirror of the set above: guards double-clicks in the same tick (the
+  // state check only takes effect after a re-render).
+  const pullingProjectIdsRef = React.useRef<Set<string>>(new Set())
   // Per-env in-flight operations (envId → action). Drives the progress
   // spinners on env rows and blocks duplicate clicks while an operation runs.
   const [pendingEnvOps, setPendingEnvOps] = React.useState<Record<string, string>>({})
@@ -6739,12 +6762,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // One-click `git pull --ff-only` for a local project with a configured repo
   // (POST /api/projects/:id/pull). Shows a toast for the outcome; refreshes
   // the card list so updatedAt / activity update. Tracks the in-flight ids so
-  // the repo chip on the card shows a spinner and blocks double-clicks.
+  // the repo row on the card shows a spinner and blocks double-clicks — a
+  // ref guard blocks the second click in the same tick (before re-render).
   const handlePullProject = React.useCallback(async (project: Project) => {
     if (!project.repoUrl || project.deviceId) return
-    if (pullingProjectIds.has(project.id)) return
+    if (pullingProjectIdsRef.current.has(project.id)) return
+    pullingProjectIdsRef.current.add(project.id)
     setPullingProjectIds((prev) => new Set(prev).add(project.id))
-    toast({ title: t('dlg.detail.pulling'), description: project.repoUrl })
+    toast({ title: t('dlg.detail.pulling'), description: sanitizeGitUrl(project.repoUrl) })
     try {
       const res = await fetch(`/api/projects/${project.id}/pull`, { method: 'POST' })
       const data = await res.json().catch(() => ({}))
@@ -6762,9 +6787,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } catch (e: any) {
       toast({ title: t('dlg.detail.pullFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
     } finally {
+      pullingProjectIdsRef.current.delete(project.id)
       setPullingProjectIds((prev) => { const next = new Set(prev); next.delete(project.id); return next })
     }
-  }, [toast, fetchProjects, t, pullingProjectIds])
+  }, [toast, fetchProjects, t])
 
   const handleMoveProject = React.useCallback(async (projectId: string, targetDeviceId: string | null) => {
     try {
@@ -8130,7 +8156,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <X className="h-3 w-3" />
               </button>
             </div>
-            <div className="px-4 py-2 flex items-center gap-3 overflow-x-auto custom-scrollbar">
+            {/* Horizontal activity scroller — right-edge fade signals more
+                content instead of an abrupt clip. */}
+            <div className="relative">
+              <div className="px-4 py-2 flex items-center gap-3 overflow-x-auto custom-scrollbar [mask-image:linear-gradient(to_right,black_92%,transparent)] [scrollbar-width:thin]">
               {globalActivity.map((event) => {
                 const IconComp = ACTIVITY_ICONS[event.type] || Activity
                 const colorClass = ACTIVITY_COLORS[event.type] || 'text-zinc-500 bg-zinc-100'
@@ -8152,6 +8181,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   </motion.div>
                 )
               })}
+              </div>
             </div>
           </motion.div>
         )}
@@ -8283,7 +8313,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   {/* Quick Refresh Button */}
                   <button
                     type="button"
-                    className="absolute -right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-card border shadow-sm hover:bg-accent hover:shadow-md transition-all ring-1 ring-border/30 text-muted-foreground hover:text-foreground"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1.5 rounded-full bg-card border shadow-sm hover:bg-accent hover:shadow-md transition-all ring-1 ring-border/30 text-muted-foreground hover:text-foreground"
                     onClick={() => fetchProjects()}
                     title={t('dlg.cmd.refresh')}
                   >
