@@ -1,10 +1,10 @@
 'use client'
 
 import * as React from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence, MotionConfig, useMotionValue, useSpring, useTransform, type Variants } from 'framer-motion'
 import {
-  Zap, MonitorSmartphone, PlayCircle, Sparkles, Eye, EyeOff,
-  AlertCircle, CheckCircle2, Loader2, Info,
+  MonitorSmartphone, Rocket, Sparkles, Eye, EyeOff,
+  AlertCircle, CheckCircle2, Loader2, Info, Mail, Lock, User, ArrowRight, ShieldCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,7 +22,45 @@ const EMAIL_KEY = 'dashboard-auth-email'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+/* Shared easing + entrance choreography (matches the interior page's
+   card/panel motion language: short, soft, easeOut, never bouncy-loud). */
+const EASE_OUT: [number, number, number, number] = [0.21, 0.47, 0.32, 0.98]
+
+const panelVariants: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.09, delayChildren: 0.05 } },
+}
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 14 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: EASE_OUT } },
+}
+
+/* Input-icon button/field recipe shared by both forms — the icon sits inside
+   the field, dims while idle and picks up the brand color on focus. */
+const iconField = 'group/field relative'
+const iconGlyph = 'pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60 transition-colors duration-200 group-focus-within/field:text-brand'
+const iconInput = 'h-11 transition-all duration-200 focus-visible:border-brand/50 focus-visible:ring-brand/20 pl-10'
+
 interface FormError { tone: 'destructive' | 'warning'; title: string; detail?: string }
+
+/* Deterministic rising-particle seeds — Math.sin hashing keeps SSR and client
+   markup identical (no hydration drift, no Math.random). Consumed by the
+   .login-particle layer in the backdrop via CSS custom properties. */
+const PARTICLES: React.CSSProperties[] = Array.from({ length: 18 }, (_, i) => {
+  const rand = (seed: number) => {
+    const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453
+    return x - Math.floor(x)
+  }
+  const s = i * 3 + 1
+  return {
+    '--x': `${(4 + rand(s) * 90).toFixed(1)}%`,
+    '--s': `${(1.5 + rand(s + 1) * 2.5).toFixed(1)}px`,
+    '--d': `${(15 + rand(s + 2) * 13).toFixed(1)}s`,
+    '--dl': `${(rand(s + 3) * 11).toFixed(1)}s`,
+    '--o': (0.18 + rand(s + 4) * 0.32).toFixed(2),
+    '--dx': `${Math.round(-70 + rand(s + 5) * 140)}px`,
+  } as React.CSSProperties
+})
 
 /** Map a Google OAuth error code to its dictionary key. */
 function googleAuthErrorKey(code: string): string {
@@ -52,8 +90,11 @@ function GoogleLogo({ className = 'h-4 w-4' }: { className?: string }) {
 function ErrorAlert({ error }: { error: FormError }) {
   const amber = error.tone === 'warning'
   return (
-    <div
+    <motion.div
       role="alert"
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
       className={`flex items-start gap-2.5 rounded-lg border px-3.5 py-2.5 text-sm ${amber
         ? 'border-amber-300/70 bg-amber-50/80 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300'
         : 'border-destructive/40 bg-card text-destructive dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-400'}`}
@@ -63,13 +104,22 @@ function ErrorAlert({ error }: { error: FormError }) {
         <p className="font-medium leading-snug">{error.title}</p>
         {error.detail && <p className="mt-0.5 text-xs opacity-80 leading-relaxed">{error.detail}</p>}
       </div>
-    </div>
+    </motion.div>
   )
 }
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null
-  return <p className="text-xs text-destructive dark:text-red-400 mt-1.5 leading-snug">{message}</p>
+  return (
+    <motion.p
+      initial={{ opacity: 0, y: -2 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
+      className="text-xs text-destructive dark:text-red-400 mt-1.5 leading-snug"
+    >
+      {message}
+    </motion.p>
+  )
 }
 
 /** Google sign-in button + configuration status chip. */
@@ -83,7 +133,7 @@ function GoogleSignInButton({ status }: { status: GoogleStatus | null }) {
       variant="outline"
       disabled={loading || !configured}
       onClick={() => { window.location.href = '/api/auth/google' }}
-      className="h-11 w-full bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/70 text-zinc-700 dark:text-zinc-200 text-sm font-medium shadow-xs transition-colors disabled:opacity-60"
+      className="h-11 w-full bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700/70 text-zinc-700 dark:text-zinc-200 text-sm font-medium shadow-xs transition-all duration-200 active:scale-[0.99] disabled:opacity-60"
     >
       {loading ? (
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -114,7 +164,7 @@ function GoogleSignInButton({ status }: { status: GoogleStatus | null }) {
         </TooltipProvider>
       )}
       {!loading && !configured && (
-        <p className="text-[11px] text-muted-foreground/80 text-center">{t('login.google.notConfiguredShort')}</p>
+        <p className="text-[11px] text-muted-foreground text-center">{t('login.google.notConfiguredShort')}</p>
       )}
     </div>
   )
@@ -124,9 +174,23 @@ function Divider() {
   const t = useT()
   return (
     <div className="relative my-5" aria-hidden="true">
-      <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border/60" /></div>
+      <div className="absolute inset-0 flex items-center">
+        <motion.span
+          initial={{ scaleX: 0 }}
+          animate={{ scaleX: 1 }}
+          transition={{ duration: 0.55, ease: 'easeOut' }}
+          className="w-full border-t border-border/60 origin-center"
+        />
+      </div>
       <div className="relative flex justify-center">
-        <span className="bg-background px-3 text-[11px] uppercase tracking-wider text-muted-foreground">{t('login.divider')}</span>
+        <motion.span
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2, duration: 0.4 }}
+          className="bg-background px-3 text-[11px] uppercase tracking-wider text-muted-foreground"
+        >
+          {t('login.divider')}
+        </motion.span>
       </div>
     </div>
   )
@@ -205,28 +269,32 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate>
+    <form onSubmit={handleSubmit} noValidate className="space-y-5">
       <GoogleGate />
       <Divider />
-      <div className="space-y-4">
+      <div className="space-y-5">
         <div className="space-y-1.5">
           <Label htmlFor="signin-email">{t('login.email')}</Label>
-          <Input
-            id="signin-email"
-            type="email"
-            autoComplete="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={submitting}
-            className="h-11"
-          />
+          <div className={iconField}>
+            <Mail className={iconGlyph} aria-hidden="true" />
+            <Input
+              id="signin-email"
+              type="email"
+              autoComplete="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={submitting}
+              className={iconInput}
+            />
+          </div>
         </div>
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <Label htmlFor="signin-password">{t('login.password')}</Label>
           </div>
-          <div className="relative">
+          <div className={iconField}>
+            <Lock className={iconGlyph} aria-hidden="true" />
             <Input
               id="signin-password"
               type={showPassword ? 'text' : 'password'}
@@ -235,7 +303,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={submitting}
-              className="h-11 pr-11"
+              className="h-11 pl-10 pr-11 transition-all duration-200 focus-visible:border-brand/50 focus-visible:ring-brand/20"
             />
             <button
               type="button"
@@ -244,7 +312,7 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
               className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               tabIndex={0}
             >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showPassword ? <EyeOff className="h-4 w-4 transition-transform duration-200 active:scale-90" /> : <Eye className="h-4 w-4 transition-transform duration-200 active:scale-90" />}
             </button>
           </div>
         </div>
@@ -257,22 +325,32 @@ function SignInForm({ onAuthed, seedHint }: { onAuthed: () => void; seedHint?: b
           />
           <Label htmlFor="signin-remember" className="text-sm font-normal text-muted-foreground cursor-pointer">{t('login.rememberMe')}</Label>
         </div>
-        {error && <ErrorAlert error={error} />}
+        <AnimatePresence initial={false}>
+          {error && <ErrorAlert key={error.title} error={error} />}
+        </AnimatePresence>
         <Button
           type="submit"
           disabled={submitting}
-          className="h-11 w-full bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold shadow-sm transition-colors"
+          className="btn-sheen group/btn h-11 w-full rounded-lg bg-gradient-to-b from-primary to-primary/90 hover:from-primary hover:to-primary/85 text-primary-foreground text-sm font-semibold shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/40 active:scale-[0.98] transition-all duration-200"
         >
           {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
           {submitting ? t('login.signingIn') : t('login.signin')}
+          {!submitting && (
+            <ArrowRight className="h-4 w-4 ml-1.5 transition-transform duration-200 group-hover/btn:translate-x-0.5" aria-hidden="true" />
+          )}
         </Button>
         {seedHint && (
-          <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-3.5 py-2.5 text-xs text-muted-foreground leading-relaxed">
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.4, ease: 'easeOut' }}
+            className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 px-3.5 py-2.5 pt-3 text-xs text-muted-foreground leading-relaxed"
+          >
             <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <span>
               {t('login.seedHintPrefix')} <code className="font-mono">admin@dashboard.local</code> · <code className="font-mono">admin123456</code> — {t('login.seedHintSuffix')}
             </span>
-          </div>
+          </motion.div>
         )}
       </div>
     </form>
@@ -362,19 +440,24 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   if (succeeded) {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 8 }}
+        initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25 }}
+        transition={{ duration: 0.3, ease: EASE_OUT }}
         className="py-4 flex flex-col items-center text-center"
       >
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 ring-4 ring-emerald-100 dark:ring-emerald-900/40 mb-4">
-          <CheckCircle2 className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
-        </div>
-        <h3 className="text-lg font-semibold">{t('login.register.success.title')}</h3>
+        <motion.div
+          initial={{ scale: 0.4, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', stiffness: 320, damping: 18, delay: 0.08 }}
+          className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 ring-4 ring-emerald-100 dark:ring-emerald-900/40 mb-5"
+        >
+          <CheckCircle2 className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+        </motion.div>
+        <h3 className="text-lg font-semibold tracking-tight">{t('login.register.success.title')}</h3>
         <p className="mt-2 text-sm text-muted-foreground leading-relaxed max-w-[300px]">
           {t('login.register.success.desc')}
         </p>
-        <Button variant="outline" onClick={onBackToSignIn} className="mt-6 h-11 px-6 text-sm">
+        <Button variant="outline" onClick={onBackToSignIn} className="mt-6 h-11 px-6 text-sm transition-all duration-200 active:scale-[0.98]">
           {t('login.register.back')}
         </Button>
       </motion.div>
@@ -382,40 +465,47 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="space-y-4">
+    <form onSubmit={handleSubmit} noValidate className="space-y-5">
       <div className="space-y-1.5">
         <Label htmlFor="register-name">{t('login.register.name')}</Label>
-        <Input
-          id="register-name"
-          type="text"
-          autoComplete="name"
-          placeholder={t('login.register.namePlaceholder')}
-          value={fields.name}
-          onChange={set('name')}
-          disabled={submitting}
-          aria-invalid={!!errors.name}
-          className="h-11"
-        />
+        <div className={iconField}>
+          <User className={iconGlyph} aria-hidden="true" />
+          <Input
+            id="register-name"
+            type="text"
+            autoComplete="name"
+            placeholder={t('login.register.namePlaceholder')}
+            value={fields.name}
+            onChange={set('name')}
+            disabled={submitting}
+            aria-invalid={!!errors.name}
+            className={iconInput}
+          />
+        </div>
         <FieldError message={errors.name} />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="register-email">{t('login.register.email')}</Label>
-        <Input
-          id="register-email"
-          type="email"
-          autoComplete="email"
-          placeholder="you@example.com"
-          value={fields.email}
-          onChange={set('email')}
-          disabled={submitting}
-          aria-invalid={!!errors.email}
-          className="h-11"
-        />
+        <div className={iconField}>
+          <Mail className={iconGlyph} aria-hidden="true" />
+          <Input
+            id="register-email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+            value={fields.email}
+            onChange={set('email')}
+            disabled={submitting}
+            aria-invalid={!!errors.email}
+            className={iconInput}
+          />
+        </div>
         <FieldError message={errors.email} />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="register-password">{t('login.register.password')}</Label>
-        <div className="relative">
+        <div className={iconField}>
+          <Lock className={iconGlyph} aria-hidden="true" />
           <Input
             id="register-password"
             type={showPassword ? 'text' : 'password'}
@@ -425,7 +515,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
             onChange={set('password')}
             disabled={submitting}
             aria-invalid={!!errors.password}
-            className="h-11 pr-11"
+            className="h-11 pl-10 pr-11 transition-all duration-200 focus-visible:border-brand/50 focus-visible:ring-brand/20"
           />
           <button
             type="button"
@@ -434,14 +524,15 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
             className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             tabIndex={0}
           >
-            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showPassword ? <EyeOff className="h-4 w-4 transition-transform duration-200 active:scale-90" /> : <Eye className="h-4 w-4 transition-transform duration-200 active:scale-90" />}
           </button>
         </div>
         <FieldError message={errors.password} />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="register-confirm">{t('login.register.confirm')}</Label>
-        <div className="relative">
+        <div className={iconField}>
+          <Lock className={iconGlyph} aria-hidden="true" />
           <Input
             id="register-confirm"
             type={showConfirm ? 'text' : 'password'}
@@ -451,7 +542,7 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
             onChange={set('confirm')}
             disabled={submitting}
             aria-invalid={!!errors.confirm}
-            className="h-11 pr-11"
+            className="h-11 pl-10 pr-11 transition-all duration-200 focus-visible:border-brand/50 focus-visible:ring-brand/20"
           />
           <button
             type="button"
@@ -460,24 +551,219 @@ function RegisterForm({ onBackToSignIn }: { onBackToSignIn: () => void }) {
             className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             tabIndex={0}
           >
-            {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {showConfirm ? <EyeOff className="h-4 w-4 transition-transform duration-200 active:scale-90" /> : <Eye className="h-4 w-4 transition-transform duration-200 active:scale-90" />}
           </button>
         </div>
         <FieldError message={errors.confirm} />
       </div>
-      {serverError && <ErrorAlert error={serverError} />}
+      <AnimatePresence initial={false}>
+        {serverError && <ErrorAlert key={serverError.title} error={serverError} />}
+      </AnimatePresence>
       <Button
         type="submit"
         disabled={submitting}
-        className="h-11 w-full bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold shadow-sm transition-colors"
+        className="btn-sheen group/btn h-11 w-full rounded-lg bg-gradient-to-b from-primary to-primary/90 hover:from-primary hover:to-primary/85 text-primary-foreground text-sm font-semibold shadow-md shadow-primary/25 hover:shadow-lg hover:shadow-primary/40 active:scale-[0.98] transition-all duration-200"
       >
         {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
         {submitting ? t('login.register.submitting') : t('login.register.createAccount')}
+        {!submitting && (
+          <ArrowRight className="h-4 w-4 ml-1.5 transition-transform duration-200 group-hover/btn:translate-x-0.5" aria-hidden="true" />
+        )}
       </Button>
       <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
         {t('login.register.notice')}
       </p>
     </form>
+  )
+}
+
+// ======================== HERO PANEL (bold landing, refined round 5) ========================
+
+/** Eased count-up — fires after the hero settles so the stat numbers land
+    together with the rest of the choreography. */
+function CountUp({ to, suffix = '', delay = 700, duration = 1500 }: { to: number; suffix?: string; delay?: number; duration?: number }) {
+  const [value, setValue] = React.useState(0)
+  React.useEffect(() => {
+    let raf = 0
+    let start = 0
+    const timer = window.setTimeout(() => {
+      const tick = (now: number) => {
+        if (!start) start = now
+        const p = Math.min((now - start) / duration, 1)
+        const eased = 1 - Math.pow(1 - p, 3)
+        setValue(Math.round(eased * to))
+        if (p < 1) raf = window.requestAnimationFrame(tick)
+      }
+      raf = window.requestAnimationFrame(tick)
+    }, delay)
+    return () => { window.clearTimeout(timer); window.cancelAnimationFrame(raf) }
+  }, [to, delay, duration])
+  return <span className="tabular-nums">{value}{suffix}</span>
+}
+
+/** Decorative terminal — the signature "dev tool" prop, with a spring 3D
+    tilt that follows the pointer. Round 5 decluttered it: the tacked-on
+    floating LIVE chip and the side device rail are gone (they read as
+    clutter, and the chip clipped at the column edge); the live status now
+    lives INSIDE the title bar as an integrated mono indicator, and the
+    window stretches the full column width so the hero block feels anchored.
+    Lines type in after the panel settles; a block cursor keeps blinking on
+    the trailing prompt. Pure decoration (aria-hidden). */
+function TiltTerminal() {
+  const ref = React.useRef<HTMLDivElement>(null)
+  const mx = useMotionValue(0.5)
+  const my = useMotionValue(0.5)
+  const rotateX = useSpring(useTransform(my, [0, 1], [4.5, -4.5]), { stiffness: 140, damping: 18 })
+  const rotateY = useSpring(useTransform(mx, [0, 1], [-4.5, 4.5]), { stiffness: 140, damping: 18 })
+
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = ref.current?.getBoundingClientRect()
+    if (!rect) return
+    mx.set(Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)))
+    my.set(Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)))
+  }
+  const reset = () => { mx.set(0.5); my.set(0.5) }
+
+  const lines = [
+    { prompt: true, text: 'mesh start --all' },
+    { prompt: false, text: '✓ environments started — mesh online' },
+    { prompt: false, text: '✓ llm auto-repair armed' },
+    { prompt: false, text: '✓ mesh sync — 6 devices joined' },
+  ]
+  return (
+    <motion.div variants={itemVariants} aria-hidden="true" className="relative isolate w-full">
+      <div className="absolute -inset-4 -z-10 rounded-2xl bg-brand/10 blur-2xl dark:bg-brand/15" />
+      <motion.div
+        ref={ref}
+        onPointerMove={onMove}
+        onPointerLeave={reset}
+        style={{ rotateX, rotateY, transformPerspective: 1000 }}
+        className="relative overflow-hidden rounded-xl border border-zinc-200/90 dark:border-zinc-700/60 bg-white/90 dark:bg-zinc-900/90 shadow-xl shadow-black/5 dark:shadow-black/40 backdrop-blur-sm"
+      >
+        <div className="flex items-center gap-1.5 border-b border-zinc-200/80 dark:border-zinc-800/80 px-3.5 py-2.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
+          <span className="ml-2 font-mono text-[10px] text-zinc-400 dark:text-zinc-500">mesh — dashboard</span>
+          {/* Integrated live indicator — replaces the old floating chip. */}
+          <span className="ml-auto flex items-center gap-1.5">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-brand opacity-60 animate-ping" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-brand" />
+            </span>
+            <span className="font-mono text-[10px] font-semibold tracking-[0.14em] text-brand-strong dark:text-brand">LIVE</span>
+          </span>
+        </div>
+        <div className="px-4 py-3.5 font-mono text-xs leading-[1.75] space-y-0.5">
+          {lines.map((line, i) => (
+            <motion.p
+              key={line.text}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.0 + i * 0.35, duration: 0.3 }}
+              className={line.prompt
+                ? 'text-zinc-700 dark:text-zinc-300'
+                : 'text-zinc-500 dark:text-zinc-500'}
+            >
+              {line.prompt && <span className="text-brand-strong dark:text-brand mr-1.5">$</span>}
+              {line.text}
+            </motion.p>
+          ))}
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.0 + lines.length * 0.35, duration: 0.3 }}
+            className="text-zinc-700 dark:text-zinc-300"
+          >
+            <span className="text-brand-strong dark:text-brand mr-1.5">$</span>
+            <span className="terminal-cursor inline-block h-3 w-[7px] translate-y-[2px] bg-brand-strong/70 dark:bg-brand/70" />
+          </motion.p>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+/** The immersive left column of the full-bleed auth split: oversized display
+    type with a static two-tone gradient tagline (always complete — round 5
+    removed the rotating typewriter and the edge-clipped ticker, both read
+    as "text not fully displayed"), the full-width tilting terminal and a
+    glass CountUp stats strip. No column-scoped canvas anymore: both columns
+    share the one continuous backdrop, so no seam forms between them. */
+function HeroPanel() {
+  const t = useT()
+  const stats = [
+    { icon: MonitorSmartphone, value: 100, suffix: '%', label: t('login.stat.sync') },
+    { icon: Rocket, value: 10, suffix: '×', label: t('login.stat.faster') },
+    { icon: Sparkles, value: 24, suffix: '/7', label: t('login.stat.repair') },
+  ]
+  return (
+    <motion.aside
+      variants={panelVariants}
+      initial="hidden"
+      animate="show"
+      className="relative hidden lg:flex h-full flex-col justify-center gap-10 xl:gap-12 p-10 xl:p-14"
+    >
+      {/* Display block — eyebrow, oversized wordmark, gradient tagline, subtitle. */}
+      <div>
+        <motion.div variants={itemVariants}>
+          <div className="inline-flex items-center gap-2 rounded-full border border-brand/25 bg-brand-soft/60 px-3 py-1">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-brand opacity-60 animate-ping" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-brand" />
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-strong dark:text-brand">
+              {t('login.eyebrow')}
+            </span>
+          </div>
+        </motion.div>
+        <motion.h1
+          variants={itemVariants}
+          className="mt-6 text-6xl xl:text-7xl font-extrabold tracking-tighter leading-[0.95] text-foreground"
+        >
+          {t('login.brand')}
+        </motion.h1>
+        {/* Static gradient tagline — the pan animation moves color through
+            complete glyphs; the phrase itself never types, erases or clips. */}
+        <motion.p variants={itemVariants} className="login-gradient-text mt-4 text-3xl xl:text-4xl font-bold tracking-tight leading-snug max-w-xl">
+          {t('login.tagline')}
+        </motion.p>
+        <motion.p variants={itemVariants} className="mt-5 max-w-md text-base text-muted-foreground leading-relaxed">
+          {t('login.subtitle')}
+        </motion.p>
+      </div>
+
+      {/* Showcase + proof as one anchored group — the terminal and the
+          stats strip travel together (fixed gap) so the stats never float
+          disconnected at the bottom of tall viewports; the flexible space
+          sits between the display block and this group, the classic
+          split-hero rhythm. */}
+      <div className="space-y-8">
+        <TiltTerminal />
+
+        {/* Proof block — glass CountUp chips; labels wrap instead of
+            truncating so every word stays fully visible at every lg+ width. */}
+        <motion.ul variants={itemVariants} className="grid grid-cols-3 gap-3">
+          {stats.map((s) => (
+            <li
+              key={s.label}
+              aria-label={`${s.value}${s.suffix} — ${s.label}`}
+              className="flex items-center gap-3 rounded-xl border border-border/60 dark:border-white/10 bg-white/55 dark:bg-white/5 backdrop-blur-md px-4 py-3 shadow-xs"
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-brand/25 bg-brand-soft/70 text-brand-strong dark:text-brand">
+                <s.icon className="h-4.5 w-4.5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-lg font-bold leading-none tracking-tight">
+                  <CountUp to={s.value} suffix={s.suffix} />
+                </span>
+                <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">{s.label}</span>
+              </span>
+            </li>
+          ))}
+        </motion.ul>
+      </div>
+    </motion.aside>
   )
 }
 
@@ -502,99 +788,157 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
     }
   }, [])
 
-  const features = [
-    { icon: MonitorSmartphone, title: t('login.feature.multiDevice.title'), desc: t('login.feature.multiDevice.desc') },
-    { icon: PlayCircle, title: t('login.feature.oneClick.title'), desc: t('login.feature.oneClick.desc') },
-    { icon: Sparkles, title: t('login.feature.llm.title'), desc: t('login.feature.llm.desc') },
-  ]
-
   return (
-    <div className="relative min-h-screen flex flex-col">
-      {/* Layered hero backdrop: brand sky washes, grid, drifting orbs, stars */}
-      <div className="login-backdrop" aria-hidden="true">
-        <div className="login-orb login-orb-a" />
-        <div className="login-orb login-orb-b" />
-        <div className="login-orb login-orb-c" />
-        <div className="login-stars" />
-      </div>
-      {/* Standalone language switcher (task 17) — top-right corner */}
-      <div className="absolute top-4 right-4 z-20 flex items-center gap-1">
-        <LanguageToggle />
-      </div>
-      <main className="flex-1 flex items-center justify-center px-4 py-10 sm:px-6">
-        <div className="w-full max-w-4xl lg:grid lg:grid-cols-[1fr_minmax(0,26rem)] lg:gap-14 items-center">
-          {/* ---------- LEFT brand panel (lg+) ---------- */}
-          <div className="hidden lg:flex flex-col gap-9 max-w-md">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/40 ring-1 ring-primary/30 ring-inset">
-                <Zap className="h-5 w-5" />
-              </div>
-              <h1 className="text-2xl font-bold tracking-tight">{t('login.brand')}</h1>
-            </div>
-            <p className="text-base text-muted-foreground leading-relaxed -mt-4">
-              {t('login.subtitle')}
-            </p>
-            <ul className="space-y-5">
-              {features.map((f) => (
-                <li key={f.title} className="flex items-start gap-3.5">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-background/80 text-brand-strong dark:text-brand">
-                    <f.icon className="h-4.5 w-4.5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{f.title}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{f.desc}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+    <MotionConfig reducedMotion="user">
+      {/* Full-bleed auth split: the immersive hero column takes the left half
+          on lg+, the form zone owns the right — both columns stretch to the
+          same (viewport) height, which resolves the earlier equal-height ask
+          structurally. Both sit on ONE continuous backdrop (no column-scoped
+          tint, so no seam where they meet). Below lg the hero hides and the
+          form centers over the shared backdrop. */}
+      <div className="relative min-h-screen lg:grid lg:grid-cols-[1.05fr_1fr] overflow-x-clip">
+        {/* Layered hero backdrop: brand sky washes, grid, drifting orbs,
+            rising particles, stars, grain — shared by both columns. */}
+        <div className="login-backdrop" aria-hidden="true">
+          <div className="login-orb login-orb-a" />
+          <div className="login-orb login-orb-b" />
+          <div className="login-orb login-orb-c" />
+          <div className="login-particles">
+            {PARTICLES.map((p, i) => (
+              <span key={i} className="login-particle" style={p} />
+            ))}
           </div>
-
-          {/* ---------- RIGHT auth card ---------- */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: 'easeOut' }}
-            className="w-full max-w-md mx-auto lg:mx-0"
-          >
-            <div className="rounded-xl border border-border/60 bg-background/95 backdrop-blur-sm shadow-lg shadow-black/5 dark:shadow-black/30 p-6 sm:p-8">
-              {/* Mobile logo row */}
-              <div className="flex items-center gap-2.5 lg:hidden mb-5">
-                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/40 ring-1 ring-primary/30 ring-inset">
-                  <Zap className="h-4 w-4" />
-                </div>
-                <span className="text-base font-bold">{t('login.brand')}</span>
-              </div>
-
-              <h2 className="text-xl font-semibold tracking-tight">
-                {tab === 'signin' ? t('login.welcomeBack') : t('login.createAccount')}
-              </h2>
-              <p className="text-sm text-muted-foreground mt-1 mb-5">
-                {tab === 'signin' ? t('login.signinSubtitle') : t('login.registerSubtitle')}
-              </p>
-
-              <Tabs value={tab} onValueChange={(v) => setTab(v as 'signin' | 'register')}>
-                <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-2 mb-5">
-                  <TabsTrigger value="signin" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('login.tab.signin')}</TabsTrigger>
-                  <TabsTrigger value="register" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('login.tab.register')}</TabsTrigger>
-                </TabsList>
-                {googleError && (
-                  <div className="mb-4">
-                    <ErrorAlert error={{ tone: 'destructive', title: t(googleAuthErrorKey(googleError) as Parameters<typeof t>[0]) }} />
-                  </div>
-                )}
-                {tab === 'signin' ? (
-                  <SignInForm key="signin" onAuthed={onAuthed} seedHint={seedHint} />
-                ) : (
-                  <RegisterForm key="register" onBackToSignIn={() => setTab('signin')} />
-                )}
-              </Tabs>
-            </div>
-          </motion.div>
+          <div className="login-stars" />
+          <div className="login-noise" />
         </div>
-      </main>
-      <footer className="mt-auto pb-5 pt-2 text-center text-[11px] text-muted-foreground/70">
-        {t('login.footer')}
-      </footer>
-    </div>
+        {/* Standalone language switcher (task 17) — top-right corner */}
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5, duration: 0.45, ease: 'easeOut' }}
+          className="absolute top-4 right-4 z-20 flex items-center gap-1"
+        >
+          <LanguageToggle />
+        </motion.div>
+
+        {/* ---------- LEFT hero column (lg+) ---------- */}
+        <HeroPanel />
+
+        {/* ---------- RIGHT form column ---------- */}
+        <div className="relative z-10 flex min-h-screen flex-col">
+          <main className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6 lg:px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 24, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ type: 'spring', stiffness: 260, damping: 26, delay: 0.12 }}
+              className="relative isolate flex w-full max-w-md mx-auto lg:mx-0"
+            >
+              {/* Ambient brand glow behind the card. */}
+              <div
+                aria-hidden="true"
+                className="absolute -inset-6 -z-10 rounded-[2.25rem] bg-brand/10 blur-2xl opacity-80 dark:opacity-60"
+              />
+              {/* Rotating two-tone conic ring — the card's living border. The
+                  1.5px padding box frames the spinning gradient; the content
+                  surface sits on top, untouched by the rotation. */}
+              <div className="login-card-glow relative w-full overflow-hidden rounded-[1.4rem] p-[1.5px]">
+                <div aria-hidden="true" className="login-conic" />
+                <div className="relative flex flex-col overflow-hidden rounded-[calc(1.4rem-1.5px)] bg-background/95 backdrop-blur-md p-6 sm:p-8">
+                  {/* Brand hairline across the card top — same decoration the
+                      interior project cards and stat tiles carry. */}
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute top-0 left-0 right-0 h-[2px] z-10 bg-gradient-to-r from-brand/50 via-brand/20 to-transparent"
+                  />
+                  {/* Mobile eyebrow — mirrors the hero column's category pill
+                      below lg. */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.25, duration: 0.4, ease: 'easeOut' }}
+                    className="flex justify-center lg:hidden mb-5"
+                  >
+                    <div className="inline-flex items-center gap-2 rounded-full border border-brand/25 bg-brand-soft/60 px-3 py-1">
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span className="absolute inline-flex h-full w-full rounded-full bg-brand opacity-60 animate-ping" />
+                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-brand" />
+                      </span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-strong dark:text-brand">
+                        {t('login.eyebrow')}
+                      </span>
+                    </div>
+                  </motion.div>
+
+                  {/* Heading + subtitle + form swap as one crossfading unit. */}
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={tab}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.22, ease: 'easeOut' }}
+                    >
+                      <h2 className="text-2xl font-semibold tracking-tight">
+                        {tab === 'signin' ? t('login.welcomeBack') : t('login.createAccount')}
+                      </h2>
+                      <p className="text-sm text-muted-foreground mt-1.5 mb-5">
+                        {tab === 'signin' ? t('login.signinSubtitle') : t('login.registerSubtitle')}
+                      </p>
+
+                      <Tabs value={tab} onValueChange={(v) => setTab(v as 'signin' | 'register')}>
+                        <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-2 mb-5">
+                          {/* Sliding pill indicator — one shared layoutId
+                              springs between the two triggers on switch. */}
+                          <TabsTrigger value="signin" className="relative h-8 px-4 text-xs rounded-full border-transparent text-muted-foreground transition-colors data-[state=active]:text-brand-strong data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+                            {tab === 'signin' && (
+                              <motion.span
+                                layoutId="auth-tab-pill"
+                                transition={{ type: 'spring', stiffness: 480, damping: 34 }}
+                                className="absolute inset-0 rounded-full bg-brand-soft ring-1 ring-inset ring-brand/30"
+                              />
+                            )}
+                            <span className="relative">{t('login.tab.signin')}</span>
+                          </TabsTrigger>
+                          <TabsTrigger value="register" className="relative h-8 px-4 text-xs rounded-full border-transparent text-muted-foreground transition-colors data-[state=active]:text-brand-strong data-[state=active]:bg-transparent data-[state=active]:shadow-none">
+                            {tab === 'register' && (
+                              <motion.span
+                                layoutId="auth-tab-pill"
+                                transition={{ type: 'spring', stiffness: 480, damping: 34 }}
+                                className="absolute inset-0 rounded-full bg-brand-soft ring-1 ring-inset ring-brand/30"
+                              />
+                            )}
+                            <span className="relative">{t('login.tab.register')}</span>
+                          </TabsTrigger>
+                        </TabsList>
+                        {googleError && (
+                          <div className="mb-4">
+                            <ErrorAlert error={{ tone: 'destructive', title: t(googleAuthErrorKey(googleError) as Parameters<typeof t>[0]) }} />
+                          </div>
+                        )}
+                        {tab === 'signin' ? (
+                          <SignInForm key="signin" onAuthed={onAuthed} seedHint={seedHint} />
+                        ) : (
+                          <RegisterForm key="register" onBackToSignIn={() => setTab('signin')} />
+                        )}
+                      </Tabs>
+                    </motion.div>
+                  </AnimatePresence>
+                </div>
+              </div>
+            </motion.div>
+          </main>
+
+          <motion.footer
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.55, duration: 0.6 }}
+            className="mt-auto pb-7 pt-3 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground/70"
+          >
+            <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden="true" />
+            {t('login.footer')}
+          </motion.footer>
+        </div>
+      </div>
+    </MotionConfig>
   )
 }

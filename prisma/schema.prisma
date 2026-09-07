@@ -66,6 +66,19 @@ model LlmConfig {
   apiKey    String   @default("")
   baseUrl   String   @default("")
   model     String   @default("")
+  // Auto-repair engine selection (switchable in the LLM settings dialog):
+  //   'legacy' — built-in LLM tool loop (inspect/probe/patch/run_retry, …)
+  //   'cli'    — delegate the whole diagnose+fix phase to an installed
+  //              agent CLI (Claude Code / Codex / Hermes / …) invoked
+  //              headless with an assembled context package; the dashboard
+  //              independently health-verifies afterwards and falls back to
+  //              legacy when no CLI is found.
+  repairMode String   @default("legacy")
+  // Which CLI to delegate to: '' = auto-detect (first installed from the
+  // priority list), a known id (claude/codex/gemini/opencode/hermes), or
+  // 'custom:<template>' where the template must contain {promptFile}
+  // (relative) or {promptFileAbs} (absolute) as the task-file placeholder.
+  repairCli  String   @default("")
   updatedAt DateTime @updatedAt
 }
 

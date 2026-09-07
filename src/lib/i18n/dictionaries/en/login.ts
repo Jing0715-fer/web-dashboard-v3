@@ -4,6 +4,7 @@
 export const login = {
   // ---- brand panel ----
   'login.brand': 'Dashboard',
+  'login.eyebrow': 'Multi-device devops console',
   'login.subtitle': 'Multi-device project dashboard — environments, logs and repair tooling in one place.',
   'login.feature.multiDevice.title': 'Multi-device control',
   'login.feature.multiDevice.desc': 'Local and remote machines from one surface.',
@@ -11,6 +12,11 @@ export const login = {
   'login.feature.oneClick.desc': 'Start, stop and restart project environments.',
   'login.feature.llm.title': 'LLM analysis & auto-repair',
   'login.feature.llm.desc': 'Automated analysis and failure self-healing.',
+  // ---- bold hero (rounds 4–5) ----
+  'login.tagline': 'self-healing environments',
+  'login.stat.sync': 'devices in sync',
+  'login.stat.faster': 'faster bootstrap',
+  'login.stat.repair': 'auto-repair watch',
   // ---- headings ----
   'login.welcomeBack': 'Welcome back',
   'login.createAccount': 'Create your account',
@@ -73,4 +79,5 @@ export const login = {
   'login.register.notice': 'New accounts require administrator approval before first sign-in.',
   // ---- footer ----
   'login.footer': 'Dashboard · internal tooling',
+  'login.trust': 'Session-secured sign-in · New accounts are admin-approved',
 }

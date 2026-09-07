@@ -4,6 +4,7 @@
 export const login = {
   // ---- 品牌面板 ----
   'login.brand': 'Dashboard',
+  'login.eyebrow': '多设备 DevOps 控制台',
   'login.subtitle': '多设备项目控制台 — 环境、日志与修复工具一站式管理。',
   'login.feature.multiDevice.title': '多设备控制',
   'login.feature.multiDevice.desc': '本地与远程机器统一管理。',
@@ -11,6 +12,11 @@ export const login = {
   'login.feature.oneClick.desc': '启动、停止、重启项目环境。',
   'login.feature.llm.title': 'LLM 分析与自动修复',
   'login.feature.llm.desc': '自动化分析与故障自愈。',
+  // ---- 大胆风格主视觉（第四、五轮） ----
+  'login.tagline': '自愈式环境',
+  'login.stat.sync': '设备实时同步',
+  'login.stat.faster': '环境启动提速',
+  'login.stat.repair': '全天候自动修复',
   // ---- 标题 ----
   'login.welcomeBack': '欢迎回来',
   'login.createAccount': '创建账户',
@@ -73,4 +79,5 @@ export const login = {
   'login.register.notice': '新账户需管理员批准后方可首次登录。',
   // ---- 页脚 ----
   'login.footer': 'Dashboard · 内部工具',
+  'login.trust': '会话级安全登录 · 新账户需管理员审批',
 }

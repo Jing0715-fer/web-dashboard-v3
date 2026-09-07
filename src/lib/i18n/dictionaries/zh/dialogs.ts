@@ -196,6 +196,21 @@ export const dialogs = {
   'dlg.llm.savedToast': 'LLM 配置已保存',
   'dlg.llm.savedToastDesc': '项目分析、自动修复与 Agent 层已同步切换',
   'dlg.llm.saveFailed': '保存配置失败',
+  // ---- Auto-repair engine (legacy tool loop vs. delegated agent CLI) ----
+  'dlg.llm.repairEngine': 'AI 自动修复引擎',
+  'dlg.llm.repairModeLegacy': '内置工具循环（legacy）',
+  'dlg.llm.repairModeLegacyDesc': 'LLM 通过面板内置的 inspect / probe / patch / run_retry 工具逐步诊断修复',
+  'dlg.llm.repairModeCli': '委托本机 Agent CLI',
+  'dlg.llm.repairModeCliDesc': '调用已安装的 Claude Code / Codex / Hermes 等 CLI 在项目目录内自主修复，面板独立验证健康（最多 {rounds} 轮 × {minutes} 分钟）',
+  'dlg.llm.repairCli': 'Agent CLI',
+  'dlg.llm.repairCliAuto': '自动（按优先级选用已安装的 CLI）',
+  'dlg.llm.repairCliCustom': '自定义命令模板…',
+  'dlg.llm.repairCliCustomPlaceholder': '命令模板，{promptFile} 为项目内相对路径任务文件，如：mycli run {promptFile}',
+  'dlg.llm.repairCliHint': 'CLI 将以项目目录为工作区自主执行（含文件修改与命令）；未检测到可用 CLI 时自动回退 legacy 模式。模板中 {promptFile} 为相对路径、{promptFileAbs} 为绝对路径。',
+  'dlg.llm.repairDetect': '检测已安装 CLI',
+  'dlg.llm.repairDetecting': '检测中…',
+  'dlg.llm.repairNoneDetected': '未检测到任何 Agent CLI — 保存后仍为该模式，但修复时会自动回退 legacy',
+  'dlg.llm.repairDetectedCount': '检测到 {count} 个已安装 CLI',
 
   // ---- LLM 自动修复对话框 ----
   'dlg.repair.title': 'AI 自动修复',

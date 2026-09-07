@@ -200,6 +200,21 @@ export const dialogs = {
   'dlg.llm.savedToast': 'LLM configuration saved',
   'dlg.llm.savedToastDesc': 'Project analysis, auto-repair and the agent layer have switched',
   'dlg.llm.saveFailed': 'Failed to save config',
+  // ---- Auto-repair engine (legacy tool loop vs. delegated agent CLI) ----
+  'dlg.llm.repairEngine': 'AI Auto-Repair Engine',
+  'dlg.llm.repairModeLegacy': 'Built-in tool loop (legacy)',
+  'dlg.llm.repairModeLegacyDesc': 'The LLM diagnoses and fixes step by step via the dashboard\'s own inspect / probe / patch / run_retry tools',
+  'dlg.llm.repairModeCli': 'Delegate to a local Agent CLI',
+  'dlg.llm.repairModeCliDesc': 'Invokes an installed Claude Code / Codex / Hermes CLI to fix autonomously in the project dir; the dashboard verifies health independently (up to {rounds} rounds × {minutes} min)',
+  'dlg.llm.repairCli': 'Agent CLI',
+  'dlg.llm.repairCliAuto': 'Auto (first installed CLI by priority)',
+  'dlg.llm.repairCliCustom': 'Custom command template…',
+  'dlg.llm.repairCliCustomPlaceholder': 'Command template — {promptFile} is the in-project task file, e.g. mycli run {promptFile}',
+  'dlg.llm.repairCliHint': 'The CLI works autonomously in the project directory (file edits + commands). Falls back to legacy automatically when no CLI is usable. In templates {promptFile} is a relative path, {promptFileAbs} an absolute one.',
+  'dlg.llm.repairDetect': 'Detect installed CLIs',
+  'dlg.llm.repairDetecting': 'Detecting…',
+  'dlg.llm.repairNoneDetected': 'No agent CLI detected — the mode is saved but repairs will fall back to legacy',
+  'dlg.llm.repairDetectedCount': '{count} agent CLI(s) installed',
 
   // ---- LLM auto-repair dialog ----
   'dlg.repair.title': 'AI Auto-Repair',

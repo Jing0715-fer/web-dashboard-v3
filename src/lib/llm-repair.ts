@@ -2,16 +2,24 @@
  * LLM auto-repair job orchestration.
  *
  * When starting or rebuilding a project environment fails, the start/rebuild
- * routes kick off a repair job (fire-and-forget). The actual diagnosis+fix
- * loop lives in repair-agent.ts (LLM-as-dispatcher with inspect / probe /
- * test / patch / update_env / run_retry tools); this module owns the job
- * registry, the human-approval gate for dangerous commands, lifecycle
- * logging and the /api/repair-jobs polling surface.
+ * routes kick off a repair job (fire-and-forget). Two engines, selected in
+ * the LLM settings dialog (LlmConfig.repairMode):
+ *   - 'legacy' (default): the diagnosis+fix loop in repair-agent.ts
+ *     (LLM-as-dispatcher with inspect / probe / test / patch / update_env /
+ *     run_retry tools).
+ *   - 'cli': llm-repair/cli-delegate.ts delegates the whole diagnose+fix
+ *     phase to an installed agent CLI (Claude Code / Codex / Hermes / …),
+ *     then independently health-verifies; falls back to legacy when no CLI
+ *     is installed.
+ * This module owns the job registry, the human-approval gate for dangerous
+ * commands, lifecycle logging and the /api/repair-jobs polling surface —
+ * shared by both engines.
  */
 
 import { db } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
 import { runAgentRepair, type AgentHelpers } from './repair-agent';
+import { runCliRepair, resolveRepairCli, CLI_ROUNDS, CLI_ROUND_TIMEOUT_MS } from './llm-repair/cli-delegate';
 
 export type RepairKind = 'start' | 'rebuild';
 
@@ -227,12 +235,6 @@ export function resolveRepairApproval(jobId: string, approved: boolean): boolean
 // ============================= orchestration =============================
 
 async function runRepair(job: RepairJob, opts: StartRepairOptions) {
-  log(
-    job,
-    'info',
-    `${job.kind === 'rebuild' ? 'Rebuild' : '启动'}失败 — AI 修复代理已启动（工具循环，最多 ${job.maxRounds} 步）`,
-  );
-
   // Resolve names early so activity logs and the dialog header are correct
   // from the very first poll, even before the first LLM turn.
   try {
@@ -263,7 +265,51 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
     requestApproval: (cmd) => requestApproval(job, cmd),
   };
 
-  const outcome = await runAgentRepair(job, opts, helpers);
+  // ---- engine selection (switchable in the LLM settings dialog) ----
+  // 'legacy' = the built-in LLM tool loop (default, kept forever);
+  // 'cli'    = delegate the diagnose+fix phase to an installed agent CLI
+  //            (Claude Code / Codex / Hermes / custom) — falls back to
+  //            legacy when no CLI is installed, so 'cli' can never strand
+  //            a user without a repair engine.
+  let engine: 'legacy' | 'cli' = 'legacy';
+  let cli: Awaited<ReturnType<typeof resolveRepairCli>> = null;
+  try {
+    const cfg = await db.llmConfig.findUnique({ where: { id: 'default' } });
+    if (cfg?.repairMode === 'cli') {
+      cli = await resolveRepairCli(String(cfg.repairCli ?? ''));
+      if (cli) {
+        engine = 'cli';
+      } else {
+        log(
+          job,
+          'warn',
+          'Agent CLI 模式已开启，但未找到可用的 CLI（未安装或不在 PATH）— 本任务自动回退 legacy 工具循环',
+        );
+      }
+    }
+  } catch {
+    // Config unreadable → default legacy; never block a repair on config DB.
+  }
+
+  let outcome;
+  if (engine === 'cli' && cli) {
+    // Round budget reinterpreted for the CLI engine: each round = one full
+    // headless CLI delegation + independent health verification.
+    job.maxRounds = CLI_ROUNDS;
+    log(
+      job,
+      'info',
+      `${job.kind === 'rebuild' ? 'Rebuild' : '启动'}失败 — AI 修复代理已启动（Agent CLI 模式：${cli.label}，最多 ${CLI_ROUNDS} 轮，每轮最长 ${Math.round(CLI_ROUND_TIMEOUT_MS / 60000)} 分钟）`,
+    );
+    outcome = await runCliRepair(job, opts, helpers, cli);
+  } else {
+    log(
+      job,
+      'info',
+      `${job.kind === 'rebuild' ? 'Rebuild' : '启动'}失败 — AI 修复代理已启动（工具循环，最多 ${job.maxRounds} 步）`,
+    );
+    outcome = await runAgentRepair(job, opts, helpers);
+  }
 
   if (outcome.status === 'success') {
     log(job, 'success', '修复流程结束 — 成功');

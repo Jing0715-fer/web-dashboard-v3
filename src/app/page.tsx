@@ -2423,6 +2423,17 @@ interface ProviderCatalogInfo {
   requiresKey: boolean
   docsUrl: string
 }
+/** One row of the /api/llm-config/detect-repair-cli result. */
+interface DetectedCliInfo {
+  id: string
+  label: string
+  bin: string
+  found: boolean
+  version: string
+}
+const REPAIR_CLI_ROUND_TIMEOUT_MIN = 10
+/** Must mirror KNOWN_CLI_IDS in the /api/llm-config route. */
+const KNOWN_REPAIR_CLI_IDS = ['claude', 'codex', 'gemini', 'opencode', 'hermes']
 
 function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()
@@ -2440,6 +2451,15 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
   const [modelNote, setModelNote] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  // ---- auto-repair engine (legacy tool loop vs. delegated agent CLI) ----
+  const [repairMode, setRepairMode] = React.useState<'legacy' | 'cli'>('legacy')
+  // Select value: 'auto' | a known CLI id | 'custom' (template below).
+  // 'auto' is a sentinel for "" — Radix Select forbids empty-string item values.
+  const [repairCli, setRepairCli] = React.useState('auto')
+  const [repairCliCustom, setRepairCliCustom] = React.useState('')
+  const [detectedClis, setDetectedClis] = React.useState<DetectedCliInfo[]>([])
+  const [detecting, setDetecting] = React.useState(false)
+  const [detectNote, setDetectNote] = React.useState('')
   const { toast } = useToast()
 
   const activeProfile = React.useMemo(() => catalog.find((p) => p.id === provider), [catalog, provider])
@@ -2478,6 +2498,26 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
     }
   }, [t])
 
+  // Detect which agent CLIs are installed on this machine — powers the
+  // engine selector and warns when 'cli' mode would fall back to legacy.
+  const detectClis = React.useCallback(async () => {
+    setDetecting(true)
+    try {
+      const r = await fetch('/api/llm-config/detect-repair-cli')
+      const data = await r.json()
+      const clis: DetectedCliInfo[] = Array.isArray(data.clis) ? data.clis : []
+      setDetectedClis(clis)
+      const found = clis.filter((c) => c.found)
+      setDetectNote(found.length
+        ? t('dlg.llm.repairDetectedCount', { count: found.length })
+        : t('dlg.llm.repairNoneDetected'))
+    } catch {
+      setDetectNote(t('dlg.llm.fetchFailed'))
+    } finally {
+      setDetecting(false)
+    }
+  }, [t])
+
   React.useEffect(() => {
     if (open) {
       // Use requestAnimationFrame to avoid synchronous setState in effect
@@ -2493,6 +2533,15 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
             setHasApiKey(!!data.hasApiKey)
             setBaseUrl(data.baseUrl || '')
             setModel(data.model || '')
+            setRepairMode(data.repairMode === 'cli' ? 'cli' : 'legacy')
+            const savedCli: string = data.repairCli || ''
+            if (savedCli.startsWith('custom:')) {
+              setRepairCli('custom')
+              setRepairCliCustom(savedCli.slice('custom:'.length))
+            } else {
+              setRepairCli(KNOWN_REPAIR_CLI_IDS.includes(savedCli) ? savedCli : 'auto')
+              setRepairCliCustom('')
+            }
             if (Array.isArray(data.catalog)) {
               setCatalog(data.catalog)
               const profile = (data.catalog as ProviderCatalogInfo[]).find((p) => p.id === (data.provider || 'zai'))
@@ -2508,10 +2557,11 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
           })
           .catch(() => {})
           .finally(() => setLoading(false))
+        void detectClis()
       })
       return () => cancelAnimationFrame(id)
     }
-  }, [open, fetchModels])
+  }, [open, fetchModels, detectClis])
 
   const handleProviderChange = (id: string) => {
     setProvider(id)
@@ -2551,8 +2601,11 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
     try {
       // Only send the key when it actually changed — an untouched masked
       // value round-trips as "undefined" so the server keeps the secret.
-      const body: Record<string, unknown> = { provider, baseUrl, model }
+      const body: Record<string, unknown> = { provider, baseUrl, model, repairMode }
       if (!keyUnchanged) body.apiKey = apiKey
+      body.repairCli = repairCli === 'custom'
+        ? `custom:${repairCliCustom.trim()}`
+        : (repairCli === 'auto' ? '' : repairCli)
       const res = await fetch('/api/llm-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -2686,6 +2739,95 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                 <p className={`text-[11px] ${modelsLive ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                   {modelsLive ? '✓ ' : ''}{modelNote}
                 </p>
+              )}
+            </div>
+
+            {/* ---- Auto-repair engine: legacy tool loop vs. delegated agent CLI ---- */}
+            <div className="space-y-2 rounded-lg border border-border/70 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="flex items-center gap-1.5">
+                  <Wrench className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  {t('dlg.llm.repairEngine')}
+                </Label>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50"
+                  onClick={() => void detectClis()}
+                  disabled={detecting}
+                >
+                  {detecting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  {detecting ? t('dlg.llm.repairDetecting') : t('dlg.llm.repairDetect')}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRepairMode('legacy')}
+                  className={`rounded-md border p-2.5 text-left transition-colors cursor-pointer ${repairMode === 'legacy'
+                    ? 'border-emerald-400 bg-emerald-50/70 dark:bg-emerald-900/25'
+                    : 'border-border hover:border-emerald-300/70'}`}
+                  aria-pressed={repairMode === 'legacy'}
+                >
+                  <span className={`flex items-center gap-1.5 text-xs font-medium ${repairMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
+                    <Bot className="h-3.5 w-3.5" />
+                    {t('dlg.llm.repairModeLegacy')}
+                  </span>
+                  <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">
+                    {t('dlg.llm.repairModeLegacyDesc')}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRepairMode('cli')}
+                  className={`rounded-md border p-2.5 text-left transition-colors cursor-pointer ${repairMode === 'cli'
+                    ? 'border-emerald-400 bg-emerald-50/70 dark:bg-emerald-900/25'
+                    : 'border-border hover:border-emerald-300/70'}`}
+                  aria-pressed={repairMode === 'cli'}
+                >
+                  <span className={`flex items-center gap-1.5 text-xs font-medium ${repairMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
+                    <Terminal className="h-3.5 w-3.5" />
+                    {t('dlg.llm.repairModeCli')}
+                  </span>
+                  <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">
+                    {t('dlg.llm.repairModeCliDesc', { rounds: 2, minutes: REPAIR_CLI_ROUND_TIMEOUT_MIN })}
+                  </span>
+                </button>
+              </div>
+              {detectNote && (
+                <p className={`text-[11px] ${detectedClis.some((c) => c.found) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {detectedClis.some((c) => c.found) ? '✓ ' : ''}{detectNote}
+                </p>
+              )}
+              {repairMode === 'cli' && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t('dlg.llm.repairCli')}</Label>
+                  <Select value={repairCli} onValueChange={(v) => setRepairCli(v)}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      <SelectItem value="auto" className="text-xs">{t('dlg.llm.repairCliAuto')}</SelectItem>
+                      {detectedClis.map((c) => (
+                        <SelectItem key={c.id} value={c.id} disabled={!c.found} className="text-xs">
+                          <span className="flex items-center gap-2">
+                            {c.label}
+                            {c.found
+                              ? <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{c.version || '✓ installed'}</span>
+                              : <span className="text-[10px] text-muted-foreground">(not installed)</span>}
+                          </span>
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="custom" className="text-xs">{t('dlg.llm.repairCliCustom')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {repairCli === 'custom' && (
+                    <Input
+                      value={repairCliCustom}
+                      onChange={(e) => setRepairCliCustom(e.target.value)}
+                      placeholder={t('dlg.llm.repairCliCustomPlaceholder')}
+                      className="font-mono text-[11px]"
+                    />
+                  )}
+                  <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.repairCliHint')}</p>
+                </div>
               )}
             </div>
           </div>

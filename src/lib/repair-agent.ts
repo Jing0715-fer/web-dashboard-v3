@@ -76,7 +76,7 @@ type ParsedTurn =
   | { kind: 'tool'; thought: string; action: ToolName; args: Record<string, any> }
   | { kind: 'legacy'; plan: any };
 
-interface EnvSnapshot {
+export interface EnvSnapshot {
   projectId: string;
   envId: string;
   projectName: string;
@@ -276,7 +276,8 @@ function isBinary(buf: Buffer): boolean {
 
 // ============================= file helpers =============================
 
-function readPackageJsonSummary(projectPath: string): string {
+/** Exported for the CLI-delegation engine (task-file context section). */
+export function readPackageJsonSummary(projectPath: string): string {
   try {
     const p = join(projectPath, 'package.json');
     if (!existsSync(p)) return '(no package.json)';
@@ -297,7 +298,8 @@ function readPackageJsonSummary(projectPath: string): string {
   }
 }
 
-function readTopLevelFiles(projectPath: string): string {
+/** Exported for the CLI-delegation engine (task-file context section). */
+export function readTopLevelFiles(projectPath: string): string {
   try {
     // Include dotfiles (.next, .env, …) — build/lock state matters for
     // diagnosis; only .git is noise.
@@ -324,7 +326,9 @@ function listDirQuick(abs: string, max = 60): string {
 
 // ============================= env snapshot =============================
 
-async function loadEnvSnapshot(job: RepairJob): Promise<EnvSnapshot | null> {
+/** Exported for the CLI-delegation engine (llm-repair/cli-delegate.ts),
+ * which needs the same DB-backed snapshot of the env being repaired. */
+export async function loadEnvSnapshot(job: RepairJob): Promise<EnvSnapshot | null> {
   const env = await db.environment.findUnique({
     where: { id: job.envId },
     include: { project: true },
@@ -410,8 +414,10 @@ Non-negotiable rules:
 
 /** Cheap facts gathered before the first LLM turn so its first decision is
  *  grounded: port state, processes mentioning the project path, build locks,
- *  fresh logs. Directly answers the "phantom failure" class of incidents. */
-async function preflight(snap: EnvSnapshot): Promise<string> {
+ *  fresh logs. Directly answers the "phantom failure" class of incidents.
+ * Exported for the CLI-delegation engine — the same grounding facts go into
+ * the assembled CLI task file. */
+export async function preflight(snap: EnvSnapshot): Promise<string> {
   const lines: string[] = [];
   lines.push(`- platform: ${process.platform}${IS_WINDOWS ? ' (Windows — probes use netstat/tasklist)' : ''}`);
   const pf = await probePort(snap.port);
@@ -908,9 +914,12 @@ async function toolClean(
 }
 
 /** Restart + health-verified retry — the heart of the loop. Success is
- *  defined by the PORT actually listening (polled for up to 25s), not by
- *  startProcess() merely having spawned a child. */
-async function toolRunRetry(
+ *  defined by the PORT actually listening (polled for up to 45s), not by
+ *  startProcess() merely having spawned a child.
+ * Exported for the CLI-delegation engine: after the external CLI finishes,
+ * the ORCHESTRATOR (not the CLI) owns the health verdict — same build +
+ * start + port-poll verification the legacy loop trusts. */
+export async function toolRunRetry(
   job: RepairJob,
   log: AgentHelpers['log'],
   snap: EnvSnapshot,

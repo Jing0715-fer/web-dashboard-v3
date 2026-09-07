@@ -22,6 +22,26 @@ function isMaskedKey(key: string): boolean {
   return key.includes('•') || /^\*{4}/.test(key)
 }
 
+/** Validate the repair-engine preference. Accepted:
+ *   ''            → auto-detect (first installed CLI by priority)
+ *   'claude' | 'codex' | 'gemini' | 'opencode' | 'hermes'
+ *   'custom:<template containing {promptFile} or {promptFileAbs}>'
+ * Invalid values collapse to '' (auto) — never reject a whole save for it. */
+const KNOWN_CLI_IDS = ['claude', 'codex', 'gemini', 'opencode', 'hermes'];
+
+function normalizeRepairCli(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  const s = v.trim().slice(0, 600);
+  if (!s) return '';
+  if (KNOWN_CLI_IDS.includes(s)) return s;
+  if (s.startsWith('custom:')) {
+    const template = s.slice('custom:'.length).trim();
+    const hasPlaceholder = template.includes('{promptFile}') || template.includes('{promptFileAbs}');
+    if (template.length >= 4 && template.length <= 500 && hasPlaceholder) return `custom:${template}`;
+  }
+  return '';
+}
+
 export async function GET(req: Request) {
   // Auth guard (Task 11-a)
   const authGuard = await requireApprovedUser(req);
@@ -44,6 +64,8 @@ export async function GET(req: Request) {
       hasApiKey: !!config.apiKey,
       baseUrl: config.baseUrl,
       model: config.model,
+      repairMode: config.repairMode || 'legacy',
+      repairCli: config.repairCli || '',
       updatedAt: config.updatedAt,
       catalog: publicCatalog(),
     })
@@ -59,7 +81,7 @@ export async function PUT(request: Request) {
   if (adminGuard.error) return adminGuard.error;
   try {
     const body = await request.json()
-    const { provider, apiKey, baseUrl, model } = body
+    const { provider, apiKey, baseUrl, model, repairMode, repairCli } = body
 
     // Resolve the effective key: masked / unchanged values keep the stored
     // secret instead of clobbering it.
@@ -79,6 +101,8 @@ export async function PUT(request: Request) {
         ...(effectiveApiKey !== undefined && { apiKey: effectiveApiKey }),
         ...(baseUrl !== undefined && { baseUrl }),
         ...(model !== undefined && { model }),
+        ...(repairMode !== undefined && { repairMode: repairMode === 'cli' ? 'cli' : 'legacy' }),
+        ...(repairCli !== undefined && { repairCli: normalizeRepairCli(repairCli) }),
       },
       create: {
         id: 'default',
@@ -86,6 +110,8 @@ export async function PUT(request: Request) {
         apiKey: effectiveApiKey ?? '',
         baseUrl: baseUrl || '',
         model: model || '',
+        repairMode: repairMode === 'cli' ? 'cli' : 'legacy',
+        repairCli: normalizeRepairCli(repairCli),
       },
     })
 
@@ -102,6 +128,8 @@ export async function PUT(request: Request) {
       hasApiKey: !!config.apiKey,
       baseUrl: config.baseUrl,
       model: config.model,
+      repairMode: config.repairMode || 'legacy',
+      repairCli: config.repairCli || '',
       updatedAt: config.updatedAt,
     })
   } catch (error) {

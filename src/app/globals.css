@@ -107,9 +107,12 @@
    data-accent on <html> selects the hue (persisted in localStorage 'dashboard-accent').
    --brand is the single source of truth; tints are derived via color-mix so each
    preset only needs one value per mode. Shadcn tokens (primary/ring/chart-1)
-   follow the accent, so buttons / focus rings / charts re-color automatically. */
+   follow the accent, so buttons / focus rings / charts re-color automatically.
+   --brand-alt is a companion hue (login-page decoration only) that gives the
+   auth hero its two-tone gradients — each preset ships a deliberate pairing. */
 :root {
   --brand: #059669;
+  --brand-alt: #0891b2;
   --brand-foreground: #ffffff;
   --brand-strong: color-mix(in srgb, var(--brand) 78%, #000000);
   --brand-soft: color-mix(in srgb, var(--brand) 8%, #ffffff);
@@ -118,31 +121,32 @@
 
 .dark {
   --brand: #34d399;
+  --brand-alt: #22d3ee;
   --brand-foreground: color-mix(in srgb, var(--brand) 16%, #09090b);
   --brand-strong: var(--brand);
   --brand-soft: color-mix(in srgb, var(--brand) 13%, transparent);
   --brand-soft-strong: color-mix(in srgb, var(--brand) 22%, transparent);
 }
 
-/* Light-mode accent hues (600-level) */
-[data-accent="emerald"] { --brand: #059669; }
-[data-accent="teal"] { --brand: #0d9488; }
-[data-accent="cyan"] { --brand: #0891b2; }
-[data-accent="blue"] { --brand: #2563eb; }
-[data-accent="violet"] { --brand: #7c3aed; }
-[data-accent="rose"] { --brand: #e11d48; }
-[data-accent="orange"] { --brand: #ea580c; }
-[data-accent="amber"] { --brand: #d97706; }
+/* Light-mode accent hues (600-level) + gradient companions */
+[data-accent="emerald"] { --brand: #059669; --brand-alt: #0891b2; }
+[data-accent="teal"]    { --brand: #0d9488; --brand-alt: #06b6d4; }
+[data-accent="cyan"]    { --brand: #0891b2; --brand-alt: #059669; }
+[data-accent="blue"]    { --brand: #2563eb; --brand-alt: #06b6d4; }
+[data-accent="violet"]  { --brand: #7c3aed; --brand-alt: #c026d3; }
+[data-accent="rose"]    { --brand: #e11d48; --brand-alt: #ea580c; }
+[data-accent="orange"]  { --brand: #ea580c; --brand-alt: #e11d48; }
+[data-accent="amber"]   { --brand: #d97706; --brand-alt: #0891b2; }
 
-/* Dark-mode accent hues (400-level) */
-.dark[data-accent="emerald"] { --brand: #34d399; }
-.dark[data-accent="teal"] { --brand: #2dd4bf; }
-.dark[data-accent="cyan"] { --brand: #22d3ee; }
-.dark[data-accent="blue"] { --brand: #60a5fa; }
-.dark[data-accent="violet"] { --brand: #a78bfa; }
-.dark[data-accent="rose"] { --brand: #fb7185; }
-.dark[data-accent="orange"] { --brand: #fb923c; }
-.dark[data-accent="amber"] { --brand: #fbbf24; }
+/* Dark-mode accent hues (400-level) + gradient companions */
+.dark[data-accent="emerald"] { --brand: #34d399; --brand-alt: #22d3ee; }
+.dark[data-accent="teal"]    { --brand: #2dd4bf; --brand-alt: #38bdf8; }
+.dark[data-accent="cyan"]    { --brand: #22d3ee; --brand-alt: #34d399; }
+.dark[data-accent="blue"]    { --brand: #60a5fa; --brand-alt: #22d3ee; }
+.dark[data-accent="violet"]  { --brand: #a78bfa; --brand-alt: #e879f9; }
+.dark[data-accent="rose"]    { --brand: #fb7185; --brand-alt: #fb923c; }
+.dark[data-accent="orange"]  { --brand: #fb923c; --brand-alt: #fb7185; }
+.dark[data-accent="amber"]   { --brand: #fbbf24; --brand-alt: #22d3ee; }
 
 .dark {
   --background: oklch(0.145 0 0);
@@ -261,7 +265,10 @@
   overflow: hidden;
 }
 /* Sky washes + horizon glow + edge vignette (background color fades the
-   corners so the card pops without a hard contrast edge). */
+   corners so the card pops without a hard contrast edge). Round 5: added a
+   companion-hue wash on the left so the hero zone keeps its own atmosphere
+   WITHOUT a column-scoped layer — the whole viewport stays one continuous
+   sky, so no seam can form where the columns meet. */
 .login-backdrop::before {
   content: '';
   position: absolute;
@@ -269,6 +276,7 @@
   background:
     radial-gradient(1100px 560px at 74% -12%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 70%),
     radial-gradient(880px 460px at 8% 6%, color-mix(in srgb, var(--brand) 9%, transparent), transparent 72%),
+    radial-gradient(1000px 520px at -14% 84%, color-mix(in srgb, var(--brand-alt) 11%, transparent), transparent 70%),
     radial-gradient(1400px 540px at 50% 118%, color-mix(in srgb, var(--brand) 14%, transparent), transparent 72%),
     radial-gradient(ellipse 130% 105% at 50% 45%, transparent 62%, color-mix(in srgb, var(--background) 72%, transparent) 100%);
 }
@@ -288,6 +296,25 @@
   background-image:
     linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+}
+
+/* Fine film-grain noise over the login backdrop — keeps the big brand
+   gradients from banding and adds the "material" feel mature landing
+   pages carry. Sits inside .login-backdrop so it never covers content. */
+.login-noise {
+  position: absolute;
+  inset: 0;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+}
+.dark .login-noise { opacity: 0.07; }
+
+/* Blinking block cursor for the decorative terminal on the brand panel. */
+.terminal-cursor { animation: terminal-blink 1.1s steps(2, start) infinite; }
+@keyframes terminal-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 /* Drifting aurora orbs — soft blurred brand blobs on very slow loops. */
@@ -314,11 +341,11 @@
   animation: login-drift-b 32s ease-in-out infinite alternate;
 }
 .login-orb-c {
-  width: 19rem;
-  height: 19rem;
-  top: 36%;
-  left: 28%;
-  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  width: 22rem;
+  height: 22rem;
+  top: 38%;
+  left: 44%;
+  background: color-mix(in srgb, var(--brand-alt) 13%, transparent);
   animation: login-drift-c 38s ease-in-out infinite alternate;
 }
 @keyframes login-drift-a {
@@ -359,6 +386,107 @@
   to { opacity: 0.95; }
 }
 
+/* ---------- Login bold hero (round 4, refined round 5 — inspired by, not
+   copied from, pptx-template-editor's landing energy) ----------
+   Signature moves: a rotating two-tone conic ring around the auth card, an
+   animated two-hue gradient tagline, rising brand particles and a shared
+   full-viewport aurora backdrop. Round 5 removed the hero column's private
+   tinted canvas (it ended exactly at the column edge and read as a hard
+   seam) — atmosphere now lives on the one continuous backdrop, and the
+   companion-hue orb straddles the column boundary on purpose so the two
+   zones share one sky. All motion respects prefers-reduced-motion. */
+
+/* Rotating conic ring — the auth card's "charging" border. The layer is
+   oversized (inset -100%) so rotating it never uncovers the rounded corners;
+   the surrounding 1.5px padding box reveals it as a living gradient ring. */
+.login-conic {
+  position: absolute;
+  inset: -100%;
+  background: conic-gradient(from 0deg,
+    color-mix(in srgb, var(--brand) 95%, transparent),
+    color-mix(in srgb, var(--brand-alt) 88%, transparent) 22%,
+    color-mix(in srgb, var(--brand) 62%, transparent) 40%,
+    color-mix(in srgb, var(--brand-alt) 48%, transparent) 58%,
+    color-mix(in srgb, var(--brand) 74%, transparent) 74%,
+    color-mix(in srgb, var(--brand-alt) 90%, transparent) 90%,
+    color-mix(in srgb, var(--brand) 95%, transparent));
+  animation: login-spin 12s linear infinite;
+}
+@keyframes login-spin { to { transform: rotate(1turn); } }
+/* Depth stack for the ringed card — brand-tinted key light + soft contact.
+   The tinted background doubles as the ring's floor: wherever the spinning
+   conic dips translucent, a hairline of brand still shows, so the ring reads
+   continuous instead of breaking into arcs on light backgrounds. Shadows
+   kept airy (round 5): a halo, not a slab. */
+.login-card-glow {
+  background: color-mix(in srgb, var(--brand) 18%, transparent);
+  box-shadow:
+    0 22px 64px -34px color-mix(in srgb, var(--brand) 42%, transparent),
+    0 8px 26px -16px rgba(9, 9, 11, 0.14);
+}
+.dark .login-card-glow {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  box-shadow:
+    0 26px 80px -36px color-mix(in srgb, var(--brand) 38%, transparent),
+    0 12px 36px -20px rgba(0, 0, 0, 0.5);
+}
+
+/* Animated two-hue gradient text — pans its background-position so the
+   brand ↔ companion hue flows through the glyphs. Round 5: applied to a
+   static, always-complete tagline (the rotating typewriter spent most of
+   its cycle showing half a phrase, which read as clipped text). */
+.login-gradient-text {
+  background: linear-gradient(90deg,
+    var(--brand) 0%, var(--brand-alt) 30%, var(--brand) 55%, var(--brand-alt) 80%, var(--brand) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: login-gradient-pan 7s linear infinite;
+}
+@keyframes login-gradient-pan {
+  from { background-position: 0% 50%; }
+  to { background-position: 250% 50%; }
+}
+
+/* Rising brand particles — small dots drift up the whole viewport with a
+   slight horizontal wander. Size / position / delay / opacity come from
+   deterministic inline CSS vars so SSR and client agree. */
+.login-particles { position: absolute; inset: 0; overflow: hidden; }
+.login-particle {
+  position: absolute;
+  bottom: -14px;
+  left: var(--x);
+  width: var(--s);
+  height: var(--s);
+  border-radius: 9999px;
+  background: var(--brand);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: login-rise var(--d) linear var(--dl) infinite;
+}
+@keyframes login-rise {
+  0%   { transform: translate3d(0, 0, 0) scale(0.6); opacity: 0; }
+  12%  { opacity: var(--o); }
+  82%  { opacity: var(--o); }
+  100% { transform: translate3d(var(--dx), -106vh, 0) scale(1); opacity: 0; }
+}
+
+/* Login primary buttons — a soft light sheen sweeps across on hover.
+   Applied via .btn-sheen next to the standard primary styling. */
+.btn-sheen { position: relative; overflow: hidden; }
+.btn-sheen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, 0.22) 50%, transparent 58%);
+  transform: translateX(-130%);
+  transition: transform 0.65s cubic-bezier(0.33, 1, 0.68, 1);
+  pointer-events: none;
+}
+.btn-sheen:hover::after { transform: translateX(130%); }
+.btn-sheen:disabled::after { display: none; }
+
 /* Bookend hairlines: thin brand gradient edge under the header / above the footer,
    anchoring the accent into the chrome. */
 .header-hairline {
@@ -398,6 +526,15 @@
   .skeleton-card, .animate-shimmer, .skeleton-shimmer-block, .skeleton-shimmer-block::after,
   .notif-badge-pulse, .bell-shake, .progress-indeterminate, .health-trend-icon { animation: none !important; }
   .login-orb, .login-stars { animation: none !important; will-change: auto; }
+  .btn-sheen::after { transition: none !important; }
+  .terminal-cursor { animation: none !important; }
+  /* Bold hero rounds 4–5: freeze the conic ring (static gradient remains)
+     and stop the particles (they idle at opacity 0 = invisible) and the
+     gradient pan. */
+  .login-conic, .login-particle, .login-gradient-text {
+    animation: none !important;
+    will-change: auto;
+  }
 }
 
 @layer base {
