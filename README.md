@@ -60,6 +60,25 @@ bun run dev
 
 The dashboard runs on http://localhost:3000.
 
+### Pulling updates (important!)
+
+`bun run dev` auto-runs a `predev` step (`prisma generate && prisma db push`)
+that regenerates the Prisma Client and syncs the SQLite schema, so a plain
+`git pull` + `bun run dev` is normally all you need after updating.
+
+If you see a Prisma validation error like
+`Unknown argument 'repoUrl'. Available options are marked with ?`,
+your locally generated Prisma Client predates a schema change — fix it with:
+
+```bash
+bunx prisma db push   # adds new columns AND regenerates the client
+bun run dev           # restart the dev server
+```
+
+> Why this happens: `bun install` skips dependency postinstall scripts unless
+> the package is listed in `trustedDependencies` — a stale
+> `node_modules/.prisma/client` therefore survives `git pull`.
+
 ### Remote devices
 
 1. Copy `mini-services/agent-linux` (or the macOS/Windows variant) to the

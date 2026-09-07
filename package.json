@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "scripts": {
+    "predev": "prisma generate && prisma db push",
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
@@ -101,7 +102,11 @@
   "trustedDependencies": [
     "@deepseek-ai/dsh-subprocess-local",
     "@google/genai",
+    "@prisma/client",
+    "@prisma/engines",
+    "@prisma/engines-version",
     "koffi",
+    "prisma",
     "protobufjs"
   ]
 }
