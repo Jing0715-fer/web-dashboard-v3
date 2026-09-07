@@ -7,6 +7,7 @@ import { db } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
 import { proxyProjectAction } from '@/lib/route-decision';
+import { invalidateUpdateCache } from '@/lib/git-update-check';
 
 const execFileAsync = promisify(execFile);
 
@@ -65,6 +66,9 @@ export async function POST(
   if (project.deviceId) {
     const result = await proxyProjectAction(project.deviceId, `/projects/${id}/pull`, 'POST');
     if (result.ok) {
+      // The checkout moved on the device — drop the cached freshness hint
+      // (the UI also re-checks with ?refresh=1; this is belt-and-braces).
+      invalidateUpdateCache([project.id]);
       await logActivity({
         type: 'pull',
         level: 'success',
@@ -168,6 +172,9 @@ export async function POST(
     // SHAs is the ground truth.
     const upToDate = /Already up to date/i.test(output) || (before !== '' && before === after);
     const range = before && after && before !== after ? ` (${before} → ${after})` : '';
+
+    // Fresh HEAD now matches the remote — drop the stale "behind" hint.
+    invalidateUpdateCache([project.id]);
 
     await logActivity({
       type: 'pull',

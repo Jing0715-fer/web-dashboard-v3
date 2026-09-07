@@ -175,6 +175,22 @@ interface ProjectVersion {
   error?: string
 }
 
+/** Remote-repo freshness from /api/projects/updates (see lib/git-update-check.ts).
+ *  'behind'/'diverged'/'differs' → the card shows an "update available" hint. */
+interface RepoUpdateStatus {
+  state: 'current' | 'behind' | 'ahead' | 'diverged' | 'differs' | 'unknown'
+  behind: number | null
+  ahead: number | null
+  remoteSha: string | null
+  checkedAt: string
+  error?: string
+}
+
+/** Does this status warrant a visible "update available" hint? */
+function isUpdateHint(u: RepoUpdateStatus | null | undefined): boolean {
+  return !!u && (u.state === 'behind' || u.state === 'diverged' || u.state === 'differs')
+}
+
 /** Compact relative time for the version chip ('3h' / '2d' / 'now'). */
 function versionTimeAgo(iso: string | null): string | null {
   if (!iso) return null
@@ -949,7 +965,7 @@ function SortableProjectCardImpl({
   starred, onToggleStar, lanIp, currentHost, index = 0,
   batchMode = false, onDuplicate, onMoveToDevice, devices, onHover,
   focused = false, cardDensity = 'comfortable', onCompare, pinOrder, onReanalyze,
-  pendingOps = {}, onPull, pulling = false, version,
+  pendingOps = {}, onPull, pulling = false, version, update,
 }: {
   project: Project
   viewMode: ViewMode
@@ -985,6 +1001,9 @@ function SortableProjectCardImpl({
   /** Git snapshot (branch/sha/dirty/committedAt) from /api/projects/versions —
    *  null while loading or when unavailable (agent offline / not a repo). */
   version?: ProjectVersion | null
+  /** Remote-repo freshness from /api/projects/updates — non-null hint states
+   *  (behind / diverged / differs) render an "update available" pill. */
+  update?: RepoUpdateStatus | null
   pendingOps?: Record<string, string>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
@@ -1021,6 +1040,16 @@ function SortableProjectCardImpl({
   const IconComp = ICON_MAP[project.icon] || Folder
   const isRemote = !!(project.deviceId && project.deviceName)
   const deviceOnline = project.deviceStatus === 'online'
+
+  // "Update available" hint (behind / diverged / differs) + its tooltip text.
+  const updateHint = isUpdateHint(update) ? update! : null
+  const updateTooltip = updateHint
+    ? updateHint.state === 'behind'
+      ? t('card.repo.behindTip', { count: updateHint.behind ?? 0 })
+      : updateHint.state === 'diverged'
+        ? t('card.repo.divergedTip', { ahead: updateHint.ahead ?? 0, behind: updateHint.behind ?? 0 })
+        : t('card.repo.differsTip', { remote: updateHint.remoteSha ?? '?' })
+    : null
 
   const envLabel = (name: string) => name === 'development' ? 'dev' : name === 'production' ? 'prod' : name
 
@@ -1102,8 +1131,9 @@ function SortableProjectCardImpl({
               {/* Repo chip lives on the path line (not the title row) so the
                   title row never overflows; one-click pull stays reachable. */}
               {project.repoUrl ? (
-                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[200px]" title={pulling ? t('card.repo.pulling') : `${sanitizeGitUrl(project.repoUrl)} · ${t('card.ctx.pullLatest')}`} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
+                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[200px]" title={pulling ? t('card.repo.pulling') : `${sanitizeGitUrl(project.repoUrl)} · ${t('card.ctx.pullLatest')}${updateTooltip ? ` · ${updateTooltip}` : ''}`} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
                   {pulling ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Github className="h-3 w-3 shrink-0" />}
+                  {!pulling && updateHint && <span aria-label={t('card.repo.updateAvailable')} title={updateTooltip ?? undefined} className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />}
                   <span className="truncate">{repoShortLabel(project.repoUrl)}</span>
                   {!pulling && onPull && <GitPullRequest className="h-3 w-3 shrink-0 text-brand-strong dark:text-brand" />}
                 </button>
@@ -1474,6 +1504,13 @@ function SortableProjectCardImpl({
             <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild><button type="button" disabled={pulling || !onPull} className="group/repo w-full flex items-center gap-2.5 h-9 pl-4 pr-3 sm:pl-5 border-b border-zinc-200/80 dark:border-zinc-800/80 bg-gradient-to-r from-brand-soft/70 to-brand-soft/15 hover:from-brand-soft hover:to-brand-soft/50 transition-colors cursor-pointer disabled:opacity-70 disabled:pointer-events-none" onClick={(e) => { e.stopPropagation(); onPull?.(project) }}>
               {pulling ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-brand-strong dark:text-brand" /> : <Github className="h-3.5 w-3.5 shrink-0 text-zinc-600 dark:text-zinc-300 group-hover/repo:text-foreground dark:group-hover/repo:text-zinc-100 transition-colors" />}
               <span className="flex-1 min-w-0 truncate text-left font-mono text-[11px] text-zinc-600 dark:text-zinc-300 group-hover/repo:text-foreground dark:group-hover/repo:text-zinc-100 transition-colors">{repoShortLabel(project.repoUrl)}</span>
+              {updateHint && (
+                <span className="shrink-0 inline-flex items-center gap-1 h-[18px] px-1.5 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-medium" title={updateTooltip ?? undefined} aria-label={t('card.repo.updateAvailable')}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                  <span className="hidden sm:inline">{t('card.repo.updateAvailable')}</span>
+                  {updateHint.state !== 'differs' && typeof updateHint.behind === 'number' && updateHint.behind > 0 && <span className="tabular-nums">·{updateHint.behind}</span>}
+                </span>
+              )}
               {version && version.sha && (
                 <span
                   className="shrink-0 inline-flex items-center gap-1 font-mono text-[10px] text-zinc-500 dark:text-zinc-400"
@@ -3465,7 +3502,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update
 }: {
   project: Project | null
   open: boolean
@@ -3480,8 +3517,19 @@ function DetailSheet({
   onEdit?: (p: Project) => void
   /** Git snapshot — same source as the card's version chip. */
   version?: ProjectVersion | null
+  /** Remote-repo freshness — hint states render an "update available" pill. */
+  update?: RepoUpdateStatus | null
 }) {
   const t = useT()
+  // "Update available" hint (behind / diverged / differs) for the git repo block.
+  const detailUpdateHint = isUpdateHint(update) ? update! : null
+  const detailUpdateTooltip = detailUpdateHint
+    ? detailUpdateHint.state === 'behind'
+      ? t('card.repo.behindTip', { count: detailUpdateHint.behind ?? 0 })
+      : detailUpdateHint.state === 'diverged'
+        ? t('card.repo.divergedTip', { ahead: detailUpdateHint.ahead ?? 0, behind: detailUpdateHint.behind ?? 0 })
+        : t('card.repo.differsTip', { remote: detailUpdateHint.remoteSha ?? '?' })
+    : null
   const [activeTab, setActiveTab] = React.useState('overview')
   const [activity, setActivity] = React.useState<ActivityEvent[]>([])
   const [logs, setLogs] = React.useState<LogEntry[]>([])
@@ -4080,14 +4128,23 @@ function DetailSheet({
                             <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => copyToClipboard(sanitizeGitUrl(project.repoUrl!), t('dlg.detail.gitRepo'))}><Copy className="h-3.5 w-3.5" /></Button>
                             <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer')}><ExternalLink className="h-3.5 w-3.5" /></Button>
                           </div>
-                          {version && version.sha ? (
+                          {(version && version.sha) || detailUpdateHint ? (
                             <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
-                              <span className="font-mono">{version.branch || 'HEAD'}@{version.sha}</span>
-                              {version.committedAt && <span>· {new Date(version.committedAt).toLocaleString()}</span>}
-                              {typeof version.dirty === 'number' && version.dirty > 0 && (
-                                <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400" title={t('card.repo.dirtyCount', { count: version.dirty })}>
-                                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                                  {t('card.repo.dirtyCount', { count: version.dirty })}
+                              {version && version.sha ? (<>
+                                <span className="font-mono">{version.branch || 'HEAD'}@{version.sha}</span>
+                                {version.committedAt && <span>· {new Date(version.committedAt).toLocaleString()}</span>}
+                                {typeof version.dirty === 'number' && version.dirty > 0 && (
+                                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400" title={t('card.repo.dirtyCount', { count: version.dirty })}>
+                                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                    {t('card.repo.dirtyCount', { count: version.dirty })}
+                                  </span>
+                                )}
+                              </>) : null}
+                              {detailUpdateHint && (
+                                <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium" title={detailUpdateTooltip ?? undefined}>
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                  {t('card.repo.updateAvailable')}
+                                  {detailUpdateHint.state !== 'differs' && typeof detailUpdateHint.behind === 'number' && detailUpdateHint.behind > 0 && <span className="tabular-nums">· {t('card.repo.behindCount', { count: detailUpdateHint.behind })}</span>}
                                 </span>
                               )}
                             </div>
@@ -6077,6 +6134,40 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } catch { /* version chips are best-effort decoration */ }
   }, [])
 
+  // ---- Remote-repo freshness (auto update check) -------------------------
+  // One batch request for ALL projects; cards surface an "update available"
+  // pill for behind / diverged / differs. Runs after the versions load and
+  // then every 10 minutes (paused while the tab is hidden). A toast fires
+  // only the FIRST time each project's update is detected per session.
+  const [projectUpdates, setProjectUpdates] = React.useState<Record<string, RepoUpdateStatus | null>>({})
+  const notifiedUpdateIdsRef = React.useRef<Set<string>>(new Set())
+  const fetchProjectUpdates = React.useCallback(async (opts?: { refresh?: boolean }) => {
+    try {
+      const res = await fetch(`/api/projects/updates${opts?.refresh ? '?refresh=1' : ''}`)
+      if (!res.ok) return
+      const data = await res.json()
+      const updates: Record<string, RepoUpdateStatus | null> = data.updates ?? {}
+      setProjectUpdates(updates)
+      const fresh = Object.entries(updates).filter(
+        ([id, u]) => isUpdateHint(u) && !notifiedUpdateIdsRef.current.has(id),
+      )
+      if (fresh.length > 0) {
+        for (const [id] of fresh) notifiedUpdateIdsRef.current.add(id)
+        const names = fresh
+          .map(([id]) => projectsRef.current.find((p) => p.id === id)?.name)
+          .filter((n): n is string => !!n)
+          .slice(0, 3)
+          .join('、')
+        const extra = fresh.length > 3 ? ` +${fresh.length - 3}` : ''
+        toast({
+          title: t('card.updateToast.title'),
+          description: t('card.updateToast.body', { count: fresh.length, names: `${names || '…'}${extra}` }),
+          variant: 'success',
+        })
+      }
+    } catch { /* update hints are best-effort */ }
+  }, [toast, t])
+
   const fetchNotifications = React.useCallback(async () => {
     try {
       const res = await fetch('/api/notifications')
@@ -6191,11 +6282,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     // over it while the network refresh runs in the background.
     if (!hydratedFromCacheRef.current) setLoading(true)
     await Promise.all([fetchProjects(), fetchNotifications(), fetchDevices()])
-    // Version chips load last — cards must never wait on git reads.
+    // Version chips + update hints load last — cards must never wait on git
+    // or network round trips to the repositories.
     fetchProjectVersions()
+    fetchProjectUpdates()
     // fetchGlobalActivity will be triggered by the projects-changed effect below
     setLoading(false)
-  }, [fetchProjects, fetchNotifications, fetchDevices, fetchProjectVersions])
+  }, [fetchProjects, fetchNotifications, fetchDevices, fetchProjectVersions, fetchProjectUpdates])
 
   // Initial load — the project list was already hydrated from the localStorage
   // cache inside the useState initializers (first render shows data). Here we
@@ -6211,6 +6304,17 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     const id = requestAnimationFrame(() => { loadData() })
     return () => cancelAnimationFrame(id)
   }, []) // Initial load only
+
+  // Auto update check — every 10 minutes, paused while the tab is hidden.
+  // Server-side results are cached 5 min, so an open dashboard triggers at
+  // most one ls-remote+fetch per repo per ~10 min even with several tabs.
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      fetchProjectUpdates()
+    }, 10 * 60 * 1000)
+    return () => clearInterval(timer)
+  }, [fetchProjectUpdates])
 
   // Fetch global activity when projects change. With the cache initializer,
   // a cache hit fires this on the FIRST render — in parallel with the network
@@ -6830,6 +6934,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // the card list so updatedAt / activity update. Tracks the in-flight ids so
   // the repo row on the card shows a spinner and blocks double-clicks — a
   // ref guard blocks the second click in the same tick (before re-render).
+  // The update check is refreshed with ?refresh=1 so a just-pulled card
+  // drops its "behind" pill immediately (no 5-min cache lag).
   const handlePullProject = React.useCallback(async (project: Project) => {
     if (!project.repoUrl) return
     // Remote projects pull THROUGH this dashboard (the API proxies to the
@@ -6849,6 +6955,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         }
         fetchProjects()
         fetchProjectVersions()
+        fetchProjectUpdates({ refresh: true })
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
         toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(String(data?.error || t('dlg.common.serverError'))) + detail, detail: data?.error ? String(data.error) + (data.detail ? `\n${data.detail}` : '') : undefined, variant: 'destructive' })
@@ -6859,7 +6966,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       pullingProjectIdsRef.current.delete(project.id)
       setPullingProjectIds((prev) => { const next = new Set(prev); next.delete(project.id); return next })
     }
-  }, [toast, fetchProjects, fetchProjectVersions, t])
+  }, [toast, fetchProjects, fetchProjectVersions, fetchProjectUpdates, t])
 
   const handleMoveProject = React.useCallback(async (projectId: string, targetDeviceId: string | null) => {
     try {
@@ -8448,6 +8555,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
                               version={projectVersions[project.id]}
+                              update={projectUpdates[project.id]}
                             />
                           ))}
                         </React.Fragment>
@@ -8500,6 +8608,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
                               version={projectVersions[project.id]}
+                              update={projectUpdates[project.id]}
                             />
                           ))}
                         </>
@@ -8550,6 +8659,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
                               version={projectVersions[project.id]}
+                              update={projectUpdates[project.id]}
                             />
                           ))}
                         </React.Fragment>
@@ -8588,6 +8698,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
                               version={projectVersions[project.id]}
+                              update={projectUpdates[project.id]}
                       />
                     ))
                   )}
@@ -8635,6 +8746,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
                               version={projectVersions[project.id]}
+                              update={projectUpdates[project.id]}
                             />
                           ))}
                         </React.Fragment>
@@ -8685,6 +8797,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
                               version={projectVersions[project.id]}
+                              update={projectUpdates[project.id]}
                             />
                           ))}
                         </>
@@ -8734,6 +8847,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
                               version={projectVersions[project.id]}
+                              update={projectUpdates[project.id]}
                             />
                           ))}
                         </React.Fragment>
@@ -8773,6 +8887,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
                               version={projectVersions[project.id]}
+                              update={projectUpdates[project.id]}
                       />
                     ))
                   )}
@@ -8921,6 +9036,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         currentHost={currentHost}
         onEdit={handleEditProject}
         version={projectVersions[selectedProject?.id ?? '']}
+        update={projectUpdates[selectedProject?.id ?? '']}
         onRefresh={() => {
           fetchProjects({ fresh: true })
           if (selectedProject) {

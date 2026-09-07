@@ -13,6 +13,11 @@ integrated as the device agent layer.
 
 - **Project management** — cards or list view, drag-to-reorder, pin, tag, search,
   keyboard shortcuts (⌘K, s/x/e), context menus
+- **GitHub integration** — one-click Pull on every project card, live version
+  chip (branch @ sha · age, uncommitted-count dot), and an automatic remote
+  update check every 10 minutes that badges cards with "Update available"
+  (behind / diverged / out-of-sync with the device checkout) and fires one
+  aggregated toast notification
 - **Environments** — per-project dev/prod environments with start / stop /
   restart / rebuild, live status, HMR awareness, port proxying
 - **LLM-assisted onboarding** — new projects are analyzed automatically
@@ -84,6 +89,42 @@ If you pulled a while ago and dev is already failing, run `bun install` once
 > `node_modules/.prisma/client` therefore survives `git pull`. Likewise, new
 > dependencies added by pulled commits only land on your machine after an
 > actual install.
+
+### "Error parsing package.json file" — git conflict markers
+
+```
+./package.json:6:1
+Error parsing package.json file
+> 6 | <<<<<<< Updated upstream
+```
+
+This means a `git pull` (with local changes) left **conflict markers** inside
+`package.json` — git could not merge your local edit with the incoming one, so
+it wrote `<<<<<<<` / `=======` / `>>>>>>>` lines into the file. JSON with those
+markers is unparseable, so the dev server cannot even start.
+
+Fix (keep the upstream version — your stale local copy is what conflicted):
+
+```bash
+git checkout origin/main -- package.json   # restore the upstream file
+git stash list                             # a conflicted "pop" keeps the stash
+git stash drop                             # drop it if still listed
+bun run dev
+```
+
+If other files also show conflict markers, or the repo state looks tangled,
+the nuclear option resets everything to the remote state (⚠ discards ALL
+uncommitted local changes):
+
+```bash
+git reset --hard origin/main
+git stash clear
+bun run dev
+```
+
+> Tip: avoid the situation entirely — commit your local changes (or
+> `git stash`) BEFORE pulling, and resolve any conflicts the pull reports
+> before starting dev.
 
 ### Remote devices
 
