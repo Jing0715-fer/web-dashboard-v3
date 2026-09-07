@@ -6,6 +6,7 @@ import { join } from 'path';
 import { db } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
+import { proxyProjectAction } from '@/lib/route-decision';
 
 const execFileAsync = promisify(execFile);
 
@@ -38,9 +39,13 @@ function isValidRepoUrl(url: string): boolean {
  * POST /api/projects/:id/pull — one-click `git pull` for a project with a
  * configured GitHub repository.
  *
- * Runs `git pull --ff-only` in the project directory (local projects only —
- * a remote project's code lives on its own machine). Fails with a clear
- * message when the directory is not a git checkout or the remote diverged.
+ * Local project: runs `git pull --ff-only` in the project directory here.
+ * Remote project: proxies to the device agent's
+ * POST /api/agent/projects/:id/pull (the code lives on that machine — git
+ * runs THERE). Legacy agents without the endpoint return 404, which is
+ * reported as an actionable "update the agent" error.
+ * Fails with a clear message when the directory is not a git checkout or
+ * the remote diverged.
  */
 export async function POST(
   req: NextRequest,
@@ -55,11 +60,37 @@ export async function POST(
   if (!project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 });
   }
+
+  // Remote project → proxy the pull to its device agent.
   if (project.deviceId) {
-    return NextResponse.json(
-      { error: 'Remote projects are pulled on their own machine — use the device dashboard there' },
-      { status: 400 },
-    );
+    const result = await proxyProjectAction(project.deviceId, `/projects/${id}/pull`, 'POST');
+    if (result.ok) {
+      await logActivity({
+        type: 'pull',
+        level: 'success',
+        message: `Pulled ${project.name}${result.data?.summary ? ` (${result.data.summary})` : ''}`,
+        projectId: project.id,
+        projectName: project.name,
+        detail: String(result.data?.output || '').split('\n').slice(-3).join(' · ').slice(0, 300),
+      });
+    } else if (result.status === 404) {
+      return NextResponse.json(
+        {
+          error:
+            'This device agent is too old to pull remotely — update the agent on that machine (mini-services/agent-*) to ≥ this dashboard version',
+        },
+        { status: 502 },
+      );
+    } else {
+      return NextResponse.json(
+        {
+          error: result.data?.error || 'Remote pull failed',
+          detail: result.data?.detail,
+        },
+        { status: result.status },
+      );
+    }
+    return NextResponse.json(result.data, { status: 200 });
   }
   if (!project.repoUrl) {
     return NextResponse.json(

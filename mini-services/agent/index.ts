@@ -14,7 +14,8 @@
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { PrismaClient } from '@prisma/client';
-import { spawn, ChildProcess, execSync } from 'child_process';
+import { spawn, ChildProcess, execSync, execFile } from 'child_process';
+import { promisify } from 'util';
 import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { randomBytes } from 'crypto';
@@ -781,6 +782,51 @@ function getLogs(projectId: string, envName: string): string[] {
 
 // ======================== AUTH MIDDLEWARE ========================
 
+// ======================== GIT VERSION + ONE-CLICK PULL ========================
+// Serves the dashboard cards' "branch @ sha · 3h ago" chip and the proxied
+// one-click pull. Same response shape across every agent variant AND the
+// dashboard's own src/lib/git-version.ts.
+
+const execFileAsync = promisify(execFile);
+
+async function readGitVersion(path: string): Promise<any> {
+  if (!path || !existsSync(path) || !existsSync(join(path, '.git'))) return null;
+  const v: any = { branch: null, sha: null, dirty: null, committedAt: null };
+  try {
+    // branch + short sha via rev-parse — `--format=%h` swallows --decorate.
+    const [branchOut, shaOut] = await Promise.all([
+      execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: path, timeout: 15000, maxBuffer: 64 * 1024 }),
+      execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: path, timeout: 15000, maxBuffer: 64 * 1024 }),
+    ]);
+    v.branch = branchOut.stdout.trim() || null;
+    v.sha = shaOut.stdout.trim() || null;
+  } catch { return { ...v, error: 'git error' }; }
+  try { v.committedAt = (await execFileAsync('git', ['log', '-1', '--format=%cI', 'HEAD'], { cwd: path, timeout: 15000, maxBuffer: 64 * 1024 })).stdout.trim() || null; } catch {}
+  try { v.dirty = (await execFileAsync('git', ['status', '--porcelain'], { cwd: path, timeout: 15000, maxBuffer: 512 * 1024 })).stdout.split('\n').filter((l: string) => l.trim().length > 0).length; } catch {}
+  return v;
+}
+
+/** Run `git pull --ff-only` (with upstream fallback) in a project dir. */
+async function gitPull(projectPath: string): Promise<any> {
+  let before = '';
+  try { before = (await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim(); } catch {}
+  const pullArgs = ['pull', '--ff-only'];
+  try {
+    await execFileAsync('git', ['rev-parse', '--abbrev-ref', '@{u}'], { cwd: projectPath, timeout: 15000 });
+  } catch {
+    try {
+      const branch = (await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim();
+      if (branch && branch !== 'HEAD') pullArgs.push('origin', branch);
+    } catch { /* detached HEAD */ }
+  }
+  const { stdout, stderr } = await execFileAsync('git', pullArgs, { cwd: projectPath, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+  let after = '';
+  try { after = (await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim(); } catch {}
+  const output = (stdout || stderr || '').trim();
+  const upToDate = /Already up to date/i.test(output) || (before !== '' && before === after);
+  return { ok: true, upToDate, before, after, summary: upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done', output: output.slice(0, 4000) };
+}
+
 function verifyAuth(req: IncomingMessage): boolean {
   const auth = req.headers['authorization'];
   if (!auth) return false;
@@ -849,6 +895,32 @@ const server = createServer(async (req, res) => {
     // Auth check
     if (!verifyAuth(req)) {
       sendJSON(res, 401, { error: 'Unauthorized' });
+      return;
+    }
+
+    // GET /api/agent/versions — batch git snapshot for every project
+    // (feeds the dashboard cards' version chips; one call per device)
+    if (pathname === '/api/agent/versions' && req.method === 'GET') {
+      const projects = await db.project.findMany({ select: { id: true, path: true } });
+      const versions: Record<string, any> = {};
+      await Promise.all(projects.map(async (p) => {
+        versions[p.id] = await readGitVersion(p.path);
+      }));
+      sendJSON(res, 200, { versions });
+      return;
+    }
+
+    // POST /api/agent/projects/:id/pull — one-click git pull on THIS machine
+    const pullMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/pull$/);
+    if (pullMatch && req.method === 'POST') {
+      const project = await db.project.findUnique({ where: { id: pullMatch[1] } });
+      if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
+      if (!(existsSync(project.path) && existsSync(join(project.path, '.git')))) { sendJSON(res, 400, { error: `Not a git repository: ${project.path}` }); return; }
+      try {
+        sendJSON(res, 200, await gitPull(project.path));
+      } catch (e: any) {
+        sendJSON(res, 500, { error: 'git pull failed', detail: String(e?.stderr || e?.stdout || e?.message || '').trim().slice(0, 400) });
+      }
       return;
     }
 

@@ -975,6 +975,7 @@ export const dialogs = {
   'card.repo.connect': 'Connect repo',
   'card.repo.pulling': 'Pulling…',
   'card.repo.pullAction': 'Pull',
+  'card.repo.dirtyCount': '{count} uncommitted changes',
   'card.repo.connectTooltip': 'Set the GitHub repository to enable one-click pull',
   'card.ctx.unpin': 'Unpin',
   'card.ctx.pinToTop': 'Pin to Top',

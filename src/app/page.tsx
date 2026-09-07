@@ -164,6 +164,36 @@ interface Project {
   deviceStatus?: string | null
 }
 
+/** Git checkout snapshot (branch/sha/dirty/committedAt) rendered on cards.
+ *  Type-only import — the server impl (child_process) never reaches the
+ *  client bundle. */
+interface ProjectVersion {
+  branch: string | null
+  sha: string | null
+  dirty: number | null
+  committedAt: string | null
+  error?: string
+}
+
+/** Compact relative time for the version chip ('3h' / '2d' / 'now'). */
+function versionTimeAgo(iso: string | null): string | null {
+  if (!iso) return null
+  const ts = Date.parse(iso)
+  if (Number.isNaN(ts)) return null
+  const diff = Date.now() - ts
+  if (diff < 0) return null
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'now'
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo`
+  return `${Math.floor(months / 12)}y`
+}
+
 interface Notification {
   id: string
   type: 'success' | 'warning' | 'error' | 'info'
@@ -919,7 +949,7 @@ function SortableProjectCardImpl({
   starred, onToggleStar, lanIp, currentHost, index = 0,
   batchMode = false, onDuplicate, onMoveToDevice, devices, onHover,
   focused = false, cardDensity = 'comfortable', onCompare, pinOrder, onReanalyze,
-  pendingOps = {}, onPull, pulling = false,
+  pendingOps = {}, onPull, pulling = false, version,
 }: {
   project: Project
   viewMode: ViewMode
@@ -947,10 +977,14 @@ function SortableProjectCardImpl({
   onCompare?: (project: Project) => void
   pinOrder?: number
   onReanalyze?: (p: Project) => void
-  /** One-click "Pull latest code" — only invoked for local projects with a repoUrl. */
+  /** One-click "Pull latest code" — local runs git here, remote is proxied
+   *  to the device agent (which runs git on that machine). */
   onPull?: (p: Project) => void
   /** True while a one-click git pull is in flight for this project. */
   pulling?: boolean
+  /** Git snapshot (branch/sha/dirty/committedAt) from /api/projects/versions —
+   *  null while loading or when unavailable (agent offline / not a repo). */
+  version?: ProjectVersion | null
   pendingOps?: Record<string, string>
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
@@ -1068,12 +1102,12 @@ function SortableProjectCardImpl({
               {/* Repo chip lives on the path line (not the title row) so the
                   title row never overflows; one-click pull stays reachable. */}
               {project.repoUrl ? (
-                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[200px]" title={pulling ? t('card.repo.pulling') : project.deviceId ? sanitizeGitUrl(project.repoUrl) : `${sanitizeGitUrl(project.repoUrl)} · ${t('card.ctx.pullLatest')}`} onClick={(e) => { e.stopPropagation(); if (onPull && !project.deviceId) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
+                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[200px]" title={pulling ? t('card.repo.pulling') : `${sanitizeGitUrl(project.repoUrl)} · ${t('card.ctx.pullLatest')}`} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
                   {pulling ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Github className="h-3 w-3 shrink-0" />}
                   <span className="truncate">{repoShortLabel(project.repoUrl)}</span>
-                  {!pulling && !project.deviceId && onPull && <GitPullRequest className="h-3 w-3 shrink-0 text-brand-strong dark:text-brand" />}
+                  {!pulling && onPull && <GitPullRequest className="h-3 w-3 shrink-0 text-brand-strong dark:text-brand" />}
                 </button>
-              ) : !project.deviceId && (
+              ) : (
                 <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 text-[10px] font-medium text-zinc-400 dark:text-zinc-500 hover:text-brand-strong dark:hover:text-brand hover:border-brand/45 hover:bg-brand-soft/40 transition-colors cursor-pointer" title={t('card.repo.connectTooltip')} onClick={(e) => { e.stopPropagation(); onEdit(project) }}>
                   <Github className="h-3 w-3 shrink-0" />
                   <span className="hidden md:inline">{t('card.repo.connect')}</span>
@@ -1175,7 +1209,7 @@ function SortableProjectCardImpl({
               <DropdownMenuTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors"><MoreVertical className="h-3.5 w-3.5" /></button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</DropdownMenuItem>
-                {project.repoUrl && !project.deviceId && onPull && (
+                {project.repoUrl && onPull && (
                   <DropdownMenuItem onClick={() => onPull(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md">{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
@@ -1205,7 +1239,7 @@ function SortableProjectCardImpl({
             )}
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</ContextMenuItem>
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</ContextMenuItem>
-            {project.repoUrl && !project.deviceId && onPull && (
+            {project.repoUrl && onPull && (
               <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}>{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</ContextMenuItem>
             )}
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.duplicate')}</ContextMenuItem>
@@ -1291,7 +1325,7 @@ function SortableProjectCardImpl({
                     </span>
                   )}
                   {project.repoUrl && (
-                    <button type="button" className="shrink-0 cursor-pointer text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" title={sanitizeGitUrl(project.repoUrl)} aria-label={t('card.ctx.pullLatest')} onClick={(e) => { e.stopPropagation(); if (onPull && !project.deviceId) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
+                    <button type="button" className="shrink-0 cursor-pointer text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" title={sanitizeGitUrl(project.repoUrl)} aria-label={t('card.ctx.pullLatest')} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
                       <Github className="h-3 w-3" />
                     </button>
                   )}
@@ -1432,13 +1466,26 @@ function SortableProjectCardImpl({
         <div className="relative z-[1] mt-auto border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50/80 dark:bg-zinc-900/40 rounded-b-xl">
           {/* GitHub repository — its own full-width row, so long owner/repo
               labels truncate gracefully instead of crowding (and overflowing)
-              the action bar below. Configured → whole row is one-click Pull;
-              unconfigured → dashed CTA row that opens the edit dialog.
-              Remote projects skip this row (pull runs on the host device). */}
-          {!project.deviceId && (project.repoUrl ? (
+              the action bar below. Configured → whole row is one-click Pull
+              (local: git runs here; remote: proxied to the device agent)
+              + live version chip (branch @ sha · age, amber dot = dirty);
+              unconfigured → dashed CTA row that opens the edit dialog. */}
+          {project.repoUrl ? (
             <TooltipProvider delayDuration={200}><Tooltip><TooltipTrigger asChild><button type="button" disabled={pulling || !onPull} className="group/repo w-full flex items-center gap-2.5 h-9 pl-4 pr-3 sm:pl-5 border-b border-zinc-200/80 dark:border-zinc-800/80 bg-gradient-to-r from-brand-soft/70 to-brand-soft/15 hover:from-brand-soft hover:to-brand-soft/50 transition-colors cursor-pointer disabled:opacity-70 disabled:pointer-events-none" onClick={(e) => { e.stopPropagation(); onPull?.(project) }}>
               {pulling ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-brand-strong dark:text-brand" /> : <Github className="h-3.5 w-3.5 shrink-0 text-zinc-600 dark:text-zinc-300 group-hover/repo:text-foreground dark:group-hover/repo:text-zinc-100 transition-colors" />}
               <span className="flex-1 min-w-0 truncate text-left font-mono text-[11px] text-zinc-600 dark:text-zinc-300 group-hover/repo:text-foreground dark:group-hover/repo:text-zinc-100 transition-colors">{repoShortLabel(project.repoUrl)}</span>
+              {version && version.sha && (
+                <span
+                  className="shrink-0 inline-flex items-center gap-1 font-mono text-[10px] text-zinc-500 dark:text-zinc-400"
+                  title={`${version.branch || 'HEAD'}@${version.sha}${versionTimeAgo(version.committedAt) ? ' · ' + versionTimeAgo(version.committedAt) : ''}${typeof version.dirty === 'number' && version.dirty > 0 ? ` · ${t('card.repo.dirtyCount', { count: version.dirty })}` : ''}${project.deviceId ? ` · ${project.deviceName || t('surf.unknownDevice')}` : ''}`}
+                >
+                  <span className="max-w-[120px] truncate">{(version.branch || 'HEAD')}@{version.sha}</span>
+                  {versionTimeAgo(version.committedAt) && <span className="hidden sm:inline font-sans text-[9px] opacity-70">· {versionTimeAgo(version.committedAt)}</span>}
+                  {typeof version.dirty === 'number' && version.dirty > 0 && (
+                    <span aria-label={t('card.repo.dirtyCount', { count: version.dirty })} className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
+                  )}
+                </span>
+              )}
               <span className={`inline-flex items-center gap-1 shrink-0 text-[11px] font-medium ${pulling ? 'text-muted-foreground' : 'text-brand-strong dark:text-brand'}`}>
                 {pulling ? t('card.repo.pulling') : (<><span className="hidden sm:inline">{t('card.repo.pullAction')}</span><GitPullRequest className="h-3.5 w-3.5" /></>)}
               </span>
@@ -1449,7 +1496,7 @@ function SortableProjectCardImpl({
               <span className="flex-1 min-w-0 truncate text-left text-[11px] font-medium">{t('card.repo.connect')}</span>
               <Plus className="h-3.5 w-3.5 shrink-0 opacity-60 group-hover/repo:opacity-100 transition-opacity" />
             </button></TooltipTrigger><TooltipContent>{t('card.repo.connectTooltip')}</TooltipContent></Tooltip></TooltipProvider>
-          ))}
+          )}
           <div className="px-4 sm:px-5 pb-3 pt-2 flex items-center justify-between min-w-0">
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-[11px] font-medium px-2 py-0.5 gap-1.5 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 tabular-nums">
@@ -1499,7 +1546,7 @@ function SortableProjectCardImpl({
               <DropdownMenuTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors"><MoreVertical className="h-3.5 w-3.5" /></button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px] p-1.5 text-sm">
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</DropdownMenuItem>
-                {project.repoUrl && !project.deviceId && onPull && (
+                {project.repoUrl && onPull && (
                   <DropdownMenuItem onClick={() => onPull(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md">{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
@@ -1534,7 +1581,7 @@ function SortableProjectCardImpl({
           )}
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">e</kbd></ContextMenuItem>
-          {project.repoUrl && !project.deviceId && onPull && (
+          {project.repoUrl && onPull && (
             <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}>{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</ContextMenuItem>
           )}
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.unpin')}</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pinToTop')}</>}</ContextMenuItem>
@@ -3418,7 +3465,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version
 }: {
   project: Project | null
   open: boolean
@@ -3431,6 +3478,8 @@ function DetailSheet({
   onOpenDeviceManagement?: () => void
   onReanalyze?: (p: Project) => void
   onEdit?: (p: Project) => void
+  /** Git snapshot — same source as the card's version chip. */
+  version?: ProjectVersion | null
 }) {
   const t = useT()
   const [activeTab, setActiveTab] = React.useState('overview')
@@ -4031,46 +4080,50 @@ function DetailSheet({
                             <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => copyToClipboard(sanitizeGitUrl(project.repoUrl!), t('dlg.detail.gitRepo'))}><Copy className="h-3.5 w-3.5" /></Button>
                             <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer')}><ExternalLink className="h-3.5 w-3.5" /></Button>
                           </div>
-                          {!project.deviceId ? (
-                            <>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  size="sm"
-                                  className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                                  onClick={handlePull}
-                                  disabled={pulling}
-                                >
-                                  {pulling ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-1.5" />}
-                                  {pulling ? t('dlg.detail.pulling') : t('dlg.detail.pullLatest')}
-                                </Button>
-                                {pullResult?.ok && (
-                                  <span className={`text-xs flex items-center gap-1 ${pullResult.upToDate ? 'text-muted-foreground' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                    {pullResult.upToDate ? t('dlg.detail.pullUpToDate') : pullResult.summary}
-                                  </span>
-                                )}
-                                {pullResult && !pullResult.ok && (
-                                  <span className="text-xs text-red-500 flex items-center gap-1 truncate" title={pullResult.summary}>
-                                    <XCircle className="h-3.5 w-3.5 shrink-0" />
-                                    <span className="truncate">{pullResult.summary}{pullResult.output}</span>
-                                  </span>
-                                )}
-                              </div>
-                              {pullResult?.ok && !pullResult.upToDate && pullResult.output && (
-                                <pre className="text-[10px] font-mono text-muted-foreground whitespace-pre-wrap max-h-24 overflow-y-auto rounded-md bg-background/60 border px-2 py-1.5">{pullResult.output.slice(0, 1500)}</pre>
+                          {version && version.sha ? (
+                            <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+                              <span className="font-mono">{version.branch || 'HEAD'}@{version.sha}</span>
+                              {version.committedAt && <span>· {new Date(version.committedAt).toLocaleString()}</span>}
+                              {typeof version.dirty === 'number' && version.dirty > 0 && (
+                                <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400" title={t('card.repo.dirtyCount', { count: version.dirty })}>
+                                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                  {t('card.repo.dirtyCount', { count: version.dirty })}
+                                </span>
                               )}
-                            </>
-                          ) : (
-                            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                              <GitPullRequest className="h-3.5 w-3.5" />
-                              {t('dlg.detail.pullRemoteOnly')}
-                            </p>
+                            </div>
+                          ) : null}
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                              onClick={handlePull}
+                              disabled={pulling}
+                            >
+                              {pulling ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-1.5" />}
+                              {pulling ? t('dlg.detail.pulling') : t('dlg.detail.pullLatest')}
+                            </Button>
+                            {pullResult?.ok && (
+                              <span className={`text-xs flex items-center gap-1 ${pullResult.upToDate ? 'text-muted-foreground' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                {pullResult.upToDate ? t('dlg.detail.pullUpToDate') : pullResult.summary}
+                              </span>
+                            )}
+                            {pullResult && !pullResult.ok && (
+                              <span className="text-xs text-red-500 flex items-center gap-1 truncate" title={pullResult.summary}>
+                                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">{pullResult.summary}{pullResult.output}</span>
+                              </span>
+                            )}
+                          </div>
+                          {pullResult?.ok && !pullResult.upToDate && pullResult.output && (
+                            <pre className="text-[10px] font-mono text-muted-foreground whitespace-pre-wrap max-h-24 overflow-y-auto rounded-md bg-background/60 border px-2 py-1.5">{pullResult.output.slice(0, 1500)}</pre>
                           )}
                         </div>
-                      ) : !project.deviceId ? (
-                        /* No repo yet (local) — actionable CTA instead of a
-                           dead-end note: one click opens the edit dialog where
-                           the Git Repository field lives. */
+                      ) : (
+                        /* No repo yet — actionable CTA instead of a dead-end
+                           note: one click opens the edit dialog where the Git
+                           Repository field lives (works for remote projects
+                           too — the URL is stored on the dashboard side). */
                         <div className="flex items-center gap-3 flex-wrap rounded-lg border border-dashed border-zinc-300 dark:border-zinc-600 px-3.5 py-3">
                           <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
                           <span className="text-xs text-muted-foreground flex-1 min-w-[180px]">
@@ -4081,11 +4134,6 @@ function DetailSheet({
                             {t('dlg.detail.connectRepo')}
                           </Button>
                         </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <Github className="h-3.5 w-3.5" />
-                          {t('dlg.detail.noRepo')}
-                        </p>
                       )}
                     </div>
                   </motion.div>
@@ -6014,6 +6062,21 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } catch { /* ignore */ }
   }, [])
 
+  // ---- Git version snapshots (batch: one request for ALL projects) ------
+  // Cards show "branch @ sha · 3h ago" next to the repo URL. Fetched AFTER
+  // the projects list resolves so card rendering never waits on git; also
+  // refreshed right after a pull (the SHA moves).
+  const [projectVersions, setProjectVersions] = React.useState<Record<string, ProjectVersion | null>>({})
+  const fetchProjectVersions = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/projects/versions')
+      if (res.ok) {
+        const data = await res.json()
+        setProjectVersions(data.versions ?? {})
+      }
+    } catch { /* version chips are best-effort decoration */ }
+  }, [])
+
   const fetchNotifications = React.useCallback(async () => {
     try {
       const res = await fetch('/api/notifications')
@@ -6128,9 +6191,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     // over it while the network refresh runs in the background.
     if (!hydratedFromCacheRef.current) setLoading(true)
     await Promise.all([fetchProjects(), fetchNotifications(), fetchDevices()])
+    // Version chips load last — cards must never wait on git reads.
+    fetchProjectVersions()
     // fetchGlobalActivity will be triggered by the projects-changed effect below
     setLoading(false)
-  }, [fetchProjects, fetchNotifications, fetchDevices])
+  }, [fetchProjects, fetchNotifications, fetchDevices, fetchProjectVersions])
 
   // Initial load — the project list was already hydrated from the localStorage
   // cache inside the useState initializers (first render shows data). Here we
@@ -6766,7 +6831,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // the repo row on the card shows a spinner and blocks double-clicks — a
   // ref guard blocks the second click in the same tick (before re-render).
   const handlePullProject = React.useCallback(async (project: Project) => {
-    if (!project.repoUrl || project.deviceId) return
+    if (!project.repoUrl) return
+    // Remote projects pull THROUGH this dashboard (the API proxies to the
+    // device agent, which runs git on that machine) — no early return here.
     if (pullingProjectIdsRef.current.has(project.id)) return
     pullingProjectIdsRef.current.add(project.id)
     setPullingProjectIds((prev) => new Set(prev).add(project.id))
@@ -6781,17 +6848,18 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           toast({ title: t('dlg.detail.pullSuccess'), description: `${data.before ?? ''} → ${data.after ?? ''}`, variant: 'success' })
         }
         fetchProjects()
+        fetchProjectVersions()
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
-        toast({ title: t('dlg.detail.pullFailed'), description: String(data?.error || t('dlg.common.serverError')) + detail, variant: 'destructive' })
+        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(String(data?.error || t('dlg.common.serverError'))) + detail, detail: data?.error ? String(data.error) + (data.detail ? `\n${data.detail}` : '') : undefined, variant: 'destructive' })
       }
     } catch (e: any) {
-      toast({ title: t('dlg.detail.pullFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
+      toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
     } finally {
       pullingProjectIdsRef.current.delete(project.id)
       setPullingProjectIds((prev) => { const next = new Set(prev); next.delete(project.id); return next })
     }
-  }, [toast, fetchProjects, t])
+  }, [toast, fetchProjects, fetchProjectVersions, t])
 
   const handleMoveProject = React.useCallback(async (projectId: string, targetDeviceId: string | null) => {
     try {
@@ -8379,6 +8447,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              version={projectVersions[project.id]}
                             />
                           ))}
                         </React.Fragment>
@@ -8430,6 +8499,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              version={projectVersions[project.id]}
                             />
                           ))}
                         </>
@@ -8479,6 +8549,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              version={projectVersions[project.id]}
                             />
                           ))}
                         </React.Fragment>
@@ -8516,6 +8587,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              version={projectVersions[project.id]}
                       />
                     ))
                   )}
@@ -8562,6 +8634,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              version={projectVersions[project.id]}
                             />
                           ))}
                         </React.Fragment>
@@ -8611,6 +8684,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              version={projectVersions[project.id]}
                             />
                           ))}
                         </>
@@ -8659,6 +8733,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              version={projectVersions[project.id]}
                             />
                           ))}
                         </React.Fragment>
@@ -8697,6 +8772,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              version={projectVersions[project.id]}
                       />
                     ))
                   )}
@@ -8844,6 +8920,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         lanIp={lanIp}
         currentHost={currentHost}
         onEdit={handleEditProject}
+        version={projectVersions[selectedProject?.id ?? '']}
         onRefresh={() => {
           fetchProjects({ fresh: true })
           if (selectedProject) {

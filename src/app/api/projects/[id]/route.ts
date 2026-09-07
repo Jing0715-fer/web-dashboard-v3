@@ -113,14 +113,38 @@ export async function PUT(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Remote project → proxy to agent
+    // Remote project → proxy to agent. repoUrl/notes are DASHBOARD-level
+    // fields (agents don't model them), so they are ALSO persisted on the
+    // local cached row — otherwise a repo URL set in the edit dialog would
+    // be lost (the agent drops unknown fields, and the next sync would
+    // reset the local value to '').
     if (isRemoteProject(existing)) {
+      // Persist dashboard-only fields locally first.
+      if (repoUrl !== undefined || notes !== undefined) {
+        await db.project.update({
+          where: { id },
+          data: {
+            ...(repoUrl !== undefined && { repoUrl: normalizeRepoUrl(repoUrl) }),
+            ...(notes !== undefined && { notes: String(notes).slice(0, 20000) }),
+          },
+        });
+      }
       const result = await proxyProjectAction(
         existing.deviceId!,
         `/projects/${id}`,
         'PUT',
         body
       );
+      // Agent responses lack repoUrl/notes — merge our cached values back
+      // in so the frontend immediately sees what it just saved.
+      if (result.ok && result.data?.project) {
+        const cached = await db.project.findUnique({ where: { id } });
+        result.data.project = {
+          ...result.data.project,
+          repoUrl: cached?.repoUrl ?? '',
+          notes: cached?.notes ?? '',
+        };
+      }
       return NextResponse.json(result.data, { status: result.status });
     }
 
