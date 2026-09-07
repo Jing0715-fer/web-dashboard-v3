@@ -445,6 +445,10 @@ export const dialogs = {
   // ---- 错误详情对话框 ----
   'dlg.error.title': '错误',
   'dlg.error.desc': '完整的错误输出，用于排查问题',
+  'dlg.error.technical': '技术详情',
+  'dlg.error.copyError': '复制错误',
+  'dlg.error.copied': '已复制',
+  'dlg.error.clickToView': '点击任意处查看完整详情',
 
   // ---- 依赖关系图对话框 ----
   'dlg.depGraph.title': '项目依赖关系图',

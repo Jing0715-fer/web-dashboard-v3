@@ -449,6 +449,10 @@ export const dialogs = {
   // ---- error detail dialog ----
   'dlg.error.title': 'Error',
   'dlg.error.desc': 'Full error output for troubleshooting',
+  'dlg.error.technical': 'Technical details',
+  'dlg.error.copyError': 'Copy error',
+  'dlg.error.copied': 'Copied',
+  'dlg.error.clickToView': 'Click anywhere for full details',
 
   // ---- dependency graph dialog ----
   'dlg.depGraph.title': 'Project Dependency Map',

@@ -9,6 +9,9 @@ import {
   ToastTitle,
   ToastViewport,
 } from "@/components/ui/toast"
+import { CopyErrorButton } from "@/components/ui/error-detail"
+import { AlertCircle } from "lucide-react"
+import { useT } from "@/lib/i18n"
 
 // 全局回调，由 page.tsx 设置
 let onToastClick: ((detail: string, title: string) => void) | null = null
@@ -33,8 +36,27 @@ const VARIANT_CLASS: Record<string, string> = {
   destructive: '',
 }
 
+/** Compact action row for error toasts carrying a `detail` payload:
+ *  one-click copy (full raw error) + a hint that clicking the toast opens
+ *  the full detail dialog. */
+function ErrorToastActions({ detail }: { detail: string }) {
+  const t = useT()
+  return (
+    <div className="mt-1.5 flex items-center justify-between gap-2">
+      <span className="select-none text-[10px] leading-4 text-muted-foreground/70">
+        {t('dlg.error.clickToView')}
+      </span>
+      <CopyErrorButton
+        text={detail}
+        className="border-destructive/25 bg-background/60 text-destructive/80 hover:bg-background hover:text-destructive"
+      />
+    </div>
+  )
+}
+
 export function Toaster() {
   const { toasts } = useToast()
+  const t = useT()
 
   const mapVariant = (v: string | undefined) => {
     if (v === 'destructive') return 'destructive' as const
@@ -45,22 +67,31 @@ export function Toaster() {
     <ToastProvider>
       {toasts.map(function ({ id, title, description, variant, ...props }) {
         const detail = (props as any).detail as string | undefined
+        const isDestructive = variant === 'destructive'
         return (
           <Toast
             key={id}
             {...props}
             variant={mapVariant(variant)}
-            onClick={detail ? () => onToastClick?.(detail, title || 'Error') : undefined}
+            onClick={detail ? () => onToastClick?.(detail, title || t('dlg.error.title')) : undefined}
             className={[
               detail ? 'cursor-pointer' : '',
               VARIANT_CLASS[variant || 'default'] || '',
             ].filter(Boolean).join(' ') || undefined}
           >
-            <div className="grid gap-1">
-              {title && <ToastTitle>{title}</ToastTitle>}
-              {description && (
-                <ToastDescription>{description}</ToastDescription>
+            <div className="grid min-w-0 flex-1 gap-1">
+              {title && (
+                <ToastTitle className={isDestructive ? 'flex min-w-0 items-center gap-2 text-destructive' : 'flex min-w-0 items-center gap-2'}>
+                  {isDestructive && <AlertCircle className="h-4 w-4 shrink-0" aria-hidden />}
+                  <span className="min-w-0 break-words">{title}</span>
+                </ToastTitle>
               )}
+              {description && (
+                <ToastDescription className="min-w-0 break-words line-clamp-3">
+                  {description}
+                </ToastDescription>
+              )}
+              {detail && isDestructive && <ErrorToastActions detail={detail} />}
             </div>
             <ToastClose />
           </Toast>

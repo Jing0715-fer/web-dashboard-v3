@@ -67,6 +67,7 @@ import { AccountStatusScreen } from '@/components/auth/account-status-screen'
 import { UserMenu } from '@/components/auth/user-menu'
 import type { DashboardSession } from '@/components/auth/auth-types'
 import { setToastClickHandler } from '@/components/ui/toaster'
+import { ErrorDetailsBlock, summarizeError } from '@/components/ui/error-detail'
 
 // ---- Code-split heavy, rarely-shown surfaces --------------------------
 // These dialogs together are ~2400 lines (login screen alone 600, user
@@ -3514,7 +3515,7 @@ function DetailSheet({
         onRefresh?.()
       } else {
         const err = await res.json()
-        toast({ title: t('dlg.detail.tagsUpdateFailed'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
+        toast({ title: t('dlg.detail.tagsUpdateFailed'), description: summarizeError(err.error) || t('dlg.common.serverError'), detail: err.error, variant: 'destructive' })
       }
     } catch {
       toast({ title: t('dlg.detail.tagsUpdateFailed'), variant: 'destructive' })
@@ -3555,7 +3556,7 @@ function DetailSheet({
         onRefresh?.()
       } else {
         const err = await res.json()
-        toast({ title: t('dlg.detail.descUpdateFailed'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
+        toast({ title: t('dlg.detail.descUpdateFailed'), description: summarizeError(err.error) || t('dlg.common.serverError'), detail: err.error, variant: 'destructive' })
       }
     } catch {
       toast({ title: t('dlg.detail.descUpdateFailed'), variant: 'destructive' })
@@ -3741,7 +3742,7 @@ function DetailSheet({
         onRefresh?.()
       } else {
         const err = await res.json()
-        toast({ title: t('dlg.detail.envVarsSaveFailed'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
+        toast({ title: t('dlg.detail.envVarsSaveFailed'), description: summarizeError(err.error) || t('dlg.common.serverError'), detail: err.error, variant: 'destructive' })
       }
     } catch {
       toast({ title: t('dlg.detail.envVarsSaveFailed'), variant: 'destructive' })
@@ -6053,7 +6054,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         fetchDevices()
       } else {
         const err = await res.json()
-        toast({ title: t('dlg.toast.failedAddDevice'), description: err.error, variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedAddDevice'), description: summarizeError(err.error), detail: err.error, variant: 'destructive' })
       }
     } catch {
       toast({ title: t('dlg.toast.failedAddDevice'), variant: 'destructive' })
@@ -6630,7 +6631,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         addToast({ title: t('dlg.toast.agentStarted'), description: t('dlg.toast.agentStartedDesc'), variant: 'success' })
       } else {
         const err = await res.json()
-        toast({ title: t('dlg.toast.analysisStartFailed'), description: err.error || t('dlg.toast.harnessUnreachable'), variant: 'destructive' })
+        toast({ title: t('dlg.toast.analysisStartFailed'), description: summarizeError(err.error) || t('dlg.toast.harnessUnreachable'), detail: err.error, variant: 'destructive' })
       }
     } catch (e: any) {
       toast({ title: t('dlg.toast.analysisStartFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
@@ -6660,7 +6661,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           fetchProjects()
         } else {
           const err = await res.json()
-          toast({ title: t('dlg.toast.failedCreateProject'), description: err.error, variant: 'destructive' })
+          toast({ title: t('dlg.toast.failedCreateProject'), description: summarizeError(err.error), detail: err.error, variant: 'destructive' })
         }
       } else if (editingProject) {
         const res = await fetch(`/api/projects/${editingProject.id}`, {
@@ -6673,7 +6674,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           fetchProjects()
         } else {
           const err = await res.json()
-          toast({ title: t('dlg.toast.failedUpdateProject'), description: err.error, variant: 'destructive' })
+          toast({ title: t('dlg.toast.failedUpdateProject'), description: summarizeError(err.error), detail: err.error, variant: 'destructive' })
         }
       }
     } catch {
@@ -6706,7 +6707,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         fetchProjects()
       } else {
         const err = await res.json()
-        toast({ title: t('dlg.toast.failedDuplicate'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedDuplicate'), description: summarizeError(err.error) || t('dlg.common.serverError'), detail: err.error, variant: 'destructive' })
       }
     } catch {
       toast({ title: t('dlg.toast.failedDuplicate'), variant: 'destructive' })
@@ -6805,7 +6806,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         setMoveProjectDialog(null)
       } else {
         const err = await res.json()
-        toast({ title: t('dlg.toast.failedMove'), description: err.error || t('dlg.common.serverError'), variant: 'destructive' })
+        toast({ title: t('dlg.toast.failedMove'), description: summarizeError(err.error) || t('dlg.common.serverError'), detail: err.error, variant: 'destructive' })
       }
     } catch {
       toast({ title: t('dlg.toast.failedMove'), variant: 'destructive' })
@@ -7091,7 +7092,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } else {
       toast({
         title: t('dlg.toast.repairFailed'),
-        description: (job.error || '').slice(0, 200) || t('dlg.toast.repairFailedDesc'),
+        description: summarizeError(job.error) || t('dlg.toast.repairFailedDesc'),
+        detail: job.error,
         variant: 'destructive',
       })
     }
@@ -7266,7 +7268,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           fetchProjects()
         } else {
           const err = await res.json()
-          toast({ title: t('dlg.toast.failedCreateEnv'), description: err.error, variant: 'destructive' })
+          toast({ title: t('dlg.toast.failedCreateEnv'), description: summarizeError(err.error), detail: err.error, variant: 'destructive' })
         }
       } else if (editingEnv) {
         const res = await fetch(`/api/projects/${editingEnv.projectId}/environments/${editingEnv.id}`, {
@@ -7279,7 +7281,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           fetchProjects()
         } else {
           const err = await res.json()
-          toast({ title: t('dlg.toast.failedUpdateEnv'), description: err.error, variant: 'destructive' })
+          toast({ title: t('dlg.toast.failedUpdateEnv'), description: summarizeError(err.error), detail: err.error, variant: 'destructive' })
         }
       }
     } catch {
@@ -8787,7 +8789,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         </DialogContent>
       </Dialog>
 
-      {/* Error detail dialog - shows full build error output */}
+      {/* Error detail dialog - polished error presentation (summary +
+          collapsible terminal-styled details + one-click copy) */}
       <Dialog open={!!errorDialog} onOpenChange={(v) => !v && setErrorDialog(null)}>
         <DialogContent className="max-w-2xl max-h-[80dvh] flex flex-col">
           <DialogHeader>
@@ -8800,23 +8803,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             </DialogDescription>
           </DialogHeader>
           {errorDialog?.detail && (
-            <div className="flex-1 overflow-auto mt-2">
-              <pre className="bg-muted/50 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap break-all leading-relaxed max-h-[60vh] overflow-auto">
-                {errorDialog.detail}
-              </pre>
+            <div className="min-h-0 flex-1 overflow-y-auto mt-1">
+              <ErrorDetailsBlock message={errorDialog.detail} />
             </div>
           )}
           <DialogFooter>
-            <Button size="sm" variant="outline" onClick={() => {
-              if (errorDialog?.detail) {
-                navigator.clipboard.writeText(errorDialog.detail).then(() => {
-                  toast({ title: t('dlg.common.copied'), variant: 'success' })
-                }).catch(() => {})
-              }
-            }}>
-              <Copy className="h-3.5 w-3.5 mr-1.5" />
-              {t('dlg.common.copy')}
-            </Button>
             <Button size="sm" onClick={() => setErrorDialog(null)}>{t('dlg.common.close')}</Button>
           </DialogFooter>
         </DialogContent>
