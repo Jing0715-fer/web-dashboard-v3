@@ -72,6 +72,9 @@ export async function probeRemoteAgentHealth(
         else if (!('smartIp' in d)) why = 'smart LAN IP detection'
         // v1.5+ fix marker: child-env sanitization + pull origin self-heal.
         else if (!('envSanitize' in d)) why = 'child-env sanitization + pull origin self-heal'
+        // v1.6 marker: peer project relay (heartbeat-response peer projects
+        // served at /api/agent/peer-cache — one-way-network visibility).
+        else if (!('peerRelay' in d)) why = 'peer project relay'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',

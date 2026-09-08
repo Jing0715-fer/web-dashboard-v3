@@ -837,6 +837,7 @@ export const dialogs = {
   'dlg.meshJoin.checkUnreachable': 'Network unreachable — check the IP and subnet',
   'dlg.meshJoin.checkError': 'Network error — check the address and network',
   'dlg.meshJoin.agentAutoStart': 'Join will start the local agent automatically',
+  'dlg.meshJoin.projectsAdopted': 'auto-registered {count} peer project(s)',
 
   // ---- dialogs: misc toasts wired in page.tsx ----
   'dlg.toast.copied': 'Copied to clipboard',

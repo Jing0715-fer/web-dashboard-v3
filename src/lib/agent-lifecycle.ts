@@ -252,6 +252,12 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // from the dashboard's own `next dev` tree made child projects with
     // --webpack dev scripts die instantly) + pull origin self-heal.
     if (!('envSanitize' in d)) return { outdated: true, why: 'child-env sanitization + pull origin self-heal' };
+    // v1.6 marker: peer project relay — the agent caches peer coordinates +
+    // project lists from heartbeat RESPONSES and serves them at
+    // /api/agent/peer-cache (one-way-firewall project visibility). Without
+    // the respawn the relayed sync silently degrades to the pre-relay
+    // behavior on machines that pulled new dashboard code.
+    if (!('peerRelay' in d)) return { outdated: true, why: 'peer project relay' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };

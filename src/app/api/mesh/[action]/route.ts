@@ -141,6 +141,44 @@ async function localPeerInfo(detected?: LocalAgentInfo | null, observedIp?: stri
 }
 
 /**
+ * THIS machine's full peer-servable project list — the same list the local
+ * agent serves at GET /api/agent/projects (co-located dashboard projects
+ * merged with standalone agent-DB projects). Fetched over 127.0.0.1 (no
+ * firewall can interfere) so it can piggyback on register/join exchanges:
+ * the peer's HTTP request is PROVEN to reach this dashboard, so attaching
+ * the list to the response means the peer sees our projects IMMEDIATELY —
+ * even when its direct pull to our agent is firewalled off and our agent
+ * cannot reach the peer either. Null when nothing could be fetched.
+ */
+async function localServableProjects(me?: LocalAgentInfo | null): Promise<any[] | null> {
+  const detected = me ?? (await detectLocalAgent());
+  if (detected?.running && detected.port > 0 && detected.apiKey) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${detected.port}/api/agent/projects`, {
+        headers: { Authorization: `Bearer ${detected.apiKey}` },
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (Array.isArray(data?.projects)) return data.projects;
+      }
+    } catch { /* agent busy/down — dashboard rows below */ }
+  }
+  // Fallback (agent down): the dashboard's own local rows. Same deviceId
+  // IS NULL filter the agent applies to the co-located DB, so both sources
+  // have the same shape and semantics.
+  try {
+    return await db.project.findMany({
+      where: { deviceId: null },
+      include: { environments: true },
+      orderBy: [{ order: 'asc' }, { updatedAt: 'desc' }],
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Classify a network failure from a fetch() exception into a short machine
  * reason + raw detail. The join/check UIs map `reason` to a localized,
  * actionable hint (firewall / wrong port / wrong IP) instead of surfacing a
@@ -390,15 +428,32 @@ export async function POST(req: NextRequest) {
         }
         // Heartbeat project push: agents attach their project list to every
         // heartbeat. Paired dashboards whose direct pull is firewalled off
-        // serve this data read-only (remote-sync push fallback).
+        // serve this data read-only (remote-sync push fallback). Invalidate
+        // the sync cache so the very next projects GET adopts it instead of
+        // serving a pre-heartbeat snapshot.
         if (Array.isArray(body?.projects)) {
           recordDevicePush(device.id, body.projects, String(ip), Number(port));
+          invalidateRemoteProjectCache();
+        }
+        // Peer relay (one-way networks): hand OUR agent coordinates + full
+        // project list back to the heartbeat-ing agent. It caches the entry
+        // (keyed by OUR agent apiKey) and its co-located dashboard reads it
+        // over 127.0.0.1 — so the peer keeps seeing our projects even when
+        // it can NEVER connect inbound to this machine (its pulls fail AND
+        // our agent cannot reach it either). The data rides the one leg
+        // that provably works: the heartbeat the agent just sent.
+        const me = await detectLocalAgent();
+        const relayPeer = await localPeerInfo(me, ipFromHostHeader(req));
+        const relayProjects = await localServableProjects(me);
+        if (relayPeer && Array.isArray(relayProjects)) {
+          relayPeer.projects = relayProjects;
         }
         return NextResponse.json({
           ok: true,
           deviceId: device.id,
           reRegistered: true,
           addressFixed: ipChanged || portChanged,
+          ...(relayPeer && { peer: relayPeer }),
         });
       }
 
@@ -453,6 +508,7 @@ export async function POST(req: NextRequest) {
       // the same code within the 5-minute window.
       if (Array.isArray(body?.projects)) {
         recordDevicePush(device.id, body.projects, String(ip), Number(port));
+        invalidateRemoteProjectCache();
       }
 
       // Mutual pairing, two halves:
@@ -471,7 +527,18 @@ export async function POST(req: NextRequest) {
       // header of this very request) — proven reachable, immune to both
       // sides' virtual-adapter misdetections (Win/VMware 192.168.253.x).
       const me = await detectLocalAgent();
-      const peer = await localPeerInfo(me, ipFromHostHeader(req));
+      // Peer info + OUR full project list, fetched in parallel: the list
+      // piggybacks on the register RESPONSE so the joiner sees this
+      // machine's projects IMMEDIATELY after pairing — even when the
+      // joiner's direct pull to our agent is firewalled off. The join POST
+      // is the one connection that provably works; the data rides it back.
+      const [peer, servableProjects] = await Promise.all([
+        localPeerInfo(me, ipFromHostHeader(req)),
+        localServableProjects(me),
+      ]);
+      if (peer && Array.isArray(servableProjects)) {
+        peer.projects = servableProjects;
+      }
 
       let mutualHeartbeat = false;
       const joinerDashboardUrl = String(body?.dashboardUrl || '').trim().replace(/\/+$/, '');
@@ -617,10 +684,23 @@ export async function POST(req: NextRequest) {
         );
       }
       try {
+        // Attach OUR project list to the register POST: the target records
+        // it instantly (its heartbeat-push store) — pairing then adopts
+        // BOTH sides' projects in ONE round-trip, without waiting for the
+        // target's direct pull to our agent or our agent's first heartbeat
+        // to succeed (either may be firewalled off).
+        let ourProjects: any[] | null = null;
+        try {
+          ourProjects = await localServableProjects();
+        } catch { /* join proceeds without the piggyback */ }
         const res = await fetch(`${target}/api/mesh/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code, name, ip, port, apiKey, dashboardUrl: joinerDashboardUrl }),
+          body: JSON.stringify({
+            code, name, ip, port, apiKey,
+            dashboardUrl: joinerDashboardUrl,
+            ...(Array.isArray(ourProjects) && { projects: ourProjects }),
+          }),
           signal: AbortSignal.timeout(10000),
         });
         const data = await res.json().catch(() => ({}));
@@ -632,6 +712,7 @@ export async function POST(req: NextRequest) {
           // the target, so device lists stayed one-directional.
           let mutual = false;
           let peerSummary: { name: string; ip: string; port: number } | null = null;
+          let adoptedProjects = 0;
           const peer = data?.peer;
           if (peer && peer.apiKey && peer.port) {
             // Prefer the address the user JUST successfully reached (the
@@ -670,6 +751,18 @@ export async function POST(req: NextRequest) {
                 });
             mutual = true;
             peerSummary = { name: peerDevice.name, ip: peerIp, port: peerPort };
+            // Piggyback adoption: the peer's project list came WITH the
+            // register response (data.peer.projects). Record it into the
+            // push store now so the peer's projects are visible on this
+            // dashboard's very next projects GET and persist from the sync
+            // that follows — even when our direct pull to its agent is
+            // firewalled off. This is the "pairing auto-registers the
+            // remote device's projects" leg (user request: no manual step
+            // after pairing).
+            if (Array.isArray(data?.peer?.projects)) {
+              recordDevicePush(peerDevice.id, data.peer.projects, peerIp, peerPort);
+              adoptedProjects = data.peer.projects.length;
+            }
             logActivity({
               type: 'pair',
               level: 'success',
@@ -727,6 +820,7 @@ export async function POST(req: NextRequest) {
             agentStarted,
             dashboardUrl: joinerDashboardUrl,
             peer: peerSummary,
+            adoptedProjects,
           });
         }
         const targetErr = data?.error || `对方仪表盘返回 ${res.status}`;

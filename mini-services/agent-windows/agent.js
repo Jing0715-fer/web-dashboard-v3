@@ -1503,6 +1503,34 @@ function persistHeartbeatTargets() {
   } catch (err) { console.warn(`[Agent] persist heartbeat targets failed: ${err.message}`); }
 }
 
+// ---- peer-cache relay ----
+// Register/heartbeat RESPONSES now carry the dashboard side's own agent
+// coordinates + project list (data.peer with data.peer.projects). Caching
+// those entries lets our co-located dashboard read them over 127.0.0.1
+// (GET /api/agent/peer-cache) — the only network leg guaranteed to work on
+// one-way firewalled networks: OUR heartbeat reached the peer, so the
+// peer's data came back on the response. Nothing here needs to connect
+// inbound to us, which firewalls may block.
+const PEER_CACHE_MAX = 8; // mirrors HEARTBEAT_MAX_TARGETS
+const peerCache = new Map(); // peer agent apiKey -> {at, peer, projects}
+
+function cachePeerFromRegisterResponse(data) {
+  const peer = data && typeof data === 'object' ? data.peer : null;
+  const projects = peer && Array.isArray(peer.projects) ? peer.projects : null;
+  const key = peer && peer.apiKey ? String(peer.apiKey) : '';
+  if (!key || !projects) return;
+  peerCache.set(key, {
+    at: Date.now(),
+    peer: { name: peer.name, ip: peer.ip, port: peer.port, apiKey: key },
+    projects,
+  });
+  // Cap the cache: heartbeat targets are capped at 8 — keep the newest 8.
+  if (peerCache.size > PEER_CACHE_MAX) {
+    const oldest = [...peerCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) peerCache.delete(oldest[0]);
+  }
+}
+
 // Re-armable heartbeat scheduler: the pair-target endpoint can point this
 // agent at a dashboard AFTER boot (the web-UI join flow does exactly that),
 // so the timer must be startable lazily, not only at startup.
@@ -1544,6 +1572,9 @@ async function reRegisterWithDashboard(target) {
     });
     if (res.ok) {
       const data = await res.json().catch(() => ({}));
+      // Relay: cache the peer's agent coordinates + project list that came
+      // back on the heartbeat response (see peerCache above).
+      cachePeerFromRegisterResponse(data);
       if (data.addressFixed) {
         console.log(`[Agent][heartbeat] dashboard row healed → ${payload.ip}:${payload.port}`);
       }
@@ -1570,6 +1601,9 @@ async function pairWithDashboard(dashboardUrl, code) {
     body: JSON.stringify(info),
   });
   const data = await res.json().catch(() => ({}));
+  // Relay: the pair response carries the dashboard side's agent info +
+  // project list — cache it like a heartbeat response would.
+  cachePeerFromRegisterResponse(data);
   if (res.ok) {
     console.log(`[Agent][pair] SUCCESS — dashboard "${data.dashboard?.name || 'dashboard'}" registered this device.`);
     console.log(`[Agent][pair] You can now manage this device's projects from the dashboard.`);
@@ -1621,7 +1655,7 @@ const server = http.createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.5.0',
+        version: '1.6.0',
         platform: os.platform(),
         arch: os.arch(),
         pid: process.pid,
@@ -1635,6 +1669,7 @@ const server = http.createServer(async (req, res) => {
         pushProjects: true, // heartbeat pushes the project list
         smartIp: true,      // gateway-subnet-aware LAN IP detection
         envSanitize: true,  // child-process env sanitization (TURBOPACK leak) + pull origin self-heal
+        peerRelay: true,    // caches register-response peer projects; serves them at /api/agent/peer-cache
       });
       return;
     }
@@ -1723,6 +1758,19 @@ const server = http.createServer(async (req, res) => {
       armHeartbeat();
       console.log(`[Agent][pair-target] heartbeat targets: ${HEARTBEAT_TARGETS.join(', ')}`);
       sendJSON(res, 200, { ok: true, dashboardUrl: dashUrl, targets: HEARTBEAT_TARGETS });
+      return;
+    }
+
+    // ======================== GET /api/agent/peer-cache ========================
+
+    // Entries cached from register/heartbeat RESPONSES (each paired
+    // dashboard hands back its own agent coordinates + project list — see
+    // cachePeerFromRegisterResponse). The co-located dashboard polls this
+    // over 127.0.0.1 when its direct pull to a peer fails: the relay leg
+    // that keeps one-way-network peers' projects visible without either
+    // side opening a firewall port.
+    if (pathname === '/api/agent/peer-cache' && req.method === 'GET') {
+      sendJSON(res, 200, { entries: Array.from(peerCache.values()) });
       return;
     }
 

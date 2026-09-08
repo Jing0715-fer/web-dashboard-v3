@@ -183,9 +183,16 @@ export function JoinMeshDialog({
               peerPort: data.peer?.port ?? '',
             })
           : t('dlg.meshJoin.joinedDesc', { device: data.deviceName, ip: data.ip, port: data.port, target: data.target })
+        // Pairing now auto-registers the peer's projects (they piggybacked on
+        // the register response) — surface the count so the user knows the
+        // remote projects are already visible, no follow-up step needed.
+        const adopted = typeof data?.adoptedProjects === 'number' ? data.adoptedProjects : 0
+        const adoptNote = adopted > 0
+          ? ` · ${t('dlg.meshJoin.projectsAdopted', { count: adopted })}`
+          : ''
         addToast({
           title: t('dlg.meshJoin.joinedToast'),
-          description: data?.agentStarted ? `${baseDesc} · ${t('dlg.meshJoin.agentAutoStart')}` : baseDesc,
+          description: `${baseDesc}${adoptNote}${data?.agentStarted ? ` · ${t('dlg.meshJoin.agentAutoStart')}` : ''}`,
           variant: 'success',
         })
         onJoined?.()

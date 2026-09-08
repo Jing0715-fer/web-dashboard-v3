@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { proxyToAgent } from '@/lib/remote-agent'
+import { detectLocalAgent } from '@/lib/agent-lifecycle'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -30,6 +31,15 @@ import * as os from 'os'
  *    inbound connections — Windows Defender), a fresh push keeps the device
  *    ONLINE and its projects visible read-only. One-way networks (A can
  *    reach B, B cannot reach A) still get data in BOTH directions.
+ *  - PEER-CACHE RELAY: register responses now carry the TARGET side's own
+ *    agent coordinates + project list. Each agent caches what its
+ *    heartbeats got back; this dashboard reads that cache over 127.0.0.1
+ *    (GET /api/agent/peer-cache on the local agent) when a device's direct
+ *    pull fails — the ONLY leg guaranteed to work when both agent paths are
+ *    firewalled (A's pull to B blocked AND B's push to A blocked, while A's
+ *    agent heartbeat to B's dashboard works). Example: a Mac whose firewall
+ *    blocks all inbound still sees the Windows peer's projects, because the
+ *    Mac agent's heartbeat response carried them home.
  */
 
 const FRESH_MS = 6_000 // serve from cache with no background refresh
@@ -52,6 +62,58 @@ export interface DevicePush {
 }
 
 const pushStore = new Map<string, DevicePush>()
+
+// ---- local-agent peer-cache relay ----
+// One-way networks: this machine's agent heartbeats OUT to a peer dashboard
+// (works), but this dashboard's direct pull to the peer's agent fails AND
+// the peer's agent can never push here. The peer's register response now
+// carries its own agent coordinates + project list; the agent caches each
+// entry keyed by the PEER's agent apiKey. Reading that cache over 127.0.0.1
+// is the only leg that provably works, so relayed entries feed the same
+// push-store path as direct heartbeat pushes.
+const PEER_CACHE_TTL_MS = 30_000        // refetch the agent's relay cache at most every 30s
+const PEER_CACHE_FRESH_MS = 5 * 60_000  // entry freshness (heartbeat cadence is 60s)
+
+interface RelayEntry {
+  at: number
+  peer: { name?: string; ip?: string; port?: number; apiKey?: string }
+  projects: any[]
+}
+
+let relayCache: { at: number; entries: RelayEntry[] } | null = null
+
+/** Entries the LOCAL agent cached from its heartbeats' responses (each
+ *  paired dashboard hands back its own agent coordinates + project list).
+ *  Never throws; failures (agent down / pre-upgrade agent without the
+ *  endpoint) yield an empty list, briefly cached so the sync poll doesn't
+ *  hammer a dead agent. */
+async function fetchLocalAgentPeerCache(): Promise<RelayEntry[]> {
+  if (relayCache && Date.now() - relayCache.at < PEER_CACHE_TTL_MS) {
+    return relayCache.entries
+  }
+  const entries: RelayEntry[] = []
+  try {
+    const agent = await detectLocalAgent()
+    if (agent?.running && agent.port > 0 && agent.apiKey) {
+      const res = await fetch(`http://127.0.0.1:${agent.port}/api/agent/peer-cache`, {
+        headers: { Authorization: `Bearer ${agent.apiKey}` },
+        signal: AbortSignal.timeout(2000),
+      })
+      if (res.ok) {
+        const data = await res.json().catch(() => null)
+        if (Array.isArray(data?.entries)) {
+          for (const e of data.entries) {
+            if (e && typeof e === 'object' && e.peer && Array.isArray(e.projects)) {
+              entries.push({ at: Number(e.at) || 0, peer: e.peer, projects: e.projects })
+            }
+          }
+        }
+      }
+    }
+  } catch { /* local agent down / old agent without the endpoint */ }
+  relayCache = { at: Date.now(), entries }
+  return entries
+}
 
 /** Record a heartbeat-pushed project list for a device (trusted: the
  *  register endpoint authenticates the agent by its stored apiKey). */
@@ -237,6 +299,64 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   // is actually this machine's (see isSelfDeviceRow): a peer carrying a
   // colliding key stays visible and synced.
   const devices = allDevices.filter((d) => !isSelfDeviceRow(d, localKeys))
+
+  // Peer-cache relay: kick the local agent's cached-entry fetch in parallel
+  // with the direct pulls — it is consulted only inside a device's
+  // pull-failure path (see freshPushFor).
+  const peerCachePromise: Promise<RelayEntry[]> = devices.length > 0
+    ? fetchLocalAgentPeerCache().catch(() => [] as RelayEntry[])
+    : Promise.resolve([] as RelayEntry[])
+
+  /** Fresh push data for a device: the direct heartbeat push store first;
+   *  otherwise the local agent's peer-cache relay (one-way networks — the
+   *  peer's projects came back on OUR agent's heartbeat response). Relayed
+   *  hits are recorded into the push store; rows whose identity drifted
+   *  (peer regenerated its agent key) are healed so later direct pulls can
+   *  authenticate again. */
+  const freshPushFor = async (device: {
+    id: string; apiKey: string | null; ip: string | null; port: number; name: string
+  }): Promise<DevicePush | null> => {
+    const direct = pushStore.get(device.id)
+    if (direct && Date.now() - direct.at < PUSH_STALE_MS) return direct
+    try {
+      const entries = await peerCachePromise
+      if (!Array.isArray(entries) || entries.length === 0) return null
+      const fresh = entries.filter((e) => Date.now() - (e?.at || 0) < PEER_CACHE_FRESH_MS)
+      // Primary match: the peer's agent apiKey — the join flow stored the
+      // same key into this row, so this is exact.
+      let hit: RelayEntry | null =
+        fresh.find((e) => e?.peer?.apiKey && e.peer.apiKey === device.apiKey) ?? null
+      if (!hit && device.ip) {
+        // Fallback (identity drift on the peer): exactly ONE fresh entry
+        // whose reported address matches the row. The entry came from a
+        // live heartbeat exchange, so its identity is the freshest truth —
+        // heal the row's key/name when they differ.
+        const byAddr = fresh.filter((e) =>
+          e?.peer?.ip === device.ip && Number(e?.peer?.port) === device.port)
+        if (byAddr.length === 1) {
+          hit = byAddr[0]
+          const newKey = String(hit.peer?.apiKey || '')
+          if (newKey && newKey !== device.apiKey) {
+            await db.device
+              .update({
+                where: { id: device.id },
+                data: { apiKey: newKey, name: String(hit.peer?.name || device.name) },
+              })
+              .catch(() => {})
+            console.log(
+              `[remote-sync] healed device '${device.name}' identity from peer-cache relay`,
+            )
+          }
+        }
+      }
+      if (hit && Array.isArray(hit.projects)) {
+        recordDevicePush(device.id, hit.projects, device.ip || '', device.port)
+        return pushStore.get(device.id) ?? null
+      }
+    } catch { /* relay unavailable */ }
+    return null
+  }
+
   const remoteResults = await Promise.allSettled(
     devices.map(async (device): Promise<{ ok: boolean; projects: any[] }> => {
       // Offline devices get a short probe budget; online ones the full (but
@@ -265,8 +385,11 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
           // is alive (its machine just can't ACCEPT inbound connections,
           // e.g. Windows Defender Firewall). Stay online + serve pushed
           // projects read-only instead of flipping to offline/0-projects.
-          const push = pushStore.get(device.id)
-          if (push && Date.now() - push.at < PUSH_STALE_MS) {
+          // freshPushFor additionally consults the local agent's peer-cache
+          // relay when no direct push exists (both agent paths blocked, only
+          // our agent's outbound heartbeat works).
+          const push = await freshPushFor(device)
+          if (push) {
             if (device.status !== 'online') {
               await db.device
                 .update({ where: { id: device.id }, data: { status: 'online', lastSeen: new Date(push.at) } })
@@ -290,8 +413,8 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
         const projects: any[] = result.data?.projects || []
         return { ok: true, projects: enrich(projects, true) }
       } catch {
-        const push = pushStore.get(device.id)
-        if (push && Date.now() - push.at < PUSH_STALE_MS) {
+        const push = await freshPushFor(device)
+        if (push) {
           return { ok: true, projects: enrich(push.projects, true) }
         }
         if (device.status !== 'offline') {

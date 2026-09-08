@@ -833,6 +833,7 @@ export const dialogs = {
   'dlg.meshJoin.checkUnreachable': '网络不可达 — 请检查 IP 与子网',
   'dlg.meshJoin.checkError': '网络错误 — 请检查地址与网络',
   'dlg.meshJoin.agentAutoStart': '加入时将自动启动本机 Agent',
+  'dlg.meshJoin.projectsAdopted': '已自动注册对方 {count} 个项目',
 
   // ---- 对话框：page.tsx 内的杂项提示 ----
   'dlg.toast.copied': '已复制到剪贴板',
