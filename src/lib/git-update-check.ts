@@ -46,6 +46,22 @@ function maskCreds(s: unknown): string {
     .slice(0, 160);
 }
 
+/** repoUrl values that may reach git: http(s) only. The API normalizes
+ *  every WRITE to https, but legacy rows or agent-pushed values can carry
+ *  anything — a local file:// path (or other exotic transport) combined
+ *  with an option-shaped branch name from --symref output is an execution
+ *  primitive, so refuse non-http(s) schemes before any git call. */
+function isHttpRepoUrl(raw: string): boolean {
+  const s = String(raw || '').trim();
+  if (!/^https?:\/\/[^/\s]+(\/.*)?$/i.test(s)) return false;
+  try {
+    const u = new URL(s);
+    return u.protocol === 'https:' || u.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 function unknown(error: string, remoteSha: string | null = null): RepoUpdateStatus {
   return {
     state: 'unknown',
@@ -97,6 +113,7 @@ async function lsRemoteHead(repoUrl: string): Promise<{ sha: string; branch: str
  * Never throws — failures return state 'unknown' with a masked error.
  */
 async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUpdateStatus> {
+  if (!isHttpRepoUrl(repoUrl)) return unknown('repository URL is not http(s) — refused');
   let head: { sha: string; branch: string | null };
   try {
     head = await lsRemoteHead(repoUrl);
@@ -107,6 +124,14 @@ async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUp
 
   if (!path || !existsSync(path) || !existsSync(join(path, '.git'))) {
     return unknown('not a git repository', remoteSha);
+  }
+
+  // The branch name is fed back into `git fetch <url> <branch>` as a single
+  // argv element — git would parse a leading '-' as an OPTION. A hostile
+  // repo could advertise e.g. --upload-pack=<cmd> as its default branch.
+  // (Space-free by the --symref regex, but refuse anything option-shaped.)
+  if (head.branch && head.branch.startsWith('-')) {
+    return unknown('remote reported an invalid branch name', remoteSha);
   }
 
   // Fetch the remote's default branch tip into FETCH_HEAD. Falling back to
@@ -148,6 +173,7 @@ async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUp
  * mismatch is reported as 'differs' and worded neutrally in the UI.
  */
 async function computeRemoteStatus(repoUrl: string, deviceSha: string): Promise<RepoUpdateStatus> {
+  if (!isHttpRepoUrl(repoUrl)) return unknown('repository URL is not http(s) — refused');
   try {
     const { sha } = await lsRemoteHead(repoUrl);
     const needle = deviceSha.trim().toLowerCase();
@@ -169,7 +195,19 @@ async function computeRemoteStatus(repoUrl: string, deviceSha: string): Promise<
 // (?refresh=1 after a pull) bypasses TTL directly inside the same route's
 // module instance, so stale 'behind' hints never survive a successful pull.
 const cache = new Map<string, { value: RepoUpdateStatus; expires: number }>();
-const inflight = new Map<string, Promise<RepoUpdateStatus>>();
+const inflight = new Map<string, { promise: Promise<RepoUpdateStatus>; gen: number }>();
+
+// ---- invalidation generation ---------------------------------------------
+// invalidateUpdateCache() drops the cache entry, but a check that STARTED
+// before the invalidation may still be in flight — a ?refresh=1 caller
+// joining it would await the PRE-pull result and re-cache it for 5 minutes
+// (the pill the refresh was designed to drop survives the refresh). Each
+// check records the generation it started under; refresh callers refuse to
+// join an older-generation in-flight and chain a fresh check after it.
+const generations = new Map<string, number>();
+function generationOf(id: string): number {
+  return generations.get(id) || 0;
+}
 
 async function cachedCheck(
   projectId: string,
@@ -178,22 +216,34 @@ async function cachedCheck(
 ): Promise<RepoUpdateStatus> {
   const hit = cache.get(projectId);
   if (!refresh && hit && hit.expires > Date.now()) return hit.value;
+  const myGen = generationOf(projectId);
+  // Join an in-flight check ONLY when it started at (or after) the current
+  // generation — otherwise let it settle first (git calls are timeout-
+  // bounded at 20s) and compute a current-generation result.
   const pending = inflight.get(projectId);
-  if (pending) return pending;
-  const p = fn().finally(() => inflight.delete(projectId));
-  inflight.set(projectId, p);
-  const value = await p;
-  cache.set(projectId, { value, expires: Date.now() + CACHE_TTL_MS });
-  return value;
+  if (pending && pending.gen >= myGen) return pending.promise;
+  if (pending) await pending.promise.catch(() => { /* stale one's error is irrelevant */ });
+  const p = fn();
+  inflight.set(projectId, { promise: p, gen: myGen });
+  try {
+    const value = await p;
+    // Don't cache over a newer generation (invalidated while we ran).
+    if (generationOf(projectId) === myGen) {
+      cache.set(projectId, { value, expires: Date.now() + CACHE_TTL_MS });
+    }
+    return value;
+  } finally {
+    if (inflight.get(projectId)?.promise === p) inflight.delete(projectId);
+  }
 }
 
 /** Drop cached results (all, or specific projects) — called after a pull. */
 export function invalidateUpdateCache(ids?: string[]): void {
-  if (!ids) {
-    cache.clear();
-    return;
+  const targets = ids ?? [...new Set([...cache.keys(), ...generations.keys()])];
+  for (const id of targets) {
+    cache.delete(id);
+    generations.set(id, generationOf(id) + 1);
   }
-  for (const id of ids) cache.delete(id);
 }
 
 /** Cached freshness check for a dashboard-local project. */

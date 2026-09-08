@@ -4,12 +4,12 @@ title Dashboard Agent - One-Click Start
 cd /d "%~dp0"
 
 REM =============================================================
-REM  Fixed API Key - CHANGE THIS to your own secret.
-REM  This Key is used every time you start the agent. The first
-REM  launch also writes it into agent-config.json so other tools
-REM  (Dashboard backend, scripts) can read it from there.
-REM =============================================================
-set DEFAULT_API_KEY=my-secret-key-2024
+REM  Per-machine API key.
+REM  On first run a RANDOM key is generated and persisted to
+REM  agent-config.json (a repo-public shared default made every
+REM  unedited clone run the SAME identity — paired machines then
+REM  filter each other out of their device lists). To choose your
+REM  own key, set "apiKey" in agent-config.json.
 REM =============================================================
 
 echo.
@@ -125,24 +125,22 @@ if not errorlevel 1 (
 set AGENT_PORT=!FREE_PORT!
 set AGENT_NAME=%COMPUTERNAME%
 
-REM Resolve API Key: existing agent-config.json wins, else use DEFAULT_API_KEY
+REM Resolve API Key: existing agent-config.json wins; first run generates
+REM a random per-machine key. Known repo-committed shared keys are refused
+REM (identity hygiene) so every machine gets a unique identity.
+set AGENT_KEY=
 if exist "agent-config.json" (
     for /f "delims=" %%k in ('node -e "try{const c=require('./agent-config.json');process.stdout.write(c.apiKey||'')}catch(e){}"') do set AGENT_KEY=%%k
-    if "!AGENT_KEY!"=="" set AGENT_KEY=%DEFAULT_API_KEY%
     echo [INFO] API Key loaded from agent-config.json
-) else (
-    set AGENT_KEY=%DEFAULT_API_KEY%
-    echo [INFO] First run - saving default API Key to agent-config.json
-    (
-        echo {
-        echo   "port": 3100^,
-        echo   "apiKey": "%DEFAULT_API_KEY%"^,
-        echo   "name": "%AGENT_NAME%"^,
-        echo   "dbPath": "db\\agent.db"^,
-        echo   "createdAt": "%DATE% %TIME%"^,
-        echo   "version": "1.2.0"
-        echo }
-    ) > "agent-config.json"
+)
+if "!AGENT_KEY!"=="" set AGENT_KEY=REGEN
+if "!AGENT_KEY!"=="remote-device-3101-key" set AGENT_KEY=REGEN
+if "!AGENT_KEY!"=="my-secret-key-2024" set AGENT_KEY=REGEN
+if "!AGENT_KEY!"=="test-api-key-12345" set AGENT_KEY=REGEN
+if "!AGENT_KEY!"=="REGEN" (
+    for /f "delims=" %%k in ('node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))"') do set AGENT_KEY=%%k
+    echo [INFO] No usable key in agent-config.json - generated a fresh per-machine key
+    node -e "try{const f='agent-config.json';let c={};try{c=JSON.parse(require('fs').readFileSync(f,'utf8'))}catch(e){}c.apiKey=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(c,null,2))}" "!AGENT_KEY!"
 )
 
 echo.
@@ -155,8 +153,7 @@ echo.
 echo Health (no auth): http://localhost:%AGENT_PORT%/api/agent/health
 echo Authorized calls need header:  Authorization: Bearer %AGENT_KEY%
 echo.
-echo [INFO] Key is FIXED. To change it, edit DEFAULT_API_KEY in start.cmd
-echo [INFO] Or delete agent-config.json to re-trigger the save with a new default.
+echo [INFO] Key is FIXED. To change it, edit "apiKey" in agent-config.json
 echo [INFO] Ctrl+C to stop.
 echo.
 

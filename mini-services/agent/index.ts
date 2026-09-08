@@ -67,7 +67,9 @@ const HOST = IS_WINDOWS ? '0.0.0.0' : getArg('host', '0.0.0.0');
 const DASHBOARD_URL = getArg('dashboard', '').replace(/\/+$/, '');
 
 console.log(`[Agent] Config: port=${PORT}, name=${AGENT_NAME}, host=${HOST}`);
-console.log(`[Agent] API Key: ${API_KEY}`);
+// Masked on purpose: startup output lands in service logs / terminal
+// scrollback — the full key lives in agent-config.json and the pairing UI.
+console.log(`[Agent] API Key: ${API_KEY.slice(0, 8)}…${API_KEY.slice(-4)} (full key in agent-config.json)`);
 
 // ======================== MESH PAIRING SUPPORT ========================
 
@@ -427,6 +429,16 @@ async function listDashProjects(): Promise<any[]> {
     console.warn(`[Agent] dashboard DB listing failed: ${err?.message}`);
     return [];
   }
+}
+
+/** Minimal {id, path} rows of the co-located dashboard's own projects —
+ *  feeds /api/agent/versions so dash-managed rows (served in listings via
+ *  buildPeerProjects) get version chips too, not just agent-DB rows. */
+async function listDashProjectPaths(): Promise<{ id: string; path: string }[]> {
+  if (!dashDb) return [];
+  try {
+    return await dashDb.$queryRawUnsafe('SELECT "id", "path" FROM "Project" WHERE "deviceId" IS NULL');
+  } catch { return []; }
 }
 
 async function getDashProject(id: string): Promise<any | null> {
@@ -1027,11 +1039,17 @@ const server = createServer(async (req, res) => {
     }
 
     // GET /api/agent/versions — batch git snapshot for every project
-    // (feeds the dashboard cards' version chips; one call per device)
+    // (feeds the dashboard cards' version chips; one call per device).
+    // BOTH stores: agent-DB rows AND dash-managed rows — the listing serves
+    // both, so resolving only the agent DB silently dropped version badges
+    // for exactly the dash-managed projects.
     if (pathname === '/api/agent/versions' && req.method === 'GET') {
-      const projects = await db.project.findMany({ select: { id: true, path: true } });
+      const [agentRows, dashRows] = await Promise.all([
+        db.project.findMany({ select: { id: true, path: true } }),
+        listDashProjectPaths(),
+      ]);
       const versions: Record<string, any> = {};
-      await Promise.all(projects.map(async (p) => {
+      await Promise.all([...agentRows, ...dashRows].map(async (p) => {
         versions[p.id] = await readGitVersion(p.path);
       }));
       sendJSON(res, 200, { versions });
@@ -1051,6 +1069,12 @@ const server = createServer(async (req, res) => {
       } catch (e: any) {
         sendJSON(res, 500, { error: 'Agent DB schema is out of date — restart this agent so it can self-migrate its database (or run: bunx prisma db push)', detail: String(e?.message || '').slice(0, 300) });
         return;
+      }
+      // Dash-managed rows are listed to peers (buildPeerProjects) — pull
+      // must resolve them too, else the dashboard maps the 404 to a
+      // misleading "agent too old" error.
+      if (!project) {
+        project = await getDashProject(pullMatch[1]);
       }
       if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
       if (!(existsSync(project.path) && existsSync(join(project.path, '.git')))) { sendJSON(res, 400, { error: `Not a git repository: ${project.path}` }); return; }

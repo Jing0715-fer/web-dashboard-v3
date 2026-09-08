@@ -3,13 +3,19 @@ set -e
 cd "$(dirname "$0")"
 
 # =============================================================
-#  Fixed API Key - CHANGE THIS to your own secret.
-#  This Key is used every time you start the agent. The first
-#  launch also writes it into agent-config.json so other tools
-#  (Dashboard backend, scripts) can read it from there.
+#  Per-machine API key.
+#  On first run a RANDOM key is generated and persisted to
+#  agent-config.json (repo-public shared defaults made every
+#  unedited clone run the SAME identity — paired machines then
+#  filter each other out of their device lists). To choose your
+#  own key, set "apiKey" in agent-config.json.
 # =============================================================
-DEFAULT_API_KEY="my-secret-key-2024"
-# =============================================================
+
+
+generate_key() {
+    node -e "process.stdout.write(require('crypto').randomBytes(32).toString('hex'))" 2>/dev/null \
+        || openssl rand -hex 32
+}
 
 echo
 echo "============================================"
@@ -106,31 +112,30 @@ AGENT_NAME=$(hostname 2>/dev/null || uname -n)
 # Resolve API Key
 if [ -f "agent-config.json" ]; then
     AGENT_KEY=$(node -e "try{const c=require('./agent-config.json');process.stdout.write(c.apiKey||'')}catch(e){}" 2>/dev/null || true)
-    if [ -z "$AGENT_KEY" ]; then
-        AGENT_KEY="$DEFAULT_API_KEY"
-    fi
     # Identity hygiene: a repo-committed shared key means every clone runs
     # the SAME identity — paired machines then filter each other out of
-    # their device lists. Refuse it and generate a per-machine key.
-    if [ "$AGENT_KEY" = "remote-device-3101-key" ]; then
-        AGENT_KEY=$(node -e "process.stdout.write(require('crypto').randomBytes(24).toString('hex'))" 2>/dev/null || openssl rand -hex 24)
-        echo "[WARN] agent-config.json carried the repo-committed shared key — fresh unique key generated"
+    # their device lists. Refuse ALL known shared keys and generate a
+    # per-machine one.
+    if [ -z "$AGENT_KEY" ] || [ "$AGENT_KEY" = "remote-device-3101-key" ] || [ "$AGENT_KEY" = "my-secret-key-2024" ] || [ "$AGENT_KEY" = "test-api-key-12345" ]; then
+        AGENT_KEY=$(generate_key)
+        echo "[WARN] agent-config.json carried no/obsolete shared key — fresh unique key generated"
+        node -e "try{const f='agent-config.json',c=JSON.parse(require('fs').readFileSync(f,'utf8'));c.apiKey=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(c,null,2))}" "$AGENT_KEY" 2>/dev/null || true
     fi
     if [ "$AGENT_NAME" = "dev-laptop-2" ]; then
         AGENT_NAME=$(hostname 2>/dev/null || uname -n)
     fi
     echo "[INFO] API Key loaded from agent-config.json"
 else
-    AGENT_KEY="$DEFAULT_API_KEY"
-    echo "[INFO] First run - saving default API Key to agent-config.json"
+    AGENT_KEY=$(generate_key)
+    echo "[INFO] First run - generated a per-machine API Key and saved it to agent-config.json"
     cat > agent-config.json <<EOF
 {
   "port": 3100,
-  "apiKey": "$DEFAULT_API_KEY",
+  "apiKey": "$AGENT_KEY",
   "name": "$AGENT_NAME",
   "dbPath": "db/agent.db",
   "createdAt": "$(date '+%Y-%m-%d %H:%M:%S')",
-  "version": "1.2.0"
+  "version": "1.5.0"
 }
 EOF
 fi
@@ -145,8 +150,7 @@ echo
 echo "Health (no auth): http://localhost:$AGENT_PORT/api/agent/health"
 echo "Authorized calls need header:  Authorization: Bearer ***"
 echo
-echo "[INFO] Key is FIXED. To change it, edit DEFAULT_API_KEY in start.sh"
-echo "[INFO] Or delete agent-config.json to re-trigger the save with a new default."
+echo "[INFO] Key is FIXED. To change it, edit \"apiKey\" in agent-config.json"
 echo "[INFO] Ctrl+C to stop."
 echo
 

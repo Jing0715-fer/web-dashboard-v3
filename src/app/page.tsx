@@ -414,10 +414,14 @@ function getTagColor(tagName: string): string {
 }
 
 /** "https://github.com/owner/repo(.git)" → "owner/repo". Non-github hosts
- *  fall back to the hostname. Used for the compact repo chip on cards. */
+ *  fall back to the hostname. Used for the compact repo chip on cards.
+ *  Non-http(s) schemes (a hostile or legacy row) fall back to 'repo' —
+ *  matching sanitizeGitUrl's scheme gate so the chip never advertises a
+ *  javascript:/file: pseudo-repo name. */
 function repoShortLabel(url: string): string {
   try {
     const u = new URL(url)
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'repo'
     const segs = u.pathname.replace(/\.git\/?$/, '').split('/').filter(Boolean)
     if (segs.length >= 2) return segs.slice(0, 2).join('/')
     if (segs.length === 1) return segs[0]
@@ -429,14 +433,20 @@ function repoShortLabel(url: string): string {
 
 /** Strip any credentials embedded in a stored repo URL before it is rendered
  *  (toasts, tooltips, links) — mirrors the server-side sanitize so a
- *  PAT-in-URL never reaches the UI or shared logs. */
+ *  PAT-in-URL never reaches the UI or shared logs.
+ *  SCHEME GATE: only http(s) may leave this function. The API normalizes
+ *  every write to https, but a legacy row or a hostile agent push could hold
+ *  e.g. `javascript:…` — rendered as an href that executes script in the
+ *  dashboard origin (the raw session token lives in localStorage). Anything
+ *  non-http(s) or unparseable renders as '' (never as a clickable link). */
 function sanitizeGitUrl(url: string): string {
   try {
     const u = new URL(url)
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return ''
     if (u.username || u.password) { u.username = ''; u.password = '' }
     return u.toString()
   } catch {
-    return url
+    return ''
   }
 }
 
@@ -1968,7 +1978,21 @@ function ProjectFormDialog({
           </div>
           <div className="space-y-1">
             <Label htmlFor="proj-path">{t('dlg.projectForm.path')}</Label>
-            <Input id="proj-path" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/projects/my-project" />
+            {/* The PUT route never updates `path` (local branch) and agents
+                treat it as project identity — editing it here was silently
+                discarded with a success toast. Lock it in edit mode with an
+                honest hint instead of pretending it saved. */}
+            <Input
+              id="proj-path"
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+              placeholder="/home/user/projects/my-project"
+              disabled={mode === 'edit'}
+              className={mode === 'edit' ? 'font-mono text-xs' : ''}
+            />
+            {mode === 'edit' && (
+              <p className="text-[10px] text-muted-foreground">{t('dlg.projectForm.pathLocked')}</p>
+            )}
           </div>
           <div className="space-y-1">
             <Label htmlFor="proj-desc">{t('dlg.projectForm.description')}</Label>
@@ -2038,7 +2062,14 @@ function ProjectFormDialog({
           </div>
           <div className="space-y-1">
             <Label>{t('dlg.projectForm.device')}</Label>
-            <Select value={selectedDeviceId ?? 'local'} onValueChange={(v) => setSelectedDeviceId(v === 'local' ? null : v)}>
+            {/* Same story as `path`: the PUT route never reads body.deviceId
+                — device changes are a dedicated /move operation (card menu).
+                Lock the selector in edit mode and say where to do it. */}
+            <Select
+              value={selectedDeviceId ?? 'local'}
+              onValueChange={(v) => setSelectedDeviceId(v === 'local' ? null : v)}
+              disabled={mode === 'edit'}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t('dlg.common.thisMachine')} />
               </SelectTrigger>
@@ -2054,6 +2085,9 @@ function ProjectFormDialog({
                 ))}
               </SelectContent>
             </Select>
+            {mode === 'edit' && (
+              <p className="text-[10px] text-muted-foreground">{t('dlg.projectForm.deviceLocked')}</p>
+            )}
           </div>
         </form>
         <DialogFooter className="px-6 pt-4 pb-6 border-t shrink-0 bg-background">
@@ -9118,6 +9152,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               .then((fresh) => setSelectedProject(fresh?.project ?? fresh))
               .catch(() => {})
           }
+          // Post-pull (and any other refresh-worthy change from the detail
+          // sheet): the version badge and the "Update available" pill are
+          // separate client-side states — without these two calls the sheet
+          // kept showing the pre-pull branch@sha and the emerald pill for up
+          // to 10 minutes (the card-row pull handler already did this).
+          fetchProjectVersions()
+          fetchProjectUpdates({ refresh: true })
         }}
         devices={devices}
         onOpenDeviceManagement={() => setDeviceManagementOpen(true)}

@@ -136,6 +136,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Project path is required' }, { status: 400 });
     }
 
+    // A bogus deviceId (stale device list in the client, hand-crafted POST)
+    // used to fall through to Prisma P2003 and answer a raw engine dump —
+    // the same unfriendly-500 class as the old repoUrl incident. Pre-check.
+    if (deviceId) {
+      const device = await db.device.findUnique({ where: { id: String(deviceId) }, select: { id: true } });
+      if (!device) {
+        return NextResponse.json(
+          { error: 'The selected device no longer exists — refresh the page and pick a device from the current list' },
+          { status: 400 },
+        );
+      }
+    }
+
     // Extract name from path if not provided
     const projectName = name || path.split('/').filter(Boolean).pop() || 'Untitled';
 

@@ -134,6 +134,8 @@ export const dialogs = {
   'dlg.projectForm.icon': 'Icon',
   'dlg.projectForm.tags': 'Tags',
   'dlg.projectForm.device': 'Device',
+  'dlg.projectForm.pathLocked': 'Path is fixed after creation — to relocate the project, move its files and re-add it',
+  'dlg.projectForm.deviceLocked': 'Device changes go through the card menu → Move',
 
   // ---- environment form dialog ----
   'dlg.envForm.addTitle': 'Add Environment',

@@ -130,6 +130,8 @@ export const dialogs = {
   'dlg.projectForm.icon': '图标',
   'dlg.projectForm.tags': '标签',
   'dlg.projectForm.device': '设备',
+  'dlg.projectForm.pathLocked': '路径在创建后不可修改 —— 如需迁移请移动文件后重新添加项目',
+  'dlg.projectForm.deviceLocked': '更改设备请使用卡片菜单中的「移动」操作',
 
   // ---- 环境表单对话框 ----
   'dlg.envForm.addTitle': '添加环境',

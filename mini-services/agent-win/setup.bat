@@ -55,6 +55,6 @@ echo.
 echo  Then add this device to your Dashboard:
 echo    IP:      Your Windows IP address
 echo    Port:    3100 (or custom)
-echo    API Key: test-api-key-12345 (or custom)
+echo    API Key: shown at first start (random, saved to agent-config.json)
 echo.
 pause

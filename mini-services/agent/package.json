@@ -1,9 +1,9 @@
 {
   "name": "dashboard-agent",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "private": true,
   "scripts": {
-    "start": "DATABASE_URL=file:./db/agent.db bun index.ts --port 3100 --apiKey test-api-key-12345"
+    "start": "DATABASE_URL=file:./db/agent.db bun index.ts --port 3100"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",

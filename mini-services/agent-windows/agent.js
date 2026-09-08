@@ -81,8 +81,13 @@ function loadConfigFile(configPath) {
   }
 }
 
-// Merge config file with CLI args (CLI takes precedence)
-const fileConfig = cliArgs.config ? loadConfigFile(cliArgs.config) : {};
+// Merge config file with CLI args (CLI takes precedence). The DEFAULT config
+// (agent-config.json next to the agent) is read unconditionally: a bare
+// launch (`node agent.js` / `npm start`) used to skip it, mint a fresh
+// random key and PERSIST it over the old one — every restart churned the
+// machine identity (heartbeat 400 "key unknown" → all proxied calls 401).
+const DEFAULT_CONFIG_PATH = path.resolve(process.cwd(), 'agent-config.json');
+const fileConfig = cliArgs.config ? loadConfigFile(cliArgs.config) : loadConfigFile(DEFAULT_CONFIG_PATH);
 const PORT = parseInt(cliArgs.port || fileConfig.port || '3100', 10);
 let API_KEY = cliArgs.apiKey || fileConfig.apiKey || crypto.randomBytes(32).toString('hex');
 let AGENT_NAME = cliArgs.name || fileConfig.name || os.hostname();
@@ -90,16 +95,21 @@ let AGENT_NAME = cliArgs.name || fileConfig.name || os.hostname();
 // mini-services/agent-linux/agent-config.json (git-tracked before the
 // .gitignore rule) — every clone adopted the SAME identity and paired
 // machines filtered each other out of their device lists ("paired but
-// can't see each other"). Refuse it; regenerate a per-machine key.
-if (API_KEY === 'remote-device-3101-key') {
+// can't see each other"). The same applies to the repo-public shared
+// defaults older start scripts used to write. Refuse them all; regenerate
+// a per-machine key.
+const SHARED_KEYS = new Set(['remote-device-3101-key', 'my-secret-key-2024', 'test-api-key-12345']);
+if (SHARED_KEYS.has(API_KEY)) {
   API_KEY = crypto.randomBytes(32).toString('hex');
   if (AGENT_NAME === 'dev-laptop-2') AGENT_NAME = os.hostname();
-  console.warn('[Agent] Refused the repo-committed shared key — fresh per-machine identity generated');
+  console.warn('[Agent] Refused a repo-committed shared key — fresh per-machine identity generated');
 }
 const HOST = IS_WINDOWS ? '0.0.0.0' : (cliArgs.host || fileConfig.host || '0.0.0.0');
 
 console.log(`[Agent] Config: port=${PORT}, name=${AGENT_NAME}, host=${HOST}`);
-console.log(`[Agent] API Key: ${API_KEY}`);
+// Masked on purpose: startup output lands in service logs / terminal
+// scrollback — the full key lives in agent-config.json and the pairing UI.
+console.log(`[Agent] API Key: ${API_KEY.slice(0, 8)}…${API_KEY.slice(-4)} (full key in agent-config.json)`);
 
 // Persist the *runtime* config so the dashboard backend can auto-discover
 // this agent (port + apiKey + name) for web-UI mesh pairing — see
@@ -490,6 +500,16 @@ async function listDashProjects() {
     console.warn(`[Agent] dashboard DB listing failed: ${err.message}`);
     return [];
   }
+}
+
+/** Minimal {id, path} rows of the co-located dashboard's own projects —
+ *  feeds /api/agent/versions so dash-managed rows (served in listings via
+ *  buildPeerProjects) get version chips too, not just agent-DB rows. */
+async function listDashProjectPaths() {
+  if (!dashDb) return [];
+  try {
+    return await dashDb.$queryRawUnsafe('SELECT "id", "path" FROM "Project" WHERE "deviceId" IS NULL');
+  } catch (e) { return []; }
 }
 
 async function getDashProject(id) {
@@ -1517,11 +1537,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     // GET /api/agent/versions — batch git snapshot for every project
-    // (feeds the dashboard cards' version chips; one call per device)
+    // (feeds the dashboard cards' version chips; one call per device).
+    // BOTH stores: agent-DB rows AND dash-managed rows — the listing serves
+    // both, so resolving only the agent DB silently dropped version badges
+    // for exactly the dash-managed projects.
     if (pathname === '/api/agent/versions' && req.method === 'GET') {
-      const projects = await db.project.findMany({ select: { id: true, path: true } });
+      const [agentRows, dashRows] = await Promise.all([
+        db.project.findMany({ select: { id: true, path: true } }),
+        listDashProjectPaths(),
+      ]);
       const versions = {};
-      await Promise.all(projects.map(async (p) => {
+      await Promise.all([...agentRows, ...dashRows].map(async (p) => {
         versions[p.id] = await readGitVersion(p.path);
       }));
       sendJSON(res, 200, { versions });
@@ -1541,6 +1567,12 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         sendJSON(res, 500, { error: 'Agent DB schema is out of date — restart this agent so it can self-migrate its database (or run: bunx prisma db push)', detail: String((e && e.message) || '').slice(0, 300) });
         return;
+      }
+      // Dash-managed rows are listed to peers (buildPeerProjects) — pull
+      // must resolve them too, else the dashboard maps the 404 to a
+      // misleading "agent too old" error.
+      if (!project) {
+        project = await getDashProject(pullMatch[1]);
       }
       if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
       if (!fs.existsSync(project.path) || !fs.existsSync(path.join(project.path, '.git'))) {

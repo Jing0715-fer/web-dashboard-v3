@@ -439,7 +439,7 @@ export async function ensureLocalAgent(): Promise<
     if (restarted) {
       logActivity({
         type: 'pair',
-        level: restartReason.includes('shared key') ? 'warning' : 'info',
+        level: restartReason.includes('shared key') ? 'warn' : 'info',
         message: restartReason.includes('shared key')
           ? 'Local agent identity regenerated (unique key)'
           : 'Local agent restarted (code upgrade)',
@@ -499,7 +499,7 @@ export async function ensureLocalAgent(): Promise<
     name = os.hostname();
     logActivity({
       type: 'pair',
-      level: 'warning',
+      level: 'warn',
       message: 'Local agent identity regenerated',
       detail: `${cfgDir}/agent-config.json carried the repo-committed shared key — fresh per-machine key + hostname written`,
     });

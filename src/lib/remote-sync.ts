@@ -172,18 +172,39 @@ export async function healSelfMirroredLocalProjects(): Promise<void> {
   }
 }
 
+/** Agent-reported repoUrl values must be https URLs before they may enter
+ *  the DB or the API response. The agent-side editors normalize identically,
+ *  so anything else (javascript:, file://, ssh, plain paths …) is either a
+ *  hostile push or a legacy value — both are refused here, killing the
+ *  stored-XSS chain (agent push → DB → card href → script execution in the
+ *  dashboard origin, where the raw session token sits in localStorage). */
+function isHttpsRepoUrl(raw: unknown): raw is string {
+  if (typeof raw !== 'string') return false
+  const s = raw.trim()
+  return /^https:\/\/[\w.-]+\//i.test(s) || /^https:\/\/[^/\s]+$/i.test(s)
+}
+
 export interface RemoteSyncResult {
   at: number
   /** Deduped live remote projects, already carrying deviceId/deviceName. */
   projects: any[]
+  /** Generation (invalidation counter) this snapshot was computed under. */
+  gen: number
 }
 
 let cache: RemoteSyncResult | null = null
 let inflight: Promise<RemoteSyncResult> | null = null
+/** Bumped by invalidateRemoteProjectCache. A FORCE refresh must not join a
+ *  sync that started BEFORE the mutation — that in-flight would return and
+ * re-cache a pre-mutation snapshot (the "?fresh=1 still shows old data"
+ * race). Each sync records the generation it started under; force callers
+ * re-run until they hold a current-generation result. */
+let syncGeneration = 0
 
 /** Drop the cache so the next GET performs a real await-sync. */
 export function invalidateRemoteProjectCache() {
   cache = null
+  syncGeneration++
 }
 
 /**
@@ -193,6 +214,11 @@ export function invalidateRemoteProjectCache() {
  */
 async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   const startedAt = Date.now()
+  // Snapshot the generation at START: if an invalidation lands MID-sync the
+  // result is (at best) mixed pre/post-mutation data — marking it with the
+  // older generation makes force callers re-run one extra sync. The safe
+  // direction: an unnecessary re-sync, never a stale-labeled-fresh result.
+  const startedGen = syncGeneration
   // Skip the self-mirroring device rows: an agent co-located with THIS
   // dashboard serves our own local projects, and mirroring them back would
   // corrupt deviceId. (Device rows for other machines are unaffected.)
@@ -212,7 +238,7 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   // colliding key stays visible and synced.
   const devices = allDevices.filter((d) => !isSelfDeviceRow(d, localKeys))
   const remoteResults = await Promise.allSettled(
-    devices.map(async (device) => {
+    devices.map(async (device): Promise<{ ok: boolean; projects: any[] }> => {
       // Offline devices get a short probe budget; online ones the full (but
       // still modest) 6s. proxyToAgent returns { ok: false } on timeout or
       // connection failure — that's the signal to flip the device offline,
@@ -246,14 +272,14 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
                 .update({ where: { id: device.id }, data: { status: 'online', lastSeen: new Date(push.at) } })
                 .catch(() => {})
             }
-            return enrich(push.projects, true)
+            return { ok: true, projects: enrich(push.projects, true) }
           }
           if (device.status !== 'offline') {
             await db.device
               .update({ where: { id: device.id }, data: { status: 'offline' } })
               .catch(() => {})
           }
-          return []
+          return { ok: false, projects: [] }
         }
         // Agent answered — it's online regardless of project count.
         if (device.status !== 'online') {
@@ -262,23 +288,58 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
             .catch(() => {})
         }
         const projects: any[] = result.data?.projects || []
-        return enrich(projects, true)
+        return { ok: true, projects: enrich(projects, true) }
       } catch {
         const push = pushStore.get(device.id)
         if (push && Date.now() - push.at < PUSH_STALE_MS) {
-          return enrich(push.projects, true)
+          return { ok: true, projects: enrich(push.projects, true) }
         }
         if (device.status !== 'offline') {
           await db.device
             .update({ where: { id: device.id }, data: { status: 'offline' } })
             .catch(() => {})
         }
-        return []
+        return { ok: false, projects: [] }
       }
     })
   )
 
-  const enrichedRemote = remoteResults.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+  const enrichedRemote = remoteResults.flatMap((r) =>
+    r.status === 'fulfilled' ? r.value.projects : []
+  )
+
+  // ---- prune zombie rows (devices whose listing we actually trust) -----
+  // The persist step below mirrors the live listing, but rows whose ids the
+  // agent no longer reports (project deleted and RE-CREATED on the device
+  // → new id, same path) were never removed: the stale row then BLOCKS the
+  // upsert of the fresh one (unique Project.path index) and every DB-keyed
+  // consumer — versions (no badge), start/stop, pull — keeps hitting the
+  // dead id. Prune per-device ONLY when that device's listing succeeded (or
+  // a fresh push fallback stood in): a failed probe must preserve rows.
+  {
+    const liveIdsByDevice = new Map<string, Set<string>>()
+    remoteResults.forEach((r, i) => {
+      if (r.status !== 'fulfilled' || !r.value.ok) return
+      const device = devices[i]
+      const live = liveIdsByDevice.get(device.id) || new Set<string>()
+      for (const p of r.value.projects) {
+        if (p?.id) live.add(String(p.id))
+      }
+      liveIdsByDevice.set(device.id, live)
+    })
+    for (const [deviceId, live] of liveIdsByDevice) {
+      try {
+        const stale = await db.project.deleteMany({
+          where: { deviceId, id: { notIn: [...live] } },
+        })
+        if (stale.count > 0) {
+          console.log(`[remote-sync] pruned ${stale.count} zombie remote row(s) for device ${deviceId}`)
+        }
+      } catch (e) {
+        console.error('[remote-sync] zombie prune failed for device', deviceId, e)
+      }
+    }
+  }
 
   // Dedupe live remote projects by (deviceId, path) — the Windows agent
   // occasionally returns the same project twice. Prefer rows with envs.
@@ -318,7 +379,10 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
     for (const remote of dedupedRemote as any[]) {
       const cached = cachedById.get(remote.id)
       if (!cached) continue
-      const agentRepoUrl = typeof remote.repoUrl === 'string' ? remote.repoUrl.trim() : ''
+      // Same https-only gate as the persist step: an agent value that fails
+      // it is treated as "unknown" so the card keeps the locally-set link
+      // (a non-https string must never flow into a rendered href).
+      const agentRepoUrl = isHttpsRepoUrl(remote.repoUrl) ? remote.repoUrl.trim() : ''
       if (!agentRepoUrl && cached.repoUrl) remote.repoUrl = cached.repoUrl
       const agentNotes = typeof remote.notes === 'string' ? remote.notes.trim() : ''
       if (!agentNotes && cached.notes) remote.notes = cached.notes
@@ -353,9 +417,13 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
       // set HERE before the device upgraded its agent (the dashboard PUT
       // persisted it locally even when the proxy call failed). Treat '' as
       // "agent doesn't know" → keep the cached value; non-empty strings flow
-      // through normally (multi-dashboard propagation).
+      // through normally (multi-dashboard propagation) — BUT only when they
+      // pass the https-only gate (isHttpsRepoUrl): a hostile or legacy
+      // non-https value is discarded like '' so it never reaches the DB (and
+      // from there the rendered card href — stored-XSS chain, see above).
       const agentRepoUrlRaw = typeof remote.repoUrl === 'string' ? remote.repoUrl.trim() : undefined
-      const agentRepoUrl = agentRepoUrlRaw === '' ? undefined : agentRepoUrlRaw
+      const agentRepoUrl =
+        agentRepoUrlRaw === '' ? undefined : isHttpsRepoUrl(agentRepoUrlRaw) ? agentRepoUrlRaw : undefined
       const cached = cachedById.get(remote.id)
       if (
         cached &&
@@ -416,7 +484,7 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   console.log(
     `[remote-sync] completed in ${Date.now() - startedAt}ms: ${devices.length} device(s), ${dedupedRemote.length} remote project(s)`
   )
-  return { at: Date.now(), projects: dedupedRemote }
+  return { at: Date.now(), projects: dedupedRemote, gen: startedGen }
 }
 
 function startSync(): Promise<RemoteSyncResult> {
@@ -434,11 +502,21 @@ function startSync(): Promise<RemoteSyncResult> {
  *  - stale cache → instant return + background refresh
  *  - no cache    → await the first sync (fast: online <1s, offline 1.5s)
  * `force` bypasses the cache entirely (manual sync / post-mutation).
+ *
+ * Generation handling: a force refresh that joins an in-flight sync started
+ * BEFORE the invalidation would await and cache a PRE-mutation snapshot —
+ * the caller then sees stale data labeled fresh. When that happens we run
+ * one more sync, which now starts under the current generation (bounded:
+ * each iteration either returns a current-generation result or starts one).
  */
 export async function getRemoteProjectsCached(force = false): Promise<any[]> {
   if (force) {
     invalidateRemoteProjectCache()
-    const result = await startSync()
+    const targetGeneration = syncGeneration
+    let result = await startSync()
+    if (result.gen < targetGeneration) {
+      result = await startSync()
+    }
     cache = result
     return result.projects
   }

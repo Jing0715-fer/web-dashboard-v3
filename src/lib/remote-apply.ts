@@ -37,9 +37,18 @@ export async function applyRemoteAnalysis(input: RemoteApplyInput): Promise<Remo
 
     // 1. Find or create the project on the device.
     const listRes = await proxyToAgent(cfg, '/projects', 'GET');
-    const existing = (listRes.data?.projects ?? listRes.data ?? []).find(
-      (p: any) => p.path === projectPath
-    );
+    // An unreachable agent used to fall through here with listRes.ok=false
+    // and a non-array payload → "TypeError: .find is not a function" as the
+    // user-facing error. Fail with the agent's own message instead.
+    if (!listRes.ok) {
+      return fail(listRes.data?.error || 'Device agent unreachable — listing failed');
+    }
+    const projects = Array.isArray(listRes.data?.projects)
+      ? listRes.data.projects
+      : Array.isArray(listRes.data)
+        ? listRes.data
+        : [];
+    const existing = projects.find((p: any) => p.path === projectPath);
 
     let projectId: string;
     if (existing) {

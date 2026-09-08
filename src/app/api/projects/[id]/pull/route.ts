@@ -111,6 +111,18 @@ async function handlePull(
         },
         { status: 404 },
       );
+    } else if (result.status === 404 && result.data?.error === 'Project not found') {
+      // The agent ANSWERED (it has the route) but its own DB has no such row:
+      // a dash-managed mirror row (the code lives on that machine's dashboard
+      // DB, not the agent DB). That is NOT an agent-version problem — don't
+      // send the user to upgrade a perfectly current agent.
+      return NextResponse.json(
+        {
+          error:
+            'This project is a mirror of a dashboard-managed project — the code lives on that machine but outside the agent\'s own database, so remote pull is not available for it',
+        },
+        { status: 404 },
+      );
     } else if (result.status === 404) {
       // Best-effort: ask the agent's OPEN /health endpoint which version it
       // is actually RUNNING — confirms the diagnosis in the message and

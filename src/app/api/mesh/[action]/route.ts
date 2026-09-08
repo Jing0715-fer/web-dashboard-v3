@@ -60,6 +60,21 @@ const REGISTER_WINDOW_MS = 60_000;
 
 function registerRateLimited(clientIp: string): boolean {
   const now = Date.now();
+  // Prune expired entries on every call: this is an OPEN endpoint and
+  // clientIp honors XFF (rotatable), so entries keyed by spoofed IPs would
+  // otherwise accumulate without bound on a long-lived process.
+  if (registerAttempts.size > 64) {
+    for (const [ip, e] of registerAttempts) {
+      if (e.resetAt < now) registerAttempts.delete(ip);
+    }
+  }
+  // Hard cap (only reachable under spoofed-XFF flooding): drop the oldest
+  // entries — Map preserves insertion order — so memory stays bounded.
+  while (registerAttempts.size > 4096) {
+    const oldest = registerAttempts.keys().next().value;
+    if (oldest === undefined) break;
+    registerAttempts.delete(oldest);
+  }
   const entry = registerAttempts.get(clientIp);
   if (!entry || entry.resetAt < now) {
     registerAttempts.set(clientIp, { count: 1, resetAt: now + REGISTER_WINDOW_MS });
@@ -357,7 +372,7 @@ export async function POST(req: NextRequest) {
         if (guarded) {
           logActivity({
             type: 'pair',
-            level: 'warning',
+            level: 'warn',
             message: `Device '${device.name}' kept its working address`,
             deviceId: device.id,
             deviceName: device.name,
