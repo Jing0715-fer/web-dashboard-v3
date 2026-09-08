@@ -70,6 +70,8 @@ export async function probeRemoteAgentHealth(
         if (!('dashboardDb' in d)) why = 'dashboard-DB serving'
         else if (!('pushProjects' in d)) why = 'heartbeat project push'
         else if (!('smartIp' in d)) why = 'smart LAN IP detection'
+        // v1.5+ fix marker: child-env sanitization + pull origin self-heal.
+        else if (!('envSanitize' in d)) why = 'child-env sanitization + pull origin self-heal'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',

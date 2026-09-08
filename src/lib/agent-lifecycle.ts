@@ -248,6 +248,10 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     if (!('dashboardDb' in d)) return { outdated: true, why: 'dashboard-DB serving' };
     if (!('pushProjects' in d)) return { outdated: true, why: 'heartbeat project push' };
     if (!('smartIp' in d)) return { outdated: true, why: 'smart LAN IP detection' };
+    // v1.5+ fix markers: child-process env sanitization (TURBOPACK=1 leaked
+    // from the dashboard's own `next dev` tree made child projects with
+    // --webpack dev scripts die instantly) + pull origin self-heal.
+    if (!('envSanitize' in d)) return { outdated: true, why: 'child-env sanitization + pull origin self-heal' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };
@@ -514,11 +518,29 @@ export async function ensureLocalAgent(): Promise<
 
   const logFile = path.join('/tmp', 'dashboard-agent.log');
   const out = openSyncAppend(logFile);
+  // Strip the dashboard's Next.js internals before spawning the agent: this
+  // code runs inside `next dev` (Turbopack), which exports TURBOPACK=1 to
+  // its children. The agent would inherit it and leak TURBOPACK=1 into
+  // every project process it spawns — a child whose dev script pins
+  // --webpack then dies instantly ("Multiple bundler flags set: TURBOPACK=1,
+  // --webpack", exit 0). Agents sanitize their own children too; this is
+  // the belt-and-braces fix at the source.
+  const agentEnv: Record<string, string | undefined> = {
+    ...process.env,
+    DATABASE_URL: `file:${path.join(base, 'db', 'agent.db')}`,
+  };
+  delete agentEnv.TURBOPACK;
+  delete agentEnv.NEXT_RUNTIME;
+  delete agentEnv.NEXT_DEPLOYMENT_ID;
+  delete agentEnv.__NEXT_PROCESSED_ENV;
+  for (const k of Object.keys(agentEnv)) {
+    if (k.startsWith('__NEXT_PRIVATE_')) delete agentEnv[k];
+  }
   const child = spawn(runtime, [entry, '--port', String(port), '--apiKey', apiKey, '--name', name], {
     cwd: base,
     detached: true,
     stdio: ['ignore', out, out],
-    env: { ...process.env, DATABASE_URL: `file:${path.join(base, 'db', 'agent.db')}` },
+    env: agentEnv,
   });
   child.unref();
   if (out !== 1 && out !== 2) { try { closeSync(out); } catch { /* already closed */ } }

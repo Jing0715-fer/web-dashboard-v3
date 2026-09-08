@@ -692,6 +692,22 @@ function describeImmediateExit(
   };
 }
 
+/** Strip Next.js-internal env vars from an env object (mutates + returns
+ * it). Used wherever the agent spawns a CHILD process for a user project:
+ * inherited TURBOPACK=1 / NEXT_RUNTIME / __NEXT_PRIVATE_* collide with the
+ * child's own bundler choice ("Multiple bundler flags set: TURBOPACK=1,
+ * --webpack" → instant exit 0) and its NODE_ENV checks. */
+function stripNextInternals(env: Record<string, string>): Record<string, string> {
+  delete env.TURBOPACK;
+  delete env.NEXT_RUNTIME;
+  delete env.NEXT_DEPLOYMENT_ID;
+  delete env.__NEXT_PROCESSED_ENV;
+  for (const k of Object.keys(env)) {
+    if (typeof k === 'string' && k.indexOf('__NEXT_PRIVATE_') === 0) delete env[k];
+  }
+  return env;
+}
+
 async function startProcess(
   projectId: string,
   envName: string,
@@ -725,9 +741,27 @@ async function startProcess(
       NODE_ENV: envVars.NODE_ENV || 'production',
     } as Record<string, string>;
 
-    // Sanitize env
+    // Sanitize env — remove agent-specific vars AND the Next.js internals
+    // this agent's own parent may have exported. Agents frequently run
+    // INSIDE a dashboard `next dev` process tree (spawned by the
+    // instrumentation hook): next-server exports TURBOPACK=1 to its
+    // children, the agent inherits it and then leaks it into EVERY project
+    // it starts — a child whose dev script pins --webpack dies instantly
+    // with "Multiple bundler flags set: TURBOPACK=1, --webpack" (exit 0,
+    // the #1 remote-start failure). A started project is an independent
+    // process: it must pick its bundler from its OWN scripts, not ours.
     delete env.DATABASE_URL;
     delete env.__NEXT_PRIVATE_ROOT_RENDER_ID;
+    stripNextInternals(env);
+
+    // NODE_ENV must be a value the child's Next.js accepts — `next dev`
+    // warns on non-standard values AND on 'production' for dev servers.
+    // Configured standard values pass through; anything else (missing or
+    // custom) is inferred from the environment's own name.
+    const cfgNodeEnv = String((envVars && envVars.NODE_ENV) || '');
+    if (cfgNodeEnv !== 'development' && cfgNodeEnv !== 'production' && cfgNodeEnv !== 'test') {
+      env.NODE_ENV = /dev/i.test(String(envName || '')) ? 'development' : 'production';
+    }
 
     // Add node_modules/.bin to PATH (cross-platform separator)
     const nodeBin = join(projectPath, 'node_modules', '.bin');
@@ -946,25 +980,103 @@ async function readGitVersion(path: string): Promise<any> {
   return v;
 }
 
-/** Run `git pull --ff-only` (with upstream fallback) in a project dir. */
-async function gitPull(projectPath: string): Promise<any> {
+/** An https repoUrl we are willing to auto-wire as 'origin' — https only
+ *  (no ssh/file URLs: no interactive auth prompts, no local paths). */
+function isHealableRepoUrl(u: unknown): u is string {
+  return typeof u === 'string' && /^https:\/\/[^\s]+$/i.test(u.trim());
+}
+
+/** Make sure the repo at projectPath has an 'origin' remote. Copied/zipped
+ *  checkouts often carry .git but NO origin — `git pull` then dies with the
+ *  cryptic "fatal: 'origin' does not appear to be a git repository". When
+ *  the project row carries an https repoUrl, wire it up automatically. */
+async function ensureOriginRemote(
+  projectPath: string,
+  repoUrl: string | null | undefined,
+): Promise<{ originUrl: string | null; added?: boolean; error?: string; hint?: string }> {
+  let originUrl: string | null = null;
+  try {
+    originUrl = ((await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: projectPath, timeout: 15000 })).stdout || '').trim() || null;
+  } catch { /* no origin remote configured */ }
+  if (originUrl) return { originUrl };
+  if (!isHealableRepoUrl(repoUrl)) {
+    return {
+      originUrl: null,
+      error: "No 'origin' remote is configured for this repository",
+      hint: "Save the project's GitHub URL (https://…) so pull can wire it up — or on this machine run: git remote add origin <url>",
+    };
+  }
+  const url = repoUrl.trim();
+  await execFileAsync('git', ['remote', 'add', 'origin', url], { cwd: projectPath, timeout: 15000 });
+  return { originUrl: url, added: true };
+}
+
+/** Run `git pull --ff-only` (with upstream fallback) in a project dir.
+ *  repoUrl (optional, from the project row) self-heals a missing/broken
+ *  'origin' remote — see ensureOriginRemote. Pre-flight failures return
+ *  {ok:false} instead of throwing so the route can answer 4xx-style. */
+async function gitPull(projectPath: string, repoUrl?: string | null): Promise<any> {
+  const ensured = await ensureOriginRemote(projectPath, repoUrl);
+  if (ensured.error) return { ok: false, error: ensured.error, hint: ensured.hint };
+
   let before = '';
   try { before = (await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim(); } catch {}
-  const pullArgs = ['pull', '--ff-only'];
-  try {
-    await execFileAsync('git', ['rev-parse', '--abbrev-ref', '@{u}'], { cwd: projectPath, timeout: 15000 });
-  } catch {
+
+  const buildPullArgs = async (): Promise<string[]> => {
+    const pullArgs = ['pull', '--ff-only'];
     try {
-      const branch = (await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim();
-      if (branch && branch !== 'HEAD') pullArgs.push('origin', branch);
-    } catch { /* detached HEAD */ }
+      await execFileAsync('git', ['rev-parse', '--abbrev-ref', '@{u}'], { cwd: projectPath, timeout: 15000 });
+    } catch {
+      try {
+        const branch = (await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim();
+        if (branch && branch !== 'HEAD') pullArgs.push('origin', branch);
+      } catch { /* detached HEAD */ }
+    }
+    return pullArgs;
+  };
+
+  let repairedOrigin = ensured.added ? "wired up 'origin' (it was missing)" : '';
+  let pullResult: { stdout: string; stderr: string } | null = null;
+  let pullError: any = null;
+  try {
+    pullResult = await execFileAsync('git', await buildPullArgs(), { cwd: projectPath, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+  } catch (e: any) {
+    // 'origin' exists but is unreadable (dead local path from a copied
+    // repo, wrong URL…) AND the project carries a different, valid https
+    // repoUrl → repoint once and retry. A WORKING origin is never touched.
+    const errText = String(e?.stderr || e?.stdout || e?.message || '');
+    const wantUrl = isHealableRepoUrl(repoUrl) ? repoUrl.trim() : null;
+    if (wantUrl && ensured.originUrl !== wantUrl &&
+        /does not appear to be a git repository|Could not read from remote repository|Repository not found/i.test(errText)) {
+      try {
+        try {
+          await execFileAsync('git', ['remote', 'set-url', 'origin', wantUrl], { cwd: projectPath, timeout: 15000 });
+        } catch {
+          await execFileAsync('git', ['remote', 'add', 'origin', wantUrl], { cwd: projectPath, timeout: 15000 });
+        }
+        repairedOrigin = "repointed 'origin' (its old URL was unreadable)";
+        pullResult = await execFileAsync('git', await buildPullArgs(), { cwd: projectPath, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+      } catch (e2: any) {
+        // Surface BOTH the original failure and the retry failure.
+        const merged: any = new Error(String(e2?.stderr || e2?.stdout || e2?.message || '').trim() || 'git pull failed');
+        merged.stderr = [
+          String(e?.stderr || e?.stdout || e?.message || ''),
+          String(e2?.stderr || e2?.stdout || e2?.message || ''),
+        ].filter(Boolean).join('\n').slice(0, 400);
+        pullError = merged;
+      }
+    } else {
+      pullError = e;
+    }
   }
-  const { stdout, stderr } = await execFileAsync('git', pullArgs, { cwd: projectPath, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+  if (pullError) throw pullError;
+
   let after = '';
   try { after = (await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim(); } catch {}
-  const output = (stdout || stderr || '').trim();
+  const output = ((pullResult && (pullResult.stdout || pullResult.stderr)) || '').trim();
   const upToDate = /Already up to date/i.test(output) || (before !== '' && before === after);
-  return { ok: true, upToDate, before, after, summary: upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done', output: output.slice(0, 4000) };
+  const notes = repairedOrigin ? `[agent] ${repairedOrigin} → ${ensured.originUrl}\n` : '';
+  return { ok: true, upToDate, before, after, summary: upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done', output: (notes + output).slice(0, 4000) };
 }
 
 function verifyAuth(req: IncomingMessage): boolean {
@@ -1028,6 +1140,7 @@ const server = createServer(async (req, res) => {
         // spawned agent process).
         pushProjects: true, // heartbeat pushes the project list
         smartIp: true,      // gateway-subnet-aware LAN IP detection
+        envSanitize: true,  // child-process env sanitization (TURBOPACK leak) + pull origin self-heal
       });
       return;
     }
@@ -1079,7 +1192,12 @@ const server = createServer(async (req, res) => {
       if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
       if (!(existsSync(project.path) && existsSync(join(project.path, '.git')))) { sendJSON(res, 400, { error: `Not a git repository: ${project.path}` }); return; }
       try {
-        sendJSON(res, 200, await gitPull(project.path));
+        const pullResult = await gitPull(project.path, project.repoUrl);
+        if (pullResult && pullResult.ok === false) {
+          sendJSON(res, 400, { error: pullResult.error, hint: pullResult.hint });
+        } else {
+          sendJSON(res, 200, pullResult);
+        }
       } catch (e: any) {
         sendJSON(res, 500, { error: 'git pull failed', detail: String(e?.stderr || e?.stdout || e?.message || '').trim().slice(0, 400) });
       }
@@ -1419,7 +1537,7 @@ const server = createServer(async (req, res) => {
         const id = `c${randomBytes(11).toString('hex')}`;
         const now = Date.now();
         await dashDb!.$executeRawUnsafe(
-          'INSERT INTO "Environment" ("id","projectId","name","cmd","port","envVars","status","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?,?)',
+          'INSERT INTO "Environment" ("id","projectId","name","cmd","port","envVars","status","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?,?,?)',
           id, projectId, String(body.name || 'dev'), String(body.cmd || 'npm start'), parseInt(String(body.port || '3000'), 10) || 3000,
           typeof body.envVars === 'string' ? body.envVars : JSON.stringify(body.envVars || {}), 'stopped', now, now
         );

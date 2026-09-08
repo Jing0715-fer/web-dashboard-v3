@@ -185,34 +185,113 @@ async function handlePull(
       before = stdout.trim();
     } catch { /* unborn HEAD on a fresh repo */ }
 
-    // `git pull --ff-only` fails with "no tracking information" when the
-    // branch has no upstream configured (common for freshly cloned/mirrored
-    // checkouts). Detect that and fall back to pulling origin/<branch>.
-    const pullArgs = ['pull', '--ff-only'];
+    // Self-heal a missing 'origin' remote: copied/zipped checkouts carry
+    // .git but no origin, and `git pull` then fails with the cryptic
+    // "fatal: 'origin' does not appear to be a git repository". repoUrl was
+    // validated above — wire it up automatically.
+    let originUrl = '';
     try {
-      await execFileAsync('git', ['rev-parse', '--abbrev-ref', '@{u}'], {
+      const { stdout: urlOut } = await execFileAsync('git', ['remote', 'get-url', 'origin'], {
         cwd: project.path,
         timeout: 15000,
         maxBuffer: 1024 * 512,
       });
-    } catch {
-      // No upstream configured — fall back to origin/<current-branch>.
+      originUrl = urlOut.trim();
+    } catch { /* no origin remote configured */ }
+    let originRepaired = '';
+    if (!originUrl) {
+      await execFileAsync('git', ['remote', 'add', 'origin', project.repoUrl.trim()], {
+        cwd: project.path,
+        timeout: 15000,
+        maxBuffer: 1024 * 512,
+      });
+      originUrl = project.repoUrl.trim();
+      originRepaired = "wired up 'origin' (it was missing)";
+    }
+
+    // `git pull --ff-only` fails with "no tracking information" when the
+    // branch has no upstream configured (common for freshly cloned/mirrored
+    // checkouts). Detect that and fall back to pulling origin/<branch>.
+    const buildPullArgs = async (): Promise<string[]> => {
+      const pullArgs = ['pull', '--ff-only'];
       try {
-        const { stdout: branchOut } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+        await execFileAsync('git', ['rev-parse', '--abbrev-ref', '@{u}'], {
           cwd: project.path,
           timeout: 15000,
           maxBuffer: 1024 * 512,
         });
-        const branch = branchOut.trim();
-        if (branch && branch !== 'HEAD') pullArgs.push('origin', branch);
-      } catch { /* detached HEAD — let the pull surface its own error */ }
-    }
+      } catch {
+        // No upstream configured — fall back to origin/<current-branch>.
+        try {
+          const { stdout: branchOut } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+            cwd: project.path,
+            timeout: 15000,
+            maxBuffer: 1024 * 512,
+          });
+          const branch = branchOut.trim();
+          if (branch && branch !== 'HEAD') pullArgs.push('origin', branch);
+        } catch { /* detached HEAD — let the pull surface its own error */ }
+      }
+      return pullArgs;
+    };
 
-    const { stdout, stderr } = await execFileAsync('git', pullArgs, {
-      cwd: project.path,
-      timeout: 5 * 60 * 1000,
-      maxBuffer: 1024 * 1024,
-    });
+    let pullResult: { stdout: string; stderr: string } | null = null;
+    try {
+      pullResult = await execFileAsync('git', await buildPullArgs(), {
+        cwd: project.path,
+        timeout: 5 * 60 * 1000,
+        maxBuffer: 1024 * 1024,
+      });
+    } catch (e: any) {
+      // 'origin' exists but is unreadable (dead local path from a copied
+      // repo, wrong URL…) AND differs from the configured repoUrl → repoint
+      // once and retry. A WORKING origin is never touched.
+      const errText = String(e?.stderr || e?.stdout || e?.message || '');
+      const wantUrl = project.repoUrl.trim();
+      if (originUrl !== wantUrl &&
+          /does not appear to be a git repository|Could not read from remote repository|Repository not found/i.test(errText)) {
+        try {
+          try {
+            await execFileAsync('git', ['remote', 'set-url', 'origin', wantUrl], {
+              cwd: project.path,
+              timeout: 15000,
+              maxBuffer: 1024 * 512,
+            });
+          } catch {
+            await execFileAsync('git', ['remote', 'add', 'origin', wantUrl], {
+              cwd: project.path,
+              timeout: 15000,
+              maxBuffer: 1024 * 512,
+            });
+          }
+          originRepaired = "repointed 'origin' (its old URL was unreadable)";
+          pullResult = await execFileAsync('git', await buildPullArgs(), {
+            cwd: project.path,
+            timeout: 5 * 60 * 1000,
+            maxBuffer: 1024 * 1024,
+          });
+        } catch (e2: any) {
+          // Surface BOTH the original failure and the retry failure through
+          // the outer handler.
+          throw Object.assign(
+            new Error(String(e2?.stderr || e2?.stdout || e2?.message || '').trim() || 'git pull failed'),
+            {
+              stderr: [
+                String(e?.stderr || e?.stdout || e?.message || ''),
+                String(e2?.stderr || e2?.stdout || e2?.message || ''),
+              ]
+                .filter(Boolean)
+                .join('\n')
+                .slice(0, 400),
+            },
+          );
+        }
+      } else {
+        throw e;
+      }
+    }
+    if (!pullResult) throw new Error('git pull failed');
+    const { stdout, stderr } = pullResult;
 
     let after = '';
     try {
@@ -224,7 +303,7 @@ async function handlePull(
       after = stdout.trim();
     } catch { /* unborn HEAD */ }
 
-    const output = (stdout || stderr || '').trim();
+    const output = (originRepaired ? `[dashboard] ${originRepaired} → ${sanitizeUrl(project.repoUrl)}\n` : '') + (stdout || stderr || '').trim();
     // Locale-independent up-to-date detection: git output text ("Already up
     // to date") only works on English git installs; identical before/after
     // SHAs is the ground truth.
