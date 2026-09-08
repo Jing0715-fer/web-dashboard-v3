@@ -8,6 +8,7 @@ import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
 import { proxyProjectAction } from '@/lib/route-decision';
 import { invalidateUpdateCache } from '@/lib/git-update-check';
+import { probeRemoteAgentHealth } from '@/lib/agent-health';
 
 const execFileAsync = promisify(execFile);
 
@@ -111,10 +112,22 @@ async function handlePull(
         { status: 404 },
       );
     } else if (result.status === 404) {
+      // Best-effort: ask the agent's OPEN /health endpoint which version it
+      // is actually RUNNING — confirms the diagnosis in the message and
+      // warns about the restart requirement (git pull hot-reloads the
+      // dashboard but NOT a spawned agent process).
+      let running = '';
+      try {
+        const device = await db.device.findUnique({ where: { id: project.deviceId } });
+        if (device) {
+          const h = await probeRemoteAgentHealth({ id: device.id, ip: device.ip, port: device.port });
+          if (h.version) running = ` — its agent reports v${h.version}`;
+        }
+      } catch { /* best-effort; version unknown */ }
       return NextResponse.json(
         {
           error:
-            'This device agent is too old to pull remotely — update the agent on that machine (mini-services/agent-*) to ≥ this dashboard version',
+            `This device agent is too old to pull remotely${running} — on that machine: git pull the repo, then RESTART the agent (git pull cannot hot-reload a running agent process)`,
         },
         { status: 502 },
       );

@@ -85,6 +85,7 @@ If you pulled a while ago and dev is already failing, run `bun install` once
 | Prisma `Unknown argument 'repoUrl'. Available options are marked with ?` | regenerated Prisma Client | `bun install` (prisma is trusted → auto-generates) or `bunx prisma db push` |
 | Remote project edit → `Unauthorized` / `设备「…」的 agent API 密钥不匹配` | device agent key rotation | see "Remote edit returns 401" below |
 | Pull → "Server error" with no details, or agent-side `The column 'repoUrl' does not exist` | stale dashboard route code / old device-agent DB schema | see "Pull says Server error" below |
+| Pull → "agent too old" · one-way project visibility · "Process exited immediately" | the machine's RUNNING agent process predates its `git pull` | see "One-way project visibility" below |
 
 > Why this happens: `bun install` skips dependency postinstall scripts unless
 > the package is listed in `trustedDependencies` — a stale
@@ -162,6 +163,23 @@ The agent DB migration is automatic since this update: every agent variant
 runs idempotent `ALTER TABLE` statements at boot, so old `agent.db` files are
 upgraded in place no matter how the agent was started (start script, `bun
 index.ts`, service manager). Restarting the agent is enough.
+
+### One-way project visibility / "agent too old" / "Process exited immediately"
+
+These look like three different bugs but usually share ONE root cause: a
+machine ran `git pull` but its **running agent process predates the pull**
+(`git pull` hot-reloads the dashboard, NOT a spawned agent). Symptom matrix:
+
+| What you saw | Why | Fix |
+| --- | --- | --- |
+| Pull says "This device agent is too old" | the agent process has no pull endpoint (pre-feature code). The error now reports the agent's running version. | on that machine: `git pull` → **restart the agent** |
+| One machine sees the other's projects, not vice versa | the firewalled machine's agent is old and never pushes its project list with the 60s heartbeat (new agents do; the dashboard serves pushed data read-only when direct pull is blocked) | update + restart the agent on the machine whose projects are INVISIBLE |
+| Start/restart says "Process exited immediately (exit code N)" | the command died within 2s on that machine — the error now carries the exit code, the command's last output and the full log path. Exit 127/9009 = the command isn't on the AGENT's PATH (service/launchd agents see a minimal PATH — use an absolute path). | read the detail in the toast / the log file it names |
+
+The **Devices panel** now probes every device's `/api/agent/health` (60s
+cache) and shows a running version chip plus an amber "Agent outdated" badge
+on stale agents — the badge tooltip names the exact machine and the missing
+feature, so you don't have to guess which side is old.
 
 ### Agent updates (device machines)
 

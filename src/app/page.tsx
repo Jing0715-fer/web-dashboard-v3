@@ -144,6 +144,11 @@ interface Device {
   // connections still push their project list every 60s).
   pushedAt?: number | null
   pushProjectCount?: number
+  // Running agent version + outdated evidence from the 60s-cached health
+  // probe — null when the agent can't be identified (firewalled).
+  agentVersion?: string | null
+  agentOutdated?: boolean
+  agentWhy?: string
 }
 
 interface Project {
@@ -5554,6 +5559,16 @@ function DeviceManagementPanel({
                       <Radio className="h-2.5 w-2.5 mr-0.5" />{t('dlg.devicePanel.pushBadge')}
                     </Badge>
                   )}
+                  {/* Stale-agent badge: the machine pulled new code but its
+                    * RUNNING agent process predates it (git pull cannot
+                    * hot-reload a spawned agent). This is the root cause of
+                    * pull "too old", one-way project visibility and other
+                    * confusing symptoms — surface it AT the device. */}
+                  {device.agentOutdated && (
+                    <Badge variant="outline" className="text-[9px] shrink-0 border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:bg-amber-900/20" title={t('dlg.devicePanel.agentOutdatedHint', { why: device.agentWhy || '?' })}>
+                      <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />{device.agentVersion ? `agent v${device.agentVersion} · ` : ''}{t('dlg.devicePanel.agentOutdated')}
+                    </Badge>
+                  )}
                   <Badge variant="outline" className={`text-[9px] ml-auto shrink-0 ${device.status === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20' : device.status === 'error' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}>
                     {device.status === 'online' ? t('dlg.common.online') : device.status === 'error' ? t('dlg.devicePanel.statusError') : t('dlg.common.offline')}
                   </Badge>
@@ -5576,6 +5591,11 @@ function DeviceManagementPanel({
                     <span className="text-muted-foreground dark:text-zinc-400">{t('dlg.devicePanel.projects', { count: device.projectCount ?? 0 })}</span>
                     {device.projectCount !== undefined && device.projectCount > 0 && (
                       <Badge variant="secondary" className="text-[8px] px-1 py-0 h-3.5 bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">{device.projectCount}</Badge>
+                    )}
+                    {/* Running agent version (neutral, from the health probe;
+                      * the amber outdated badge above flags stale ones). */}
+                    {device.agentVersion && !device.agentOutdated && (
+                      <span className="ml-auto font-mono text-[9px] text-muted-foreground/70 dark:text-zinc-500" title={t('dlg.devicePanel.agentVersionHint')}>v{device.agentVersion}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 col-span-2">
@@ -7236,6 +7256,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           const errData = await res.json()
           const parts: string[] = []
           if (errData.error) parts.push(errData.error)
+          // Agents attach the immediate-exit diagnosis (exit code + log
+          // tail + log path) here — surface it instead of a bare error.
+          if (errData.detail) parts.push(`detail:\n${errData.detail}`)
           if (errData.stderr) parts.push(`stderr:\n${errData.stderr}`)
           if (errData.stdout) parts.push(`stdout:\n${errData.stdout}`)
           if (parts.length > 0) errorDetail = parts.join('\n\n')

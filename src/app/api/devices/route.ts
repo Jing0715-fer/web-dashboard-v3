@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { localAgentApiKeys, isSelfDeviceRow, invalidateRemoteProjectCache, getDevicePush } from '@/lib/remote-sync'
+import { probeRemoteAgentHealth } from '@/lib/agent-health'
 import { requireApprovedUser } from '@/lib/auth';
 
 export async function GET(req: Request) {
@@ -31,17 +32,36 @@ export async function GET(req: Request) {
     // other's lists.
     const localKeys = localAgentApiKeys()
 
-    const result = devices
-      .filter((d) => !isSelfDeviceRow(d, localKeys))
-      .map(({ _count, ...device }) => ({
-        ...device,
-        projectCount: _count.projects,
-        // Heartbeat-push state: a device whose direct agent connection is
-        // firewalled off still pushes its project list every 60s — the UI
-        // shows a "push mode" badge and contextual messages from this.
-        pushedAt: getDevicePush(device.id)?.at ?? null,
-        pushProjectCount: getDevicePush(device.id)?.projects?.length ?? 0,
-      }))
+    // Agent version + outdated evidence for every device (60s-cached health
+    // probes, run in parallel). This is what makes a stale agent VISIBLE:
+    // machines that pulled new code but never restarted their agent process
+    // otherwise just show up as confusing symptoms (pull 'too old', one-way
+    // project visibility, immediate exits).
+    const visible = devices.filter((d) => !isSelfDeviceRow(d, localKeys))
+    const healths = await Promise.all(
+      visible.map((d) => probeRemoteAgentHealth({ id: d.id, ip: d.ip, port: d.port }))
+    )
+    const healthById = new Map(healths.map((h, i) => [visible[i].id, h]))
+
+    const result = visible
+      .map((device) => {
+        const health = healthById.get(device.id)
+        const { _count, ...rest } = device
+        return {
+          ...rest,
+          projectCount: _count.projects,
+          // Heartbeat-push state: a device whose direct agent connection is
+          // firewalled off still pushes its project list every 60s — the UI
+          // shows a "push mode" badge and contextual messages from this.
+          pushedAt: getDevicePush(device.id)?.at ?? null,
+          pushProjectCount: getDevicePush(device.id)?.projects?.length ?? 0,
+          // Running agent version + outdated evidence (null when the probe
+          // couldn't positively identify the agent, e.g. firewalled).
+          agentVersion: health?.version || null,
+          agentOutdated: health?.outdated ?? false,
+          agentWhy: health?.why || '',
+        }
+      })
 
     return NextResponse.json(result)
   } catch (error) {

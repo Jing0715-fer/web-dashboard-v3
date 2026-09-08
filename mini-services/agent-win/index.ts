@@ -166,6 +166,12 @@ const AGENT_DDL = [
   'CREATE INDEX IF NOT EXISTS "Environment_projectId_idx" ON "Environment"("projectId")',
   'ALTER TABLE "Project" ADD COLUMN "repoUrl" TEXT NOT NULL DEFAULT \'\'',
   'ALTER TABLE "Project" ADD COLUMN "notes" TEXT NOT NULL DEFAULT \'\'',
+  // deviceId: the agent's own schema has no such field, but when the agent
+  // resolves @prisma/client from the REPO ROOT (no per-agent node_modules),
+  // the ROOT generated client SELECTs Project.deviceId on every query — a
+  // missing column took down every agent-own-DB project operation (500 on
+  // create, listing degraded to []). Nullable, no default.
+  'ALTER TABLE "Project" ADD COLUMN "deviceId" TEXT',
 ];
 
 async function ensureAgentDb(): Promise<void> {
@@ -316,6 +322,38 @@ function killProcess(pid: number, force: boolean = false): boolean {
   }
 }
 
+/** Explain an immediate exit with enough context to act on: exit code,
+ *  common PATH/permission meanings, the command's own dying output and
+ *  where the full log lives. A bare "Process exited immediately" gave the
+ *  user no way to tell a missing bun from a port clash from a crashed app
+ *  (real user report: some remote projects fail, one works). Windows
+ *  service agents see a MINIMAL PATH — exit 9009 with an empty log is the
+ *  classic signature. */
+function describeImmediateExit(
+  code: number | null,
+  cmd: string,
+  output: string,
+  logFile: string
+): { error: string; detail: string; logFile: string } {
+  const codeNo = code === null ? -1 : code;
+  const hints: Record<string, string> = {
+    '127': 'command not found — the start command is not on the AGENT\'s PATH (if the agent runs as a service it sees a different PATH than your shell; use an absolute path)',
+    '126': 'command found but not executable (permission denied)',
+    '9009': 'Windows: command not recognized — not on the AGENT\'s PATH (agents running as a Windows service see a minimal PATH; use an absolute path, e.g. C:\\Users\\<you>\\.bun\\bin\\bun.exe)',
+  };
+  const hint = hints[String(codeNo)] || '';
+  const tail = (output || '').trim().slice(-1200);
+  return {
+    error: `Process exited immediately (exit code ${codeNo}${hint ? ' — ' + hint : ''})`,
+    detail: [
+      `command: ${cmd}`,
+      tail || '(no output captured before exit)',
+      `full log on this machine: ${logFile}`,
+    ].join('\n'),
+    logFile,
+  };
+}
+
 async function startProcess(
   projectId: string,
   envName: string,
@@ -323,7 +361,7 @@ async function startProcess(
   projectPath: string,
   envVars: Record<string, string>,
   port: number
-): Promise<{ success: boolean; pid?: number; error?: string }> {
+): Promise<{ success: boolean; pid?: number; error?: string; detail?: string; logFile?: string }> {
   if (!isCommandSafe(cmd)) {
     return { success: false, error: `Command not allowed: ${cmd}` };
   }
@@ -375,14 +413,22 @@ async function startProcess(
 
     const child = spawn(cmd, [], spawnOptions);
 
-    // Log stdout and stderr
+    // Log stdout and stderr — ALSO tap into an in-memory tail buffer: the
+    // write stream may not have flushed when the immediate-exit check below
+    // reads it, but the buffer is synchronous and always current.
     const logStream = createWriteStream(logFile, { flags: 'a' });
 
     // Write timestamp header
     logStream.write(`\n[${new Date().toISOString()}] === Process started: ${cmd} (port=${port}) ===\n`);
 
-    child.stdout?.on('data', (data: Buffer) => logStream.write(data));
-    child.stderr?.on('data', (data: Buffer) => logStream.write(data));
+    let recentOut = '';
+    const tap = (data: Buffer) => {
+      recentOut = (recentOut + data.toString()).slice(-2048);
+      logStream.write(data);
+    };
+
+    child.stdout?.on('data', tap);
+    child.stderr?.on('data', tap);
 
     child.on('exit', (code) => {
       logStream.write(`\n[${new Date().toISOString()}] === Process exited with code ${code} ===\n`);
@@ -406,7 +452,7 @@ async function startProcess(
     await new Promise(resolve => setTimeout(resolve, 2000));
 
     if (child.exitCode !== null) {
-      return { success: false, error: 'Process exited immediately' };
+      return { success: false, ...describeImmediateExit(child.exitCode, cmd, recentOut, logFile) };
     }
 
     return { success: true, pid: child.pid || undefined };
@@ -643,7 +689,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.1.0',
+        version: '1.5.0',
         platform: platform(),
         arch: arch(),
       });
@@ -827,7 +873,7 @@ const server = createServer(async (req, res) => {
         sendJSON(res, 200, { ok: true, pid: result.pid });
       } else {
         await db.environment.update({ where: { id: envId }, data: { status: 'stopped', pid: null } });
-        sendJSON(res, 400, { ok: false, error: result.error });
+        sendJSON(res, 400, { ok: false, error: result.error, detail: result.detail, logFile: result.logFile });
       }
       return;
     }
@@ -867,7 +913,7 @@ const server = createServer(async (req, res) => {
         sendJSON(res, 200, { ok: true, pid: result.pid });
       } else {
         await db.environment.update({ where: { id: envId }, data: { status: 'stopped', pid: null } });
-        sendJSON(res, 400, { ok: false, error: result.error });
+        sendJSON(res, 400, { ok: false, error: result.error, detail: result.detail, logFile: result.logFile });
       }
       return;
     }
@@ -895,7 +941,7 @@ const server = createServer(async (req, res) => {
         sendJSON(res, 200, { ok: true, pid: result.pid });
       } else {
         await db.environment.update({ where: { id: envId }, data: { status: 'stopped', pid: null } });
-        sendJSON(res, 400, { ok: false, error: result.error });
+        sendJSON(res, 400, { ok: false, error: result.error, detail: result.detail, logFile: result.logFile });
       }
       return;
     }
