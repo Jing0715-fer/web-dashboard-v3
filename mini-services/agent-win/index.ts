@@ -148,6 +148,41 @@ const db = new PrismaClient({
   datasources: { db: { url: `file:${dbPath}` } },
 });
 
+// ---- agent-DB bootstrap (same as the other variants) ----
+// A fresh clone (or a machine where nobody ran `prisma db push`) has an
+// agent.db WITHOUT tables — every prisma call then fails with P2021 and
+// remote dashboards mark the device OFFLINE. And an agent.db created
+// BEFORE the repoUrl/notes columns existed keeps the old schema (CREATE
+// TABLE IF NOT EXISTS never upgrades an existing table) while the
+// regenerated Prisma client SELECTs the new columns — every project query
+// then failed with "The column `repoUrl` does not exist in the current
+// database" (listing degraded to [], PUT/pull 500 with a Prisma dump).
+// The agent creates AND migrates its own tables at boot; the ALTERs fail
+// with a harmless "duplicate column" on already-migrated databases.
+const AGENT_DDL = [
+  'CREATE TABLE IF NOT EXISTS "Project" ("id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL, "path" TEXT NOT NULL, "description" TEXT NOT NULL DEFAULT \'\', "icon" TEXT NOT NULL DEFAULT \'folder\', "tags" TEXT NOT NULL DEFAULT \'[]\', "repoUrl" TEXT NOT NULL DEFAULT \'\', "notes" TEXT NOT NULL DEFAULT \'\', "order" INTEGER NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS "Project_path_key" ON "Project"("path")',
+  'CREATE TABLE IF NOT EXISTS "Environment" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "name" TEXT NOT NULL, "cmd" TEXT NOT NULL, "port" INTEGER NOT NULL, "envVars" TEXT NOT NULL DEFAULT \'{}\', "status" TEXT NOT NULL DEFAULT \'stopped\', "pid" INTEGER, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, CONSTRAINT "Environment_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE)',
+  'CREATE INDEX IF NOT EXISTS "Environment_projectId_idx" ON "Environment"("projectId")',
+  'ALTER TABLE "Project" ADD COLUMN "repoUrl" TEXT NOT NULL DEFAULT \'\'',
+  'ALTER TABLE "Project" ADD COLUMN "notes" TEXT NOT NULL DEFAULT \'\'',
+];
+
+async function ensureAgentDb(): Promise<void> {
+  try {
+    mkdirSync(dirname(dbPath), { recursive: true });
+  } catch { /* read-only fs — prisma will surface a clear error later */ }
+  for (const ddl of AGENT_DDL) {
+    try { await db.$executeRawUnsafe(ddl); } catch (err: any) {
+      // "duplicate column" = the table already has it (fresh CREATE or an
+      // earlier migration) — expected, stay silent. Anything else is real.
+      if (!/duplicate column/i.test(String(err?.message || ''))) {
+        console.warn(`[Agent] bootstrap DDL failed: ${err?.message}`);
+      }
+    }
+  }
+}
+
 // ======================== HOME-DASHBOARD MIRROR ========================
 
 // Co-located dashboard DB: when this agent runs inside a web-dashboard-v3
@@ -636,7 +671,17 @@ const server = createServer(async (req, res) => {
     // POST /api/agent/projects/:id/pull — one-click git pull on THIS machine
     const pullMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/pull$/);
     if (pullMatch && req.method === 'POST') {
-      const project = await db.project.findUnique({ where: { id: pullMatch[1] } });
+      // Schema-drift guard: if this agent.db predates the repoUrl/notes
+      // columns AND the migration above could not run (read-only fs, ancient
+      // process), findUnique itself explodes with a raw Prisma dump — turn
+      // it into the actual fix (restart the agent so it self-migrates).
+      let project: any = null;
+      try {
+        project = await db.project.findUnique({ where: { id: pullMatch[1] } });
+      } catch (e: any) {
+        sendJSON(res, 500, { error: 'Agent DB schema is out of date — restart this agent so it can self-migrate its database (or run: npx prisma db push)', detail: String(e?.message || '').slice(0, 300) });
+        return;
+      }
       if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
       if (!existsSync(project.path) || !existsSync(join(project.path, '.git'))) {
         sendJSON(res, 400, { error: `Not a git repository: ${project.path}` });
@@ -990,6 +1035,10 @@ server.listen(PORT, HOST, () => {
   console.log(`[Agent] DB: ${dbPath}`);
   console.log(`[Agent] Logs: ${LOG_DIR}`);
 });
+
+// Self-bootstrap + self-migrate the agent DB (tables, and the repoUrl/notes
+// columns on pre-repoUrl files) instead of depending on start.bat's db push.
+ensureAgentDb().catch((err: any) => console.warn(`[Agent] DB bootstrap failed: ${err?.message}`));
 
 // Heartbeat: keep the dashboard's Device row fresh (self-heal on network /
 // port change). Runs only when a paired dashboard is known (--dashboard or

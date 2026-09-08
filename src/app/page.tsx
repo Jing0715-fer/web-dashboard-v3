@@ -3747,7 +3747,9 @@ function DetailSheet({
     setPullResult(null)
     try {
       const res = await fetch(`/api/projects/${project.id}/pull`, { method: 'POST' })
-      const data = await res.json()
+      // Non-JSON responses (HTML error pages) must not throw here — the
+      // else-branch below has a dedicated actionable fallback for them.
+      const data = await res.json().catch(() => ({}))
       if (res.ok) {
         setPullResult({ ok: true, upToDate: !!data.upToDate, summary: String(data.summary || ''), output: String(data.output || '') })
         toast({
@@ -3758,8 +3760,10 @@ function DetailSheet({
         onRefresh?.()
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
-        setPullResult({ ok: false, upToDate: false, summary: String(data?.error || 'Pull failed'), output: detail })
-        toast({ title: t('dlg.detail.pullFailed'), description: String(data?.error || '') + detail, variant: 'destructive' })
+        // No `error` in the body = non-JSON response (crashed route) — hint
+        // at stale server code instead of a dead-end "Pull failed".
+        setPullResult({ ok: false, upToDate: false, summary: String(data?.error || t('dlg.detail.pullNoDetail')), output: detail })
+        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(String(data?.error || t('dlg.detail.pullNoDetail'))) + detail, variant: 'destructive' })
       }
     } catch (e: any) {
       const msg = e?.message || t('dlg.common.networkError')
@@ -6868,7 +6872,20 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           body: JSON.stringify(data),
         })
         if (res.ok) {
+          const result = await res.json().catch(() => ({}))
           toast({ title: t('dlg.toast.projectUpdated'), variant: 'success' })
+          // Dashboard-level fields (repoUrl/notes) can save HERE even while
+          // the device agent is unreachable (stale key / offline). The API
+          // answers 200 + warning in that case — surface it as "sync
+          // pending" instead of letting the user think the link was lost.
+          if (result?.warning) {
+            toast({
+              title: t('dlg.toast.savedDeviceSyncPending'),
+              description: result.warning,
+              variant: 'warning',
+              duration: 12000,
+            })
+          }
           fetchProjects()
         } else {
           const err = await res.json()
@@ -6987,7 +7004,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         fetchProjectUpdates({ refresh: true })
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
-        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(String(data?.error || t('dlg.common.serverError'))) + detail, detail: data?.error ? String(data.error) + (data.detail ? `\n${data.detail}` : '') : undefined, variant: 'destructive' })
+        // No `error` in the body = the response wasn't our JSON — a crashed
+        // route gets an HTML 500 page from Next. Point at the actual fix
+        // (stale server code) instead of a bare "Server error".
+        const errMsg = String(data?.error || '')
+        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(errMsg || t('dlg.detail.pullNoDetail')) + detail, detail: errMsg ? errMsg + (data.detail ? `\n${data.detail}` : '') : t('dlg.detail.pullNoDetail'), variant: 'destructive' })
       }
     } catch (e: any) {
       toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })

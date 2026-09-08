@@ -565,13 +565,24 @@ async function persistEnvState(envId, fromDash, data) {
 // (This linux bundle additionally ships the Activity module, so its
 // ActivityEvent table + indexes are bootstrapped here too.)
 const AGENT_DDL = [
-  'CREATE TABLE IF NOT EXISTS "Project" ("id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL, "path" TEXT NOT NULL, "description" TEXT NOT NULL DEFAULT \'\', "icon" TEXT NOT NULL DEFAULT \'folder\', "tags" TEXT NOT NULL DEFAULT \'[]\', "order" INTEGER NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS "Project" ("id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL, "path" TEXT NOT NULL, "description" TEXT NOT NULL DEFAULT \'\', "icon" TEXT NOT NULL DEFAULT \'folder\', "tags" TEXT NOT NULL DEFAULT \'[]\', "repoUrl" TEXT NOT NULL DEFAULT \'\', "notes" TEXT NOT NULL DEFAULT \'\', "order" INTEGER NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL)',
   'CREATE UNIQUE INDEX IF NOT EXISTS "Project_path_key" ON "Project"("path")',
   'CREATE TABLE IF NOT EXISTS "Environment" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT NOT NULL, "name" TEXT NOT NULL, "cmd" TEXT NOT NULL, "port" INTEGER NOT NULL, "envVars" TEXT NOT NULL DEFAULT \'{}\', "status" TEXT NOT NULL DEFAULT \'stopped\', "pid" INTEGER, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL, CONSTRAINT "Environment_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE)',
   'CREATE INDEX IF NOT EXISTS "Environment_projectId_idx" ON "Environment"("projectId")',
   'CREATE TABLE IF NOT EXISTS "ActivityEvent" ("id" TEXT NOT NULL PRIMARY KEY, "projectId" TEXT, "projectName" TEXT, "envId" TEXT, "envName" TEXT, "type" TEXT NOT NULL, "message" TEXT NOT NULL, "detail" TEXT, "level" TEXT NOT NULL DEFAULT \'info\', "durationMs" INTEGER, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)',
   'CREATE INDEX IF NOT EXISTS "ActivityEvent_createdAt_idx" ON "ActivityEvent"("createdAt")',
   'CREATE INDEX IF NOT EXISTS "ActivityEvent_projectId_createdAt_idx" ON "ActivityEvent"("projectId", "createdAt")',
+  // ---- column migrations for PRE-repoUrl agent.db files ----
+  // CREATE TABLE IF NOT EXISTS never upgrades an EXISTING table: an agent.db
+  // created before repoUrl/notes existed keeps the old schema, while the
+  // regenerated Prisma client SELECTs the new columns on every project
+  // query — each one then fails with "The column `repoUrl` does not exist
+  // in the current database" (listing degrades to [], PUT/pull 500 with a
+  // Prisma dump). The ALTERs below upgrade old files IN PLACE at boot; on
+  // already-migrated (or fresh) databases they fail with a harmless
+  // "duplicate column" that the loop below deliberately swallows.
+  'ALTER TABLE "Project" ADD COLUMN "repoUrl" TEXT NOT NULL DEFAULT \'\'',
+  'ALTER TABLE "Project" ADD COLUMN "notes" TEXT NOT NULL DEFAULT \'\'',
 ];
 
 async function ensureAgentDb() {
@@ -580,7 +591,11 @@ async function ensureAgentDb() {
   } catch (e) { /* read-only fs — prisma will surface a clear error later */ }
   for (const ddl of AGENT_DDL) {
     try { await db.$executeRawUnsafe(ddl); } catch (err) {
-      console.warn(`[Agent] bootstrap DDL failed: ${err.message}`);
+      // "duplicate column" = the table already has it (fresh CREATE or an
+      // earlier migration) — expected, stay silent. Anything else is real.
+      if (!/duplicate column/i.test(String(err.message || ''))) {
+        console.warn(`[Agent] bootstrap DDL failed: ${err.message}`);
+      }
     }
   }
 }
@@ -1554,7 +1569,17 @@ const server = http.createServer(async (req, res) => {
     // POST /api/agent/projects/:id/pull — one-click git pull on THIS machine
     const pullMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/pull$/);
     if (pullMatch && req.method === 'POST') {
-      const project = await db.project.findUnique({ where: { id: pullMatch[1] } });
+      // Schema-drift guard: if this agent.db predates the repoUrl/notes
+      // columns AND the migration above could not run (read-only fs, ancient
+      // process), findUnique itself explodes with a raw Prisma dump — turn
+      // it into the actual fix (restart the agent so it self-migrates).
+      let project = null;
+      try {
+        project = await db.project.findUnique({ where: { id: pullMatch[1] } });
+      } catch (e) {
+        sendJSON(res, 500, { error: 'Agent DB schema is out of date — restart this agent so it can self-migrate its database (or run: bunx prisma db push)', detail: String((e && e.message) || '').slice(0, 300) });
+        return;
+      }
       if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
       if (!fs.existsSync(project.path) || !fs.existsSync(path.join(project.path, '.git'))) {
         sendJSON(res, 400, { error: `Not a git repository: ${project.path}` });

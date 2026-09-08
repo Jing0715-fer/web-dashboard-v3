@@ -120,7 +120,18 @@ export async function PUT(
     // reset the local value to '').
     if (isRemoteProject(existing)) {
       // Persist dashboard-only fields locally first.
-      if (repoUrl !== undefined || notes !== undefined) {
+      const dashOnlyFields = repoUrl !== undefined || notes !== undefined;
+      // Agent-managed fields count as "changed" only when the submitted value
+      // actually DIFFERS from the cached row — the edit dialog submits the
+      // whole form, so unchanged name/tags would otherwise always classify
+      // the request as agent-managed and mask the warning path below.
+      const agentFields =
+        (name !== undefined && name !== existing.name) ||
+        (description !== undefined && description !== (existing.description || '')) ||
+        (icon !== undefined && icon !== existing.icon) ||
+        (tags !== undefined && normalizeTags(tags) !== existing.tags) ||
+        (body.path !== undefined && body.path !== existing.path);
+      if (dashOnlyFields) {
         await db.project.update({
           where: { id },
           data: {
@@ -144,6 +155,29 @@ export async function PUT(
           repoUrl: cached?.repoUrl ?? '',
           notes: cached?.notes ?? '',
         };
+      }
+      // Device sync failed, but a request that ONLY touched dashboard-level
+      // fields (repoUrl/notes) has fully landed HERE — reporting a hard 401
+      // made users believe the GitHub link wasn't saved at all (real report:
+      // “报错，但是链接还是保存上去了”). Answer success + a `warning` the UI
+      // shows as "saved — device sync pending" instead. Requests that also
+      // changed agent-managed fields keep the failure status (those edits
+      // genuinely did not save).
+      if (!result.ok && dashOnlyFields && !agentFields) {
+        const fresh = await db.project.findUnique({
+          where: { id },
+          include: { environments: true },
+        });
+        return NextResponse.json(
+          {
+            project: fresh ?? existing,
+            warning:
+              typeof result.data?.error === 'string' && result.data.error
+                ? result.data.error
+                : 'Saved on this dashboard — the device agent could not be reached; the change syncs to the device once it is reachable again',
+          },
+          { status: 200 },
+        );
       }
       return NextResponse.json(result.data, { status: result.status });
     }

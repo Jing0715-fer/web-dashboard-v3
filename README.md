@@ -84,6 +84,7 @@ If you pulled a while ago and dev is already failing, run `bun install` once
 | `Module not found: Can't resolve 'fzstd'` | new dependency in `node_modules` | `bun install` |
 | Prisma `Unknown argument 'repoUrl'. Available options are marked with ?` | regenerated Prisma Client | `bun install` (prisma is trusted → auto-generates) or `bunx prisma db push` |
 | Remote project edit → `Unauthorized` / `设备「…」的 agent API 密钥不匹配` | device agent key rotation | see "Remote edit returns 401" below |
+| Pull → "Server error" with no details, or agent-side `The column 'repoUrl' does not exist` | stale dashboard route code / old device-agent DB schema | see "Pull says Server error" below |
 
 > Why this happens: `bun install` skips dependency postinstall scripts unless
 > the package is listed in `trustedDependencies` — a stale
@@ -147,14 +148,30 @@ now keeps a stable persisted key), then re-pair once:
 After re-pairing, keys stay stable across agent restarts — the agent reads
 its key back from `agent-config.json` (CLI arg > persisted > fresh random).
 
+### Pull says "Server error" / `The column 'repoUrl' does not exist`
+
+Two different failure signatures, both fixed by the same action — **restart
+the stale side**:
+
+| What you saw | Why | Fix |
+| --- | --- | --- |
+| Toast: "Pull failed — Server error" (no details) | the dashboard route crashed or wasn't loaded — Next answered with an HTML page the UI can't parse. Usually a dev server still running pre-pull code. | `git pull` on the dashboard machine → restart `bun run dev` |
+| Prisma dump mentioning `The column \`repoUrl\` does not exist` | the DEVICE agent runs new code but its `agent.db` predates the `repoUrl`/`notes` columns (a `CREATE TABLE IF NOT EXISTS` bootstrap never upgrades an existing file). | pull + restart the agent on that machine — it now self-migrates the DB at boot (`ALTER TABLE … ADD COLUMN`) |
+
+The agent DB migration is automatic since this update: every agent variant
+runs idempotent `ALTER TABLE` statements at boot, so old `agent.db` files are
+upgraded in place no matter how the agent was started (start script, `bun
+index.ts`, service manager). Restarting the agent is enough.
+
 ### Agent updates (device machines)
 
 After pulling on a device machine, restart its agent — the start scripts now
-self-heal the agent DB schema (`prisma db push`, idempotent + additive), so
-new columns (e.g. `repoUrl`/`notes`) land automatically. The GitHub link and
-notes configured on a remote dashboard are persisted by the agent AND
-mirrored into the co-located home dashboard's database, so the project's
-home machine shows the same GitHub link.
+self-heal the agent DB schema (`prisma db push`, idempotent + additive), and
+since the latest update the agent ALSO self-migrates at boot even when
+started without a script (`ALTER TABLE` adds any missing columns, e.g.
+`repoUrl`/`notes`). The GitHub link and notes configured on a remote dashboard
+are persisted by the agent AND mirrored into the co-located home dashboard's
+database, so the project's home machine shows the same GitHub link.
 
 ### Remote devices
 

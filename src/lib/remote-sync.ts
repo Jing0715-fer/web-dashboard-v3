@@ -299,6 +299,32 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   }
   const dedupedRemote = Array.from(remoteByKey.values())
 
+  // ---- dashboard-level fields fallback (response path) ----
+  // repoUrl/notes are DASHBOARD-level fields: the user may have set them
+  // here while the device was unreachable (the PUT persists locally even
+  // when the agent proxy 401s — "saved, device sync pending"). The persist
+  // step below already refuses to blank the cached DB values, but the
+  // RESPONSE serves dedupedRemote (the agent's raw listing) directly —
+  // without this merge the card would visually lose the GitHub link even
+  // though the DB still has it (agent-reported '' = "I don't know", not
+  // "delete it"). Non-empty agent values still win (multi-dashboard
+  // propagation from the project's home machine).
+  {
+    const cachedLevel = await db.project.findMany({
+      where: { deviceId: { not: null } },
+      select: { id: true, repoUrl: true, notes: true },
+    })
+    const cachedById = new Map(cachedLevel.map((p) => [p.id, p]))
+    for (const remote of dedupedRemote as any[]) {
+      const cached = cachedById.get(remote.id)
+      if (!cached) continue
+      const agentRepoUrl = typeof remote.repoUrl === 'string' ? remote.repoUrl.trim() : ''
+      if (!agentRepoUrl && cached.repoUrl) remote.repoUrl = cached.repoUrl
+      const agentNotes = typeof remote.notes === 'string' ? remote.notes.trim() : ''
+      if (!agentNotes && cached.notes) remote.notes = cached.notes
+    }
+  }
+
   // Persist live remote projects so start/stop/restart routes can find them.
   // Change-detection avoids rewriting identical rows on every poll.
   const cachedRows = await db.project.findMany({

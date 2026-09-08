@@ -44,11 +44,35 @@ function isValidRepoUrl(url: string): boolean {
  * Remote project: proxies to the device agent's
  * POST /api/agent/projects/:id/pull (the code lives on that machine — git
  * runs THERE). Legacy agents without the endpoint return 404, which is
- * reported as an actionable "update the agent" error.
+ * reported as an actionable "update the agent" error. A missing Device
+ * row is reported separately (it is NOT an agent-version problem).
  * Fails with a clear message when the directory is not a git checkout or
  * the remote diverged.
+ *
+ * The exported POST is a crash-proof wrapper: an unhandled error inside a
+ * route handler makes Next answer with an HTML 500 page, which the frontend
+ * can only render as a bare "Server error" (real user report — pull said
+ * "server error" while every coded path returns JSON). EVERY failure mode
+ * must answer JSON with an `error` field.
  */
 export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  try {
+    return await handlePull(req, ctx);
+  } catch (e: any) {
+    return NextResponse.json(
+      {
+        error: 'Pull request failed on the dashboard',
+        detail: String(e?.message || e).slice(0, 400),
+      },
+      { status: 500 },
+    );
+  }
+}
+
+async function handlePull(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -77,6 +101,15 @@ export async function POST(
         projectName: project.name,
         detail: String(result.data?.output || '').split('\n').slice(-3).join(' · ').slice(0, 300),
       });
+    } else if (result.data?.error === 'Device not found') {
+      // The Device ROW is gone (removed on the devices page) — pointing the
+      // user at an agent update would send them to fix the wrong thing.
+      return NextResponse.json(
+        {
+          error: 'This project still points at a device that no longer exists on this dashboard — move it to another device (or make it local), then retry',
+        },
+        { status: 404 },
+      );
     } else if (result.status === 404) {
       return NextResponse.json(
         {
