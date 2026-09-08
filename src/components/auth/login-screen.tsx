@@ -708,8 +708,10 @@ function HeroPanel() {
           close to the login form, not stranded at the far left). The whole
           cluster hugs the form column — fixed ~90px gap at every lg+ width —
           and is capped at max-w-2xl so the terminal keeps editorial
-          proportions on ultrawide screens; below the cap it fills the column
-          exactly like before (no regression at the smallest lg widths). */}
+          proportions; below the cap it fills the column exactly like before
+          (no regression at the smallest lg widths). The login root caps the
+          whole grid at 1280px + mx-auto, so this cluster + the card form one
+          mid-page group (user ask: all login content centered). */}
       <div className="ml-auto flex w-full max-w-2xl flex-col gap-8 xl:gap-10">
       {/* Display block — eyebrow, oversized wordmark, gradient tagline, subtitle. */}
       <div>
@@ -808,8 +810,16 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
           (user ask: "hero content too far from the login window"). Both sit
           on ONE continuous backdrop (no column-scoped tint, so no seam where
           they meet). Below lg the hero hides and the form centers over the
-          shared backdrop. */}
-      <div className="relative min-h-screen lg:grid lg:grid-cols-[1fr_520px] overflow-x-clip">
+          shared backdrop.
+
+          Centering: the grid is capped at 1280px and mx-auto'd (user ask:
+          "all login content centered") — the hero cluster + card group now
+          sits mid-page with symmetric page margins at every lg+ width
+          (previously the group drifted right as the viewport widened: at
+          1920px it sat ~300px right of center). Below the cap (lg..1280) the
+          grid fills the viewport exactly as before, zero regression. The
+          backdrop is position:fixed so it stays full-bleed despite the cap. */}
+      <div className="relative min-h-screen lg:grid lg:grid-cols-[1fr_520px] lg:mx-auto lg:max-w-[1280px] overflow-x-clip">
         {/* Layered hero backdrop: brand sky washes, grid, drifting orbs,
             rising particles, stars, grain — shared by both columns. */}
         <div className="login-backdrop" aria-hidden="true">
@@ -824,12 +834,14 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
           <div className="login-stars" />
           <div className="login-noise" />
         </div>
-        {/* Standalone language switcher (task 17) — top-right corner */}
+        {/* Standalone language switcher (task 17) — viewport top-right corner.
+            position:fixed (not absolute) so it stays pinned to the screen
+            even though the grid container is capped + centered. */}
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5, duration: 0.45, ease: 'easeOut' }}
-          className="absolute top-4 right-4 z-20 flex items-center gap-1"
+          className="fixed top-4 right-4 z-20 flex items-center gap-1"
         >
           <LanguageToggle />
         </motion.div>
