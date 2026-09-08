@@ -702,8 +702,15 @@ function HeroPanel() {
       variants={panelVariants}
       initial="hidden"
       animate="show"
-      className="relative hidden lg:flex h-full flex-col justify-center gap-8 xl:gap-10 p-10 xl:p-14"
+      className="relative hidden lg:flex h-full flex-col justify-center p-10 xl:p-14"
     >
+      {/* Right-anchored display group (user ask: the hero content should sit
+          close to the login form, not stranded at the far left). The whole
+          cluster hugs the form column — fixed ~90px gap at every lg+ width —
+          and is capped at max-w-2xl so the terminal keeps editorial
+          proportions on ultrawide screens; below the cap it fills the column
+          exactly like before (no regression at the smallest lg widths). */}
+      <div className="ml-auto flex w-full max-w-2xl flex-col gap-8 xl:gap-10">
       {/* Display block — eyebrow, oversized wordmark, gradient tagline, subtitle. */}
       <div>
         <motion.div variants={itemVariants}>
@@ -763,6 +770,7 @@ function HeroPanel() {
           ))}
         </motion.ul>
       </div>
+      </div>
     </motion.aside>
   )
 }
@@ -790,13 +798,18 @@ export function LoginScreen({ onAuthed, seedHint }: { onAuthed: () => void; seed
 
   return (
     <MotionConfig reducedMotion="user">
-      {/* Full-bleed auth split: the immersive hero column takes the left half
-          on lg+, the form zone owns the right — both columns stretch to the
-          same (viewport) height, which resolves the earlier equal-height ask
-          structurally. Both sit on ONE continuous backdrop (no column-scoped
-          tint, so no seam where they meet). Below lg the hero hides and the
-          form centers over the shared backdrop. */}
-      <div className="relative min-h-screen lg:grid lg:grid-cols-[1.05fr_1fr] overflow-x-clip">
+      {/* Full-bleed auth split: the immersive hero column takes the LEFT
+          side on lg+, the form zone owns a snug fixed 520px rail on the
+          right — both columns stretch to the same (viewport) height, which
+          resolves the earlier equal-height ask structurally. The fixed rail
+          (instead of a proportional 1fr column) is what keeps the login card
+          a constant ~90px from the hero cluster at every width — a fluid
+          column used to park the card far from the hero on wide screens
+          (user ask: "hero content too far from the login window"). Both sit
+          on ONE continuous backdrop (no column-scoped tint, so no seam where
+          they meet). Below lg the hero hides and the form centers over the
+          shared backdrop. */}
+      <div className="relative min-h-screen lg:grid lg:grid-cols-[1fr_520px] overflow-x-clip">
         {/* Layered hero backdrop: brand sky washes, grid, drifting orbs,
             rising particles, stars, grain — shared by both columns. */}
         <div className="login-backdrop" aria-hidden="true">
