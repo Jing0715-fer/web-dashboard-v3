@@ -75,6 +75,8 @@ export async function probeRemoteAgentHealth(
         // v1.6 marker: peer project relay (heartbeat-response peer projects
         // served at /api/agent/peer-cache — one-way-network visibility).
         else if (!('peerRelay' in d)) why = 'peer project relay'
+        // v1.7 marker: dual-store repoUrl merge + pull cross-store heal.
+        else if (!('repoMerge' in d)) why = 'dual-store repoUrl merge + pull heal'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',

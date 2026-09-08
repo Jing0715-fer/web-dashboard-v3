@@ -144,10 +144,13 @@ async function handlePull(
         { status: 502 },
       );
     } else {
+      // Pass the agent's actionable hint through (its 400s carry `hint`,
+      // e.g. "No 'origin' remote … — save the project's GitHub URL so pull
+      // can wire it up"); dropping it left the user with a bare error title.
       return NextResponse.json(
         {
           error: result.data?.error || 'Remote pull failed',
-          detail: result.data?.detail,
+          detail: result.data?.detail || result.data?.hint,
         },
         { status: result.status },
       );

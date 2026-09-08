@@ -5355,7 +5355,7 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
       initial={{ y: 20 }}
       animate={{ y: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="mt-auto relative border-t border-border/60 bg-card/80 backdrop-blur-xl shadow-[0_-4px_16px_rgba(9,9,11,0.04)] dark:bg-card/50 dark:border-zinc-800/70 dark:shadow-[0_-4px_16px_rgba(0,0,0,0.35)]"
+      className="fixed bottom-0 inset-x-0 z-30 border-t border-border/60 bg-card/90 backdrop-blur-xl shadow-[0_-4px_16px_rgba(9,9,11,0.06)] dark:bg-card/70 dark:border-zinc-800/70 dark:shadow-[0_-4px_16px_rgba(0,0,0,0.45)] pb-[env(safe-area-inset-bottom)]"
     >
       <div className="footer-hairline" aria-hidden="true" />
       <div className="px-4 py-2.5 flex flex-wrap items-center justify-between gap-y-1.5 gap-x-3 text-xs text-foreground/80 dark:text-zinc-300">
@@ -8379,7 +8379,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       </AnimatePresence>
 
       {/* ======================== MAIN CONTENT ======================== */}
-      <main className="flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 pb-10">
+      <main className="flex-1 w-full mx-auto px-4 sm:px-6 lg:px-8 py-4 pb-28">
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
         {/* Quick Launch Bar (Session 13) */}
         {!loading && quickLaunchBarVisible && runningEnvsForQuickLaunch.length > 0 && (

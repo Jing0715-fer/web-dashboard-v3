@@ -640,13 +640,56 @@ async function safeAgentProjects() {
  * heartbeat push (one source of truth). Co-located dashboard projects
  * (deviceId IS NULL) merged with standalone agent-DB projects, each env
  * status refreshed from the live port state.
+ *
+ * DUAL-STORE MERGE (by path): a machine can hold the SAME project in BOTH
+ * stores — the dashboard row (created via the web UI, carries repoUrl) AND
+ * an older standalone agent-DB row (repoUrl ''). Serving both made the
+ * peer's dedupe drop the dashboard row's GitHub link (the card showed no
+ * repo chip) while the pull resolved the agent row and failed with
+ * "No 'origin' remote is configured". One row per path now: the row with
+ * the richer environment list is the base; repoUrl/notes come from
+ * whichever store actually has them.
  */
+function mergeRepoField(a, b) {
+  const av = typeof a === 'string' ? a.trim() : '';
+  const bv = typeof b === 'string' ? b.trim() : '';
+  if (av) return av;
+  if (bv) return bv;
+  return undefined; // neither store knows — omit the key entirely
+}
+
+function normalizePathKey(p) {
+  return String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
 async function buildPeerProjects() {
   const [dashProjects, agentProjects] = await Promise.all([
     listDashProjects(),
     safeAgentProjects(),
   ]);
-  const projects = [...dashProjects, ...agentProjects];
+
+  // One row per path — see the dual-store merge note above.
+  const byPath = new Map();
+  for (const project of [...dashProjects, ...agentProjects]) {
+    const key = normalizePathKey(project.path);
+    const existing = byPath.get(key);
+    if (!existing) {
+      byPath.set(key, project);
+      continue;
+    }
+    const existingEnvs = (existing.environments || []).length;
+    const incomingEnvs = (project.environments || []).length;
+    const base = incomingEnvs > existingEnvs ? project : existing;
+    const other = base === existing ? project : existing;
+    const mergedRepoUrl = mergeRepoField(base.repoUrl, other.repoUrl);
+    const mergedNotes = mergeRepoField(base.notes, other.notes);
+    byPath.set(key, {
+      ...base,
+      ...(mergedRepoUrl !== undefined && { repoUrl: mergedRepoUrl }),
+      ...(mergedNotes !== undefined && { notes: mergedNotes }),
+    });
+  }
+  const projects = Array.from(byPath.values());
 
   const allPorts = projects.flatMap(p => p.environments.map(e => e.port));
   const portChecks = await Promise.all(allPorts.map(p => checkPortStatus(p).then(ok => [p, ok])));
@@ -1052,6 +1095,41 @@ async function readGitVersion(p) {
  *  (no ssh/file URLs: no interactive auth prompts, no local paths). */
 function isHealableRepoUrl(u) {
   return typeof u === 'string' && /^https:\/\/[^\s]+$/i.test(u.trim());
+}
+
+/** Cross-store repoUrl lookup for the pull route: the SAME path may exist
+ *  in the co-located dashboard DB (repoUrl set via the web UI) AND in this
+ *  agent's own DB (repoUrl ''). buildPeerProjects merges the stores for
+ *  listings; pull resolves ONE row — when that row carries no healable
+ *  repoUrl, this finds the link at the same path in either store. */
+async function findRepoUrlByPath(projectPath, excludeId) {
+  const key = normalizePathKey(projectPath);
+  if (dashDb) {
+    try {
+      const cols = await ensureDashColumns();
+      if (cols.has('repoUrl')) {
+        const rows = await dashDb.$queryRawUnsafe(
+          'SELECT "id", "path", "repoUrl" FROM "Project" WHERE "deviceId" IS NULL',
+        );
+        for (const r of rows) {
+          if (String(r && r.id) === excludeId) continue;
+          if (normalizePathKey(r && r.path) === key && isHealableRepoUrl(r && r.repoUrl)) {
+            return String(r.repoUrl).trim();
+          }
+        }
+      }
+    } catch { /* dash DB unavailable */ }
+  }
+  try {
+    const rows = await db.project.findMany({ select: { id: true, path: true, repoUrl: true } });
+    for (const r of rows) {
+      if (r.id === excludeId) continue;
+      if (normalizePathKey(r.path) === key && isHealableRepoUrl(r.repoUrl)) {
+        return String(r.repoUrl).trim();
+      }
+    }
+  } catch { /* agent DB unavailable */ }
+  return null;
 }
 
 /** Make sure the repo at projectPath has an 'origin' remote. Copied/zipped
@@ -1655,7 +1733,7 @@ const server = http.createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.6.0',
+        version: '1.7.0',
         platform: os.platform(),
         arch: os.arch(),
         pid: process.pid,
@@ -1670,6 +1748,7 @@ const server = http.createServer(async (req, res) => {
         smartIp: true,      // gateway-subnet-aware LAN IP detection
         envSanitize: true,  // child-process env sanitization (TURBOPACK leak) + pull origin self-heal
         peerRelay: true,    // caches register-response peer projects; serves them at /api/agent/peer-cache
+        repoMerge: true,    // dual-store listing merge (repoUrl/notes by path) + pull cross-store repoUrl heal
       });
       return;
     }
@@ -1723,6 +1802,15 @@ const server = http.createServer(async (req, res) => {
       if (!fs.existsSync(project.path) || !fs.existsSync(path.join(project.path, '.git'))) {
         sendJSON(res, 400, { error: `Not a git repository: ${project.path}` });
         return;
+      }
+      // repoUrl cross-store heal: the resolved row may be the store WITHOUT
+      // the GitHub link (standalone agent-DB row whose path ALSO has a
+      // dashboard row carrying repoUrl — buildPeerProjects merges them for
+      // the listing; the pull deserves the same union). A healable https
+      // repoUrl at the SAME PATH in either store is enough to wire 'origin'.
+      if (!isHealableRepoUrl(project.repoUrl)) {
+        const altRepoUrl = await findRepoUrlByPath(project.path, String(project.id));
+        if (altRepoUrl) project = { ...project, repoUrl: altRepoUrl };
       }
       try {
         const pullResult = await gitPull(project.path, project.repoUrl);

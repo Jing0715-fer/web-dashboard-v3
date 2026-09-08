@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { proxyToAgent } from '@/lib/remote-agent'
 import { detectLocalAgent } from '@/lib/agent-lifecycle'
+import { logActivity } from '@/lib/activity'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -113,6 +114,67 @@ async function fetchLocalAgentPeerCache(): Promise<RelayEntry[]> {
   } catch { /* local agent down / old agent without the endpoint */ }
   relayCache = { at: Date.now(), entries }
   return entries
+}
+
+/** Auto-register peers discovered through the local agent's relay cache
+ *  (see the comment at the call site). Mutates `devices` by appending the
+ *  freshly created rows so the sync loop below processes them in the same
+ *  pass: short offline probe budget → direct pull fails → relay fallback
+ *  flips the row online and serves the pushed projects. */
+async function registerRelayPeers(
+  devices: { id: string; apiKey: string | null; ip: string | null; port: number; name: string }[],
+  localKeys: Set<string>,
+  peerCachePromise: Promise<RelayEntry[]>,
+): Promise<void> {
+  try {
+    const entries = await peerCachePromise
+    if (!Array.isArray(entries) || entries.length === 0) return
+    const fresh = entries.filter((e) => Date.now() - (e?.at || 0) < PEER_CACHE_FRESH_MS)
+    for (const e of fresh) {
+      const peer = (e && e.peer) || {}
+      const apiKey = String(peer.apiKey || '')
+      const ip = String(peer.ip || '')
+      const port = Number(peer.port) || 0
+      if (!apiKey || !port) continue
+      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) continue
+      // Never register OUR OWN agent mirrored back (a dashboard running on
+      // this same machine answered the heartbeat) — that is the self-mirror
+      // corruption the sync carefully avoids.
+      if (localKeys.has(apiKey) && isLocalAddress(ip)) continue
+      const known =
+        devices.some((d) => d.apiKey === apiKey) ||
+        devices.some((d) => d.ip === ip && d.port === port)
+      if (known) continue
+      const created = await db.device
+        .create({
+          data: {
+            name: String(peer.name || 'Dashboard peer'),
+            ip,
+            port,
+            apiKey,
+            // 'offline' → the first sync probe uses the short 1.5s budget;
+            // the relay fallback in the same pass flips it online.
+            status: 'offline',
+            lastSeen: new Date(Number(e.at) || Date.now()),
+          },
+        })
+        .catch(() => null)
+      if (created) {
+        devices.push(created)
+        console.log(
+          `[remote-sync] relay-registered peer device '${created.name}' (${ip}:${port})`,
+        )
+        logActivity({
+          type: 'pair',
+          level: 'success',
+          message: `Device '${created.name}' auto-registered via heartbeat relay`,
+          deviceId: created.id,
+          deviceName: created.name,
+          detail: `${ip}:${port} — paired through the heartbeat exchange, projects visible read-only`,
+        })
+      }
+    }
+  } catch { /* relay registration is best-effort */ }
 }
 
 /** Record a heartbeat-pushed project list for a device (trusted: the
@@ -301,11 +363,29 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   const devices = allDevices.filter((d) => !isSelfDeviceRow(d, localKeys))
 
   // Peer-cache relay: kick the local agent's cached-entry fetch in parallel
-  // with the direct pulls — it is consulted only inside a device's
-  // pull-failure path (see freshPushFor).
-  const peerCachePromise: Promise<RelayEntry[]> = devices.length > 0
-    ? fetchLocalAgentPeerCache().catch(() => [] as RelayEntry[])
-    : Promise.resolve([] as RelayEntry[])
+  // with the direct pulls — it is consulted inside a device's pull-failure
+  // path (see freshPushFor) AND by registerRelayPeers just below (peers the
+  // relay discovered that have no Device row here get auto-registered).
+  // ALWAYS fetched (not only when rows exist): the relay is exactly how a
+  // machine with ZERO device rows still learns its paired peers.
+  const peerCachePromise: Promise<RelayEntry[]> = fetchLocalAgentPeerCache().catch(
+    () => [] as RelayEntry[],
+  )
+
+  // Relay auto-registration: entries the LOCAL agent cached from heartbeat
+  // responses (each paired dashboard hands its own agent coordinates +
+  // project list back on the response) describe peers THIS machine is paired
+  // with. When such a peer has no Device row here, create it now — the data
+  // rides the one leg that provably works (our outbound heartbeat), so the
+  // peer's projects become visible WITHOUT a manual "join network" on this
+  // side and without either firewall opening an inbound port. Real-world
+  // case: the Mac's agent heartbeats at the Windows dashboard (works), every
+  // direct path back is firewalled, and the join-time mirrored row never
+  // existed — the Mac saw NOTHING of Windows. Trust anchor is identical to
+  // the join-time peer mirroring: the entry came from a dashboard this agent
+  // was deliberately pointed at (pair code), keyed by the peer agent's
+  // apiKey (the heartbeat credential).
+  await registerRelayPeers(devices, localKeys, peerCachePromise)
 
   /** Fresh push data for a device: the direct heartbeat push store first;
    *  otherwise the local agent's peer-cache relay (one-way networks — the

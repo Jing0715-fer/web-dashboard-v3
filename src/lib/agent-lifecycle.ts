@@ -258,6 +258,11 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // the respawn the relayed sync silently degrades to the pre-relay
     // behavior on machines that pulled new dashboard code.
     if (!('peerRelay' in d)) return { outdated: true, why: 'peer project relay' };
+    // v1.7 marker: dual-store listing merge + pull cross-store repoUrl heal —
+    // without it a repoUrl set on the home dashboard never reaches peers
+    // (remote cards lose the GitHub link) and remote pulls fail with
+    // "No 'origin' remote is configured" even though the link exists.
+    if (!('repoMerge' in d)) return { outdated: true, why: 'dual-store repoUrl merge + pull heal' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };
