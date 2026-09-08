@@ -69,19 +69,16 @@ fi
 echo "[OK] Prisma client ready"
 echo
 
-# Initialize database
-if [ ! -f "db/agent.db" ]; then
-    echo "[3/4] Initializing database"
-    mkdir -p db
-    DB_FULLPATH="$(pwd)/db/agent.db"
-    export DATABASE_URL="file:$DB_FULLPATH"
-    if ./node_modules/.bin/prisma db push --skip-generate 2>/dev/null || npx --no-install prisma db push --skip-generate; then
-        echo "[OK] Database initialized"
-    else
-        echo "[WARN] prisma db push failed"
-    fi
+# Sync database schema — ALWAYS (prisma db push is idempotent and additive:
+# new columns like repoUrl/notes land automatically after pulling updates).
+mkdir -p db
+DB_FULLPATH="$(pwd)/db/agent.db"
+export DATABASE_URL="file:$DB_FULLPATH"
+echo "[3/4] Syncing database schema"
+if ./node_modules/.bin/prisma db push --skip-generate 2>/dev/null || npx --no-install prisma db push --skip-generate; then
+    echo "[OK] Database schema in sync"
 else
-    echo "[3/4] Database exists"
+    echo "[WARN] prisma db push failed — continuing with the existing DB"
 fi
 echo
 

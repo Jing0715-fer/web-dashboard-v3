@@ -88,20 +88,17 @@ if not exist "node_modules\.prisma\client\default.js" (
 echo [OK] Prisma client ready
 echo.
 
-REM Database
-if not exist "db\agent.db" (
-    echo [3/4] Initializing database
-    if not exist "db" mkdir db
-    set DB_FULLPATH=!CD!\db\agent.db
-    set DATABASE_URL=file:!DB_FULLPATH!
-    call npx --yes prisma db push --skip-generate
-    if errorlevel 1 (
-        echo [WARN] prisma db push failed
-    ) else (
-        echo [OK] Database initialized
-    )
+REM Sync database schema - ALWAYS (idempotent + additive: new columns like
+REM repoUrl/notes land automatically after pulling updates).
+if not exist "db" mkdir db
+set DB_FULLPATH=!CD!\db\agent.db
+set DATABASE_URL=file:!DB_FULLPATH!
+echo [3/4] Syncing database schema
+call npx --yes prisma db push --skip-generate
+if errorlevel 1 (
+    echo [WARN] prisma db push failed - continuing with the existing DB
 ) else (
-    echo [3/4] Database exists
+    echo [OK] Database schema in sync
 )
 echo.
 

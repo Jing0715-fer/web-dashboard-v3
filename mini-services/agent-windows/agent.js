@@ -370,11 +370,60 @@ if (DASHBOARD_DB_PATH) {
   console.log('[Agent] Serving its local (deviceId IS NULL) projects to remote peers');
 }
 
+// Dashboard-schema capability probe (run once, lazily): older co-located
+// dashboards lack the repoUrl/notes columns - SQL touching them would throw
+// and take the whole listing down. Probe PRAGMA table_info and expose
+// "does the home dashboard know this column?".
+const dashColumns = new Set();
+let dashColumnsProbed = false;
+async function ensureDashColumns() {
+  if (!dashDb || dashColumnsProbed) return dashColumns;
+  dashColumnsProbed = true;
+  try {
+    const rows = await dashDb.$queryRawUnsafe('PRAGMA table_info("Project")');
+    for (const r of rows) if (r && typeof r.name === 'string') dashColumns.add(r.name);
+  } catch (e) { /* unreadable - assume the legacy column set */ }
+  return dashColumns;
+}
+/** Listing column list: base columns + repoUrl/notes when the home
+ *  dashboard's schema has them (so remote peers can sync the GitHub link). */
+async function projectCols() {
+  const cols = await ensureDashColumns();
+  const extra = [
+    cols.has('repoUrl') ? '"repoUrl"' : '',
+    cols.has('notes') ? '"notes"' : '',
+  ].filter(Boolean);
+  return `"id","name","path","description","icon","tags","order","createdAt","updatedAt"${extra.length ? ',' + extra.join(',') : ''}`;
+}
+
+/** Normalize a repo URL: https-only, credentials stripped, '' clears.
+ *  Identical to the dashboard's normalizeRepoUrl so both sides agree. */
+function normalizeRepoUrl(raw) {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (!s) return '';
+  if (!/^https:\/\/[\w.-]+\//i.test(s) && !/^https:\/\/[^/\s]+$/i.test(s)) return '';
+  try {
+    const u = new URL(s);
+    u.username = '';
+    u.password = '';
+    return u.toString().replace(/\/$/, '');
+  } catch (e) { return ''; }
+}
+/** Tags arrive as an ARRAY from the dashboard's edit form but the column is
+ *  a JSON STRING - normalize exactly like the dashboard's own route. */
+function normalizeTagsValue(raw) {
+  if (Array.isArray(raw)) return JSON.stringify(raw.filter((t) => typeof t === 'string'));
+  if (typeof raw === 'string') return raw;
+  return undefined;
+}
+
 // ---- raw-row mappers (SQLite dates come back as numbers/strings) ----
 function toDate(v) { return v instanceof Date ? v : new Date(Number(v) || String(v)); }
 function toInt(v, fallback = 0) { const n = Number(v); return Number.isFinite(n) ? n : fallback; }
 function toPid(v) { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; }
 
+// Base listing columns - the async projectCols() adds repoUrl/notes when
+// the co-located dashboard's schema has them.
 const PROJECT_COLS = '"id","name","path","description","icon","tags","order","createdAt","updatedAt"';
 const ENV_COLS = '"id","projectId","name","cmd","port","envVars","status","pid","createdAt","updatedAt"';
 
@@ -401,6 +450,10 @@ function mapProjectRow(p, envs) {
     description: p.description ?? '',
     icon: p.icon ?? 'folder',
     tags: typeof p.tags === 'string' ? p.tags : JSON.stringify(p.tags || []),
+    // Present only when the home dashboard's schema carries them (dynamic
+    // column list) - undefined keeps older peers' locally-set values alive.
+    ...(p.repoUrl !== undefined && p.repoUrl !== null && { repoUrl: String(p.repoUrl) }),
+    ...(p.notes !== undefined && p.notes !== null && { notes: String(p.notes) }),
     order: toInt(p.order),
     createdAt: toDate(p.createdAt),
     updatedAt: toDate(p.updatedAt),
@@ -429,7 +482,7 @@ async function listDashProjects() {
   if (!dashDb) return [];
   try {
     const rows = await dashDb.$queryRawUnsafe(
-      `SELECT ${PROJECT_COLS} FROM "Project" WHERE "deviceId" IS NULL ORDER BY "order" ASC, "updatedAt" DESC`
+      `SELECT ${await projectCols()} FROM "Project" WHERE "deviceId" IS NULL ORDER BY "order" ASC, "updatedAt" DESC`
     );
     const envs = await dashEnvsFor(rows.map((r) => r.id));
     return rows.map((r) => mapProjectRow(r, envs.get(r.id) || []));
@@ -443,7 +496,7 @@ async function getDashProject(id) {
   if (!dashDb) return null;
   try {
     const rows = await dashDb.$queryRawUnsafe(
-      `SELECT ${PROJECT_COLS} FROM "Project" WHERE "id" = ? AND "deviceId" IS NULL`, id
+      `SELECT ${await projectCols()} FROM "Project" WHERE "id" = ? AND "deviceId" IS NULL`, id
     );
     if (rows.length === 0) return null;
     const envs = await dashEnvsFor([id]);
@@ -1545,14 +1598,22 @@ const server = http.createServer(async (req, res) => {
       // Dash-managed project → update the dashboard DB row (same data the
       // local UI reads).
       if (dashDb && (await getDashProject(projectId))) {
+        // repoUrl/notes are persisted when the home dashboard's schema has
+        // the columns - that's what makes a GitHub link configured on a
+        // REMOTE dashboard appear on the project's home machine too.
+        const cols = await ensureDashColumns();
         const sets = [];
         const params = [];
-        for (const field of ['name', 'description', 'icon', 'tags']) {
+        const tagsNorm = normalizeTagsValue(body.tags);
+        for (const field of ['name', 'description', 'icon']) {
           if (body[field] !== undefined) {
             sets.push(`"${field}" = ?`);
             params.push(String(body[field]));
           }
         }
+        if (tagsNorm !== undefined) { sets.push('"tags" = ?'); params.push(tagsNorm); }
+        if (body.repoUrl !== undefined && cols.has('repoUrl')) { sets.push('"repoUrl" = ?'); params.push(normalizeRepoUrl(body.repoUrl)); }
+        if (body.notes !== undefined && cols.has('notes')) { sets.push('"notes" = ?'); params.push(String(body.notes).slice(0, 20000)); }
         if (sets.length > 0) {
           sets.push('"updatedAt" = ?');
           params.push(Date.now());
@@ -1562,13 +1623,16 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 200, { project: await getDashProject(projectId) });
         return;
       }
+      const tagsNorm = normalizeTagsValue(body.tags);
       const project = await db.project.update({
         where: { id: projectId },
         data: {
           ...(body.name !== undefined && { name: body.name }),
           ...(body.description !== undefined && { description: body.description }),
           ...(body.icon !== undefined && { icon: body.icon }),
-          ...(body.tags !== undefined && { tags: body.tags }),
+          ...(tagsNorm !== undefined && { tags: tagsNorm }),
+          ...(body.repoUrl !== undefined && { repoUrl: normalizeRepoUrl(body.repoUrl) }),
+          ...(body.notes !== undefined && { notes: String(body.notes).slice(0, 20000) }),
         },
         include: { environments: true },
       });

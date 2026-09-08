@@ -38,7 +38,20 @@ function getArg(name: string, defaultValue: string): string {
 }
 
 const PORT = parseInt(getArg('port', '3100'), 10);
-const API_KEY = getArg('apiKey', randomBytes(32).toString('hex'));
+// API key resolution: CLI arg > PERSISTED agent-config.json > fresh random.
+// Reading the persisted key back is what keeps the identity STABLE across
+// restarts — without it every restart minted a NEW random key, the heartbeat
+// re-register then failed with 400 ("key unknown to this dashboard") and
+// every proxied dashboard call (PUT/GET) died with 401 Unauthorized
+// (user report: editing a remote project's GitHub link). The JS agent
+// variants (agent-linux/macos/windows) already resolve this way.
+const CONFIG_PATH = resolve(process.cwd(), 'agent-config.json');
+function readPersistedConfig(): Record<string, unknown> {
+  try { return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')); } catch { return {}; }
+}
+const PERSISTED_IDENTITY = readPersistedConfig();
+const PERSISTED_API_KEY = typeof PERSISTED_IDENTITY.apiKey === 'string' && PERSISTED_IDENTITY.apiKey ? PERSISTED_IDENTITY.apiKey : '';
+const API_KEY = getArg('apiKey', PERSISTED_API_KEY || randomBytes(32).toString('hex'));
 const AGENT_NAME = getArg('name', hostname());
 const HOST = IS_WINDOWS ? '0.0.0.0' : getArg('host', '0.0.0.0');
 const DASHBOARD_URL = getArg('dashboard', '').replace(/\/+$/, '');
@@ -77,10 +90,6 @@ function lanIpCandidates(): string[] {
 // dashboard backend can auto-discover this agent (GET /api/mesh/local-agent
 // reads agent-config.json) and the heartbeat target survives restarts.
 // Merged with any existing file so extra fields survive.
-const CONFIG_PATH = resolve(process.cwd(), 'agent-config.json');
-function readPersistedConfig(): Record<string, unknown> {
-  try { return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')); } catch { return {}; }
-}
 function persistConfig(): void {
   try {
     writeFileSync(CONFIG_PATH, JSON.stringify({
@@ -138,6 +147,70 @@ const dbPath = resolve(process.cwd(), 'db', 'agent.db');
 const db = new PrismaClient({
   datasources: { db: { url: `file:${dbPath}` } },
 });
+
+// ======================== HOME-DASHBOARD MIRROR ========================
+
+// Co-located dashboard DB: when this agent runs inside a web-dashboard-v3
+// checkout (mini-services/agent-win → <repo root>/db/custom.db), the
+// machine's OWN dashboard keeps its local project rows there. Mirroring
+// dashboard-level edits (repoUrl/notes/name/…) into that DB makes the
+// project's home dashboard show the same GitHub link that the REMOTE
+// dashboard just configured. Detection mirrors the JS agent variants
+// (agent-linux/macos/windows): --dashboardDb arg > agent-config.json field
+// > the default ../../db/custom.db walk-up. Only RAW SQL runs against it —
+// the generated client schema doesn't model the dashboard's columns.
+const DASHBOARD_DB_ARG = getArg('dashboardDb', String(readPersistedConfig().dashboardDb || ''));
+function detectDashboardDb(): string | null {
+  const candidates: string[] = [];
+  if (DASHBOARD_DB_ARG) candidates.push(resolve(DASHBOARD_DB_ARG));
+  candidates.push(resolve(process.cwd(), '..', '..', 'db', 'custom.db'));
+  for (const c of candidates) {
+    try { if (existsSync(c)) return c; } catch { /* unreadable */ }
+  }
+  return null;
+}
+const DASHBOARD_DB_PATH = detectDashboardDb();
+const dashDb = DASHBOARD_DB_PATH
+  ? new PrismaClient({ datasources: { db: { url: `file:${DASHBOARD_DB_PATH}` } } })
+  : null;
+if (DASHBOARD_DB_PATH) {
+  console.log(`[Agent] Co-located dashboard DB: ${DASHBOARD_DB_PATH}`);
+  console.log('[Agent] Project edits will mirror into the home dashboard');
+}
+
+/** Mirror a project edit into the co-located dashboard DB (best-effort):
+ *  updates the row ONLY when it exists there as a LOCAL project
+ *  (deviceId IS NULL keeps the mesh mirror loop-free). Unknown columns on
+ *  an older dashboard schema simply throw → caught by the caller. */
+async function dualWriteDashProject(projectId: string, fields: Record<string, string>): Promise<void> {
+  if (!dashDb || Object.keys(fields).length === 0) return;
+  const sets = Object.keys(fields).map((k) => `"${k}" = ?`);
+  const params = Object.values(fields);
+  sets.push('"updatedAt" = ?');
+  params.push(String(Date.now()));
+  params.push(projectId);
+  const res = await dashDb.$executeRawUnsafe(
+    `UPDATE "Project" SET ${sets.join(', ')} WHERE "id" = ? AND "deviceId" IS NULL`,
+    ...params,
+  );
+  if (res > 0) console.log(`[Agent] Mirrored project edit into home dashboard DB (${res} row)`);
+}
+
+/** Normalize a repo URL: https-only, credentials stripped, '' clears.
+ *  Identical to the dashboard's normalizeRepoUrl so both sides agree. */
+function normalizeRepoUrl(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.trim() : '';
+  if (!s) return '';
+  if (!/^https:\/\/[\w.-]+\//i.test(s) && !/^https:\/\/[^/\s]+$/i.test(s)) return '';
+  try {
+    const u = new URL(s);
+    u.username = '';
+    u.password = '';
+    return u.toString().replace(/\/$/, '');
+  } catch {
+    return '';
+  }
+}
 
 // ======================== LOG DIRECTORY (Cross-Platform) ========================
 
@@ -633,16 +706,44 @@ const server = createServer(async (req, res) => {
     if (projectMatch && req.method === 'PUT') {
       const projectId = projectMatch[1];
       const body = await getBody(req);
+      // The dashboard's edit form sends tags as an ARRAY while older agents
+      // wrote it straight into Prisma (String column) → validation error.
+      // Normalize to a JSON string, exactly like the dashboard's own route.
+      const tagsStr = Array.isArray(body.tags) ? JSON.stringify(body.tags.filter((t: unknown) => typeof t === 'string')) : (typeof body.tags === 'string' ? body.tags : undefined);
+      // repoUrl: https-only, credentials stripped ('' clears) — mirrors the
+      // dashboard's normalizeRepoUrl. notes: capped like the dashboard.
+      const repoUrlNorm = typeof body.repoUrl === 'string' ? normalizeRepoUrl(body.repoUrl) : undefined;
+      const notesNorm = body.notes !== undefined ? String(body.notes).slice(0, 20000) : undefined;
       const project = await db.project.update({
         where: { id: projectId },
         data: {
           ...(body.name !== undefined && { name: body.name }),
           ...(body.description !== undefined && { description: body.description }),
           ...(body.icon !== undefined && { icon: body.icon }),
-          ...(body.tags !== undefined && { tags: body.tags }),
+          ...(tagsStr !== undefined && { tags: tagsStr }),
+          ...(repoUrlNorm !== undefined && { repoUrl: repoUrlNorm }),
+          ...(notesNorm !== undefined && { notes: notesNorm }),
         },
         include: { environments: true },
       });
+      // Home-machine write-back: when this agent runs BESIDE the project's
+      // home dashboard (same machine), a local row with the same id may live
+      // in ITS database (db/custom.db at the repo root). Mirror the
+      // dashboard-level fields there so the project's home dashboard ALSO
+      // shows the GitHub link / notes. Raw SQL + try/catch: the co-located
+      // DB may be absent or an older schema — both are non-fatal.
+      if (repoUrlNorm !== undefined || notesNorm !== undefined || tagsStr !== undefined) {
+        try {
+          await dualWriteDashProject(projectId, {
+            ...(repoUrlNorm !== undefined && { repoUrl: repoUrlNorm }),
+            ...(notesNorm !== undefined && { notes: notesNorm }),
+            ...(tagsStr !== undefined && { tags: tagsStr }),
+            ...(body.name !== undefined && { name: String(body.name) }),
+            ...(body.description !== undefined && { description: String(body.description) }),
+            ...(body.icon !== undefined && { icon: String(body.icon) }),
+          });
+        } catch { /* best-effort mirror — see dualWriteDashProject */ }
+      }
       sendJSON(res, 200, { project });
       return;
     }

@@ -14,6 +14,8 @@ model Project {
   description String        @default("")
   icon        String        @default("folder")
   tags        String        @default("[]")
+  repoUrl     String        @default("")
+  notes       String        @default("")
   order       Int           @default(0)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt

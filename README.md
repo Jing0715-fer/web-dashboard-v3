@@ -83,6 +83,7 @@ If you pulled a while ago and dev is already failing, run `bun install` once
 |---|---|---|
 | `Module not found: Can't resolve 'fzstd'` | new dependency in `node_modules` | `bun install` |
 | Prisma `Unknown argument 'repoUrl'. Available options are marked with ?` | regenerated Prisma Client | `bun install` (prisma is trusted → auto-generates) or `bunx prisma db push` |
+| Remote project edit → `Unauthorized` / `设备「…」的 agent API 密钥不匹配` | device agent key rotation | see "Remote edit returns 401" below |
 
 > Why this happens: `bun install` skips dependency postinstall scripts unless
 > the package is listed in `trustedDependencies` — a stale
@@ -125,6 +126,35 @@ bun run dev
 > Tip: avoid the situation entirely — commit your local changes (or
 > `git stash`) BEFORE pulling, and resolve any conflicts the pull reports
 > before starting dev.
+
+### Remote edit returns 401 ("Unauthorized" / agent 密钥不匹配)
+
+Editing a remote project (e.g. setting its GitHub link) failed with a 401?
+The device-side agent's API key no longer matches the key this dashboard
+stores. Root cause: older TS agents (`mini-services/agent`, `agent-win`)
+minted a **fresh random key on every restart** — the heartbeat re-register
+refuses unknown keys, so the dashboard keeps the old one and every proxied
+call dies with 401. (The repoUrl you typed is still saved in the local
+cached row, so it re-appears once the device is fixed.)
+
+Fix — pull this update on the DEVICE machine, restart its agent (the agent
+now keeps a stable persisted key), then re-pair once:
+
+1. On the dashboard: Devices → pair/generate a pair code.
+2. On the device: re-register the agent with that code (the pair dialog
+   shows the exact curl/CLI command).
+
+After re-pairing, keys stay stable across agent restarts — the agent reads
+its key back from `agent-config.json` (CLI arg > persisted > fresh random).
+
+### Agent updates (device machines)
+
+After pulling on a device machine, restart its agent — the start scripts now
+self-heal the agent DB schema (`prisma db push`, idempotent + additive), so
+new columns (e.g. `repoUrl`/`notes`) land automatically. The GitHub link and
+notes configured on a remote dashboard are persisted by the agent AND
+mirrored into the co-located home dashboard's database, so the project's
+home machine shows the same GitHub link.
 
 ### Remote devices
 

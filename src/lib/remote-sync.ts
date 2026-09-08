@@ -322,7 +322,14 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
       // Older agents don't send repoUrl at all (undefined) — in that case skip
       // the field entirely so a locally-set value on the cached row survives;
       // a string (incl. '') means the agent did report it.
-      const agentRepoUrl = typeof remote.repoUrl === 'string' ? remote.repoUrl.trim() : undefined
+      // NEW agents with the repoUrl column report '' when the home machine
+      // never had a link. An agent-reported '' would clobber a link that was
+      // set HERE before the device upgraded its agent (the dashboard PUT
+      // persisted it locally even when the proxy call failed). Treat '' as
+      // "agent doesn't know" → keep the cached value; non-empty strings flow
+      // through normally (multi-dashboard propagation).
+      const agentRepoUrlRaw = typeof remote.repoUrl === 'string' ? remote.repoUrl.trim() : undefined
+      const agentRepoUrl = agentRepoUrlRaw === '' ? undefined : agentRepoUrlRaw
       const cached = cachedById.get(remote.id)
       if (
         cached &&
