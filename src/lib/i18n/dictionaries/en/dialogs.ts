@@ -203,6 +203,8 @@ export const dialogs = {
   'dlg.llm.savedToast': 'LLM configuration saved',
   'dlg.llm.savedToastDesc': 'Project analysis, auto-repair and the agent layer have switched',
   'dlg.llm.saveFailed': 'Failed to save config',
+  'dlg.llm.saveFailedServer': 'Server returned an error — check the server logs',
+  'dlg.llm.loadFailed': 'Failed to load LLM config (server unresponsive or DB busy) — retry and check the server logs',
   // ---- Auto-repair engine (legacy tool loop vs. delegated agent CLI) ----
   'dlg.llm.repairEngine': 'AI Auto-Repair Engine',
   'dlg.llm.repairModeLegacy': 'Built-in tool loop (legacy)',
@@ -877,6 +879,7 @@ export const dialogs = {
   'dlg.toast.replaceEnvs': 'Replacing environments…',
   'dlg.toast.detectEnvs': 'Detecting environments…',
   'dlg.toast.analyzingOn': '{project} — analyzing on {device}',
+  'dlg.toast.analyzingLocalDesc': '{project} — running LLM analysis locally, results auto-apply when done',
   'dlg.toast.envsReplaced': 'Environments replaced',
   'dlg.toast.envsDetected': 'Environments detected',
   'dlg.toast.envsCreatedDesc': 'Created {count} environments: {list}',

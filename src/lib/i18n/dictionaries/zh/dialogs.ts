@@ -199,6 +199,8 @@ export const dialogs = {
   'dlg.llm.savedToast': 'LLM 配置已保存',
   'dlg.llm.savedToastDesc': '项目分析、自动修复与 Agent 层已同步切换',
   'dlg.llm.saveFailed': '保存配置失败',
+  'dlg.llm.saveFailedServer': '服务器返回错误 — 请查看服务端日志',
+  'dlg.llm.loadFailed': '加载 LLM 配置失败（服务器无响应或数据库被占用）— 请刷新重试，并检查服务端日志',
   // ---- Auto-repair engine (legacy tool loop vs. delegated agent CLI) ----
   'dlg.llm.repairEngine': 'AI 自动修复引擎',
   'dlg.llm.repairModeLegacy': '内置工具循环（legacy）',
@@ -873,6 +875,7 @@ export const dialogs = {
   'dlg.toast.replaceEnvs': '正在替换环境…',
   'dlg.toast.detectEnvs': '正在检测环境…',
   'dlg.toast.analyzingOn': '{project} — 正在 {device} 上分析',
+  'dlg.toast.analyzingLocalDesc': '{project} — 正在本机运行 LLM 分析，完成后自动应用',
   'dlg.toast.envsReplaced': '环境已替换',
   'dlg.toast.envsDetected': '环境已检测',
   'dlg.toast.envsCreatedDesc': '已创建 {count} 个环境：{list}',

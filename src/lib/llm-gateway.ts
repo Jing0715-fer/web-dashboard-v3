@@ -20,6 +20,34 @@ import { db } from '@/lib/db';
 
 export const MODEL_ID = 'glm-4-plus';
 
+// ============================= hang hardening =============================
+// Real-machine incident class: ONE upstream call that never settles (SDK
+// without timeouts + a network-black-holed endpoint) used to wedge the
+// serializing queue forever — every subsequent LLM call (analysis, chat,
+// repair) then hung with zero feedback. Three guards:
+//   1. per-call watchdog on the z-ai SDK (which has no timeout of its own);
+//   2. bounded queue wait in serializeUpstream — a stuck inflight is
+//      ABANDONED (epoch-guarded) so the gateway self-heals;
+//   3. a short breaker cooldown after a watchdog trip so later calls fail
+//      fast with the real reason instead of piling onto a dead upstream.
+const ZAI_CALL_BUDGET_MS = 300_000; // total budget incl. 429/5xx retries + backoff
+const ZAI_BROKEN_COOLDOWN_MS = 120_000;
+const MAX_QUEUE_WAIT_MS = 60_000;
+const PROXY_TIMEOUT_MS = 300_000; // was 600s — halved: interactive UX matters
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: any = null;
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${label}: no upstream response within ${Math.round(ms / 1000)}s (watchdog)`)),
+        ms,
+      );
+    }),
+  ]).finally(() => { if (timer) clearTimeout(timer); });
+}
+
 export interface GatewayConfig {
   mode?: 'zai' | 'proxy';
   provider?: string;
@@ -72,12 +100,21 @@ interface GatewayRuntime {
   zai: any;
   zaiInitPromise: Promise<any> | null;
   inflight: Promise<any> | null;
+  /** Monotonic slot generation: a stale inflight's .finally must never
+   * clobber a NEWER call's slot (the old call may settle minutes late). */
+  inflightEpoch: number;
   lastCallAt: number;
+  /** Breaker: after a watchdog trip, zai calls fail fast until this time. */
+  zaiBrokenUntil: number;
+  zaiBrokenReason: string;
 }
 
 function rt(): GatewayRuntime {
   if (!g.__llmGatewayRuntime) {
-    g.__llmGatewayRuntime = { zai: null, zaiInitPromise: null, inflight: null, lastCallAt: 0 } satisfies GatewayRuntime;
+    g.__llmGatewayRuntime = {
+      zai: null, zaiInitPromise: null, inflight: null, inflightEpoch: 0,
+      lastCallAt: 0, zaiBrokenUntil: 0, zaiBrokenReason: '',
+    } satisfies GatewayRuntime;
   }
   return g.__llmGatewayRuntime;
 }
@@ -105,16 +142,42 @@ async function getZai(): Promise<any> {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-/** Serialize upstream calls + space them out to stay under rate limits. */
+/** Serialize upstream calls + space them out to stay under rate limits.
+ *
+ * HARDENED: the wait for the current inflight is BOUNDED. A black-holed
+ * upstream (endpoint unreachable at the TCP level, SDK call without its own
+ * timeout) used to wedge this queue forever — every later caller starved in
+ * the `while (st.inflight)` loop. Now a stuck inflight is abandoned after
+ * MAX_QUEUE_WAIT and the queue recovers; the epoch guard keeps the zombie
+ * promise's late .finally from clearing a NEWER call's slot. */
 async function serializeUpstream(fn: () => Promise<any>): Promise<any> {
   const st = rt();
-  while (st.inflight) {
-    try { await st.inflight; } catch { /* proceed regardless */ }
+  if (st.inflight) {
+    const settled = await Promise.race([
+      st.inflight.then(() => true, () => true),
+      sleep(MAX_QUEUE_WAIT_MS).then(() => false),
+    ]);
+    if (!settled) {
+      const zombieEpoch = st.inflightEpoch;
+      console.warn(
+        `[llm-gateway] inflight upstream call exceeded ${MAX_QUEUE_WAIT_MS / 1000}s — abandoning it to unblock the queue`,
+      );
+      // Only clear if nobody else already took over the slot.
+      if (st.inflightEpoch === zombieEpoch) st.inflight = null;
+    }
+    // If a NEW call grabbed the slot while we waited, proceed anyway — a
+    // bounded burst of two concurrent upstream calls beats a permanent wedge.
   }
   const wait = 350 - (Date.now() - st.lastCallAt);
-  if (wait > 0) await new Promise(r => setTimeout(r, wait));
-  const p = fn().finally(() => { st.lastCallAt = Date.now(); st.inflight = null; });
-  st.inflight = p;
+  if (wait > 0) await sleep(wait);
+  const epoch = ++st.inflightEpoch;
+  const p = fn().finally(() => {
+    if (st.inflightEpoch === epoch) {
+      st.lastCallAt = Date.now();
+      st.inflight = null;
+    }
+  });
+  if (st.inflightEpoch === epoch) st.inflight = p;
   return p;
 }
 
@@ -129,7 +192,10 @@ async function createWithRetry(client: any, payload: any, retries = 6): Promise<
       const msg = String(err?.message || err);
       const ratey = /429|too many|rate limit/i.test(msg) || err?.status === 429;
       const transienty = /5\d\d|timeout|econn|socket hang up/i.test(msg);
-      if ((ratey || transienty) && i < retries) {
+      // Watchdog trips are NOT retried: the upstream is black-holed, and
+      // retrying just burns another full budget while the caller waits.
+      const watchdog = /\(watchdog\)/.test(msg);
+      if ((ratey || transienty) && !watchdog && i < retries) {
         const delay = ratey ? 5000 + 4000 * i : 1500 * (i + 1);
         console.log(`[llm-gateway] retry ${i + 1}/${retries} after ${delay}ms: ${msg.slice(0, 120)}`);
         await sleep(delay);
@@ -190,7 +256,7 @@ export async function runChatCompletion(body: any): Promise<CompletionOutcome> {
             Authorization: `Bearer ${target.apiKey}`,
           },
           body: JSON.stringify(outBody),
-          signal: AbortSignal.timeout(600_000),
+          signal: AbortSignal.timeout(PROXY_TIMEOUT_MS),
         });
       } catch (err: any) {
         lastErr = String(err?.message || err);
@@ -212,9 +278,46 @@ export async function runChatCompletion(body: any): Promise<CompletionOutcome> {
   }
 
   // ---- z-ai mode ----
-  const client = await getZai();
-  const completion = await createWithRetry(client, sanitize(body));
+  const st = rt();
+  if (st.zaiBrokenUntil > Date.now()) {
+    throw new Error(st.zaiBrokenReason || 'Built-in Z.ai SDK upstream is failing (breaker open)');
+  }
+  let client: any;
+  try {
+    client = await getZai();
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (/configuration file not found/i.test(msg)) {
+      throw new Error(
+        '内置 Z.ai SDK 在此机器上不可用（未找到 .z-ai-config 配置，它是沙箱环境专属的）。' +
+        '请在顶栏 Settings → LLM Configuration 中切换为自定义 Provider（DeepSeek / Moonshot / 任意 OpenAI 兼容端点），' +
+        '填写可连通的 Base URL 与 API Key 后保存。',
+      );
+    }
+    throw err;
+  }
+  try {
+    const completion = await withTimeout(
+      createWithRetry(client, sanitize(body)),
+      ZAI_CALL_BUDGET_MS,
+      'Built-in Z.ai SDK call',
+    );
+    return finishZaiCompletion(completion, wantsStream);
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (/\(watchdog\)/.test(msg)) {
+      st.zaiBrokenUntil = Date.now() + ZAI_BROKEN_COOLDOWN_MS;
+      st.zaiBrokenReason =
+        `内置 Z.ai SDK 上游 ${ZAI_CALL_BUDGET_MS / 1000}s 无响应（疑似网络黑洞），熔断 ${ZAI_BROKEN_COOLDOWN_MS / 1000}s 内快速失败。` +
+        '若是自定义 Provider 场景请检查 Base URL 连通性；稍后自动重试。';
+      console.warn(`[llm-gateway] ${st.zaiBrokenReason}`);
+    }
+    throw err;
+  }
+}
 
+/** Shared zai-mode response shaping (stream vs aggregate). */
+async function finishZaiCompletion(completion: any, wantsStream: boolean): Promise<CompletionOutcome> {
   if (!wantsStream) {
     const data = completion instanceof ReadableStream ? await aggregateStream(completion) : completion;
     return { kind: 'json', data };

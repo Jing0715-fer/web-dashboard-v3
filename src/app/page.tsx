@@ -2673,6 +2673,10 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
   const [modelNote, setModelNote] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  // Config-load failure surfaced in the dialog (server unreachable / DB
+  // stall) — previously the catch swallowed it and the form silently showed
+  // defaults, which read as "dialog stuck / settings lost".
+  const [loadError, setLoadError] = React.useState('')
   // ---- auto-repair engine (legacy tool loop vs. delegated agent CLI) ----
   const [repairMode, setRepairMode] = React.useState<'legacy' | 'cli'>('legacy')
   // Select value: 'auto' | a known CLI id | 'custom' (template below).
@@ -2700,7 +2704,9 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
       if (key) params.set('apiKey', key)
       if (useSavedKey) params.set('useSavedKey', '1')
       if (base) params.set('baseUrl', base)
-      const r = await fetch(`/api/llm-config/models?${params.toString()}`)
+      const r = await fetch(`/api/llm-config/models?${params.toString()}`, {
+        signal: AbortSignal.timeout(20_000),
+      })
       const data = await r.json()
       if (Array.isArray(data.models) && data.models.length > 0) {
         setModels(data.models)
@@ -2725,7 +2731,9 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
   const detectClis = React.useCallback(async () => {
     setDetecting(true)
     try {
-      const r = await fetch('/api/llm-config/detect-repair-cli')
+      const r = await fetch('/api/llm-config/detect-repair-cli', {
+        signal: AbortSignal.timeout(30_000),
+      })
       const data = await r.json()
       const clis: DetectedCliInfo[] = Array.isArray(data.clis) ? data.clis : []
       setDetectedClis(clis)
@@ -2745,9 +2753,14 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
       // Use requestAnimationFrame to avoid synchronous setState in effect
       const id = requestAnimationFrame(() => {
         setLoading(true)
-        fetch('/api/llm-config')
+        setLoadError('')
+        fetch('/api/llm-config', { signal: AbortSignal.timeout(20_000) })
           .then((r) => r.json())
           .then((data) => {
+            if (!data || data.error) {
+              setLoadError(data?.error || t('dlg.llm.loadFailed'))
+              return
+            }
             setProvider(data.provider || 'zai')
             setSavedProvider(data.provider || 'zai')
             setApiKey(data.apiKey || '')
@@ -2777,13 +2790,13 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
               void fetchModels(data.provider || 'zai', '', data.baseUrl || '')
             }
           })
-          .catch(() => {})
+          .catch(() => { setLoadError(t('dlg.llm.loadFailed')) })
           .finally(() => setLoading(false))
         void detectClis()
       })
       return () => cancelAnimationFrame(id)
     }
-  }, [open, fetchModels, detectClis])
+  }, [open, fetchModels, detectClis, t])
 
   const handleProviderChange = (id: string) => {
     setProvider(id)
@@ -2832,10 +2845,16 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(20_000),
       })
       if (res.ok) {
         toast({ title: t('dlg.llm.savedToast'), description: t('dlg.llm.savedToastDesc'), variant: 'success' })
         onClose()
+      } else {
+        // 4xx/5xx used to be silent (only network errors toasted) — the user
+        // clicked save, the dialog stayed open, nothing happened.
+        const err = await res.json().catch(() => ({}))
+        toast({ title: t('dlg.llm.saveFailed'), description: summarizeError(err?.error) || t('dlg.llm.saveFailedServer'), variant: 'destructive' })
       }
     } catch {
       toast({ title: t('dlg.llm.saveFailed'), variant: 'destructive' })
@@ -2859,6 +2878,11 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
           <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
         ) : (
           <div className="space-y-3.5">
+            {loadError && (
+              <div className="rounded-md border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-xs px-3 py-2.5">
+                {loadError}
+              </div>
+            )}
             <div className="space-y-1">
               <Label>{t('dlg.llm.provider')}</Label>
               <Select value={provider} onValueChange={handleProviderChange}>
@@ -6863,6 +6887,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // The agent installs deps, generates the startup command and auto-debugs
   // it until the service boots.
   const startHarnessAnalysis = React.useCallback(async (projectId: string, name: string, path: string) => {
+    // Immediate feedback: this POST previously showed NOTHING until a
+    // response arrived — a slow/hung server left the click looking dead
+    // ("re-fetch env 没有反应" symptom).
+    const hasEnvs = (projects.find(p => p.id === projectId)?.environments?.length ?? 0) > 0
+    toast({ title: hasEnvs ? t('dlg.toast.replaceEnvs') : t('dlg.toast.detectEnvs'), description: t('dlg.toast.analyzingLocalDesc', { project: name }) })
     try {
       // usedPorts hint: every env port in the DB + the dashboard's own port +
       // the mesh-agent scan range (3100-3105, see AGENT_SCAN_PORTS in
@@ -6877,6 +6906,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path, name, projectId, usedPorts }),
+        signal: AbortSignal.timeout(60_000),
       })
       if (res.ok) {
         const data = await res.json()
@@ -6892,7 +6922,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } catch (e: any) {
       toast({ title: t('dlg.toast.analysisStartFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
     }
-  }, [projects, toast])
+  }, [projects, toast, t])
 
   const handleProjectSubmit = React.useCallback(async (data: { name: string; path: string; description: string; icon: string; tags: string[]; deviceId: string | null; repoUrl?: string }) => {
     try {
