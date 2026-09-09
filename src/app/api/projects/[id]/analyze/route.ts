@@ -4,6 +4,7 @@ import { readProjectDir, checkPortStatus, batchCheckPorts } from '@/lib/process-
 import { callLLM } from '@/lib/llm-providers';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
+import { isAllowedCommand } from '@/lib/cmd-allowlist';
 
 const SYSTEM_PROMPT = 'You are a DevOps expert that analyzes project structures and generates startup configurations. Always respond with valid JSON only. Ensure all port numbers are different between environments and all IP addresses are valid.';
 
@@ -168,10 +169,11 @@ CRITICAL Rules:
       const envPort = Number(env.port);
       if (!Number.isInteger(envPort) || envPort < 1 || envPort > 65535) continue;
 
-      // Validate command - must start with a known safe prefix
+      // Validate command — shared allowlist (src/lib/cmd-allowlist.ts) accepts
+      // the shell prologues the LLM/agent emits (VAR=value assignments,
+      // `unset PORT &&` guards) while still guarding the first real word.
       const cmdStr = String(env.cmd || '').trim();
-      const safeCmdPrefixes = ['npm', 'npx', 'yarn', 'pnpm', 'bun', 'python', 'python3', 'go', 'cargo', 'make', 'node', 'deno', 'flask', 'gunicorn', 'uvicorn', 'django', 'dotnet', 'php', 'ruby', 'rails', 'bundle', 'docker', 'sh', 'bash', './'];
-      const isSafe = safeCmdPrefixes.some(prefix => cmdStr.startsWith(prefix));
+      const isSafe = isAllowedCommand(cmdStr);
       if (!isSafe || cmdStr.length > 500) continue;
 
       // Validate envVars is an object

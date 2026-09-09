@@ -7,6 +7,7 @@ import { homedir, tmpdir } from 'os';
 // parsing, tree kills. On Windows lsof/ss/ps/kill(-pid) do not exist, and the
 // previous Unix-only checks made every Start fail its 30s health verification.
 import { IS_WINDOWS, tcpPortOpen, findPidsOnPortWindows, netstatListeningWindows, killTree } from '@/lib/port-utils';
+import { stripShellPrologue } from '@/lib/cmd-allowlist';
 
 const execp = promisify(exec);
 
@@ -279,12 +280,14 @@ function isCommandSafe(cmd: string): boolean {
     'celery', 'rq',
   ];
   
-  // Check if command starts with a safe prefix.
-  // Skip ALL leading VAR=value env prefixes (e.g. "NODE_ENV=production PORT=4211 node …").
-  // LLM-generated commands frequently carry several assignments; skipping only
-  // one made valid verified commands fail the whitelist at start time.
-  // The value may contain '/' (e.g. file paths) — we must NOT split the value on '/'.
-  const tokens = trimmed.split(/\s+/);
+  // Determine the first REAL command word, skipping the shell prologues the
+  // dsh agent emits before it: VAR=value assignments, `unset NAME [&&]`
+  // guards (stray PORT/TURBOPACK leaks interfered with the server under
+  // test), `export VAR=value [&&]`, and stray '&&' separators. Shared helper
+  // (src/lib/cmd-allowlist.ts) — token walk below kept for values that carry
+  // '/' or '=' inside.
+  const stripped = stripShellPrologue(trimmed);
+  const tokens = stripped.split(/\s+/);
   let idx = 0;
   while (idx < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[idx])) idx++;
   let firstToken = tokens[idx] || '';

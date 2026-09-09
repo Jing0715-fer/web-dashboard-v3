@@ -729,6 +729,28 @@ function getProcessKey(projectId, envName) {
  * Check if a command is safe to execute.
  * Blocks dangerous commands and only allows whitelisted executables.
  */
+/**
+ * Strip shell prologues the dashboard's LLM agent (dsh) emits before the
+ * real command: VAR=value assignments, `unset NAME [&&]` guards (stray
+ * PORT/TURBOPACK leaks interfered with the server under test),
+ * `export VAR=value [&&]`, and stray '&&' separators. Mirrors
+ * src/lib/cmd-allowlist.ts on the dashboard side.
+ */
+function stripShellPrologue(cmdStr) {
+  let s = String(cmdStr || '').trim();
+  for (let i = 0; i < 8; i++) {
+    const next = s
+      .replace(/^[A-Za-z_][A-Za-z0-9_]*=\S*\s+(?=\S)/, '')
+      .replace(/^unset\s+[A-Za-z_][A-Za-z0-9_]*(?:\s+[A-Za-z_][A-Za-z0-9_]*)*\s*(?:&&\s*)?/i, '')
+      .replace(/^export\s+[A-Za-z_][A-Za-z0-9_]*=\S*\s*(?:&&\s*)?/i, '')
+      .replace(/^&&\s*/, '')
+      .trimStart();
+    if (next === s) break;
+    s = next;
+  }
+  return s;
+}
+
 function isCommandSafe(cmd) {
   // Block dangerous commands
   const blocked = [
@@ -749,7 +771,9 @@ function isCommandSafe(cmd) {
     'cmd', 'powershell', 'pwsh',  // Windows common
     'npm.cmd', 'npx.cmd', 'yarn.cmd', 'pnpm.cmd',  // Windows npm wrappers
   ];
-  const first = cmd.trim().split(/\s+/)[0];
+  // First REAL command word — after stripping the shell prologue
+  // (VAR=value / `unset NAME &&` / `export VAR=… &&`) the LLM prepends.
+  const first = stripShellPrologue(cmd).split(/\s+/)[0];
   const base = first.split(/[/\\]/).pop() || '';
   return allowed.some(a => base === a || base.startsWith(a));
 }

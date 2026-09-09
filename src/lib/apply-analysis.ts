@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { checkPortStatus } from '@/lib/process-manager';
 import { logActivity } from '@/lib/activity';
+import { isAllowedCommand } from '@/lib/cmd-allowlist';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -95,11 +96,11 @@ export async function applyAnalysisToProject(projectId: string, analysis: any): 
     // ---- validation (mirrors the classic analyze route) ----
     const validatedEnvs: Array<{ name: string; cmd: string; port: number; envVars: Record<string, string> }> = [];
     const droppedEnvs: Array<{ name: string; reason: string }> = [];
-    // LLM frequently prefixes commands with env-var assignments
-    // (e.g. "NODE_ENV=production npm start"). Strip leading assignments before
-    // the allowlist check so verified production configs are not silently dropped.
-    const stripEnvPrefix = (cmd: string) => cmd.replace(/^([A-Za-z_][A-Za-z0-9_]*=[^\s]*\s+)+/, '');
-    const safeCmdPrefixes = ['npm', 'npx', 'yarn', 'pnpm', 'bun', 'python', 'python3', 'go', 'cargo', 'make', 'node', 'deno', 'flask', 'gunicorn', 'uvicorn', 'django', 'dotnet', 'php', 'ruby', 'rails', 'bundle', 'docker', 'sh', 'bash', './'];
+    // Shared allowlist (src/lib/cmd-allowlist.ts) — accepts the shell
+    // prologues the agent realistically emits (VAR=value assignments,
+    // `unset PORT &&` / `export VAR=… &&` guards) while still validating
+    // the first REAL command word. Verified configs must not be silently
+    // dropped for carrying a prologue.
     for (const env of analysis.environments) {
       const sanitizedName = String(env.name || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50);
       if (!sanitizedName) { droppedEnvs.push({ name: String(env.name || '(unnamed)'), reason: '无有效名称' }); continue; }
@@ -107,8 +108,7 @@ export async function applyAnalysisToProject(projectId: string, analysis: any): 
       if (!Number.isInteger(envPort) || envPort < 1 || envPort > 65535 || envPort === 3000) { droppedEnvs.push({ name: sanitizedName, reason: `端口 ${env.port} 无效或被保留` }); continue; }
       const cmdStr = String(env.cmd || '').trim();
       if (cmdStr.length > 500) { droppedEnvs.push({ name: sanitizedName, reason: '命令过长' }); continue; }
-      const baseCmd = stripEnvPrefix(cmdStr);
-      if (!safeCmdPrefixes.some(p => baseCmd.startsWith(p))) { droppedEnvs.push({ name: sanitizedName, reason: `命令未通过白名单校验: ${cmdStr.slice(0, 60)}` }); continue; }
+      if (!isAllowedCommand(cmdStr)) { droppedEnvs.push({ name: sanitizedName, reason: `命令未通过白名单校验: ${cmdStr.slice(0, 60)}` }); continue; }
 
       let envVarsObj: Record<string, string> = {};
       if (env.envVars && typeof env.envVars === 'object' && !Array.isArray(env.envVars)) {

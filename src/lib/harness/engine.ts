@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import * as zlib from 'zlib';
 import { tmpdir, platform } from 'os';
 import * as fzstd from 'fzstd';
+import { isAllowedCommand } from '@/lib/cmd-allowlist';
 
 /**
  * Harness engine — the former mini-services/harness-agent(:3022), now running
@@ -498,18 +499,6 @@ function parseConfigJson(text: string): any | null {
 // ============================= config sanitization =============================
 
 /**
- * Mirrors the dashboard apply-analysis allowlist: leading VAR=value
- * assignments are stripped before the prefix comparison. Union of the
- * harness task allowlist and apply-analysis's own list.
- */
-const SAFE_CMD_PREFIXES = [
-  'npm', 'npx', 'node', 'bun', 'yarn', 'pnpm', 'python', 'python3', 'pip', 'pip3',
-  'uv', 'uvicorn', 'dotnet', 'java', 'go', 'make', 'sh', 'bash', 'deno', 'cargo',
-  'flask', 'gunicorn', 'django', 'php', 'ruby', 'rails', 'bundle', 'docker', './',
-];
-const stripEnvPrefix = (cmd: string) => cmd.replace(/^([A-Za-z_][A-Za-z0-9_]*=[^\s]*\s+)+/, '');
-
-/**
  * Deep-validate an agent-produced config:
  *   - envVars values coerced to strings (non-strings are flagged),
  *   - environments with invalid ports (1024-65535 integer) or missing cmd
@@ -555,8 +544,10 @@ function sanitizeConfig(config: any): { config: any; issues: string[] } {
     }
     seenPorts.set(portNum, name);
     // cmd allowlist — flag but KEEP (apply-analysis makes the final call).
-    const baseCmd = stripEnvPrefix(cmd);
-    if (!SAFE_CMD_PREFIXES.some(p => baseCmd.startsWith(p))) {
+    // stripShellPrologue (shared lib cmd-allowlist) also accepts the
+    // `unset PORT &&` / `export VAR=… &&` guards the agent emits, so verified
+    // configs are no longer flagged/dropped for carrying a shell prologue.
+    if (!isAllowedCommand(cmd)) {
       issues.push(`环境 ${name}: 命令「${cmd.slice(0, 60)}」不在白名单前缀内，已保留待应用层裁决`);
     }
     envsOut.push({ ...raw, name, cmd, port: portNum, envVars });
@@ -638,13 +629,25 @@ async function startAttempt(s: AnalysisSession, feedback?: string): Promise<void
 
   const child = spawn('node', [DSH_BIN, '--profile', 'headless', '--patch', patchFile, task], {
     cwd: s.path,
-    env: {
-      ...process.env,
-      DSH_HOME,
-      ZAI_GATEWAY_KEY: GATEWAY_KEY,
-      DSH_TELEMETRY_DISABLED: '1',
-      DSH_PERMISSION_MODE: 'danger-full-access',
-    },
+    env: (() => {
+      const env: Record<string, string> = {
+        ...process.env,
+        DSH_HOME,
+        ZAI_GATEWAY_KEY: GATEWAY_KEY,
+        DSH_TELEMETRY_DISABLED: '1',
+        DSH_PERMISSION_MODE: 'danger-full-access',
+      } as Record<string, string>;
+      // The Next.js dev server mutates process.env AT RUNTIME (PORT=<dev port>
+      // for its build workers, TURBOPACK=1, …). Passing those through hijacks
+      // analyzed projects that read process.env.PORT onto the dashboard's own
+      // port — the agent then "fixes" it with `unset PORT && …` command
+      // prefixes, which the apply-analysis allowlist used to reject, losing
+      // the whole verified result. Sever the leak chain at the source (same
+      // class of fix as the start.bat TURBOPACK guard).
+      delete env.PORT;
+      delete env.TURBOPACK;
+      return env;
+    })(),
     stdio: ['ignore', 'pipe', 'pipe'],
     // Process-group leader: killTree(-PGID) then reliably reaps dsh AND every
     // job it spawned (npm/node servers), instead of just the dsh process.
