@@ -1,0 +1,4 @@
+.env
+iter.log
+state.json
+node_modules/
