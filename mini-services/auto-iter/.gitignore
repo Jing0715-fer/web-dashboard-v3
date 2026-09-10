@@ -2,3 +2,4 @@
 iter.log
 state.json
 node_modules/
+bun.lock
