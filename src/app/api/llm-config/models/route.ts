@@ -81,68 +81,76 @@ export async function GET(request: NextRequest) {
     ...providerAuthHeaders(profile, apiKey),
   };
 
+  // Probe ALL endpoint candidates in PARALLEL (each capped at 8s) and use the
+  // first success. The old serial loop waited up to 10s per candidate — a
+  // dead/filtered network path stacked 10s × N before the dialog ever got a
+  // response, which read as "settings dialog stuck". Parallel worst case is
+  // one timeout window, not N.
   const candidates = endpointCandidates(baseUrl, 'models');
-  let lastErr = '';
 
-  for (const url of candidates) {
-    try {
-      const resp = await fetch(url, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(10_000),
-      });
+  const attempt = async (url: string): Promise<{ models: any[]; liveCount: number }> => {
+    const resp = await fetch(url, {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(8_000),
+    });
 
-      if (!resp.ok) {
-        lastErr = `API returned ${resp.status}: ${(await resp.text().catch(() => resp.statusText)).slice(0, 200)}`;
-        if (resp.status === 404 || resp.status === 405) continue; // wrong path candidate
-        break;
-      }
-
-      const raw = await resp.text();
-
-      // Check for HTML (wrong URL)
-      if (raw.trimStart().startsWith('<')) {
-        lastErr = 'API 返回了 HTML 而非 JSON — 请检查 Base URL 是否正确';
-        continue;
-      }
-
-      const data = JSON.parse(raw);
-
-      // OpenAI-compatible: { data: [{ id, ... }] }
-      const models = Array.isArray(data?.data)
-        ? data.data
-            .map((m: any) => ({ id: m.id as string, name: (m.name as string) || m.id, owned_by: m.owned_by }))
-            .filter((m: any) => typeof m.id === 'string' && m.id)
-        : Array.isArray(data?.models)
-          ? data.models.map((m: any) => ({
-              id: typeof m === 'string' ? m : m.id,
-              name: typeof m === 'string' ? m : (m.name ?? m.id),
-            }))
-          : [];
-
-      if (models.length === 0) {
-        lastErr = 'API 返回了空模型列表';
-        continue;
-      }
-
-      // Merge: live models first, keep any catalog models missing from the live list
-      const liveIds = new Set(models.map((m: any) => m.id));
-      const extra = catalogModels.filter((m) => !liveIds.has(m.id));
-
-      return NextResponse.json({
-        models: [...models, ...extra],
-        live: true,
-        count: models.length,
-      });
-    } catch (err: any) {
-      lastErr = `Failed to fetch models: ${err?.message || String(err)}`;
+    if (!resp.ok) {
+      throw new Error(`API returned ${resp.status}: ${(await resp.text().catch(() => resp.statusText)).slice(0, 200)}`);
     }
+
+    const raw = await resp.text();
+
+    // Check for HTML (wrong URL)
+    if (raw.trimStart().startsWith('<')) {
+      throw new Error('API 返回了 HTML 而非 JSON — 请检查 Base URL 是否正确');
+    }
+
+    const data = JSON.parse(raw);
+
+    // OpenAI-compatible: { data: [{ id, ... }] }
+    const models = Array.isArray(data?.data)
+      ? data.data
+          .map((m: any) => ({ id: m.id as string, name: (m.name as string) || m.id, owned_by: m.owned_by }))
+          .filter((m: any) => typeof m.id === 'string' && m.id)
+      : Array.isArray(data?.models)
+        ? data.models.map((m: any) => ({
+            id: typeof m === 'string' ? m : m.id,
+            name: typeof m === 'string' ? m : (m.name ?? m.id),
+          }))
+        : [];
+
+    if (models.length === 0) {
+      throw new Error('API 返回了空模型列表');
+    }
+
+    return { models, liveCount: models.length };
+  };
+
+  const settled = await Promise.allSettled(candidates.map((url) => attempt(url)));
+  const firstOk = settled.find((r): r is PromiseFulfilledResult<{ models: any[]; liveCount: number }> => r.status === 'fulfilled');
+
+  if (firstOk) {
+    const { models } = firstOk.value;
+    // Merge: live models first, keep any catalog models missing from the live list
+    const liveIds = new Set(models.map((m: any) => m.id));
+    const extra = catalogModels.filter((m) => !liveIds.has(m.id));
+
+    return NextResponse.json({
+      models: [...models, ...extra],
+      live: true,
+      count: models.length,
+    });
   }
+
+  const errors = settled
+    .map((r) => (r.status === 'rejected' ? `Failed to fetch models: ${r.reason?.message || String(r.reason)}` : ''))
+    .filter(Boolean);
 
   return NextResponse.json({
     models: catalogModels,
     live: false,
-    error: lastErr || 'Failed to fetch models',
+    error: errors.join(' | ') || 'Failed to fetch models',
   });
 }
 

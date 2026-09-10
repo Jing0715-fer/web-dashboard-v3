@@ -205,10 +205,22 @@ async function binVersion(bin: string, args: string[]): Promise<string> {
 }
 
 /** Locate every catalog CLI on PATH (parallel, with versions). Powers both
- * the /api/llm-config/detect-repair-cli route and the auto mode. */
+ * the /api/llm-config/detect-repair-cli route and the auto mode.
+ *
+ * Result is cached in-process for 60s: the LLM settings dialog fires this on
+ * EVERY open (plus an explicit "detect" button), and on Windows each probe
+ * spawns `where` + `<cli> --version` — npm-global CLIs can take seconds each.
+ * Installation state does not flip within a minute, but a spam-refreshed
+ * dialog previously re-paid the full spawn cost every time. */
+const DETECT_CACHE_TTL_MS = 60_000;
+let detectCache: { at: number; value: DetectedCli[] } | null = null;
+
 export async function detectRepairClis(): Promise<DetectedCli[]> {
+  if (detectCache && Date.now() - detectCache.at < DETECT_CACHE_TTL_MS) {
+    return detectCache.value;
+  }
   const specs = [...CLI_SPECS].sort((a, b) => a.priority - b.priority);
-  return Promise.all(
+  const value = await Promise.all(
     specs.map(async (spec) => {
       const found = await binOnPath(spec.bin);
       const version = found ? await binVersion(spec.bin, ['--version']) : '';
@@ -221,6 +233,8 @@ export async function detectRepairClis(): Promise<DetectedCli[]> {
       };
     }),
   );
+  detectCache = { at: Date.now(), value };
+  return value;
 }
 
 /** Resolve the configured preference into a concrete CLI.
