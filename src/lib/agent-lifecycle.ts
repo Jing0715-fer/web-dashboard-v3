@@ -273,6 +273,11 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // in the calling dashboard's DB (the normal cross-machine case) still
     // fail with "No 'origin' remote is configured".
     if (!('pullRepoUrl' in d)) return { outdated: true, why: 'pull-body repoUrl (cross-machine origin wire-up)' };
+    // v1.10 marker: agent self-update — the agent accepts updateSignal from
+    // heartbeat responses (and POST /self-update) and pulls + respawns
+    // ITSELF onto new code. Without it the agent stays on whatever code was
+    // running when the machine last pulled manually.
+    if (!('selfUpdate' in d)) return { outdated: true, why: 'agent self-update (heartbeat-signal pull + self-respawn)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };
@@ -433,6 +438,16 @@ export async function addPersistedHeartbeatTarget(dir: string, target: string): 
  * Returns the agent's coordinates (port / apiKey / name / dir) plus whether
  * it was just started or auto-upgraded.
  */
+// Stale-agent crash-loop guard: on machines without bun, ensureLocalAgent
+// spawns the PLATFORM BUNDLE (mini-services/agent-*/agent.js), which may lag
+// the marker list (it is hand-maintained). Without a guard the supervisor's
+// 60s ensure loop would kill & respawn the SAME old bundle forever. After a
+// respawn the port is tolerated for 30 minutes — long enough to prove the
+// spawned code was already the newest on disk; once a respawned agent
+// reports every marker (real upgrade landed) the tolerance clears itself.
+const toleratedStaleAgents = new Map<number, number>(); // port → tolerated-until
+const TOLERATE_STALE_TTL_MS = 30 * 60 * 1000;
+
 export async function ensureLocalAgent(): Promise<
   | { ok: true; agent: LocalAgentInfo; started: boolean; restarted: boolean }
   | { ok: false; error: string }
@@ -448,18 +463,28 @@ export async function ensureLocalAgent(): Promise<
   let restartReason = '';
   if (detected?.running) {
     const check = await agentOutdated(detected.port);
-    if (check.outdated) {
+    const toleratedUntil = toleratedStaleAgents.get(detected.port) || 0;
+    if (check.outdated && Date.now() < toleratedUntil) {
+      // Respawned recently and STILL stale → the newest code on this disk
+      // lacks the markers (platform bundle). Leave it running; retry in
+      // ~30 min or after the next git pull.
+    } else if (check.outdated) {
       await stopAgentOnPort(detected.port);
       restarted = true;
       restartReason = `old agent lacked ${check.why}`;
-    } else if (detected.apiKey && POISONED_AGENT_KEYS.has(detected.apiKey)) {
-      // Running with the repo-committed SHARED key: every clone of the
-      // repo runs the same identity — kill it so the spawn path below
-      // rewrites a fresh per-machine key (pairing rows refresh at the
-      // next join / heartbeat).
-      await stopAgentOnPort(detected.port);
-      restarted = true;
-      restartReason = 'repo-committed shared key (identity collision across clones)';
+      toleratedStaleAgents.set(detected.port, Date.now() + TOLERATE_STALE_TTL_MS);
+    } else {
+      // All markers present — clear any stale tolerance.
+      toleratedStaleAgents.delete(detected.port);
+      if (detected.apiKey && POISONED_AGENT_KEYS.has(detected.apiKey)) {
+        // Running with the repo-committed SHARED key: every clone of the
+        // repo runs the same identity — kill it so the spawn path below
+        // rewrites a fresh per-machine key (pairing rows refresh at the
+        // next join / heartbeat).
+        await stopAgentOnPort(detected.port);
+        restarted = true;
+        restartReason = 'repo-committed shared key (identity collision across clones)';
+      }
     }
     if (restarted) {
       logActivity({
@@ -577,4 +602,59 @@ export async function ensureLocalAgent(): Promise<
   await new Promise((r) => setTimeout(r, 1500));
   const running = await probeAgent(port);
   return { ok: true, agent: { port, apiKey, name, dir, running }, started: true, restarted };
+}
+
+// ===================== LIFECYCLE SUPERVISOR =====================
+
+/**
+ * Periodic self-healing loop for everything the dashboard supervises on
+ * THIS machine — the "zero manual maintenance" layer:
+ *
+ *   every 60s tick:
+ *     1. ensureLocalAgent()      — agent died → respawn; agent process
+ *                                  predates a git pull (stale feature
+ *                                  markers) → kill & respawn on new code
+ *     2. ensureAutoIterService() — same treatment for auto-iter (3111)
+ *     3. autoPullIfSafe()        — this repo behind origin + clean tree +
+ *                                  default branch + ops.autoUpdate on →
+ *                                  `git pull --ff-only` (routes hot-reload
+ *                                  in dev; the NEXT tick respawns the
+ *                                  agent onto the new code)
+ *
+ * All three are idempotent and internally rate-limited; a tick never
+ * throws (every step is individually caught) so the timer can never die.
+ * Started once per server process from instrumentation via a globalThis
+ * guard (Next dev can re-run module code — the guard keeps ONE loop).
+ */
+const SUPERVISOR_TICK_MS = 60 * 1000;
+
+export function startLifecycleSupervisor(): void {
+  const g = globalThis as any;
+  if (g.__lifecycleSupervisor) return;
+  g.__lifecycleSupervisor = true;
+
+  const tick = async () => {
+    try { await ensureLocalAgent(); } catch (e: any) {
+      console.warn('[supervisor] agent ensure failed:', e?.message || e);
+    }
+    try {
+      const { ensureAutoIterService } = await import('@/lib/auto-iter-lifecycle');
+      await ensureAutoIterService();
+    } catch (e: any) {
+      console.warn('[supervisor] auto-iter ensure failed:', e?.message || e);
+    }
+    try {
+      const { autoPullIfSafe } = await import('@/lib/dashboard-self-update');
+      await autoPullIfSafe();
+    } catch (e: any) {
+      console.warn('[supervisor] self-update failed:', e?.message || e);
+    }
+  };
+
+  // First tick shortly after boot (instrumentation already runs an initial
+  // ensure; the short delay here mainly covers the self-update probe).
+  setTimeout(tick, 15_000).unref?.();
+  const timer = setInterval(tick, SUPERVISOR_TICK_MS);
+  timer.unref?.();
+  console.log(`[supervisor] lifecycle loop armed (every ${SUPERVISOR_TICK_MS / 1000}s: agent + auto-iter + self-update)`);
 }

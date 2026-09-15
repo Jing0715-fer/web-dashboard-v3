@@ -461,12 +461,23 @@ export async function POST(req: NextRequest) {
         if (relayPeer && Array.isArray(relayProjects)) {
           relayPeer.projects = relayProjects;
         }
+        // Update signal (agent auto-update, v1.10+): tell the heartbeat-ing
+        // agent the newest code sha this dashboard knows of (origin HEAD,
+        // TTL-cached — no per-heartbeat network cost). The agent compares
+        // it with ITS clone's HEAD and, when stale, pulls + respawns
+        // itself. Pre-1.10 agents ignore the field harmlessly.
+        let updateSignal: import('@/lib/dashboard-self-update').SelfUpdateSignal | undefined;
+        try {
+          const { selfUpdateSignal } = await import('@/lib/dashboard-self-update');
+          updateSignal = (await selfUpdateSignal()) || undefined;
+        } catch { /* best-effort — omit the signal */ }
         return NextResponse.json({
           ok: true,
           deviceId: device.id,
           reRegistered: true,
           addressFixed: ipChanged || portChanged,
           ...(relayPeer && { peer: relayPeer }),
+          ...(updateSignal && { updateSignal }),
         });
       }
 

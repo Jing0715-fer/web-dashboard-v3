@@ -23,7 +23,7 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs') return;
   try {
-    const { ensureLocalAgent } = await import('@/lib/agent-lifecycle');
+    const { ensureLocalAgent, startLifecycleSupervisor } = await import('@/lib/agent-lifecycle');
     // Fire-and-forget: never block server boot on agent lifecycle. A short
     // delay lets the HTTP listener bind first (register can run before the
     // server accepts requests; the agent probe is local so order doesn't
@@ -42,6 +42,10 @@ export async function register() {
         console.warn('[instrumentation] auto-iter ensure failed:', err?.message || err);
       });
     }, 5000);
+    // Periodic self-healing (60s): dead agent/auto-iter respawn, stale
+    // agent code respawn, and the dashboard's own safe auto git pull.
+    // globalThis-guarded inside — safe under dev-mode module re-evaluation.
+    startLifecycleSupervisor();
   } catch (err: any) {
     console.warn('[instrumentation] agent module load failed:', err?.message || err);
   }

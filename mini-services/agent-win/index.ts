@@ -17,7 +17,7 @@ import { PrismaClient } from '@prisma/client';
 import { spawn, ChildProcess, execSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync } from 'fs';
-import { join, resolve, dirname } from 'path';
+import { join, resolve, dirname, basename } from 'path';
 import { randomBytes } from 'crypto';
 import { hostname, tmpdir, platform, arch, homedir, networkInterfaces } from 'os';
 
@@ -290,6 +290,10 @@ async function reRegisterWithDashboard(target: string): Promise<void> {
       if (data.addressFixed) {
         console.log(`[Agent][heartbeat] dashboard row healed → ${payload.ip}:${payload.port}`);
       }
+      // Update signal (dashboard v1.10+): the newest code sha this dashboard
+      // knows of. When our clone is stale → pull + respawn ourselves (v1.10
+      // agents; older builds ignore the field).
+      scheduleSelfUpdateFromHeartbeat(data?.updateSignal);
     } else if (res.status !== 400) {
       // 400 = key unknown to this dashboard (not ours / DB reset) — skip
       console.warn(`[Agent][heartbeat] dashboard ${target} responded ${res.status}`);
@@ -1188,6 +1192,147 @@ function normalizeBodyRepoUrl(raw: unknown): string | null {
   } catch { return null; }
 }
 
+// ---- Agent self-update (v1.10) ----
+//
+// The "zero manual maintenance" agent half: paired dashboards advertise the
+// newest code sha on every heartbeat RESPONSE (updateSignal), and this agent
+// pulls its own clone of the repo and respawns itself when stale. Works
+// together with the dashboard-side supervisor (respawns the co-located
+// agent after ITS machine pulls) — remote machines no longer need a human
+// to `git pull` + restart the agent by hand.
+
+/** Repo root of this agent's codebase (cwd = mini-services/<dir>, the repo
+ *  root sits two levels up — resolve via git itself). null when the agent
+ *  runs from a non-git distribution (zip) → self-update unavailable. */
+async function agentRepoRoot(): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--show-toplevel'], {
+      cwd: process.cwd(), timeout: 15_000, maxBuffer: 64 * 1024,
+    });
+    return stdout.trim() || null;
+  } catch { return null; }
+}
+
+let selfUpdateBusy = false;
+let lastSelfUpdateAt = 0;
+const SELF_UPDATE_MIN_INTERVAL_MS = 3 * 60 * 1000;
+
+/** Spawn a detached replacement process (waits for our port release, then
+ *  re-execs this agent with the SAME argv) and exit shortly after — the
+ *  delay lets the in-flight HTTP response flush. When the spawn itself
+ *  fails we stay alive: the co-located dashboard's supervisor (or a human)
+ *  can still restart us. */
+function respawnSelf(reason: string): void {
+  const entry = basename(process.argv[1] || 'index.ts');
+  const argv = process.argv.slice(2).map((a) => `"${String(a).replace(/"/g, '')}"`).join(' ');
+  const cwd = process.cwd().replace(/"/g, '');
+  const exe = process.execPath.replace(/"/g, '');
+  console.log(`[Agent][self-update] ${reason} — respawning (${exe} ${entry} ${argv})`);
+  try {
+    if (IS_WINDOWS) {
+      // `timeout /t` needs an interactive stdin in detached cmd — the
+      // classic ping-based sleep works headless. 2s is enough for the port
+      // to be released by our exit below.
+      spawn('cmd.exe', [
+        '/c', `ping -n 3 127.0.0.1 >nul & cd /d "${cwd}" & "${exe}" ${entry} ${argv}`,
+      ], { detached: true, stdio: 'ignore', windowsHide: true });
+    } else {
+      const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+      spawn('/bin/sh', ['-c',
+        `sleep 2; cd ${q(cwd)} && exec ${q(exe)} ${q(entry)} ${argv} >> /tmp/dashboard-agent.log 2>&1`,
+      ], { detached: true, stdio: 'ignore' });
+    }
+  } catch (e: any) {
+    console.error('[Agent][self-update] respawn spawn failed — staying alive:', e?.message || e);
+    return;
+  }
+  setTimeout(() => process.exit(0), 800);
+}
+
+/** Pull this agent's repo when SAFE and actually behind, then respawn.
+ *  `signal` (optional, from a heartbeat response): { repoUrl, remoteSha } —
+ *  repoUrl wires a missing 'origin'; remoteSha short-circuits the pull when
+ *  we are already current. Guards: clean tree only, ff-only, busy lock,
+ *  3-min floor between restarts (crash-loop guard). Never throws. */
+async function performSelfUpdate(signal?: {
+  repoUrl?: unknown; remoteSha?: unknown;
+}): Promise<{ ok: boolean; action: string; detail?: string }> {
+  if (selfUpdateBusy) return { ok: false, action: 'busy', detail: 'another self-update is in flight' };
+  if (Date.now() - lastSelfUpdateAt < SELF_UPDATE_MIN_INTERVAL_MS) {
+    return { ok: false, action: 'throttled', detail: 'self-updated less than 3 minutes ago' };
+  }
+  selfUpdateBusy = true;
+  try {
+    const root = await agentRepoRoot();
+    if (!root) return { ok: false, action: 'skip', detail: 'agent code is not inside a git repository' };
+
+    // origin remote — self-heal from the signal's https URL when missing.
+    let origin: string | null = null;
+    try {
+      origin = (await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: root, timeout: 15_000 })).stdout.trim() || null;
+    } catch { /* no origin */ }
+    const sigUrl = typeof signal?.repoUrl === 'string' && isHealableRepoUrl(signal.repoUrl) ? signal.repoUrl.trim() : null;
+    if (!origin && sigUrl) {
+      await execFileAsync('git', ['remote', 'add', 'origin', sigUrl], { cwd: root, timeout: 15_000 });
+      origin = sigUrl;
+    }
+    if (!origin) return { ok: false, action: 'skip', detail: "no 'origin' remote (and the update signal carried no https URL)" };
+
+    // Fast path FIRST (no tree inspection): already at the advertised
+    // commit → nothing to do. Heartbeats arrive every 60s and are almost
+    // always current — this keeps the hot path at one rev-parse.
+    const before = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: root, timeout: 15_000 })).stdout.trim();
+    const wantSha = typeof signal?.remoteSha === 'string' && /^[0-9a-f]{40}$/i.test(signal.remoteSha)
+      ? signal.remoteSha.toLowerCase() : null;
+    if (wantSha && before.toLowerCase() === wantSha) {
+      return { ok: true, action: 'current', detail: 'already at the advertised commit' };
+    }
+
+    // Never pull over uncommitted local work.
+    try {
+      const { stdout: dirty } = await execFileAsync('git', ['status', '--porcelain'], {
+        cwd: root, timeout: 30_000, maxBuffer: 512 * 1024,
+      });
+      if (dirty.trim().length > 0) {
+        const n = dirty.trim().split('\n').length;
+        return { ok: false, action: 'skip', detail: `working tree not clean (${n} changed file${n > 1 ? 's' : ''}) — pull skipped` };
+      }
+    } catch (e: any) {
+      return { ok: false, action: 'skip', detail: `git status failed: ${String(e?.message || e).slice(0, 120)}` };
+    }
+
+    await execFileAsync('git', ['fetch', 'origin', '--prune'], { cwd: root, timeout: 120_000, maxBuffer: 1024 * 1024 });
+    await execFileAsync('git', ['pull', '--ff-only'], { cwd: root, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+    const after = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: root, timeout: 15_000 })).stdout.trim();
+    if (after === before) {
+      return { ok: true, action: 'current', detail: 'already up to date' };
+    }
+    lastSelfUpdateAt = Date.now();
+    respawnSelf(`self-update ${before.slice(0, 7)} → ${after.slice(0, 7)}`);
+    return { ok: true, action: 'restarting', detail: `${before.slice(0, 7)} → ${after.slice(0, 7)}` };
+  } catch (e: any) {
+    return { ok: false, action: 'error', detail: String(e?.stderr || e?.stdout || e?.message || e).slice(0, 300) };
+  } finally {
+    selfUpdateBusy = false;
+  }
+}
+
+/** Heartbeat-response entry: fire-and-forget, rate-limited (the dashboard
+ *  heartbeats every 60s — one real check per 5 min is plenty). */
+let lastSignalProcessedAt = 0;
+function scheduleSelfUpdateFromHeartbeat(signal: unknown): void {
+  if (!signal || typeof signal !== 'object') return;
+  if (Date.now() - lastSignalProcessedAt < 5 * 60 * 1000) return;
+  lastSignalProcessedAt = Date.now();
+  performSelfUpdate(signal as any)
+    .then((r) => {
+      if (r.action !== 'current') {
+        console.log(`[Agent][self-update] ${r.action}${r.detail ? `: ${r.detail}` : ''}`);
+      }
+    })
+    .catch(() => { /* never break the heartbeat path */ });
+}
+
 // ---- Branch support (switch-branch pull, mirror of src/lib/git-branches.ts) ----
 
 /** Conservative branch-name guard for API-supplied values that reach git argv. */
@@ -1427,7 +1572,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.9.0',
+        version: '1.10.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -1444,6 +1589,7 @@ const server = createServer(async (req, res) => {
         repoMerge: true,    // dual-store listing merge (repoUrl/notes by path) + pull cross-store repoUrl heal
         branchSwitch: true, // GET /projects/:id/branches + switch-branch pull (git checkout + pull)
         pullRepoUrl: true,  // pull body { repoUrl } from the calling dashboard wires up a missing 'origin' (cross-machine GitHub link)
+        selfUpdate: true,   // heartbeat updateSignal → pull own repo + self-respawn (zero-touch agent upgrades)
       });
       return;
     }
@@ -1469,6 +1615,19 @@ const server = createServer(async (req, res) => {
         versions[p.id] = await readGitVersion(p.path);
       }));
       sendJSON(res, 200, { versions });
+      return;
+    }
+
+    // POST /api/agent/self-update — pull this agent's repo (when safe) and
+    // respawn onto the new code. Same logic the heartbeat updateSignal
+    // triggers; exposed for dashboards/tests to invoke directly. Optional
+    // body { repoUrl, remoteSha } mirrors the heartbeat signal.
+    if (pathname === '/api/agent/self-update' && req.method === 'POST') {
+      const body = await getBody(req).catch(() => ({}));
+      const r = await performSelfUpdate(
+        body && typeof body === 'object' ? { repoUrl: body.repoUrl, remoteSha: body.remoteSha } : undefined,
+      );
+      sendJSON(res, r.ok ? 200 : 409, { ...r, version: '1.10.0' });
       return;
     }
 
