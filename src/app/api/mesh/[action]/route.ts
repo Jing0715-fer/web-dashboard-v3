@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto';
 import * as os from 'os';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
-import { invalidateRemoteProjectCache, recordDevicePush, isHttpsRepoUrl } from '@/lib/remote-sync';
+import { invalidateRemoteProjectCache, recordDevicePush, recordAgentMeta, isHttpsRepoUrl } from '@/lib/remote-sync';
 import {
   detectLocalAgent,
   ensureLocalAgent,
@@ -52,6 +52,22 @@ interface PendingPair {
 
 // In-memory pending pairing codes (5-minute validity, multi-device use).
 const pendingPairs = new Map<string, PendingPair>();
+
+// Sustained re-key claims (v1.12): an agent whose key ROTATED heartbeats
+// with its new key, but the address-matching row can only be re-keyed after
+// the key is VERIFIED against the agent — impossible when the agent's
+// machine firewalls INBOUND connections (one-way network: its heartbeat
+// reaches us, our probe cannot return). For such rows we adopt the new key
+// only when (a) the row is provably stale — its old key hasn't authenticated
+// for 10+ minutes — and (b) the claim is SUSTAINED across two consecutive
+// heartbeats (a drive-by spoof that merely knows the address must hold the
+// line for a minute to take a row whose true owner abandoned it). Keyed by
+// `${rowId}:${claimedKey}` → first-seen timestamp.
+const pendingRekeyClaims = new Map<string, number>();
+
+// One-per-hour activity-log throttle for the "agent found no dashboard DB"
+// warning (below) — heartbeats arrive every 60s and the condition persists.
+const noDashDbWarnedAt = new Map<string, number>();
 
 // Simple in-memory rate limiter for register attempts (per client IP).
 const registerAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -247,6 +263,32 @@ async function verifyAgentKeyAt(ip: string, port: number, apiKey: string): Promi
   } catch {
     return false;
   }
+}
+
+/** Warn (max once/hour) that an agent reports NO co-located dashboard DB:
+ *  the machine looks healthy — its own UI lists projects, its heartbeat
+ *  arrives — yet every peer sees "online, 0 projects" because the agent
+ *  cannot read the dashboard's SQLite (typical cause: a RELATIVE
+ *  DATABASE_URL in .env, which Prisma resolves against prisma/ instead of
+ *  the repo root; agent v1.12+ auto-detects it, older agents need the
+ *  restart). */
+function warnAgentNoDashDb(
+  device: { id: string; name: string; ip: string | null; port: number },
+  meta: { dashboardDbPath?: unknown },
+): void {
+  const last = noDashDbWarnedAt.get(device.id) || 0;
+  if (Date.now() - last < 60 * 60_000) return;
+  noDashDbWarnedAt.set(device.id, Date.now());
+  const pathHint = typeof meta.dashboardDbPath === 'string' && meta.dashboardDbPath
+    ? ` (agent resolved: ${meta.dashboardDbPath})` : '';
+  logActivity({
+    type: 'pair',
+    level: 'warn',
+    message: `Agent on '${device.name}' cannot see its machine's dashboard database`,
+    deviceId: device.id,
+    deviceName: device.name,
+    detail: `the machine's own UI lists its projects, but peers see "online, 0 projects" — the agent cannot find the dashboard's SQLite file${pathHint}. Update that machine's code (agent v1.12 auto-detects .env DATABASE_URL locations) and restart its agent.`,
+  });
 }
 
 /** Cross-dashboard repoUrl propagation (heartbeat leg). The heartbeat-ing
@@ -469,6 +511,7 @@ export async function POST(req: NextRequest) {
         // requester can only pass this probe by controlling that agent, so
         // this cannot be used to hijack a row the requester doesn't own.
         let reKeyed = false;
+        let reKeyedUnverified = false;
         if (!keyRow && String(apiKey || '').length >= 16 && ip && Number(port) > 0 && !badRange(String(ip))) {
           const addrRow = await db.device.findFirst({
             where: { ip: String(ip), port: Number(port) },
@@ -477,6 +520,24 @@ export async function POST(req: NextRequest) {
           if (addrRow && await verifyAgentKeyAt(String(ip), Number(port), String(apiKey))) {
             keyRow = addrRow;
             reKeyed = true;
+          } else if (addrRow) {
+            // Probe failed — the agent may simply be unreachable FROM HERE
+            // (one-way firewall: its heartbeat reached us, our inbound probe
+            // cannot return). Adopt the rotated key ONLY when the row is
+            // provably stale (old key silent ≥ 10 min) AND the claim is
+            // SUSTAINED across two consecutive heartbeats — see
+            // pendingRekeyClaims above for the threat-model reasoning.
+            const staleMs = Date.now() - (Date.parse(String(addrRow.lastSeen)) || 0);
+            const claimKey = `${addrRow.id}:${String(apiKey)}`;
+            const firstSeen = pendingRekeyClaims.get(claimKey);
+            if (staleMs >= 10 * 60_000 && firstSeen !== undefined && Date.now() - firstSeen < 10 * 60_000) {
+              keyRow = addrRow;
+              reKeyed = true;
+              reKeyedUnverified = true;
+              pendingRekeyClaims.delete(claimKey);
+            } else {
+              pendingRekeyClaims.set(claimKey, Date.now());
+            }
           }
         }
         if (!keyRow) {
@@ -513,11 +574,13 @@ export async function POST(req: NextRequest) {
         if (reKeyed) {
           logActivity({
             type: 'pair',
-            level: 'success',
+            level: reKeyedUnverified ? 'warn' : 'success',
             message: `Device '${device.name}' re-authorized with a new agent key`,
             deviceId: device.id,
             deviceName: device.name,
-            detail: `key rotated on the agent (reinstall / re-pair) — row healed at ${device.ip}:${device.port}`,
+            detail: reKeyedUnverified
+              ? `key adopted from a sustained heartbeat after the row sat silent ≥10 min (direct probe to ${device.ip}:${device.port} failed — likely a one-way firewall)`
+              : `key rotated on the agent (reinstall / re-pair) — row healed at ${device.ip}:${device.port}`,
           });
         } else if (guarded) {
           logActivity({
@@ -546,6 +609,12 @@ export async function POST(req: NextRequest) {
         if (Array.isArray(body?.projects)) {
           recordDevicePush(device.id, body.projects, String(ip), Number(port));
           invalidateRemoteProjectCache();
+        }
+        // Agent self-reported co-located DB state (v1.12 heartbeat) — feeds
+        // the devices UI hint + a throttled activity warning.
+        recordAgentMeta(device.id, body?.agentMeta);
+        if (body?.agentMeta?.dashboardDbFound === false) {
+          warnAgentNoDashDb(device, body.agentMeta);
         }
         // repoSync overrides ride the heartbeat RESPONSE back to the agent
         // (see computeRepoSyncOverrides): links THIS dashboard cached for the
@@ -641,6 +710,11 @@ export async function POST(req: NextRequest) {
       if (Array.isArray(body?.projects)) {
         recordDevicePush(device.id, body.projects, String(ip), Number(port));
         invalidateRemoteProjectCache();
+      }
+      // Agent self-reported co-located DB state (v1.12 heartbeat).
+      recordAgentMeta(device.id, body?.agentMeta);
+      if (body?.agentMeta?.dashboardDbFound === false) {
+        warnAgentNoDashDb(device, body.agentMeta);
       }
 
       // Mutual pairing, two halves:

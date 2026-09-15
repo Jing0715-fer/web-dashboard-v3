@@ -62,7 +62,46 @@ export interface DevicePush {
   port: number
 }
 
-const pushStore = new Map<string, DevicePush>()
+// ---- agent meta store (v1.12) ----
+// Co-located dashboard-DB state reported by agents: in the heartbeat payload
+// (agentMeta — works even when the agent is firewalled) and in the
+// /api/agent/projects response (meta — the pull leg). A healthy agent that
+// reports dashboardDbFound:false is the "device online but 0 projects"
+// smoking gun: its machine's dashboard keeps its SQLite somewhere the agent
+// doesn't know (e.g. a relative .env URL, which Prisma resolves against
+// prisma/), so the agent serves only its own (empty) DB to every peer.
+export interface AgentMeta {
+  dashboardDbFound: boolean
+  dashboardDbPath: string | null
+  at: number
+}
+
+/** Record an agent's self-reported co-located DB state. Trusted source: the
+ *  register endpoint authenticates the agent by its stored apiKey; the pull
+ *  leg authenticates with the Bearer key before reading meta. */
+export function recordAgentMeta(
+  deviceId: string,
+  meta: { dashboardDbFound?: unknown; dashboardDbPath?: unknown } | null | undefined,
+): void {
+  if (!meta || typeof meta !== 'object') return
+  if (typeof meta.dashboardDbFound !== 'boolean') return
+  S.agentMetaStore.set(deviceId, {
+    dashboardDbFound: meta.dashboardDbFound,
+    dashboardDbPath: typeof meta.dashboardDbPath === 'string' ? meta.dashboardDbPath : null,
+    at: Date.now(),
+  })
+}
+
+/** Last reported agent meta for a device (null when never reported). */
+export function getAgentMeta(deviceId: string): AgentMeta | null {
+  const m = S.agentMetaStore.get(deviceId)
+  if (!m) return null
+  // Heartbeat cadence is 60s — anything older than 10 minutes is stale
+  // (device re-imaged / agent down): hide it instead of showing a ghost
+  // warning.
+  if (Date.now() - m.at > 10 * 60_000) return null
+  return m
+}
 
 // ---- local-agent peer-cache relay ----
 // One-way networks: this machine's agent heartbeats OUT to a peer dashboard
@@ -81,7 +120,50 @@ interface RelayEntry {
   projects: any[]
 }
 
-let relayCache: { at: number; entries: RelayEntry[] } | null = null
+// ---- process-wide singleton state ----
+// Next dev compiles each route into its own bundle with its own copy of this
+// module: module-scoped mutable state (the push store written by
+// /api/mesh/register, the sync cache read by /api/projects, …) was DUPLICATED
+// per route — writes from one route were invisible to the others (live
+// evidence: a heartbeat's recordDevicePush never showed up in /api/devices'
+// getDevicePush). All mutable state lives on globalThis so every route bundle
+// shares ONE instance per server process.
+interface RemoteSyncState {
+  pushStore: Map<string, DevicePush>
+  agentMetaStore: Map<string, AgentMeta>
+  relayCache: { at: number; entries: RelayEntry[] } | null
+  localIfaceCache: { at: number; ips: Set<string> } | null
+  dedupScanState: { at: number }
+  dedupInFlight: boolean
+  cache: RemoteSyncResult | null
+  inflight: Promise<RemoteSyncResult> | null
+  /** Bumped by invalidateRemoteProjectCache (see below). */
+  syncGeneration: number
+}
+const g = globalThis as typeof globalThis & { __remoteSyncState?: RemoteSyncState }
+const S: RemoteSyncState = (g.__remoteSyncState ??= {
+  pushStore: new Map(),
+  agentMetaStore: new Map(),
+  relayCache: null,
+  localIfaceCache: null,
+  dedupScanState: { at: 0 },
+  dedupInFlight: false,
+  cache: null,
+  inflight: null,
+  syncGeneration: 0,
+})
+
+/** Record a heartbeat-pushed project list for a device (trusted: the
+ *  register endpoint authenticates the agent by its stored apiKey). */
+export function recordDevicePush(deviceId: string, projects: any[], ip: string, port: number): void {
+  if (!Array.isArray(projects)) return
+  S.pushStore.set(deviceId, { at: Date.now(), projects, ip, port })
+}
+
+/** Last heartbeat push for a device (null when it never pushed). */
+export function getDevicePush(deviceId: string): DevicePush | null {
+  return S.pushStore.get(deviceId) ?? null
+}
 
 /** Entries the LOCAL agent cached from its heartbeats' responses (each
  *  paired dashboard hands back its own agent coordinates + project list).
@@ -89,8 +171,8 @@ let relayCache: { at: number; entries: RelayEntry[] } | null = null
  *  endpoint) yield an empty list, briefly cached so the sync poll doesn't
  *  hammer a dead agent. */
 async function fetchLocalAgentPeerCache(): Promise<RelayEntry[]> {
-  if (relayCache && Date.now() - relayCache.at < PEER_CACHE_TTL_MS) {
-    return relayCache.entries
+  if (S.relayCache && Date.now() - S.relayCache.at < PEER_CACHE_TTL_MS) {
+    return S.relayCache.entries
   }
   const entries: RelayEntry[] = []
   try {
@@ -112,7 +194,7 @@ async function fetchLocalAgentPeerCache(): Promise<RelayEntry[]> {
       }
     }
   } catch { /* local agent down / old agent without the endpoint */ }
-  relayCache = { at: Date.now(), entries }
+  S.relayCache = { at: Date.now(), entries }
   return entries
 }
 
@@ -177,18 +259,6 @@ async function registerRelayPeers(
   } catch { /* relay registration is best-effort */ }
 }
 
-/** Record a heartbeat-pushed project list for a device (trusted: the
- *  register endpoint authenticates the agent by its stored apiKey). */
-export function recordDevicePush(deviceId: string, projects: any[], ip: string, port: number): void {
-  if (!Array.isArray(projects)) return
-  pushStore.set(deviceId, { at: Date.now(), projects, ip, port })
-}
-
-/** Last heartbeat push for a device (null when it never pushed). */
-export function getDevicePush(deviceId: string): DevicePush | null {
-  return pushStore.get(deviceId) ?? null
-}
-
 const AGENT_DIRS = ['agent', 'agent-linux', 'agent-macos', 'agent-win', 'agent-windows']
 
 /**
@@ -215,11 +285,9 @@ export function localAgentApiKeys(): Set<string> {
 
 // ---- self-row identification (key + ADDRESS, not key alone) ----
 
-let localIfaceCache: { at: number; ips: Set<string> } | null = null;
-
 /** IPv4/IPv6 addresses of THIS machine (loopback included), 30s-cached. */
 function localInterfaceIps(): Set<string> {
-  if (localIfaceCache && Date.now() - localIfaceCache.at < 30_000) return localIfaceCache.ips;
+  if (S.localIfaceCache && Date.now() - S.localIfaceCache.at < 30_000) return S.localIfaceCache.ips;
   const ips = new Set<string>(['localhost', '::1']);
   try {
     for (const ifaces of Object.values(os.networkInterfaces())) {
@@ -228,7 +296,7 @@ function localInterfaceIps(): Set<string> {
       }
     }
   } catch { /* interfaces unavailable */ }
-  localIfaceCache = { at: Date.now(), ips };
+  S.localIfaceCache = { at: Date.now(), ips };
   return ips;
 }
 
@@ -307,15 +375,13 @@ export async function healSelfMirroredLocalProjects(): Promise<void> {
  *  re-creates them) and are then deleted. Rate-limited: the DB work is not
  *  free and duplicates are rare once the creation paths dedupe correctly. */
 const DEDUP_SCAN_MIN_MS = 5 * 60_000;
-const dedupScanState = { at: 0 };
-let dedupInFlight = false;
 
 async function mergeDuplicateDeviceRows(
   devices: any[],
   pullOkById: Map<string, boolean>,
 ): Promise<Map<string, { id: string; name: string }>> {
   const loserToWinner = new Map<string, { id: string; name: string }>();
-  if (dedupInFlight) return loserToWinner;
+  if (S.dedupInFlight) return loserToWinner;
   const groups = new Map<string, any[]>();
   for (const d of devices) {
     if (!d?.ip || !d?.port || Number(d.port) <= 0) continue;
@@ -326,9 +392,9 @@ async function mergeDuplicateDeviceRows(
   }
   const dupGroups = [...groups.values()].filter((g) => g.length > 1);
   if (dupGroups.length === 0) return loserToWinner;
-  if (Date.now() - dedupScanState.at < DEDUP_SCAN_MIN_MS) return loserToWinner;
-  dedupScanState.at = Date.now();
-  dedupInFlight = true;
+  if (Date.now() - S.dedupScanState.at < DEDUP_SCAN_MIN_MS) return loserToWinner;
+  S.dedupScanState.at = Date.now();
+  S.dedupInFlight = true;
   try {
     for (const group of dupGroups) {
       try {
@@ -341,7 +407,7 @@ async function mergeDuplicateDeviceRows(
           counts.map((c: any) => [String(c.deviceId), Number(c?._count?.id) || 0]),
         );
         const score = (d: any): number[] => {
-          const push = pushStore.get(String(d.id));
+          const push = S.pushStore.get(String(d.id));
           const freshPush = push && Date.now() - push.at < PUSH_STALE_MS ? 1 : 0;
           return [
             freshPush,
@@ -381,7 +447,7 @@ async function mergeDuplicateDeviceRows(
       }
     }
   } finally {
-    dedupInFlight = false;
+    S.dedupInFlight = false;
   }
   return loserToWinner;
 }
@@ -407,19 +473,13 @@ export interface RemoteSyncResult {
   gen: number
 }
 
-let cache: RemoteSyncResult | null = null
-let inflight: Promise<RemoteSyncResult> | null = null
-/** Bumped by invalidateRemoteProjectCache. A FORCE refresh must not join a
- *  sync that started BEFORE the mutation — that in-flight would return and
- * re-cache a pre-mutation snapshot (the "?fresh=1 still shows old data"
- * race). Each sync records the generation it started under; force callers
- * re-run until they hold a current-generation result. */
-let syncGeneration = 0
+// (cache / inflight / syncGeneration live on the shared singleton S — see
+// the "process-wide singleton state" block above.)
 
 /** Drop the cache so the next GET performs a real await-sync. */
 export function invalidateRemoteProjectCache() {
-  cache = null
-  syncGeneration++
+  S.cache = null
+  S.syncGeneration++
 }
 
 /**
@@ -433,7 +493,7 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   // result is (at best) mixed pre/post-mutation data — marking it with the
   // older generation makes force callers re-run one extra sync. The safe
   // direction: an unnecessary re-sync, never a stale-labeled-fresh result.
-  const startedGen = syncGeneration
+  const startedGen = S.syncGeneration
   // Skip the self-mirroring device rows: an agent co-located with THIS
   // dashboard serves our own local projects, and mirroring them back would
   // corrupt deviceId. (Device rows for other machines are unaffected.)
@@ -487,7 +547,7 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   const freshPushFor = async (device: {
     id: string; apiKey: string | null; ip: string | null; port: number; name: string
   }): Promise<DevicePush | null> => {
-    const direct = pushStore.get(device.id)
+    const direct = S.pushStore.get(device.id)
     if (direct && Date.now() - direct.at < PUSH_STALE_MS) return direct
     try {
       const entries = await peerCachePromise
@@ -522,7 +582,7 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
       }
       if (hit && Array.isArray(hit.projects)) {
         recordDevicePush(device.id, hit.projects, device.ip || '', device.port)
-        return pushStore.get(device.id) ?? null
+        return S.pushStore.get(device.id) ?? null
       }
     } catch { /* relay unavailable */ }
     return null
@@ -582,6 +642,9 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
             .catch(() => {})
         }
         const projects: any[] = result.data?.projects || []
+        // v1.12 agents attach their co-located DB state to the listing —
+        // record it so the devices UI can explain a "0 projects" device.
+        if (result.data?.meta) recordAgentMeta(device.id, result.data.meta)
         return { ok: true, projects: enrich(projects, true) }
       } catch {
         const push = await freshPushFor(device)
@@ -889,12 +952,12 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
 }
 
 function startSync(): Promise<RemoteSyncResult> {
-  if (!inflight) {
-    inflight = syncRemoteProjects().finally(() => {
-      inflight = null
+  if (!S.inflight) {
+    S.inflight = syncRemoteProjects().finally(() => {
+      S.inflight = null
     })
   }
-  return inflight
+  return S.inflight
 }
 
 /**
@@ -913,26 +976,26 @@ function startSync(): Promise<RemoteSyncResult> {
 export async function getRemoteProjectsCached(force = false): Promise<any[]> {
   if (force) {
     invalidateRemoteProjectCache()
-    const targetGeneration = syncGeneration
+    const targetGeneration = S.syncGeneration
     let result = await startSync()
     if (result.gen < targetGeneration) {
       result = await startSync()
     }
-    cache = result
+    S.cache = result
     return result.projects
   }
-  if (cache) {
-    const age = Date.now() - cache.at
+  if (S.cache) {
+    const age = Date.now() - S.cache.at
     if (age >= FRESH_MS) {
       // Stale — serve immediately, refresh in the background. Errors are
       // swallowed on purpose: the next poll retries, and the caller already
       // has usable (slightly old) data in hand.
-      startSync().then((fresh) => { cache = fresh }).catch(() => {})
+      startSync().then((fresh) => { S.cache = fresh }).catch(() => {})
     }
-    return cache.projects
+    return S.cache.projects
   }
   // Cold path: block once so the very first paint includes remote projects.
   const result = await startSync()
-  cache = result
+  S.cache = result
   return result.projects
 }

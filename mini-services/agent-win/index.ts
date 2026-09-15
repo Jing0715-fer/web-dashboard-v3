@@ -16,8 +16,8 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { PrismaClient } from '@prisma/client';
 import { spawn, ChildProcess, execSync, execFile } from 'child_process';
 import { promisify } from 'util';
-import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync } from 'fs';
-import { join, resolve, dirname, basename } from 'path';
+import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync, statSync } from 'fs';
+import { join, resolve, dirname, basename, isAbsolute } from 'path';
 import { randomBytes } from 'crypto';
 import { hostname, tmpdir, platform, arch, homedir, networkInterfaces } from 'os';
 
@@ -274,6 +274,9 @@ async function reRegisterWithDashboard(target: string): Promise<void> {
   // break the row self-heal — push only what we got.
   try {
     payload.projects = await buildPeerProjects();
+    // v1.12: co-located DB state — lets the dashboard tell "0 projects
+    // because the agent found no dashboard DB" apart from a sync failure.
+    payload.agentMeta = dashboardDbState();
   } catch { /* listing failed — heartbeat still updates the row */ }
   try {
     const res = await fetch(`${target}/api/mesh/register`, {
@@ -316,10 +319,11 @@ const db = new PrismaClient({
 // ======================== CO-LOCATED DASHBOARD DB ========================
 
 // Machines running the FULL dashboard keep their projects in the dashboard's
-// SQLite (db/custom.db at the project root). This agent's own DB starts
-// EMPTY — so on dashboard machines, remote peers saw ZERO projects even
-// though the local UI listed them. When a co-located dashboard DB is found,
-// project reads AND control operations resolve against it:
+// SQLite. This agent's own DB starts EMPTY — so on dashboard machines,
+// remote peers saw ZERO projects even though the local UI listed them (user
+// report: the peer dashboard showed the machine "online" with 0 projects).
+// When a co-located dashboard DB is found, project reads AND control
+// operations resolve against it:
 //   * listings serve the dashboard's OWN projects (deviceId IS NULL).
 //     Rows the remote side mirrored back (deviceId set) are excluded —
 //     that's what keeps the mesh mirror loop-free.
@@ -327,28 +331,102 @@ const db = new PrismaClient({
 //     so both views stay consistent.
 //   * standalone agent-DB projects are still listed and controlled.
 // Override: --dashboardDb <path> (or "dashboardDb" in agent-config.json).
+//
+// v1.12 detection hardening — the DB lives wherever the co-located
+// dashboard's DATABASE_URL points, and the old probe (cwd/../../db only)
+// missed two real-world cases:
+//   1. .env with a RELATIVE SQLite URL: Prisma resolves it against the
+//      SCHEMA directory, so DATABASE_URL=file:./db/custom.db actually
+//      puts the file at <repo>/prisma/db/custom.db — a perfectly working
+//      dashboard whose agent stays blind and serves [] to every peer
+//      ("device online, 0 projects" on the other machines).
+//   2. Boot order: the agent started before the dashboard's first run
+//      created the file, and the boot-time probe result was cached
+//      forever.
+// Detection is therefore (a) multi-candidate — explicit arg > .env-derived
+// > __dirname-anchored > cwd-anchored — and (b) LAZY: a miss is re-probed
+// at most once a minute so a DB created later is adopted without a restart.
+// Candidates are derived from this file's own location (__dirname), immune
+// to whatever cwd the process was spawned with.
 const DASHBOARD_DB_ARG = getArg('dashboardDb', '');
+const AGENT_REPO_ROOT = resolve(__dirname, '..', '..');
+
+function isFile(p: string): boolean {
+  try { return statSync(p).isFile(); } catch { return false; }
+}
+
+/** Candidate co-located dashboard DB locations, most-trusted first. */
+function dashboardDbCandidates(): string[] {
+  const out: string[] = [];
+  const push = (p?: string) => { if (p) { const r = resolve(p); if (!out.includes(r)) out.push(r); } };
+  // 1) explicit overrides
+  push(DASHBOARD_DB_ARG || undefined);
+  push(String(readPersistedConfig().dashboardDb || '') || undefined);
+  // 2) the co-located dashboard's OWN configuration: .env DATABASE_URL.
+  //    Absolute URLs are used as-is; relative ones are probed against BOTH
+  //    the repo root and the prisma/ schema dir (Prisma resolves relative
+  //    SQLite paths against the schema file's location, not the cwd).
+  try {
+    const envTxt = readFileSync(join(AGENT_REPO_ROOT, '.env'), 'utf-8');
+    const m = envTxt.match(/^\s*DATABASE_URL\s*=\s*file:(\S+?)\s*$/m);
+    const raw = m?.[1]?.replace(/^["']|["']$/g, '');
+    if (raw) {
+      if (isAbsolute(raw)) push(raw);
+      else {
+        push(join(AGENT_REPO_ROOT, raw));
+        push(join(AGENT_REPO_ROOT, 'prisma', raw));
+      }
+    }
+  } catch { /* no .env here — fall through to the conventional spots */ }
+  // 3) conventional locations (cwd-independent first, legacy last)
+  push(join(AGENT_REPO_ROOT, 'db', 'custom.db'));
+  push(join(process.cwd(), '..', '..', 'db', 'custom.db'));
+  push(join(process.cwd(), 'db', 'custom.db')); // started from the repo root
+  return out;
+}
+
 function detectDashboardDb(): string | null {
-  const candidates: string[] = [];
-  if (DASHBOARD_DB_ARG) candidates.push(resolve(DASHBOARD_DB_ARG));
-  const persisted = String(readPersistedConfig().dashboardDb || '');
-  if (persisted) candidates.push(resolve(persisted));
-  // mini-services/agent → project root → db/custom.db
-  candidates.push(resolve(process.cwd(), '..', '..', 'db', 'custom.db'));
-  for (const c of candidates) {
-    try { if (existsSync(c)) return c; } catch { /* unreadable */ }
+  for (const c of dashboardDbCandidates()) {
+    if (isFile(c)) return c;
   }
   return null;
 }
-const DASHBOARD_DB_PATH = detectDashboardDb();
-// NOTE: only raw queries ($queryRawUnsafe / $executeRawUnsafe) run against
-// it — the generated client schema doesn't know the dashboard's deviceId
-// column, and raw SQL bypasses that entirely.
-const dashDb = DASHBOARD_DB_PATH
-  ? new PrismaClient({ datasources: { db: { url: `file:${DASHBOARD_DB_PATH}` } } })
+
+let coDashPath: string | null = detectDashboardDb();
+let coDashClient: PrismaClient | null = coDashPath
+  ? new PrismaClient({ datasources: { db: { url: `file:${coDashPath}` } } })
   : null;
-if (DASHBOARD_DB_PATH) {
-  console.log(`[Agent] Co-located dashboard DB: ${DASHBOARD_DB_PATH}`);
+let coDashProbeAt = 0;
+
+/** The co-located dashboard DB client, or null while none is detected.
+ *  NOTE: only raw queries ($queryRawUnsafe / $executeRawUnsafe) run against
+ *  it — the generated client schema doesn't know the dashboard's deviceId
+ *  column, and raw SQL bypasses that entirely. */
+function getDashDb(): PrismaClient | null {
+  if (coDashClient) return coDashClient;
+  if (Date.now() < coDashProbeAt) return null;
+  coDashProbeAt = Date.now() + 60_000;
+  const found = detectDashboardDb();
+  if (found) {
+    coDashPath = found;
+    coDashClient = new PrismaClient({ datasources: { db: { url: `file:${found}` } } });
+    dashColumnsProbed = false; // re-probe schema capabilities for the new DB
+    console.log(`[Agent] Co-located dashboard DB detected (late): ${found}`);
+    console.log('[Agent] Serving its local (deviceId IS NULL) projects to remote peers');
+  }
+  return coDashClient;
+}
+
+/** Live co-located-DB state, reported to peers via the heartbeat payload and
+ *  /api/agent/projects meta — lets a dashboard tell "0 projects because
+ *  the agent found no dashboard DB" apart from a sync failure. */
+function dashboardDbState(): { dashboardDbFound: boolean; dashboardDbPath: string | null } {
+  const client = getDashDb();
+  return { dashboardDbFound: !!client, dashboardDbPath: client ? coDashPath : null };
+}
+
+if (coDashClient && coDashPath) {
+  console.log(`[Agent] Co-located dashboard DB: ${coDashPath}`);
   console.log('[Agent] Serving its local (deviceId IS NULL) projects to remote peers');
 }
 
@@ -360,13 +438,13 @@ if (DASHBOARD_DB_PATH) {
  *  runs beside it. Unknown columns on an older dashboard schema simply
  *  throw → caught by the caller. */
 async function dualWriteDashProject(projectId: string, fields: Record<string, string>): Promise<void> {
-  if (!dashDb || Object.keys(fields).length === 0) return;
+  if (!getDashDb() || Object.keys(fields).length === 0) return;
   const sets = Object.keys(fields).map((k) => `"${k}" = ?`);
   const params = Object.values(fields);
   sets.push('"updatedAt" = ?');
   params.push(String(Date.now()));
   params.push(projectId);
-  const rows = await dashDb.$executeRawUnsafe(
+  const rows = await getDashDb().$executeRawUnsafe(
     `UPDATE "Project" SET ${sets.join(', ')} WHERE "id" = ? AND "deviceId" IS NULL`,
     ...params,
   );
@@ -391,11 +469,11 @@ async function applyRepoUrlOverrides(entries: any): Promise<void> {
     if (!repoUrl || !id) continue;
     // 1) The project's home store: the co-located dashboard DB row
     //    (deviceId IS NULL keeps the mesh mirror loop-free; empty-only fill).
-    if (dashDb) {
+    if (getDashDb()) {
       try {
         const cols = await ensureDashColumns();
         if (cols.has('repoUrl')) {
-          const n = await dashDb.$executeRawUnsafe(
+          const n = await getDashDb().$executeRawUnsafe(
             'UPDATE "Project" SET "repoUrl" = ?, "updatedAt" = ? WHERE "id" = ? AND "deviceId" IS NULL AND "repoUrl" = \'\'',
             repoUrl, Date.now(), id,
           );
@@ -427,10 +505,10 @@ async function applyRepoUrlOverrides(entries: any): Promise<void> {
 const dashColumns = new Set<string>();
 let dashColumnsProbed = false;
 async function ensureDashColumns(): Promise<Set<string>> {
-  if (!dashDb || dashColumnsProbed) return dashColumns;
+  if (!getDashDb() || dashColumnsProbed) return dashColumns;
   dashColumnsProbed = true;
   try {
-    const rows = await dashDb.$queryRawUnsafe('PRAGMA table_info("Project")') as any[];
+    const rows = await getDashDb().$queryRawUnsafe('PRAGMA table_info("Project")') as any[];
     for (const r of rows) if (r && typeof r.name === 'string') dashColumns.add(r.name);
   } catch { /* unreadable — assume the legacy column set */ }
   return dashColumns;
@@ -515,8 +593,8 @@ function mapProjectRow(p: any, envs: any[]) {
 
 async function dashEnvsFor(projectIds: string[]): Promise<Map<string, any[]>> {
   const byProject = new Map<string, any[]>();
-  if (!dashDb || projectIds.length === 0) return byProject;
-  const rows: any[] = await dashDb.$queryRawUnsafe(
+  if (!getDashDb() || projectIds.length === 0) return byProject;
+  const rows: any[] = await getDashDb().$queryRawUnsafe(
     `SELECT ${ENV_COLS} FROM "Environment" WHERE "projectId" IN (${projectIds.map(() => '?').join(',')})`,
     ...projectIds,
   );
@@ -531,9 +609,9 @@ async function dashEnvsFor(projectIds: string[]): Promise<Map<string, any[]>> {
 
 /** All of THIS machine's own dashboard projects (loop-safe filter). */
 async function listDashProjects(): Promise<any[]> {
-  if (!dashDb) return [];
+  if (!getDashDb()) return [];
   try {
-    const rows: any[] = await dashDb.$queryRawUnsafe(
+    const rows: any[] = await getDashDb().$queryRawUnsafe(
       `SELECT ${await projectCols()} FROM "Project" WHERE "deviceId" IS NULL ORDER BY "order" ASC, "updatedAt" DESC`
     );
     const envs = await dashEnvsFor(rows.map((r) => r.id));
@@ -548,16 +626,16 @@ async function listDashProjects(): Promise<any[]> {
  *  feeds /api/agent/versions so dash-managed rows (served in listings via
  *  buildPeerProjects) get version chips too, not just agent-DB rows. */
 async function listDashProjectPaths(): Promise<{ id: string; path: string }[]> {
-  if (!dashDb) return [];
+  if (!getDashDb()) return [];
   try {
-    return await dashDb.$queryRawUnsafe('SELECT "id", "path" FROM "Project" WHERE "deviceId" IS NULL');
+    return await getDashDb().$queryRawUnsafe('SELECT "id", "path" FROM "Project" WHERE "deviceId" IS NULL');
   } catch { return []; }
 }
 
 async function getDashProject(id: string): Promise<any | null> {
-  if (!dashDb) return null;
+  if (!getDashDb()) return null;
   try {
-    const rows: any[] = await dashDb.$queryRawUnsafe(
+    const rows: any[] = await getDashDb().$queryRawUnsafe(
       `SELECT ${await projectCols()} FROM "Project" WHERE "id" = ? AND "deviceId" IS NULL`, id
     );
     if (rows.length === 0) return null;
@@ -568,9 +646,9 @@ async function getDashProject(id: string): Promise<any | null> {
 
 /** Env + owning project path from the dashboard DB, or null. */
 async function getDashEnvFull(projectId: string, envId: string): Promise<{ env: any; projectPath: string } | null> {
-  if (!dashDb) return null;
+  if (!getDashDb()) return null;
   try {
-    const rows: any[] = await dashDb.$queryRawUnsafe(
+    const rows: any[] = await getDashDb().$queryRawUnsafe(
       `SELECT e."id", e."projectId", e."name", e."cmd", e."port", e."envVars", e."status", e."pid", e."createdAt", e."updatedAt", p."path" AS "projectPath"
        FROM "Environment" e JOIN "Project" p ON p."id" = e."projectId"
        WHERE e."id" = ? AND e."projectId" = ? AND p."deviceId" IS NULL`,
@@ -586,7 +664,7 @@ async function getDashEnvFull(projectId: string, envId: string): Promise<{ env: 
 
 /** Update status/pid on a dashboard env row (process control writes). */
 async function setDashEnvState(envId: string, data: { status?: string; pid?: number | null }): Promise<void> {
-  if (!dashDb) return;
+  if (!getDashDb()) return;
   const sets: string[] = [];
   const params: any[] = [];
   if (data.status !== undefined) { sets.push('"status" = ?'); params.push(data.status); }
@@ -594,12 +672,12 @@ async function setDashEnvState(envId: string, data: { status?: string; pid?: num
   if (sets.length === 0) return;
   sets.push('"updatedAt" = ?'); params.push(Date.now());
   params.push(envId);
-  await dashDb.$executeRawUnsafe(`UPDATE "Environment" SET ${sets.join(', ')} WHERE "id" = ?`, ...params);
+  await getDashDb().$executeRawUnsafe(`UPDATE "Environment" SET ${sets.join(', ')} WHERE "id" = ?`, ...params);
 }
 
 /** Env resolution across BOTH stores: dashboard DB first, agent DB second. */
 async function resolveEnv(projectId: string, envId: string): Promise<{ env: any; projectPath: string; fromDash: boolean } | null> {
-  if (dashDb) {
+  if (getDashDb()) {
     const dashHit = await getDashEnvFull(projectId, envId);
     if (dashHit) return { ...dashHit, fromDash: true };
   }
@@ -1173,11 +1251,11 @@ function isHealableRepoUrl(u: unknown): u is string {
  *  repoUrl, this finds the link at the same path in either store. */
 async function findRepoUrlByPath(projectPath: string, excludeId: string): Promise<string | null> {
   const key = normalizePathKey(projectPath);
-  if (dashDb) {
+  if (getDashDb()) {
     try {
       const cols = await ensureDashColumns();
       if (cols.has('repoUrl')) {
-        const rows: any[] = await dashDb.$queryRawUnsafe(
+        const rows: any[] = await getDashDb().$queryRawUnsafe(
           'SELECT "id", "path", "repoUrl" FROM "Project" WHERE "deviceId" IS NULL',
         );
         for (const r of rows) {
@@ -1620,16 +1698,19 @@ const server = createServer(async (req, res) => {
 
     // Health endpoint (no auth required)
     if (pathname === '/api/agent/health') {
+      const dashState = dashboardDbState();
       sendJSON(res, 200, {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.11.0',
+        version: '1.12.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
-        // (dashboards use it to explain what the listing contains).
-        dashboardDb: !!DASHBOARD_DB_PATH,
+        // (dashboards use it to explain what the listing contains) + WHERE
+        // the DB was found (diagnostics for the "0 projects" case).
+        dashboardDb: dashState.dashboardDbFound,
+        dashboardDbPath: dashState.dashboardDbPath,
         // Feature markers for the dashboard's auto-upgrade check: a MISSING
         // field means the process is executing pre-upgrade code and gets
         // respawned by ensureLocalAgent (git pull cannot hot-reload a
@@ -1643,6 +1724,7 @@ const server = createServer(async (req, res) => {
         pullRepoUrl: true,  // pull body { repoUrl } from the calling dashboard wires up a missing 'origin' (cross-machine GitHub link)
         selfUpdate: true,   // heartbeat updateSignal → pull own repo + self-respawn (zero-touch agent upgrades)
         repoSync: true,     // heartbeat-response repoSync overrides → links edited on a peer dashboard land in the projects' home stores
+        dashDbLazy: true,   // multi-candidate dashboard-DB detection (.env-aware, __dirname-anchored) + lazy re-probe + agentMeta reporting
       });
       return;
     }
@@ -1813,7 +1895,7 @@ const server = createServer(async (req, res) => {
       // Dashboard machines: serve the co-located dashboard's OWN projects
       // (deviceId IS NULL) merged with standalone agent-DB projects.
       const enriched = await buildPeerProjects();
-      sendJSON(res, 200, { projects: enriched });
+      sendJSON(res, 200, { projects: enriched, meta: { ...dashboardDbState(), projectCount: enriched.length } });
       return;
     }
 
@@ -1856,7 +1938,7 @@ const server = createServer(async (req, res) => {
       // dashboard's schema has the columns — that's what makes a GitHub
       // link configured on a REMOTE dashboard appear on the project's home
       // machine too.
-      if (dashDb && (await getDashProject(projectId))) {
+      if (getDashDb() && (await getDashProject(projectId))) {
         const cols = await ensureDashColumns();
         const sets: string[] = [];
         const params: any[] = [];
@@ -1874,7 +1956,7 @@ const server = createServer(async (req, res) => {
           sets.push('"updatedAt" = ?');
           params.push(Date.now());
           params.push(projectId);
-          await dashDb.$executeRawUnsafe(`UPDATE "Project" SET ${sets.join(', ')} WHERE "id" = ? AND "deviceId" IS NULL`, ...params);
+          await getDashDb().$executeRawUnsafe(`UPDATE "Project" SET ${sets.join(', ')} WHERE "id" = ? AND "deviceId" IS NULL`, ...params);
         }
         sendJSON(res, 200, { project: await getDashProject(projectId) });
         return;
@@ -1932,8 +2014,8 @@ const server = createServer(async (req, res) => {
         // SQLite raw deletes don't run relation cascades reliably — delete
         // children first, then the project (deviceId guard keeps mirrored
         // remote rows safe).
-        await dashDb!.$executeRawUnsafe('DELETE FROM "Environment" WHERE "projectId" = ?', projectId);
-        await dashDb!.$executeRawUnsafe('DELETE FROM "Project" WHERE "id" = ? AND "deviceId" IS NULL', projectId);
+        await getDashDb()!.$executeRawUnsafe('DELETE FROM "Environment" WHERE "projectId" = ?', projectId);
+        await getDashDb()!.$executeRawUnsafe('DELETE FROM "Project" WHERE "id" = ? AND "deviceId" IS NULL', projectId);
       } else {
         await db.project.delete({ where: { id: projectId } });
       }
@@ -2047,7 +2129,7 @@ const server = createServer(async (req, res) => {
       const [, projectId, envId] = envMatch;
       const body = await getBody(req);
       // Dash-managed env → update the dashboard DB row.
-      if (dashDb) {
+      if (getDashDb()) {
         const dashHit = await getDashEnvFull(projectId, envId);
         if (dashHit) {
           const sets: string[] = [];
@@ -2059,7 +2141,7 @@ const server = createServer(async (req, res) => {
           if (sets.length > 0) {
             sets.push('"updatedAt" = ?'); params.push(Date.now());
             params.push(envId);
-            await dashDb.$executeRawUnsafe(`UPDATE "Environment" SET ${sets.join(', ')} WHERE "id" = ? AND "projectId" = ?`, ...params, projectId);
+            await getDashDb().$executeRawUnsafe(`UPDATE "Environment" SET ${sets.join(', ')} WHERE "id" = ? AND "projectId" = ?`, ...params, projectId);
           }
           const after = await getDashEnvFull(projectId, envId);
           sendJSON(res, 200, { environment: after?.env });
@@ -2089,7 +2171,7 @@ const server = createServer(async (req, res) => {
       const { env, fromDash } = resolved;
       await stopProcess(projectId, env.name, env.port);
       if (fromDash) {
-        await dashDb!.$executeRawUnsafe('DELETE FROM "Environment" WHERE "id" = ? AND "projectId" = ?', envId, projectId);
+        await getDashDb()!.$executeRawUnsafe('DELETE FROM "Environment" WHERE "id" = ? AND "projectId" = ?', envId, projectId);
       } else {
         await db.environment.delete({ where: { id: envId } });
       }
@@ -2102,11 +2184,11 @@ const server = createServer(async (req, res) => {
       const body = await getBody(req);
       // Co-located dashboard: create the project in ITS database so it shows
       // up in the local dashboard UI as a first-class local project.
-      if (dashDb) {
+      if (getDashDb()) {
         const id = `c${randomBytes(11).toString('hex')}`;
         const now = Date.now();
         const tags = typeof body.tags === 'string' ? body.tags : JSON.stringify(body.tags || []);
-        await dashDb.$executeRawUnsafe(
+        await getDashDb().$executeRawUnsafe(
           'INSERT INTO "Project" ("id","name","path","description","icon","tags","order","createdAt","updatedAt") VALUES (?,?,?,?,?,?,0,?,?)',
           id, String(body.name || 'Untitled'), String(body.path || '.'), String(body.description || ''), String(body.icon || 'folder'), tags, now, now
         );
@@ -2132,11 +2214,11 @@ const server = createServer(async (req, res) => {
     if (addEnvMatch && req.method === 'POST') {
       const projectId = addEnvMatch[1];
       const body = await getBody(req);
-      const dashProject = dashDb ? await getDashProject(projectId) : null;
+      const dashProject = getDashDb() ? await getDashProject(projectId) : null;
       if (dashProject) {
         const id = `c${randomBytes(11).toString('hex')}`;
         const now = Date.now();
-        await dashDb!.$executeRawUnsafe(
+        await getDashDb()!.$executeRawUnsafe(
           'INSERT INTO "Environment" ("id","projectId","name","cmd","port","envVars","status","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?,?,?)',
           id, projectId, String(body.name || 'dev'), String(body.cmd || 'npm start'), parseInt(String(body.port || '3000'), 10) || 3000,
           typeof body.envVars === 'string' ? body.envVars : JSON.stringify(body.envVars || {}), 'stopped', now, now
@@ -2214,7 +2296,8 @@ server.listen(PORT, HOST, () => {
   console.log(`[Agent] Name: ${AGENT_NAME}`);
   console.log(`[Agent] Platform: ${platform()} ${arch()}`);
   console.log(`[Agent] DB: ${dbPath}`);
-  if (DASHBOARD_DB_PATH) console.log(`[Agent] Dashboard projects: ${DASHBOARD_DB_PATH}`);
+  const bootDash = dashboardDbState();
+  if (bootDash.dashboardDbFound) console.log(`[Agent] Dashboard projects: ${bootDash.dashboardDbPath}`);
   console.log(`[Agent] Logs: ${LOG_DIR}`);
 });
 
@@ -2242,7 +2325,7 @@ const shutdown = () => {
     } catch {}
   }
   db.$disconnect();
-  dashDb?.$disconnect();
+  getDashDb()?.$disconnect();
   server.close();
   process.exit(0);
 };

@@ -1,7 +1,7 @@
 import { db } from '@/lib/db'
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { localAgentApiKeys, isSelfDeviceRow, invalidateRemoteProjectCache, getDevicePush } from '@/lib/remote-sync'
+import { localAgentApiKeys, isSelfDeviceRow, invalidateRemoteProjectCache, getDevicePush, getAgentMeta } from '@/lib/remote-sync'
 import { probeRemoteAgentHealth } from '@/lib/agent-health'
 import { requireApprovedUser } from '@/lib/auth';
 
@@ -60,6 +60,16 @@ export async function GET(req: Request) {
           agentVersion: health?.version || null,
           agentOutdated: health?.outdated ?? false,
           agentWhy: health?.why || '',
+          // Co-located dashboard DB found by the agent (v1.12)? Two sources,
+          // best one wins: the direct health probe (firewall permitting) or
+          // the agent's own heartbeat report (works on one-way networks).
+          // null = unknown (pre-1.12 agent / no data) — NEVER shown as false.
+          agentDashboardDb:
+            (typeof health?.dashboardDb === 'boolean'
+              ? health.dashboardDb
+              : undefined) ?? getAgentMeta(device.id)?.dashboardDbFound ?? null,
+          agentDashboardDbPath:
+            getAgentMeta(device.id)?.dashboardDbPath ?? null,
         }
       })
 

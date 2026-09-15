@@ -284,6 +284,12 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // GitHub links edited on another dashboard never reach the projects'
     // home stores.
     if (!('repoSync' in d)) return { outdated: true, why: 'repoSync overrides (cross-dashboard repoUrl propagation)' };
+    // v1.12 marker: hardened dashboard-DB detection — multi-candidate
+    // (.env DATABASE_URL-aware, __dirname-anchored) + lazy re-probe + agentMeta
+    // reporting. Without it, an agent whose co-located dashboard keeps its DB
+    // anywhere but <repo>/db/custom.db (e.g. a relative .env URL, which Prisma
+    // resolves against prisma/) serves ZERO projects to every peer forever.
+    if (!('dashDbLazy' in d)) return { outdated: true, why: 'hardened dashboard-DB detection (.env-aware + lazy re-probe)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };

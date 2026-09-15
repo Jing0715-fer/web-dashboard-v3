@@ -1,236 +1,169 @@
-# Web Dashboard — Multi-Device Project Control
+# Web Dashboard — 多设备项目管理面板
 
-A production dashboard for managing development projects and their environments
-(dev / prod) across multiple machines. Add a project path, and the built-in LLM
-layer analyzes it and generates start commands automatically — then start, stop,
-restart, and rebuild everything from one place.
+在一台电脑上管理所有机器上的开发项目：添加项目路径，自动分析并生成启动命令，然后在一个页面里启动 / 停止 / 重启 / 更新任何机器上的任何环境。
 
-Built on top of [web-dashboard-v3](https://github.com/Jing0715-fer/web-dashboard-v3)
-with [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) concepts
-integrated as the device agent layer.
+```
+你的 Mac（主控台）                    你的 Windows 机器
+┌──────────────────┐    局域网    ┌──────────────────┐
+│   Dashboard      │ ◄────────► │  Agent (端口 3101)│
+│   localhost:3000 │   自动配对   │  + 本机 Dashboard │
+└──────────────────┘            └──────────────────┘
+     两边互相看到对方的项目、GitHub 链接、运行状态
+```
 
-## Features
+---
 
-- **Project management** — cards or list view, drag-to-reorder, pin, tag, search,
-  keyboard shortcuts (⌘K, s/x/e), context menus
-- **GitHub integration** — one-click Pull on every project card, live version
-  chip (branch @ sha · age, uncommitted-count dot), and an automatic remote
-  update check every 10 minutes that badges cards with "Update available"
-  (behind / diverged / out-of-sync with the device checkout) and fires one
-  aggregated toast notification
-- **Environments** — per-project dev/prod environments with start / stop /
-  restart / rebuild, live status, HMR awareness, port proxying
-- **LLM-assisted onboarding** — new projects are analyzed automatically
-  (package.json detection, script generation) via a local OpenAI-compatible
-  gateway
-- **Multi-device control** — pair remote machines, group projects by device,
-  start projects on remote hosts from this dashboard
-- **Configurable theming** — light / dark / system mode, 8 accent colors,
-  persisted per browser; full-width responsive layout (up to 2304px+)
-- **Monitoring** — health score with sparkline, CPU/memory usage, activity feed,
-  deployment timeline, log streaming
+## 推荐功能
 
-## Architecture
+### 🖥 多设备统一管理
+- 一台仪表盘管理多台电脑的项目，远程项目与本地项目混合展示、按设备分组
+- 项目卡片、列表视图随意切换，支持拖拽排序、置顶、标签、搜索（⌘K）
+- 远程操作全支持：启动 / 停止 / 重启 / 重建 / 编辑 / 日志，和本地一样
 
-| Component | Port | Description |
-|---|---|---|
-| Dashboard (this repo) | 3000 | Next.js App Router UI + REST API + Prisma/SQLite |
-| LLM Gateway | 3021 | OpenAI-compatible proxy (`mini-services/llm-gateway`) |
-| Device agents | — | `mini-services/agent-linux` / `agent-macos` / `agent-windows` — run on remote machines, register with the dashboard, execute project commands |
+### 🚀 一键启动环境
+- 每个项目可以有多个环境（development / production / 自定义），每个环境一条命令 + 一个端口
+- 四个启动入口：环境行 ▶ 按钮 / 卡片「启动全部」/ 右键菜单 / 项目详情页
+- 实时运行状态（监听端口检测）、PID、一键停止
 
-Requests to other local services are routed through the gateway with the
-`XTransformPort` query parameter (see `Caddyfile`).
+### 🐙 GitHub 深度集成
+- 项目卡片上**一键 Pull**（自动补全缺失的 origin 远程）
+- **切换分支**：分支选择器列出本地 + 远程分支，选中即 checkout + pull
+- 版本徽标：当前分支 @ commit、多久前提交、未提交改动红点
+- 每 10 分钟自动检查远程更新，落后的项目会挂「有更新」徽标并弹汇总提醒
+- 在任何一台机器上填写的 GitHub 链接，自动同步到所有机器
 
-## Tech Stack
+### 🔄 跨设备自动同步
+- 两台机器上的仪表盘互相镜像对方的项目列表（含环境、状态、链接）
+- 防火墙也不怕：对方机器心跳（60 秒一次）把数据推过来，单向网络也能双向可见
+- GitHub 链接、备注等修改自动传播回项目所在的"家"机器
 
-- Next.js (App Router) + TypeScript
-- Tailwind CSS 4 + shadcn/ui (New York) + Framer Motion
-- Prisma ORM + SQLite
-- dnd-kit for drag-and-drop
-- Bun as the runtime / package manager
+### 🛠 零维护
+- 代码更新后，设备上的 agent **自动拉取并自我重启**（无需每台机器手动 git pull + 重启）
+- 仪表盘每 60 秒巡检：agent 掉线自动拉起、数据库结构自动迁移
+- 设备密钥轮换后自动重新认证；重复设备行自动合并
+- 过旧 / 配置异常的 agent 会在设备卡片上直接标注原因和修复方法
 
-## Getting Started
+### 🧹 一键整理端口
+- 端口面板 →「整理端口」：自动规划所有项目的端口
+- 规则：dev 从 3001 起、prod = dev + 1000、避开系统占用，已合规的**保持不变**
+- 应用前先预览每一项变更与原因，不满意可以不应用
+
+### 🤖 LLM 智能分析
+- 新项目自动分析（读取 package.json 等），自动生成启动命令
+- 兼容 OpenAI 接口的本地网关，不把代码发到外部服务
+
+### 📊 监控
+- 健康评分 + 趋势线、CPU / 内存占用
+- 活动动态（谁在什么时候启动了什么）、部署时间线、实时日志流
+
+---
+
+## 快速开始
+
+### Mac / Linux
 
 ```bash
-# 1. Install dependencies
+git clone https://github.com/Jing0715-fer/web-dashboard-v3.git
+cd web-dashboard-v3
 bun install
-
-# 2. Configure the database
-cp .env.example .env
+cp .env.example .env        # 默认值即可用
 bun run db:push
-
-# 3. Start the dashboard
 bun run dev
 ```
 
-The dashboard runs on http://localhost:3000.
-
-> **On Windows?** Skip all of the above — just run `start-dashboard.bat` from
-> the repo root. It installs dependencies (npm — works without bun), creates
-> `.env`, initializes the database and starts the dev server on port 3000.
-> Default login: `admin@dashboard.local` / `admin123456`. The Linux-only SWC
-> binary is an `optionalDependency`, so npm automatically skips it on Windows
-> and installs the win32 build instead.
-
-### Pulling updates (important!)
-
-`bun run dev` auto-runs a `predev` step that self-heals the environment:
-
-1. `bun install` — syncs `node_modules` with newly pulled dependencies
-2. `prisma generate` — regenerates the Prisma Client from the current schema
-3. `prisma db push` — syncs the SQLite columns
-
-So a plain `git pull` + `bun run dev` is normally all you need after updating.
-
-If you pulled a while ago and dev is already failing, run `bun install` once
-(the predev install step is skipped when bun is unavailable/offline), then
-`bun run dev` again. The two classic symptoms of a stale environment:
-
-| Error | Missing | Fix |
-|---|---|---|
-| `Module not found: Can't resolve 'fzstd'` | new dependency in `node_modules` | `bun install` |
-| Prisma `Unknown argument 'repoUrl'. Available options are marked with ?` | regenerated Prisma Client | `bun install` (prisma is trusted → auto-generates) or `bunx prisma db push` |
-| Remote project edit → `Unauthorized` / `设备「…」的 agent API 密钥不匹配` | device agent key rotation | see "Remote edit returns 401" below |
-| Pull → "Server error" with no details, or agent-side `The column 'repoUrl' does not exist` | stale dashboard route code / old device-agent DB schema | see "Pull says Server error" below |
-| Pull → "agent too old" · one-way project visibility · "Process exited immediately" | the machine's RUNNING agent process predates its `git pull` | see "One-way project visibility" below |
-
-> Why this happens: `bun install` skips dependency postinstall scripts unless
-> the package is listed in `trustedDependencies` — a stale
-> `node_modules/.prisma/client` therefore survives `git pull`. Likewise, new
-> dependencies added by pulled commits only land on your machine after an
-> actual install.
-
-### "Error parsing package.json file" — git conflict markers
+打开 http://localhost:3000，默认账号：
 
 ```
-./package.json:6:1
-Error parsing package.json file
-> 6 | <<<<<<< Updated upstream
+admin@dashboard.local / admin123456
 ```
 
-This means a `git pull` (with local changes) left **conflict markers** inside
-`package.json` — git could not merge your local edit with the incoming one, so
-it wrote `<<<<<<<` / `=======` / `>>>>>>>` lines into the file. JSON with those
-markers is unparseable, so the dev server cannot even start.
+### Windows（一键启动）
 
-Fix (keep the upstream version — your stale local copy is what conflicted):
+```bat
+git pull
+start-dashboard.bat
+```
+
+脚本会自动完成：依赖安装（无需 bun）→ 生成 .env → 初始化数据库 → 启动（端口被占用 / 依赖已装好时秒级启动）。
+
+> `.env` 里只需一个配置 `DATABASE_URL`（SQLite 位置）。建议保持默认的
+> `file:../db/custom.db`（相对 prisma/ 目录解析，落在仓库根的 db/ 下）；
+> 自定义时推荐写**绝对路径**。
+
+---
+
+## 连接第二台电脑
+
+以 Windows 为例（Mac 同理）：
+
+**第 1 步 · 在 Windows 上启动 agent**（仓库根目录）：
+
+```bat
+git pull
+start-agent.bat 3101
+```
+
+**第 2 步 · 在 Mac 仪表盘上配对**：
+
+设备 → 加入网络 → 填入对方地址（如 `http://192.168.101.43:3000`）→ 输入验证码完成。
+
+配对是双向的：之后两边互相能看到对方的项目，地址 / 密钥变化都会自动修复。之后两台机器都保持 `git pull` 即可，agent 升级全自动。
+
+> Windows 防火墙拦了入站也没关系——agent 会用心跳把项目数据推出来，仪表盘照样显示（设备卡片会带一个「推送」徽标）。
+
+---
+
+## 日常使用
+
+| 想做什么 | 怎么做 |
+|---|---|
+| 添加项目 | 「添加项目」→ 填路径 → LLM 自动分析生成环境命令（也可手动改） |
+| 启动 / 停止 | 环境行的 ▶ / ■ 按钮；卡片菜单；详情页 |
+| 配 GitHub 链接 | 项目详情 → GitHub 链接输入框（自动同步到其他机器） |
+| 拉取最新代码 | 卡片上的 Pull 按钮（远程项目也可以） |
+| 切换分支 | 卡片菜单「切换分支…」或详情页分支按钮 |
+| 整理端口 | 端口面板 →「整理端口」→ 预览 → 应用 |
+| 看日志 / 状态 | 项目详情页：实时日志、版本、活动记录 |
+| 给项目加环境 | 详情页 → 环境 → 添加（名称填 `development` 会显示 dev 徽标） |
+
+---
+
+## 更新
 
 ```bash
-git checkout origin/main -- package.json   # restore the upstream file
-git stash list                             # a conflicted "pop" keeps the stash
-git stash drop                             # drop it if still listed
-bun run dev
+git pull
+bun run dev     # 启动时自动补装依赖、迁移数据库
 ```
 
-If other files also show conflict markers, or the repo state looks tangled,
-the nuclear option resets everything to the remote state (⚠ discards ALL
-uncommitted local changes):
+Windows 仪表盘用 `start-dashboard.bat`（检测到依赖变化会自动补装）。
+其他机器上的 agent 无需手动更新——它们会跟随仪表盘自动拉取并重启自己。
 
-```bash
-git reset --hard origin/main
-git stash clear
-bun run dev
-```
+---
 
-> Tip: avoid the situation entirely — commit your local changes (or
-> `git stash`) BEFORE pulling, and resolve any conflicts the pull reports
-> before starting dev.
+## 常见问题
 
-### Remote edit returns 401 ("Unauthorized" / agent 密钥不匹配)
+| 症状 | 原因与解决 |
+|---|---|
+| 设备「在线」但显示 0 个项目，那台机器自己却能看见项目 | 该机器的 agent 找不到同机仪表盘的数据库（`.env` 的 `DATABASE_URL` 位置与默认不同）。在那台机器 `git pull` 并重启 agent（v1.12+ 会自动识别 `.env` 中的任意位置）。设备卡片会直接标注「未见本机数据库」 |
+| Pull 提示「agent 过旧」/ 一台看不到另一台的项目 | 那台机器 `git pull` 后**没有重启 agent**（git pull 无法热更新已运行的进程）。设备卡片的琥珀色徽标会指明是哪台。更新代码后重启 agent 即可 |
+| 远程编辑报 401 | agent 重装后密钥轮换。新版会自动重新认证；仍未恢复时重新配对一次 |
+| 设备列表出现重复行 | 会在几分钟内自动合并；手动添加设备时请填入正确的 agent apiKey |
+| 启动报「进程立即退出」 | 命令在该机器上不存在（PATH 问题）。错误信息会带退出码和日志路径，用绝对路径写命令 |
+| `package.json` 冲突标记导致启动失败 | `git checkout origin/main -- package.json` 后重启；本地有改动时先 commit / stash 再 pull |
 
-Editing a remote project (e.g. setting its GitHub link) failed with a 401?
-The device-side agent's API key no longer matches the key this dashboard
-stores. Root cause: older TS agents (`mini-services/agent`, `agent-win`)
-minted a **fresh random key on every restart** — the heartbeat re-register
-refuses unknown keys, so the dashboard keeps the old one and every proxied
-call dies with 401. (The repoUrl you typed is still saved in the local
-cached row, so it re-appears once the device is fixed.)
+---
 
-Fix — pull this update on the DEVICE machine, restart its agent (the agent
-now keeps a stable persisted key), then re-pair once:
-
-1. On the dashboard: Devices → pair/generate a pair code.
-2. On the device: re-register the agent with that code (the pair dialog
-   shows the exact curl/CLI command).
-
-After re-pairing, keys stay stable across agent restarts — the agent reads
-its key back from `agent-config.json` (CLI arg > persisted > fresh random).
-
-### Pull says "Server error" / `The column 'repoUrl' does not exist`
-
-Two different failure signatures, both fixed by the same action — **restart
-the stale side**:
-
-| What you saw | Why | Fix |
-| --- | --- | --- |
-| Toast: "Pull failed — Server error" (no details) | the dashboard route crashed or wasn't loaded — Next answered with an HTML page the UI can't parse. Usually a dev server still running pre-pull code. | `git pull` on the dashboard machine → restart `bun run dev` |
-| Prisma dump mentioning `The column \`repoUrl\` does not exist` | the DEVICE agent runs new code but its `agent.db` predates the `repoUrl`/`notes` columns (a `CREATE TABLE IF NOT EXISTS` bootstrap never upgrades an existing file). | pull + restart the agent on that machine — it now self-migrates the DB at boot (`ALTER TABLE … ADD COLUMN`) |
-
-The agent DB migration is automatic since this update: every agent variant
-runs idempotent `ALTER TABLE` statements at boot, so old `agent.db` files are
-upgraded in place no matter how the agent was started (start script, `bun
-index.ts`, service manager). Restarting the agent is enough.
-
-### One-way project visibility / "agent too old" / "Process exited immediately"
-
-These look like three different bugs but usually share ONE root cause: a
-machine ran `git pull` but its **running agent process predates the pull**
-(`git pull` hot-reloads the dashboard, NOT a spawned agent). Symptom matrix:
-
-| What you saw | Why | Fix |
-| --- | --- | --- |
-| Pull says "This device agent is too old" | the agent process has no pull endpoint (pre-feature code). The error now reports the agent's running version. | on that machine: `git pull` → **restart the agent** |
-| One machine sees the other's projects, not vice versa | the firewalled machine's agent is old and never pushes its project list with the 60s heartbeat (new agents do; the dashboard serves pushed data read-only when direct pull is blocked) | update + restart the agent on the machine whose projects are INVISIBLE |
-| Start/restart says "Process exited immediately (exit code N)" | the command died within 2s on that machine — the error now carries the exit code, the command's last output and the full log path. Exit 127/9009 = the command isn't on the AGENT's PATH (service/launchd agents see a minimal PATH — use an absolute path). | read the detail in the toast / the log file it names |
-
-The **Devices panel** now probes every device's `/api/agent/health` (60s
-cache) and shows a running version chip plus an amber "Agent outdated" badge
-on stale agents — the badge tooltip names the exact machine and the missing
-feature, so you don't have to guess which side is old.
-
-### Agent updates (device machines)
-
-After pulling on a device machine, restart its agent — on Windows, from the
-repo root: `start-agent.bat 3101` (root convenience wrapper; the real script
-is `mini-services\agent-win\start.bat` — running `.\start.bat` from the repo
-root fails with "cannot be recognized"). The start scripts now
-self-heal the agent DB schema (`prisma db push`, idempotent + additive), and
-since the latest update the agent ALSO self-migrates at boot even when
-started without a script (`ALTER TABLE` adds any missing columns, e.g.
-`repoUrl`/`notes`). The GitHub link and notes configured on a remote dashboard
-are persisted by the agent AND mirrored into the co-located home dashboard's
-database, so the project's home machine shows the same GitHub link.
-
-### Remote devices
-
-1. Copy `mini-services/agent-linux` (or the macOS/Windows variant) to the
-   remote machine.
-2. Follow its `QUICKSTART.md` to install and run the agent. On Windows, a full
-   clone of this repo can run the agent directly:
-   `cd mini-services\agent-win && setup.bat` (once) → `start.bat 3101`, or
-   from the repo root just `start-agent.bat 3101`.
-3. Add the device in the dashboard (Devices → Add Device) and start managing
-   its projects.
-
-### LLM Gateway
-
-The gateway (`mini-services/llm-gateway`) exposes an OpenAI-compatible API on
-port 3021 for project analysis and auto-repair flows. Start it with:
-
-```bash
-cd mini-services/llm-gateway && bun run dev
-```
-
-## Project Structure
+## 目录速览
 
 ```
-src/app/           Dashboard page + REST API routes
-src/components/ui  shadcn/ui component set
-src/lib            Process manager, device registry, LLM helpers
-prisma/            Database schema
-mini-services/     Device agents + LLM gateway
-db/                SQLite database (runtime, gitignored)
+src/app/           仪表盘页面 + REST API
+src/lib/           进程管理、设备网络、同步逻辑
+prisma/            数据库 schema
+mini-services/     设备 agent（agent-win / agent / agent-linux…）+ LLM 网关
+start-dashboard.bat / start-agent.bat   Windows 一键脚本
 ```
+
+技术栈：Next.js + TypeScript + Prisma(SQLite) + Tailwind + shadcn/ui，Bun 运行时。
 
 ## License
 

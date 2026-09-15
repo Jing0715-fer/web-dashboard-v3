@@ -149,6 +149,11 @@ interface Device {
   agentVersion?: string | null
   agentOutdated?: boolean
   agentWhy?: string
+  // Co-located dashboard DB found by that machine's agent (v1.12+):
+  // false = the machine's own UI lists projects but peers see "0 projects"
+  // because the agent cannot read the dashboard's SQLite file. null = unknown.
+  agentDashboardDb?: boolean | null
+  agentDashboardDbPath?: string | null
 }
 
 interface Project {
@@ -6077,6 +6082,17 @@ function DeviceManagementPanel({
                   {device.agentOutdated && (
                     <Badge variant="outline" className="text-[9px] shrink-0 border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:bg-amber-900/20" title={t('dlg.devicePanel.agentOutdatedHint', { why: device.agentWhy || '?' })}>
                       <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />{device.agentVersion ? `agent v${device.agentVersion} · ` : ''}{t('dlg.devicePanel.agentOutdated')}
+                    </Badge>
+                  )}
+                  {/* No-dashboard-DB badge (agent v1.12+ self-report): the
+                    * machine's own UI lists its projects, its heartbeats
+                    * arrive, but peers see "online, 0 projects" — the agent
+                    * cannot find the dashboard's SQLite file (typical cause:
+                    * a relative .env DATABASE_URL, which Prisma resolves
+                    * against prisma/ instead of the repo root). */}
+                  {device.agentDashboardDb === false && (
+                    <Badge variant="outline" className="text-[9px] shrink-0 border-orange-300 text-orange-700 bg-orange-50 dark:border-orange-600 dark:text-orange-300 dark:bg-orange-900/20" title={device.agentDashboardDbPath ? t('dlg.devicePanel.noDashDbHintWithPath', { path: device.agentDashboardDbPath }) : t('dlg.devicePanel.noDashDbHint')}>
+                      <Database className="h-2.5 w-2.5 mr-0.5" />{t('dlg.devicePanel.noDashDb')}
                     </Badge>
                   )}
                   <Badge variant="outline" className={`text-[9px] ml-auto shrink-0 ${device.status === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20' : device.status === 'error' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}>

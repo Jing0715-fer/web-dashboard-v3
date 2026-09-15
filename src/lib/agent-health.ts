@@ -28,6 +28,9 @@ export interface RemoteAgentHealth {
   why: string
   /** Health endpoint answered. */
   reachable: boolean
+  /** Agent found its co-located dashboard DB? (null = pre-1.12 agent or
+   *  unreachable — the field didn't exist / couldn't be read.) */
+  dashboardDb: boolean | null
   probedAt: number
 }
 
@@ -55,7 +58,7 @@ export async function probeRemoteAgentHealth(
 
   let result: RemoteAgentHealth
   if (!device.ip || !device.port) {
-    result = { version: '', outdated: false, why: 'no-address', reachable: false, probedAt: Date.now() }
+    result = { version: '', outdated: false, why: 'no-address', reachable: false, dashboardDb: null, probedAt: Date.now() }
   } else {
     try {
       const res = await fetch(`http://${device.ip}:${device.port}/api/agent/health`, {
@@ -77,18 +80,32 @@ export async function probeRemoteAgentHealth(
         else if (!('peerRelay' in d)) why = 'peer project relay'
         // v1.7 marker: dual-store repoUrl merge + pull cross-store heal.
         else if (!('repoMerge' in d)) why = 'dual-store repoUrl merge + pull heal'
+        // v1.8 marker: branch switch pull.
+        else if (!('branchSwitch' in d)) why = 'branch switch pull (git checkout + pull)'
+        // v1.9 marker: pull-body repoUrl (cross-machine origin wire-up).
+        else if (!('pullRepoUrl' in d)) why = 'pull-body repoUrl (cross-machine origin wire-up)'
+        // v1.10 marker: agent self-update.
+        else if (!('selfUpdate' in d)) why = 'agent self-update (heartbeat-signal pull + self-respawn)'
+        // v1.11 marker: repoSync overrides.
+        else if (!('repoSync' in d)) why = 'repoSync overrides (cross-dashboard repoUrl propagation)'
+        // v1.12 marker: hardened dashboard-DB detection + lazy re-probe.
+        else if (!('dashDbLazy' in d)) why = 'hardened dashboard-DB detection (.env-aware + lazy re-probe)'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',
           why,
           reachable: true,
+          // Co-located DB state (v1.12+ agents): a healthy agent on a
+          // dashboard machine that reports dashboardDb:false is the
+          // "device online but 0 projects" smoking gun.
+          dashboardDb: typeof d.dashboardDb === 'boolean' ? d.dashboardDb : null,
           probedAt: Date.now(),
         }
       } else {
-        result = { version: '', outdated: false, why: 'not-our-agent', reachable: true, probedAt: Date.now() }
+        result = { version: '', outdated: false, why: 'not-our-agent', reachable: true, dashboardDb: null, probedAt: Date.now() }
       }
     } catch {
-      result = { version: '', outdated: false, why: 'unreachable', reachable: false, probedAt: Date.now() }
+      result = { version: '', outdated: false, why: 'unreachable', reachable: false, dashboardDb: null, probedAt: Date.now() }
     }
   }
   healthCache.set(device.id, result)
