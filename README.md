@@ -183,7 +183,10 @@ feature, so you don't have to guess which side is old.
 
 ### Agent updates (device machines)
 
-After pulling on a device machine, restart its agent — the start scripts now
+After pulling on a device machine, restart its agent — on Windows, from the
+repo root: `start-agent.bat 3101` (root convenience wrapper; the real script
+is `mini-services\agent-win\start.bat` — running `.\start.bat` from the repo
+root fails with "cannot be recognized"). The start scripts now
 self-heal the agent DB schema (`prisma db push`, idempotent + additive), and
 since the latest update the agent ALSO self-migrates at boot even when
 started without a script (`ALTER TABLE` adds any missing columns, e.g.
@@ -195,7 +198,10 @@ database, so the project's home machine shows the same GitHub link.
 
 1. Copy `mini-services/agent-linux` (or the macOS/Windows variant) to the
    remote machine.
-2. Follow its `QUICKSTART.md` to install and run the agent.
+2. Follow its `QUICKSTART.md` to install and run the agent. On Windows, a full
+   clone of this repo can run the agent directly:
+   `cd mini-services\agent-win && setup.bat` (once) → `start.bat 3101`, or
+   from the repo root just `start-agent.bat 3101`.
 3. Add the device in the dashboard (Devices → Add Device) and start managing
    its projects.
 
