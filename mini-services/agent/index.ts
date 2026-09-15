@@ -294,6 +294,11 @@ async function reRegisterWithDashboard(target: string): Promise<void> {
       // knows of. When our clone is stale → pull + respawn ourselves (v1.10
       // agents; older builds ignore the field).
       scheduleSelfUpdateFromHeartbeat(data?.updateSignal);
+      // repoSync overrides (dashboard v1.11+): GitHub links the dashboard
+      // cached for OUR projects — set there while this machine was
+      // unreachable or firewalled. Write them into the projects' home
+      // stores so they propagate to every dashboard (best-effort).
+      try { await applyRepoUrlOverrides(data?.repoSync); } catch { /* best-effort */ }
     } else if (res.status !== 400) {
       // 400 = key unknown to this dashboard (not ours / DB reset) — skip
       console.warn(`[Agent][heartbeat] dashboard ${target} responded ${res.status}`);
@@ -345,6 +350,51 @@ const dashDb = DASHBOARD_DB_PATH
 if (DASHBOARD_DB_PATH) {
   console.log(`[Agent] Co-located dashboard DB: ${DASHBOARD_DB_PATH}`);
   console.log('[Agent] Serving its local (deviceId IS NULL) projects to remote peers');
+}
+
+/** Apply repoSync overrides that arrived on a heartbeat RESPONSE (dashboard
+ *  v1.11+): GitHub links a peer dashboard cached for OUR projects — set
+ *  there while this machine was unreachable, or over a one-way-firewalled
+ *  network. Write each link into whichever store owns the project (the
+ *  co-located dashboard DB row first, this agent's own DB row second) so it
+ *  propagates to EVERY dashboard including the project's home machine.
+ *  Empty-only fill (repoUrl = ''): a link the home machine already set (or
+ *  cleared) always wins on its own rows — we only ever FILL gaps. */
+async function applyRepoUrlOverrides(entries: any): Promise<void> {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  let applied = 0;
+  for (const e of entries.slice(0, 50)) {
+    if (!e || typeof e !== 'object') continue;
+    const repoUrl = normalizeRepoUrl(e.repoUrl);
+    const id = String(e.id || '');
+    if (!repoUrl || !id) continue;
+    // 1) The project's home store: the co-located dashboard DB row
+    //    (deviceId IS NULL keeps the mesh mirror loop-free; empty-only fill).
+    if (dashDb) {
+      try {
+        const cols = await ensureDashColumns();
+        if (cols.has('repoUrl')) {
+          const n = await dashDb.$executeRawUnsafe(
+            'UPDATE "Project" SET "repoUrl" = ?, "updatedAt" = ? WHERE "id" = ? AND "deviceId" IS NULL AND "repoUrl" = \'\'',
+            repoUrl, Date.now(), id,
+          );
+          if (n > 0) { applied++; continue; }
+        }
+      } catch { /* dashboard schema lacks the column / db busy — fall through */ }
+    }
+    // 2) This agent's own DB (standalone agent-DB projects). Empty-only
+    //    fill, same rule.
+    try {
+      const row = await db.project.findUnique({ where: { id } });
+      if (row && !String(row.repoUrl || '').trim()) {
+        await db.project.update({ where: { id }, data: { repoUrl } });
+        applied++;
+      }
+    } catch { /* unknown id — skip */ }
+  }
+  if (applied > 0) {
+    console.log(`[Agent][repoSync] applied ${applied} GitHub link(s) received from a peer dashboard`);
+  }
 }
 
 // Dashboard-schema capability probe (run once, lazily): older co-located
@@ -1551,7 +1601,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.10.0',
+        version: '1.11.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -1569,6 +1619,7 @@ const server = createServer(async (req, res) => {
         branchSwitch: true, // GET /projects/:id/branches + switch-branch pull (git checkout + pull)
         pullRepoUrl: true,  // pull body { repoUrl } from the calling dashboard wires up a missing 'origin' (cross-machine GitHub link)
         selfUpdate: true,   // heartbeat updateSignal → pull own repo + self-respawn (zero-touch agent upgrades)
+        repoSync: true,     // heartbeat-response repoSync overrides → links edited on a peer dashboard land in the projects' home stores
       });
       return;
     }

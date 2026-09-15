@@ -97,6 +97,38 @@ export async function POST(request: Request) {
       )
     }
 
+    // Duplicate-address guard: a Device row already exists at this ip:port.
+    // Creating a twin would produce TWO rows for one machine — each stuck
+    // with its own key, the agent's heartbeat only ever matching one of
+    // them, the other drifting to "offline / 0 projects" forever (user
+    // report: two same-address rows at 3101, both showing 0). When the
+    // caller supplies the agent's REAL key this becomes the repair path
+    // (heal a row whose stored key died with a reinstall); without a key
+    // it's a hard 409 naming the existing device.
+    const existing = await db.device.findFirst({
+      where: { ip: String(ip), port: portNum },
+    });
+    if (existing) {
+      if (apiKey) {
+        const repaired = await db.device.update({
+          where: { id: existing.id },
+          data: { name: String(name), port: portNum, apiKey: String(apiKey) },
+        });
+        // The repaired row may now authenticate — drop the sync cache so the
+        // next list GET re-pulls its projects instead of serving the stale
+        // "0 projects" snapshot.
+        invalidateRemoteProjectCache();
+        return NextResponse.json(repaired, { status: 200 });
+      }
+      return NextResponse.json(
+        {
+          error: `该地址已存在设备「${existing.name}」(${existing.ip}:${existing.port}) — 请编辑该设备，或填入正确的 agent apiKey 以修复其连接`,
+          deviceId: existing.id,
+        },
+        { status: 409 },
+      );
+    }
+
     const device = await db.device.create({
       data: {
         name,

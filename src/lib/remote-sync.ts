@@ -296,13 +296,104 @@ export async function healSelfMirroredLocalProjects(): Promise<void> {
   }
 }
 
+/** Merge Device rows that share (ip, port) — one machine must be ONE row.
+ *  Winner selection, in priority order:
+ *    1. row with a fresh heartbeat push (its key provably authenticates —
+ *       the register handler only records pushes for the key-matching row);
+ *    2. row whose direct pull just succeeded (key verified this cycle);
+ *    3. row with the most cached project rows;
+ *    4. row with the most recent lastSeen.
+ *  Losers drop their cached project rows (mirror copies — the winner's sync
+ *  re-creates them) and are then deleted. Rate-limited: the DB work is not
+ *  free and duplicates are rare once the creation paths dedupe correctly. */
+const DEDUP_SCAN_MIN_MS = 5 * 60_000;
+const dedupScanState = { at: 0 };
+let dedupInFlight = false;
+
+async function mergeDuplicateDeviceRows(
+  devices: any[],
+  pullOkById: Map<string, boolean>,
+): Promise<Map<string, { id: string; name: string }>> {
+  const loserToWinner = new Map<string, { id: string; name: string }>();
+  if (dedupInFlight) return loserToWinner;
+  const groups = new Map<string, any[]>();
+  for (const d of devices) {
+    if (!d?.ip || !d?.port || Number(d.port) <= 0) continue;
+    const key = `${String(d.ip)}:${Number(d.port)}`;
+    const arr = groups.get(key) || [];
+    arr.push(d);
+    groups.set(key, arr);
+  }
+  const dupGroups = [...groups.values()].filter((g) => g.length > 1);
+  if (dupGroups.length === 0) return loserToWinner;
+  if (Date.now() - dedupScanState.at < DEDUP_SCAN_MIN_MS) return loserToWinner;
+  dedupScanState.at = Date.now();
+  dedupInFlight = true;
+  try {
+    for (const group of dupGroups) {
+      try {
+        const counts = await db.project.groupBy({
+          by: ['deviceId'],
+          where: { deviceId: { in: group.map((d) => String(d.id)) } },
+          _count: { id: true },
+        });
+        const countById = new Map(
+          counts.map((c: any) => [String(c.deviceId), Number(c?._count?.id) || 0]),
+        );
+        const score = (d: any): number[] => {
+          const push = pushStore.get(String(d.id));
+          const freshPush = push && Date.now() - push.at < PUSH_STALE_MS ? 1 : 0;
+          return [
+            freshPush,
+            pullOkById.get(String(d.id)) ? 1 : 0,
+            countById.get(String(d.id)) || 0,
+            Date.parse(String(d.lastSeen)) || 0,
+          ];
+        };
+        const sorted = [...group].sort((a, b) => {
+          const sa = score(a);
+          const sb = score(b);
+          for (let i = 0; i < sa.length; i++) if (sb[i] !== sa[i]) return sb[i] - sa[i];
+          return 0;
+        });
+        const winner = sorted[0];
+        for (const loser of sorted.slice(1)) {
+          // Cached rows first (mirror copies — the winner's sync re-creates
+          // them), then the row itself. Deleting the row alone would SetNull
+          // the projects into LOCAL rows (duplicated home-machine cards).
+          await db.project.deleteMany({ where: { deviceId: loser.id } });
+          await db.device.delete({ where: { id: loser.id } });
+          loserToWinner.set(String(loser.id), { id: String(winner.id), name: String(winner.name) });
+          console.log(
+            `[remote-sync] merged duplicate device row '${loser.name}' into '${winner.name}' (${winner.ip}:${winner.port})`,
+          );
+          logActivity({
+            type: 'pair',
+            level: 'info',
+            message: `Duplicate device row '${loser.name}' merged into '${winner.name}'`,
+            deviceId: String(winner.id),
+            deviceName: String(winner.name),
+            detail: `both pointed at ${winner.ip}:${winner.port} — the stale row (dead key, no reachable projects) was removed`,
+          });
+        }
+      } catch (e) {
+        console.error('[remote-sync] duplicate merge failed for a group', e);
+      }
+    }
+  } finally {
+    dedupInFlight = false;
+  }
+  return loserToWinner;
+}
+
 /** Agent-reported repoUrl values must be https URLs before they may enter
  *  the DB or the API response. The agent-side editors normalize identically,
  *  so anything else (javascript:, file://, ssh, plain paths …) is either a
  *  hostile push or a legacy value — both are refused here, killing the
  *  stored-XSS chain (agent push → DB → card href → script execution in the
- *  dashboard origin, where the raw session token sits in localStorage). */
-function isHttpsRepoUrl(raw: unknown): raw is string {
+ *  dashboard origin, where the raw session token sits in localStorage).
+ *  Exported: the mesh register route reuses it for repoSync overrides. */
+export function isHttpsRepoUrl(raw: unknown): raw is string {
   if (typeof raw !== 'string') return false
   const s = raw.trim()
   return /^https:\/\/[\w.-]+\//i.test(s) || /^https:\/\/[^/\s]+$/i.test(s)
@@ -511,6 +602,37 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
     r.status === 'fulfilled' ? r.value.projects : []
   )
 
+  // Pull outcome per device row (reused by the duplicate merge below and
+  // the repoUrl write-back leg): true = the row's apiKey authenticated with
+  // the agent this cycle.
+  const pullOkById = new Map<string, boolean>();
+  devices.forEach((d, i) => {
+    const r = remoteResults[i];
+    pullOkById.set(d.id, r?.status === 'fulfilled' && !!r.value.ok);
+  });
+
+  // ---- merge duplicate device rows (same ip:port) ----
+  // Two Device rows pointing at ONE machine (manual add + pairing, or two
+  // pairing generations across an agent key rotation) each carry their own
+  // key — at most one still authenticates. The stale twin can never update
+  // again (its heartbeat 400s on the unknown key, its pulls 401), so the
+  // machine shows TWO rows with at least one stuck at "0 projects" forever
+  // (user report: two same-address rows at :3101, both 0). Merge each
+  // address group into its best row and delete the losers BEFORE persisting
+  // so the cached rows land under the survivor.
+  {
+    const loserToWinner = await mergeDuplicateDeviceRows(devices, pullOkById);
+    if (loserToWinner.size > 0) {
+      for (const p of enrichedRemote) {
+        const winner = loserToWinner.get(String(p.deviceId || ''));
+        if (winner) {
+          p.deviceId = winner.id;
+          p.deviceName = winner.name;
+        }
+      }
+    }
+  }
+
   // ---- prune zombie rows (devices whose listing we actually trust) -----
   // The persist step below mirrors the live listing, but rows whose ids the
   // agent no longer reports (project deleted and RE-CREATED on the device
@@ -562,6 +684,43 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
     }
   }
   const dedupedRemote = Array.from(remoteByKey.values())
+
+  // ---- repoUrl write-back collection (direct leg of cross-dashboard
+  // propagation) ----
+  // A GitHub link cached HERE for a remote project whose home machine
+  // reports none — collected now (BEFORE the dashboard-level fallback merge
+  // below rewrites remote.repoUrl with cached values) and pushed to the agent
+  // after the persist step, so it lands in the project's HOME stores and
+  // propagates to every dashboard (user report: links added on one machine
+  // never reached the other). Gates mirror the heartbeat repoSync leg:
+  // repoUrl-capable agent only, empty agent value only, and a 10-min
+  // freshness tolerance so a link CLEARED on the home machine (newer row)
+  // is not resurrected. Pushes run ONLY for devices whose pull succeeded
+  // this cycle (agent proven reachable — firewalled peers are covered by
+  // the heartbeat-response repoSync leg instead, no timeout hammering).
+  const repoPushByDevice = new Map<string, { id: string; repoUrl: string }[]>()
+  {
+    const cachedLinks = await db.project.findMany({
+      where: { deviceId: { not: null } },
+      select: { id: true, deviceId: true, repoUrl: true, updatedAt: true },
+    })
+    const linkById = new Map(cachedLinks.map((p) => [p.id, p]))
+    for (const remote of dedupedRemote as any[]) {
+      if (typeof remote.repoUrl !== 'string') continue // pre-repoUrl agent — cannot confirm
+      if (isHttpsRepoUrl(remote.repoUrl)) continue // the home machine already has a link — it wins
+      const cached = linkById.get(remote.id)
+      if (!cached || !isHttpsRepoUrl(cached.repoUrl)) continue
+      const agentUpdated = Date.parse(String(remote.updatedAt || '')) || 0
+      const cachedUpdated = Date.parse(
+        cached.updatedAt instanceof Date ? cached.updatedAt.toISOString() : String(cached.updatedAt)
+      ) || 0
+      if (agentUpdated - cachedUpdated > 10 * 60_000) continue // cleared on the home machine
+      if (!pullOkById.get(String(remote.deviceId || ''))) continue // agent not proven reachable
+      const list = repoPushByDevice.get(String(remote.deviceId)) || []
+      if (list.length < 10) list.push({ id: String(remote.id), repoUrl: String(cached.repoUrl).trim() })
+      repoPushByDevice.set(String(remote.deviceId), list)
+    }
+  }
 
   // ---- dashboard-level fields fallback (response path) ----
   // repoUrl/notes are DASHBOARD-level fields: the user may have set them
@@ -682,6 +841,45 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
     } catch (e) {
       console.error('Failed to persist remote project', remote.id, e)
     }
+  }
+
+  // ---- repoUrl write-back execution (direct leg) ----
+  // PUT /projects/:id { repoUrl } on the agent — its PUT handler writes the
+  // link into the project's home stores (co-located dashboard DB row first,
+  // its own agent-DB row second). Best-effort: a failed push is simply
+  // retried on the next sync (the diff only disappears once the agent
+  // actually reports the link, so this converges instead of looping).
+  if (repoPushByDevice.size > 0) {
+    await Promise.allSettled(
+      [...repoPushByDevice.entries()].map(async ([deviceId, entries]) => {
+        const device = devices.find((d) => String(d.id) === deviceId)
+        if (!device) return
+        let pushed = 0
+        for (const e of entries) {
+          const r = await proxyToAgent(
+            { ip: device.ip, port: device.port, apiKey: device.apiKey || '' },
+            `/projects/${e.id}`,
+            'PUT',
+            { repoUrl: e.repoUrl },
+            6000,
+          )
+          if (r.ok) pushed++
+        }
+        if (pushed > 0) {
+          console.log(
+            `[remote-sync] pushed ${pushed} repoUrl override(s) to device '${device.name}'`,
+          )
+          logActivity({
+            type: 'config_change',
+            level: 'success',
+            message: `GitHub links synced to '${device.name}'`,
+            deviceId: device.id,
+            deviceName: device.name,
+                       detail: `${pushed} project link(s) set on this dashboard were propagated to the device`,
+          })
+        }
+      }),
+    )
   }
 
   console.log(

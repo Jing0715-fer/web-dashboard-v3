@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto';
 import * as os from 'os';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
-import { invalidateRemoteProjectCache, recordDevicePush } from '@/lib/remote-sync';
+import { invalidateRemoteProjectCache, recordDevicePush, isHttpsRepoUrl } from '@/lib/remote-sync';
 import {
   detectLocalAgent,
   ensureLocalAgent,
@@ -231,6 +231,74 @@ async function probeRemoteAgent(ip: string, port: number): Promise<boolean> {
   }
 }
 
+/** Verify a CLAIMED apiKey against the agent listening at (ip, port):
+ *  GET /api/agent/projects answers 200 only for the agent's OWN key
+ *  (Bearer auth). Used by the heartbeat re-key path below — a requester
+ *  can only prove a key this way by actually controlling that agent, so
+ *  adopting the key into the matching Device row cannot be spoofed by a
+ *  LAN peer that merely knows the address. */
+async function verifyAgentKeyAt(ip: string, port: number, apiKey: string): Promise<boolean> {
+  try {
+    const res = await fetch(`http://${ip}:${port}/api/agent/projects`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Cross-dashboard repoUrl propagation (heartbeat leg). The heartbeat-ing
+ *  agent pushed its project list; diff it against THIS dashboard's cached
+ *  rows and return the links the agent doesn't know yet, so the agent can
+ *  write them into the project's HOME stores (its own DB and/or the
+ *  co-located dashboard DB). This is the leg that keeps a GitHub link set
+ *  HERE (while the peer was unreachable, or on a one-way-firewalled
+ *  network) from being stranded on this dashboard forever — user report:
+ *  repoUrl edited on one machine never reached the project's home machine.
+ *
+ *  Gates:
+ *  - only repoUrl-capable agents (listing carries the repoUrl field —
+ *    pre-repoMerge agents omit it and cannot store the link anyway);
+ *  - only EMPTY agent values (a link the home machine already has wins);
+ *  - home-machine freshness: when the agent-side row was touched much
+ *    more recently than our cached edit, the link may have been CLEARED
+ *    there — don't resurrect it (10-min clock-skew tolerance). */
+async function computeRepoSyncOverrides(
+  deviceId: string,
+  pushed: any[],
+): Promise<{ id: string; path: string; repoUrl: string }[]> {
+  try {
+    const cached = await db.project.findMany({
+      where: { deviceId },
+      select: { id: true, path: true, repoUrl: true, updatedAt: true },
+    });
+    if (cached.length === 0) return [];
+    const byId = new Map(cached.map((p) => [p.id, p]));
+    const out: { id: string; path: string; repoUrl: string }[] = [];
+    for (const p of Array.isArray(pushed) ? pushed.slice(0, 200) : []) {
+      if (!p || typeof p !== 'object' || !p.id) continue;
+      const c = byId.get(String(p.id));
+      if (!c || !isHttpsRepoUrl(c.repoUrl)) continue;
+      // Old agent (listing lacks the field) — cannot confirm; skip.
+      if (typeof p.repoUrl !== 'string') continue;
+      // The home machine already knows a link — its value wins.
+      if (isHttpsRepoUrl(p.repoUrl)) continue;
+      const agentUpdated = Date.parse(String(p.updatedAt || '')) || 0;
+      const cachedUpdated = Date.parse(
+        c.updatedAt instanceof Date ? c.updatedAt.toISOString() : String(c.updatedAt)
+      ) || 0;
+      if (agentUpdated - cachedUpdated > 10 * 60_000) continue;
+      out.push({ id: String(p.id), path: String(p.path || ''), repoUrl: String(c.repoUrl).trim() });
+      if (out.length >= 50) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** Pre-flight probe of a remote dashboard: GET {target}/api/mesh/ping. */
 async function probeDashboard(target: string, timeoutMs = 4000): Promise<TargetProbe> {
   try {
@@ -386,16 +454,37 @@ export async function POST(req: NextRequest) {
       // STORED one does, keep the working row (log it) instead of letting
       // every 60s heartbeat "self-heal" the device back to a dead address.
       if (!code) {
-        const keyRow = apiKey
+        const badRange = (v: string) => /^169\.254\./.test(v) || /^198\.1[89]\./.test(v);
+        let keyRow = apiKey
           ? await db.device.findFirst({ where: { apiKey: String(apiKey) } })
           : null;
+        // ---- Probe-verified re-key (agent key rotation self-heal) ----
+        // An agent whose key ROTATED (storage reset / reinstall / re-pair)
+        // heartbeats with its NEW key; the row at its address still carries
+        // the DEAD key, so the lookup above misses and the heartbeat 400s
+        // FOREVER — the row can never update again, its pulls 401, and the
+        // device shows 0 projects for a machine that demonstrably has them
+        // (user report: two same-address rows, both stuck at 0). Verify the
+        // claimed key against the agent AT THAT ADDRESS and adopt it: a
+        // requester can only pass this probe by controlling that agent, so
+        // this cannot be used to hijack a row the requester doesn't own.
+        let reKeyed = false;
+        if (!keyRow && String(apiKey || '').length >= 16 && ip && Number(port) > 0 && !badRange(String(ip))) {
+          const addrRow = await db.device.findFirst({
+            where: { ip: String(ip), port: Number(port) },
+            orderBy: { lastSeen: 'desc' },
+          });
+          if (addrRow && await verifyAgentKeyAt(String(ip), Number(port), String(apiKey))) {
+            keyRow = addrRow;
+            reKeyed = true;
+          }
+        }
         if (!keyRow) {
           return NextResponse.json(
             { error: '缺少配对码 — 新设备请先在对方仪表盘生成配对码（或提供已注册设备的 apiKey）' },
             { status: 400 },
           );
         }
-        const badRange = (v: string) => /^169\.254\./.test(v) || /^198\.1[89]\./.test(v);
         let writeIp = String(ip);
         let guarded = false;
         if (String(ip) !== keyRow.ip && !badRange(String(ip))) {
@@ -416,11 +505,21 @@ export async function POST(req: NextRequest) {
             name: String(name),
             ip: writeIp,
             port: Number(port),
+            ...(reKeyed && { apiKey: String(apiKey) }),
             status: 'online',
             lastSeen: new Date(),
           },
         });
-        if (guarded) {
+        if (reKeyed) {
+          logActivity({
+            type: 'pair',
+            level: 'success',
+            message: `Device '${device.name}' re-authorized with a new agent key`,
+            deviceId: device.id,
+            deviceName: device.name,
+            detail: `key rotated on the agent (reinstall / re-pair) — row healed at ${device.ip}:${device.port}`,
+          });
+        } else if (guarded) {
           logActivity({
             type: 'pair',
             level: 'warn',
@@ -448,6 +547,13 @@ export async function POST(req: NextRequest) {
           recordDevicePush(device.id, body.projects, String(ip), Number(port));
           invalidateRemoteProjectCache();
         }
+        // repoSync overrides ride the heartbeat RESPONSE back to the agent
+        // (see computeRepoSyncOverrides): links THIS dashboard cached for the
+        // agent's projects but that its home stores never received. v1.11+
+        // agents apply them; older agents ignore the field harmlessly.
+        const repoSync = Array.isArray(body?.projects)
+          ? await computeRepoSyncOverrides(device.id, body.projects)
+          : [];
         // Peer relay (one-way networks): hand OUR agent coordinates + full
         // project list back to the heartbeat-ing agent. It caches the entry
         // (keyed by OUR agent apiKey) and its co-located dashboard reads it
@@ -476,8 +582,10 @@ export async function POST(req: NextRequest) {
           deviceId: device.id,
           reRegistered: true,
           addressFixed: ipChanged || portChanged,
+          reKeyed,
           ...(relayPeer && { peer: relayPeer }),
           ...(updateSignal && { updateSignal }),
+          ...(repoSync.length > 0 && { repoSync }),
         });
       }
 

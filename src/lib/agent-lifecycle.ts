@@ -278,6 +278,12 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // ITSELF onto new code. Without it the agent stays on whatever code was
     // running when the machine last pulled manually.
     if (!('selfUpdate' in d)) return { outdated: true, why: 'agent self-update (heartbeat-signal pull + self-respawn)' };
+    // v1.11 marker: repoSync — the agent applies repoSync overrides that
+    // ride heartbeat RESPONSES (links a peer dashboard cached for our
+    // projects while this machine was unreachable/firewalled). Without it,
+    // GitHub links edited on another dashboard never reach the projects'
+    // home stores.
+    if (!('repoSync' in d)) return { outdated: true, why: 'repoSync overrides (cross-dashboard repoUrl propagation)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };
