@@ -1353,7 +1353,12 @@ const SELF_UPDATE_MIN_INTERVAL_MS = 3 * 60 * 1000;
  *  fails we stay alive: the co-located dashboard's supervisor (or a human)
  *  can still restart us. */
 function respawnSelf(reason: string): void {
-  const entry = basename(process.argv[1] || 'index.ts');
+  // Absolute entry when argv[1] was absolute (agent launched as
+  // `bun /path/to/index.ts` from an arbitrary cwd — schedulers, services,
+  // tests). A bare basename would then resolve against the WRONG cwd and
+  // the respawn dies with `Module not found "index.ts"` (observed live).
+  const rawEntry = process.argv[1] || 'index.ts';
+  const entry = isAbsolute(rawEntry) ? rawEntry : basename(rawEntry);
   const argv = process.argv.slice(2).map((a) => `"${String(a).replace(/"/g, '')}"`).join(' ');
   const cwd = process.cwd().replace(/"/g, '');
   const exe = process.execPath.replace(/"/g, '');
@@ -1364,7 +1369,7 @@ function respawnSelf(reason: string): void {
       // classic ping-based sleep works headless. 2s is enough for the port
       // to be released by our exit below.
       spawn('cmd.exe', [
-        '/c', `ping -n 3 127.0.0.1 >nul & cd /d "${cwd}" & "${exe}" ${entry} ${argv}`,
+        '/c', `ping -n 3 127.0.0.1 >nul & cd /d "${cwd}" & "${exe}" "${entry}" ${argv}`,
       ], { detached: true, stdio: 'ignore', windowsHide: true });
     } else {
       const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -1703,7 +1708,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.12.0',
+        version: '1.13.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -1725,6 +1730,7 @@ const server = createServer(async (req, res) => {
         selfUpdate: true,   // heartbeat updateSignal → pull own repo + self-respawn (zero-touch agent upgrades)
         repoSync: true,     // heartbeat-response repoSync overrides → links edited on a peer dashboard land in the projects' home stores
         dashDbLazy: true,   // multi-candidate dashboard-DB detection (.env-aware, __dirname-anchored) + lazy re-probe + agentMeta reporting
+        restart: true,      // POST /api/agent/restart — dashboard-triggered respawn (stale-process heal without a code pull)
       });
       return;
     }
@@ -1750,6 +1756,18 @@ const server = createServer(async (req, res) => {
         versions[p.id] = await readGitVersion(p.path);
       }));
       sendJSON(res, 200, { versions });
+      return;
+    }
+
+    // POST /api/agent/restart — respawn this agent process on request from
+    // the dashboard's per-device "Restart Agent" button. No code pull: this
+    // is the fix for the stale-process class of issues (a `git pull` on the
+    // machine hot-reloads the dashboard but NOT the already-spawned agent).
+    // The 200 below flushes synchronously; respawnSelf then exits ~800ms
+    // later, and the detached replacement re-binds the same port ~2s after.
+    if (pathname === '/api/agent/restart' && req.method === 'POST') {
+      sendJSON(res, 200, { ok: true, action: 'restarting', detail: 'agent respawn triggered by dashboard' });
+      respawnSelf('restart requested by dashboard');
       return;
     }
 

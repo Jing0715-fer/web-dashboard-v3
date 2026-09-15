@@ -890,6 +890,9 @@ export const dialogs = {
   'dlg.toast.failedUpdateDevice': 'Failed to update device',
   'dlg.toast.failedDeleteDevice': 'Failed to delete device',
   'dlg.toast.healthCheckFailed': 'Health check failed',
+  'dlg.toast.agentRestartSent': 'Restart command sent',
+  'dlg.toast.agentRestartSentDesc': 'The agent on {name} is restarting and will be back online within seconds (a brief offline blip is normal).',
+  'dlg.toast.agentRestartFailed': 'Failed to restart agent',
   'dlg.toast.deviceNotFound': 'Device not found',
   'dlg.toast.deviceNotFoundDesc': 'Cannot locate the remote device for this project.',
   'dlg.toast.replaceEnvs': 'Replacing environments…',
@@ -1064,6 +1067,8 @@ export const dialogs = {
   'dlg.devicePanel.agentVersionHint': 'Running agent version (from its /health endpoint)',
   'dlg.devicePanel.test': 'Test',
   'dlg.devicePanel.health': 'Health',
+  'dlg.devicePanel.restart': 'Restart',
+  'dlg.devicePanel.restartHint': 'Restart the agent process on that machine (required after a git pull to take effect — pulling hot-reloads the dashboard, NOT the running agent). Triggered remotely; no need to log into that machine.',
   'dlg.devicePanel.deleteTitle': 'Delete "{name}"?',
   'dlg.devicePanel.deleteDesc': 'This will remove the device. Remote projects from this device will no longer appear.',
 

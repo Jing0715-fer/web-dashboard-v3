@@ -5922,7 +5922,7 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
 // ======================== DEVICE MANAGEMENT PANEL ========================
 
 function DeviceManagementPanel({
-  open, onClose, devices, onAdd, onEdit, onDelete, onHealthCheck, onOpenDeployGuide, onOpenPairing, onOpenRemoteProject, onOpenJoin
+  open, onClose, devices, onAdd, onEdit, onDelete, onHealthCheck, onRestartAgent, onOpenDeployGuide, onOpenPairing, onOpenRemoteProject, onOpenJoin
 }: {
   open: boolean
   onClose: () => void
@@ -5931,6 +5931,7 @@ function DeviceManagementPanel({
   onEdit: (device: Device) => void
   onDelete: (id: string) => void
   onHealthCheck: (id: string) => Promise<{ status: string } | null>
+  onRestartAgent: (device: Device) => Promise<void>
   onOpenDeployGuide: () => void
   onOpenPairing: () => void
   onOpenRemoteProject: () => void
@@ -5938,6 +5939,7 @@ function DeviceManagementPanel({
 }) {
   const t = useT()
   const [healthCheckingIds, setHealthCheckingIds] = React.useState<Set<string>>(new Set())
+  const [restartingIds, setRestartingIds] = React.useState<Set<string>>(new Set())
   const [testingIds, setTestingIds] = React.useState<Set<string>>(new Set())
   const [testResults, setTestResults] = React.useState<Record<string, { latency: number; success: boolean } | null>>({})
 
@@ -5979,6 +5981,19 @@ function DeviceManagementPanel({
     })
   }
 
+  const handleRestartAgent = async (device: Device) => {
+    setRestartingIds((prev) => new Set(prev).add(device.id))
+    try {
+      await onRestartAgent(device)
+    } finally {
+      setRestartingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(device.id)
+        return next
+      })
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-lg overflow-hidden p-0 flex flex-col dark:bg-zinc-900/98 dark:border-l dark:border-zinc-800/60">
@@ -5986,8 +6001,10 @@ function DeviceManagementPanel({
           {/* Title row — icon + title/description + ONE primary action.
            * The remaining actions live in the wrap-friendly toolbar below:
            * 4 buttons in this row used to squeeze the title to 0px on narrow
-           * screens and push "Add Device" off-viewport. */}
-          <div className="flex items-center gap-2">
+           * screens and push "Add Device" off-viewport. pr-9 keeps the button
+           * clear of the Sheet's absolute-positioned close (X) at top-4
+           * right-4 — they used to overlap on the same spot. */}
+          <div className="flex items-center gap-2 pr-9">
             <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30 shrink-0">
               <Plug className="h-5 w-5 text-teal-600 dark:text-teal-400" />
             </div>
@@ -6151,16 +6168,31 @@ function DeviceManagementPanel({
                   </motion.div>
                 )}
                 <div className="flex items-center gap-1.5 pt-1">
-                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => onEdit(device)}>
+                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1 min-w-0" onClick={() => onEdit(device)}>
                     <Edit3 className="h-3 w-3 mr-1" />{t('dlg.common.edit')}
                   </Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => handleTestConnection(device)} disabled={testingIds.has(device.id)}>
+                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1 min-w-0" onClick={() => handleTestConnection(device)} disabled={testingIds.has(device.id)}>
                     {testingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Zap className="h-3 w-3 mr-1" />}
                     {t('dlg.devicePanel.test')}
                   </Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1" onClick={() => handleHealthCheck(device.id)} disabled={healthCheckingIds.has(device.id)}>
+                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1 min-w-0" onClick={() => handleHealthCheck(device.id)} disabled={healthCheckingIds.has(device.id)}>
                     {healthCheckingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Activity className="h-3 w-3 mr-1" />}
                     {t('dlg.devicePanel.health')}
+                  </Button>
+                  {/* Restart the AGENT process on that machine — the fix for
+                    * stale-agent symptoms after a git pull (pull hot-reloads
+                    * the dashboard, not the spawned agent). Amber = do this
+                    * whenever the card shows the "Agent outdated" badge. */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs flex-1 min-w-0 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/20"
+                    onClick={() => handleRestartAgent(device)}
+                    disabled={restartingIds.has(device.id)}
+                    title={t('dlg.devicePanel.restartHint')}
+                  >
+                    {restartingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RotateCw className="h-3 w-3 mr-1" />}
+                    {t('dlg.devicePanel.restart')}
                   </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -6856,6 +6888,28 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } catch {
       toast({ title: t('dlg.toast.healthCheckFailed'), variant: 'destructive' })
       return null
+    }
+  }, [toast, fetchDevices, t])
+
+  const handleRestartAgent = React.useCallback(async (device: Device) => {
+    try {
+      const res = await fetch(`/api/devices/${device.id}/restart-agent`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        toast({
+          title: t('dlg.toast.agentRestartSent'),
+          description: t('dlg.toast.agentRestartSentDesc', { name: device.name }),
+          variant: 'success',
+        })
+        // The agent exits ~1s after accepting and its replacement re-binds
+        // the same port ~2-3s later. Re-probe shortly after so the device
+        // list reflects the fresh uptime / new version by itself.
+        setTimeout(() => { fetchDevices() }, 5000)
+      } else {
+        toast({ title: t('dlg.toast.agentRestartFailed'), description: String(data?.error || ''), variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: t('dlg.toast.agentRestartFailed'), variant: 'destructive' })
     }
   }, [toast, fetchDevices, t])
 
@@ -9785,6 +9839,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         onEdit={(device) => { setEditingDevice(device); setAddDeviceFormOpen(true) }}
         onDelete={handleDeleteDevice}
         onHealthCheck={handleCheckDeviceHealth}
+        onRestartAgent={handleRestartAgent}
         onOpenDeployGuide={() => { setDeviceManagementOpen(false); setAgentDeployGuideOpen(true) }}
         onOpenPairing={() => { setDeviceManagementOpen(false); setMeshPairingOpen(true) }}
         onOpenJoin={() => { setDeviceManagementOpen(false); setMeshJoinOpen(true) }}

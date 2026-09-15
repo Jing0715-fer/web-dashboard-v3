@@ -290,6 +290,11 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // anywhere but <repo>/db/custom.db (e.g. a relative .env URL, which Prisma
     // resolves against prisma/) serves ZERO projects to every peer forever.
     if (!('dashDbLazy' in d)) return { outdated: true, why: 'hardened dashboard-DB detection (.env-aware + lazy re-probe)' };
+    // v1.13 marker: remote agent restart — POST /api/agent/restart respawns
+    // the agent on dashboard request. Without it the device panel's Restart
+    // button 404s and stale agents still need a manual restart on that
+    // machine (git pull hot-reloads the dashboard, not the spawned agent).
+    if (!('restart' in d)) return { outdated: true, why: 'remote agent restart (POST /api/agent/restart)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };

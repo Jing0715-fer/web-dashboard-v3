@@ -90,6 +90,8 @@ export async function probeRemoteAgentHealth(
         else if (!('repoSync' in d)) why = 'repoSync overrides (cross-dashboard repoUrl propagation)'
         // v1.12 marker: hardened dashboard-DB detection + lazy re-probe.
         else if (!('dashDbLazy' in d)) why = 'hardened dashboard-DB detection (.env-aware + lazy re-probe)'
+        // v1.13 marker: dashboard-triggered agent restart (POST /api/agent/restart).
+        else if (!('restart' in d)) why = 'remote agent restart (POST /api/agent/restart)'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',

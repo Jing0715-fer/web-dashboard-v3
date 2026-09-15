@@ -886,6 +886,9 @@ export const dialogs = {
   'dlg.toast.failedUpdateDevice': '更新设备失败',
   'dlg.toast.failedDeleteDevice': '删除设备失败',
   'dlg.toast.healthCheckFailed': '健康检查失败',
+  'dlg.toast.agentRestartSent': '重启指令已发送',
+  'dlg.toast.agentRestartSentDesc': '{name} 上的 Agent 正在重启，几秒后自动恢复在线（期间短暂离线属正常）。',
+  'dlg.toast.agentRestartFailed': '重启 Agent 失败',
   'dlg.toast.deviceNotFound': '未找到设备',
   'dlg.toast.deviceNotFoundDesc': '找不到该项目对应的远程设备。',
   'dlg.toast.replaceEnvs': '正在替换环境…',
@@ -1060,6 +1063,8 @@ export const dialogs = {
   'dlg.devicePanel.agentVersionHint': '正在运行的 agent 版本（来自其 /health 接口）',
   'dlg.devicePanel.test': '测试',
   'dlg.devicePanel.health': '健康',
+  'dlg.devicePanel.restart': '重启',
+  'dlg.devicePanel.restartHint': '重启该机器上的 Agent 进程（git pull 后需要重启才生效——拉取代码只会热更新 dashboard，不会更新已运行的 agent）。远程触发，无需登录那台机器。',
   'dlg.devicePanel.deleteTitle': '删除“{name}”？',
   'dlg.devicePanel.deleteDesc': '将移除该设备。来自该设备的远程项目将不再显示。',
 
