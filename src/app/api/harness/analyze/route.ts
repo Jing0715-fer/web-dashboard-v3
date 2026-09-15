@@ -3,6 +3,7 @@ import { existsSync, statSync } from 'fs';
 import { resolve, basename } from 'path';
 import { requireApprovedUser } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { isSelfOrAncestorPath, SELF_GUARD_REJECTION } from '@/lib/self-guard';
 import {
   ensureEngine,
   startAnalysis,
@@ -45,6 +46,15 @@ export async function POST(req: NextRequest) {
     const path = resolve(String(body?.path || ''));
     if (!existsSync(path) || !statSync(path).isDirectory()) {
       return NextResponse.json({ error: `Invalid project path: ${path}` }, { status: 400 });
+    }
+    // SELF-ANALYSIS GUARD — the #1 cause of "the dashboard stopped by itself
+    // while analyzing". The dsh agent's pre-flight cleanup kills the PID it
+    // finds in .next/dev/lock under the analyzed tree; when that tree contains
+    // the dashboard itself, the PID is the live dashboard server. Block it
+    // (self path or any ancestor such as the home directory) with a clear
+    // explanation instead of letting the agent shoot us.
+    if (isSelfOrAncestorPath(path)) {
+      return NextResponse.json({ error: SELF_GUARD_REJECTION }, { status: 400 });
     }
     const usedPorts = Array.isArray(body?.usedPorts)
       ? body.usedPorts.map(Number).filter((n: any) => Number.isInteger(n))

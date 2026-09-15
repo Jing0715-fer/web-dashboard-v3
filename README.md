@@ -1,170 +1,185 @@
-# Web Dashboard — 多设备项目管理面板
+<div align="center">
 
-在一台电脑上管理所有机器上的开发项目：添加项目路径，自动分析并生成启动命令，然后在一个页面里启动 / 停止 / 重启 / 更新任何机器上的任何环境。
+<img src="public/logo.svg" width="72" alt="Web Dashboard logo" />
 
-```
-你的 Mac（主控台）                    你的 Windows 机器
-┌──────────────────┐    局域网    ┌──────────────────┐
-│   Dashboard      │ ◄────────► │  Agent (端口 3101)│
-│   localhost:3000 │   自动配对   │  + 本机 Dashboard │
-└──────────────────┘            └──────────────────┘
-     两边互相看到对方的项目、GitHub 链接、运行状态
-```
+# Web Dashboard
 
----
+**A self-hosted control panel for the projects running on all your machines.**
 
-## 推荐功能
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Next.js](https://img.shields.io/badge/Next.js%2016-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![Bun](https://img.shields.io/badge/runtime-Bun-f9f1e0?logo=bun)](https://bun.sh)
+[![Prisma](https://img.shields.io/badge/Prisma%20%2B%20SQLite-2D3748?logo=prisma&logoColor=white)](https://prisma.io)
 
-### 🖥 多设备统一管理
-- 一台仪表盘管理多台电脑的项目，远程项目与本地项目混合展示、按设备分组
-- 项目卡片、列表视图随意切换，支持拖拽排序、置顶、标签、搜索（⌘K）
-- 远程操作全支持：启动 / 停止 / 重启 / 重建 / 编辑 / 日志，和本地一样
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-### 🚀 一键启动环境
-- 每个项目可以有多个环境（development / production / 自定义），每个环境一条命令 + 一个端口
-- 四个启动入口：环境行 ▶ 按钮 / 卡片「启动全部」/ 右键菜单 / 项目详情页
-- 实时运行状态（监听端口检测）、PID、一键停止
-
-### 🐙 GitHub 深度集成
-- 项目卡片上**一键 Pull**（自动补全缺失的 origin 远程）
-- **切换分支**：分支选择器列出本地 + 远程分支，选中即 checkout + pull
-- 版本徽标：当前分支 @ commit、多久前提交、未提交改动红点
-- 每 10 分钟自动检查远程更新，落后的项目会挂「有更新」徽标并弹汇总提醒
-- 在任何一台机器上填写的 GitHub 链接，自动同步到所有机器
-
-### 🔄 跨设备自动同步
-- 两台机器上的仪表盘互相镜像对方的项目列表（含环境、状态、链接）
-- 防火墙也不怕：对方机器心跳（60 秒一次）把数据推过来，单向网络也能双向可见
-- GitHub 链接、备注等修改自动传播回项目所在的"家"机器
-
-### 🛠 零维护
-- 代码更新后，设备上的 agent **自动拉取并自我重启**（无需每台机器手动 git pull + 重启）
-- 仪表盘每 60 秒巡检：agent 掉线自动拉起、数据库结构自动迁移
-- 设备密钥轮换后自动重新认证；重复设备行自动合并
-- 过旧 / 配置异常的 agent 会在设备卡片上直接标注原因和修复方法
-
-### 🧹 一键整理端口
-- 端口面板 →「整理端口」：自动规划所有项目的端口
-- 规则：dev 从 3001 起、prod = dev + 1000、避开系统占用，已合规的**保持不变**
-- 应用前先预览每一项变更与原因，不满意可以不应用
-
-### 🤖 LLM 智能分析
-- 新项目自动分析（读取 package.json 等），自动生成启动命令
-- 兼容 OpenAI 接口的本地网关，不把代码发到外部服务
-
-### 📊 监控
-- 健康评分 + 趋势线、CPU / 内存占用
-- 活动动态（谁在什么时候启动了什么）、部署时间线、实时日志流
+</div>
 
 ---
 
-## 快速开始
+Point it at a directory, and the dashboard figures out how the project starts — install, launch, verify — then gives you one page to start, stop, restart, rebuild, pull, or branch-switch any environment on any machine in your house. It runs entirely on your own hardware: one SQLite file, one port, no cloud dependency.
 
-### Mac / Linux
+![Dashboard overview](docs/images/dashboard-overview.png)
+
+## How it works
+
+When you add a project, an in-process agent (deepseek-harness) walks the directory, installs whatever is missing, picks free ports, starts the dev server, polls it until it answers, debugs it if it doesn't, and only then saves the configuration. Both a `dev` and a `production` entry come out verified, with the commands and env vars recorded as-is — you can edit them afterwards like any normal field.
+
+![Analysis wizard](docs/images/analysis-wizard.png)
+
+Everything the agent learned is applied server-side the moment analysis finishes, so closing the wizard or losing the tab never throws the result away.
+
+The same loop protects day-to-day operations: environment starts are verified against the actual port (not a two-second guess), failures feed an LLM repair loop with the log tail attached, and the supervisor re-checks every 60 seconds.
+
+## Features
+
+**Projects & environments**
+- Multiple environments per project (`dev`, `production`, custom), each one command + one port
+- Start / stop / restart / rebuild from the card, the context menu, or the detail page
+- Live status from real TCP port probes, PID tracking, streamed logs
+- Drag to reorder, pin, tag, ⌘K search, card and list views
+
+**GitHub integration**
+- One-click pull on the card (missing `origin` remotes are auto-completed)
+- Branch switcher with local + remote branches, checkout and pull in one action
+- Version badges: branch @ commit, commit age, dirty-tree indicator
+- Remote update checks every 10 minutes with a summary notification for stale projects
+
+**Multiple machines**
+- Small agents for Windows / macOS / Linux register over the LAN and mirror their project lists back to the dashboard
+- Remote projects support the same operations as local ones — start, stop, rebuild, logs, edit
+- Agents self-update: after you `git pull` on one machine, the others follow and restart themselves
+- Works behind one-way firewalls via 60-second heartbeats
+
+**Port hygiene**
+- Live port occupancy panel with owning process and PID
+- One-click "organize ports": dev from 3001 up, prod = dev + 1000, system ports avoided, existing compliant assignments untouched — with a preview before anything changes
+
+![Port occupancy](docs/images/ports-panel.png)
+
+**Reliability**
+- Auto-repair loop for failed starts (LLM-assisted, log tail in context)
+- Supervisor checks agent health, database migrations, and dashboard self-updates every 60 s
+- Safety rails throughout — see [Safety](#safety)
+
+## Architecture
+
+One Next.js process. The agents you deploy elsewhere are the only other moving parts.
+
+![Architecture](docs/images/architecture.png)
+
+| Path | What it is |
+|---|---|
+| `src/app/` | Dashboard page and REST API (App Router) |
+| `src/lib/` | Process manager, harness engine, device mesh, sync, safety guards |
+| `prisma/` | Schema (SQLite) |
+| `mini-services/agent-*` | Device agents for Windows / macOS / Linux |
+| `start-dashboard.bat`, `start-agent.bat` | One-click scripts for Windows |
+
+Stack: Next.js 16, React 19, TypeScript, Prisma + SQLite, Tailwind CSS, shadcn/ui, running on Bun.
+
+## Quick start
+
+### macOS / Linux
 
 ```bash
 git clone https://github.com/Jing0715-fer/web-dashboard-v3.git
 cd web-dashboard-v3
 bun install
-cp .env.example .env        # 默认值即可用
+cp .env.example .env        # defaults are fine
 bun run db:push
 bun run dev
 ```
 
-打开 http://localhost:3000，默认账号：
+Open http://localhost:3000 and sign in with the bootstrap account:
 
 ```
 admin@dashboard.local / admin123456
 ```
 
-### Windows（一键启动）
+Change the password on first login (Account menu → Change password), or set `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `.env` before the first start.
+
+### Windows (one click)
 
 ```bat
-git pull
+git clone https://github.com/Jing0715-fer/web-dashboard-v3.git
+cd web-dashboard-v3
 start-dashboard.bat
 ```
 
-脚本会自动完成：依赖安装（无需 bun）→ 生成 .env → 初始化数据库 → 启动（端口被占用 / 依赖已装好时秒级启动）。
+The script installs dependencies (bun not required), writes `.env`, initializes the database, and starts the server. Re-running it is cheap: when everything is already installed it starts in seconds.
 
-> `.env` 里只需一个配置 `DATABASE_URL`（SQLite 位置）。建议保持默认的
-> `file:../db/custom.db`（相对 prisma/ 目录解析，落在仓库根的 db/ 下）；
-> 自定义时推荐写**绝对路径**。
+The only required setting is `DATABASE_URL` — where the SQLite file lives. Keep the default `file:../db/custom.db` (resolves to `db/custom.db` at the repo root); if you customize it, prefer an absolute path with forward slashes.
 
----
+## Adding a second machine
 
-## 连接第二台电脑
+Run the agent on the other machine from the repo root:
 
-以 Windows 为例（Mac 同理）：
-
-**第 1 步 · 在 Windows 上启动 agent**（仓库根目录）：
-
-```bat
-git pull
-start-agent.bat 3101
+```bash
+./start-agent.sh 3101          # macOS / Linux
+start-agent.bat 3101           # Windows
 ```
 
-**第 2 步 · 在 Mac 仪表盘上配对**：
+Then on the dashboard: **Devices → Join network**, enter the peer address (e.g. `http://192.168.1.43:3000`), and confirm the pairing code. Pairing is bidirectional — both machines see each other's projects, and address or key changes heal themselves. After that, `git pull` on the dashboard machine is the only maintenance; the agents follow automatically.
 
-设备 → 加入网络 → 填入对方地址（如 `http://192.168.101.43:3000`）→ 输入验证码完成。
+Inbound-blocked firewalls are fine: agents push their project data out via heartbeat, and the device card gets a "push" badge so the situation is visible.
 
-配对是双向的：之后两边互相能看到对方的项目，地址 / 密钥变化都会自动修复。之后两台机器都保持 `git pull` 即可，agent 升级全自动。
+## Daily use
 
-> Windows 防火墙拦了入站也没关系——agent 会用心跳把项目数据推出来，仪表盘照样显示（设备卡片会带一个「推送」徽标）。
-
----
-
-## 日常使用
-
-| 想做什么 | 怎么做 |
+| Task | How |
 |---|---|
-| 添加项目 | 「添加项目」→ 填路径 → LLM 自动分析生成环境命令（也可手动改） |
-| 启动 / 停止 | 环境行的 ▶ / ■ 按钮；卡片菜单；详情页 |
-| 配 GitHub 链接 | 项目详情 → GitHub 链接输入框（自动同步到其他机器） |
-| 拉取最新代码 | 卡片上的 Pull 按钮（远程项目也可以） |
-| 切换分支 | 卡片菜单「切换分支…」或详情页分支按钮 |
-| 整理端口 | 端口面板 →「整理端口」→ 预览 → 应用 |
-| 看日志 / 状态 | 项目详情页：实时日志、版本、活动记录 |
-| 给项目加环境 | 详情页 → 环境 → 添加（名称填 `development` 会显示 dev 徽标） |
+| Add a project | "Add Project" → path → the agent analyzes and proposes environments (editable afterwards) |
+| Start / stop | ▶ / ■ on the environment row, card menu, or detail page |
+| Attach a GitHub link | Detail page → GitHub URL field (synced to every machine automatically) |
+| Pull latest code | Pull button on the card — works for remote projects too |
+| Switch branch | Card menu → "Switch branch…" |
+| Organize ports | Ports panel → "Organize ports" → preview → apply |
+| Read logs / status | Detail page: live logs, versions, activity |
+| Add an environment | Detail page → Environments → Add |
 
----
+## Configuration
 
-## 更新
+| Variable | Default | Purpose |
+|---|---|---|
+| `DATABASE_URL` | `file:../db/custom.db` | SQLite location (required) |
+| `ADMIN_EMAIL` | `admin@dashboard.local` | Bootstrap admin account |
+| `ADMIN_PASSWORD` | `admin123456` | Bootstrap admin password |
+| `RESERVED_PORTS` | *(empty)* | Extra ports the dashboard refuses to kill or assign, comma-separated |
+| `START_VERIFY_TIMEOUT_MS` | `45000` | How long an environment start waits for its port before failing |
+
+LLM providers are configured in-app (System → LLM settings): the built-in gateway speaks the OpenAI-compatible protocol on `/api/llm/v1` and wraps the bundled SDK, an Anthropic endpoint, or any custom OpenAI-compatible base URL. Analysis runs through this gateway, so no project code leaves your network unless you point it at an external provider.
+
+## Safety
+
+Managing processes is the whole point of this tool, so the guards are part of the feature set, not an afterthought:
+
+- **Reserved ports** — the dashboard's own port (`3000` by default) and the agent range (`3100–3105`) can never be assigned to a project or killed from the UI.
+- **Self-path rejection** — registering or analyzing the dashboard's *own* directory is refused with a clear error. Before this guard, the analysis agent's pre-flight cleanup would read the dashboard's live `.next/dev/lock` and kill the running server — the dashboard stopped itself mid-analysis. The rejection now sits at four layers (project create, harness API, engine entry, spawn).
+- **PID-chain protection** — the dashboard's own process tree can never be a kill target, neither directly nor via stray-listener sweeps before start.
+- **Command allowlist** — environment commands are validated against a known-safe prefix list; `rm -rf`, pipe-to-shell, and friends never reach `spawn`.
+- **Isolated child env** — spawned projects inherit a sanitized environment: the dashboard's own `DATABASE_URL`, `__NEXT_PRIVATE_*` and `TURBOPACK` variables are stripped so children can't accidentally open the dashboard's database.
+
+## Troubleshooting
+
+| Symptom | Cause and fix |
+|---|---|
+| Adding a project fails with "it contains the dashboard itself" | Intentional. Analyzing the dashboard's own directory used to stop the service (the agent killed the live dev server via its `.next/dev/lock`). Register a copy of the project in a different directory instead. |
+| Device shows "online" but 0 projects, while that machine sees its own projects | The agent on that machine can't find the co-located dashboard database (`DATABASE_URL` in a non-default location). `git pull` and restart the agent (v1.12+ auto-detects custom locations); the device card names the problem. |
+| "Agent too old" on pull / one machine can't see the other's projects | The machine pulled new code but didn't restart the agent (git can't hot-swap a running process). The amber badge on the device card says which one. Restart the agent. |
+| Remote edit returns 401 | Key rotation after an agent reinstall. Modern versions re-authenticate automatically; if it persists, pair once more. |
+| Duplicate device rows | They self-merge within minutes. When adding devices manually, use the agent's real apiKey. |
+| Start fails with "process exited immediately" | The command doesn't exist on that machine (PATH). The error includes the exit code and log path — write the command with absolute paths. |
+| Startup fails on `package.json` conflict markers | `git checkout origin/main -- package.json` and restart; commit or stash local changes before pulling. |
+
+## Updating
 
 ```bash
 git pull
-bun run dev     # 启动时自动补装依赖、迁移数据库
+bun run dev        # re-installs deps and migrates the database if needed
 ```
 
-Windows 仪表盘用 `start-dashboard.bat`（检测到依赖变化会自动补装）。
-其他机器上的 agent 无需手动更新——它们会跟随仪表盘自动拉取并重启自己。
-
----
-
-## 常见问题
-
-| 症状 | 原因与解决 |
-|---|---|
-| 设备「在线」但显示 0 个项目，那台机器自己却能看见项目 | 该机器的 agent 找不到同机仪表盘的数据库（`.env` 的 `DATABASE_URL` 位置与默认不同）。在那台机器 `git pull` 并重启 agent（v1.12+ 会自动识别 `.env` 中的任意位置）。设备卡片会直接标注「未见本机数据库」 |
-| Pull 提示「agent 过旧」/ 一台看不到另一台的项目 | 那台机器 `git pull` 后**没有重启 agent**（git pull 无法热更新已运行的进程）。设备卡片的琥珀色徽标会指明是哪台。更新代码后重启 agent 即可 |
-| 远程编辑报 401 | agent 重装后密钥轮换。新版会自动重新认证；仍未恢复时重新配对一次 |
-| 设备列表出现重复行 | 会在几分钟内自动合并；手动添加设备时请填入正确的 agent apiKey |
-| 启动报「进程立即退出」 | 命令在该机器上不存在（PATH 问题）。错误信息会带退出码和日志路径，用绝对路径写命令 |
-| `package.json` 冲突标记导致启动失败 | `git checkout origin/main -- package.json` 后重启；本地有改动时先 commit / stash 再 pull |
-
----
-
-## 目录速览
-
-```
-src/app/           仪表盘页面 + REST API
-src/lib/           进程管理、设备网络、同步逻辑
-prisma/            数据库 schema
-mini-services/     设备 agent（agent-win / agent / agent-linux…）+ LLM 网关
-start-dashboard.bat / start-agent.bat   Windows 一键脚本
-```
-
-技术栈：Next.js + TypeScript + Prisma(SQLite) + Tailwind + shadcn/ui，Bun 运行时。
+Windows uses `start-dashboard.bat` (detects dependency changes automatically). Agents on other machines update themselves — no per-machine maintenance.
 
 ## License
 
-MIT
+[MIT](LICENSE)

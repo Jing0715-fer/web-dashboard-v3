@@ -9,6 +9,7 @@ import * as zlib from 'zlib';
 import { tmpdir, platform } from 'os';
 import * as fzstd from 'fzstd';
 import { isAllowedCommand } from '@/lib/cmd-allowlist';
+import { isSelfOrAncestorPath, SELF_PROJECT_PATH } from '@/lib/self-guard';
 
 /**
  * Harness engine — the former mini-services/harness-agent(:3022), now running
@@ -242,13 +243,23 @@ function pollDshLog(s: AnalysisSession) {
 
 function buildTask(s: AnalysisSession, feedback?: string): string {
   const usedPorts = s.usedPorts.length > 0 ? s.usedPorts.join(', ') : 'none';
+  // Hard boundaries the agent must respect: the dashboard process that is
+  // RUNNING this very analysis, and the directory it lives in. Without this
+  // the agent's pre-flight cleanup reads the dashboard's own .next/dev/lock
+  // and kills the dashboard server (the "service stopped during analysis" bug).
+  const selfGuardRules = `
+- ABSOLUTE SAFETY BOUNDARY — the dashboard that is running you right now:
+  - The dashboard process tree lives in "${SELF_PROJECT_PATH}" (its dev-server PID may differ per platform; NEVER try to discover or kill it).
+  - NEVER kill, signal, or stop ANY process whose working directory or command line is inside "${SELF_PROJECT_PATH}" — that includes the .next/dev/lock you may find there. If you encounter a lock file under "${SELF_PROJECT_PATH}", leave it completely alone and simply pick a different port for the server you are testing.
+  - NEVER kill a process just because it occupies your chosen port unless that process clearly belongs to the project you are analyzing. When in doubt, move to the next free port.
+`;
   return `You are a DevOps agent. Analyze the project in the current working directory and produce a VERIFIED startup configuration.
 
 Steps you MUST complete:
 1. Inspect the project files (package.json, bun.lock, config files, README) to understand the stack, scripts, and how it starts. Also note the tech stack (framework + language + key libraries) — you will use it to write the "description" field.
 2. If dependencies are missing or incomplete, install them with the project's own package manager (bun install / npm install / pip install -r requirements.txt / go mod download etc).
 3. Choose a "dev" startup command and a free port. NEVER use port 3000 (reserved for the dashboard itself) and NEVER use ports 3100-3105 (reserved for the mesh agent service)${s.usedPorts.length > 0 ? ` and never use these already-assigned ports: ${usedPorts}` : ''}.
-4. PRE-FLIGHT CLEANUP before starting any server: if the project has a .next/dev/lock file, a dev server for this project is (or was) already running — read the file, get the owning PID (JSON field "pid"), KILL that process tree first (Windows: taskkill /PID <pid> /T /F, otherwise kill -9 <pid>) and only THEN delete the lock file. NEVER delete .next/dev/lock while its process is still alive: two dev servers sharing one .next directory deadlock and every HTTP request then hangs forever. Also verify the port you chose is actually free.
+4. PRE-FLIGHT CLEANUP before starting any server: if the project has a .next/dev/lock file, a dev server for this project is (or was) already running — read the file, get the owning PID (JSON field "pid"), KILL that process tree first (Windows: taskkill /PID <pid> /T /F, otherwise kill -9 <pid>) and only THEN delete the lock file. NEVER delete .next/dev/lock while its process is still alive: two dev servers sharing one .next directory deadlock and every HTTP request then hangs forever. EXCEPTION: if the lock file is under "${SELF_PROJECT_PATH}" it belongs to the dashboard you are running inside — do NOT read, kill, or delete anything there, just pick a different port. Also verify the port you chose is actually free.
 5. VERIFY the dev startup command ACTUALLY WORKS: run it in the background and poll the port in a SHORT LOOP (one curl/TCP check per 5-10 seconds, print every result) for up to 240 seconds. On Windows the FIRST compile of "next dev" regularly takes 2-4 minutes — TCP connects but HTTP still hangs means compilation is in progress: KEEP POLLING, do NOT restart the server, do NOT touch .next/dev/lock. Read the process output/log to diagnose real failures.
 6. If it fails, DEBUG: read the error output, fix the problem (install missing packages, adjust the command or the port, fix trivial config issues), and retry. Keep iterating until the service successfully responds on its port.
 7. Determine the PRODUCTION startup — ONLY AFTER the dev verification passed: check package.json (or equivalent) for build/start scripts. If they exist, run the production build once (npm run build / bun run build, budget ~3 minutes), then verify the production start command (e.g. npm run start) on a DIFFERENT port (dev port + 1 unless taken). If the production build or start fails, debug briefly (max 2 fix attempts — install missing deps, fix trivial issues); if it still fails, still include a best-guess production entry (build && start with a distinct port) and mention the failure in "summary". If you already spent more than ~4 minutes in total, SKIP the production build entirely and return the best-guess production entry instead. If the project has NO build script at all, use the dev command with NODE_ENV=production on a distinct port as the production entry.
@@ -257,9 +268,8 @@ Steps you MUST complete:
 {"projectName":"...","description":"2-3 short sentences describing what this project IS and does: its purpose, the tech stack (framework/language/key libraries), and how it runs. Plain text, no markdown.","repoUrl":"the https:// URL of the git remote origin (run: git remote get-url origin) converted to https form, or "" if there is no remote — never include tokens","icon":"one of folder,globe,code,database,smartphone,shopping-cart,layout,palette,cpu,book-open,music,gamepad-2,bar-chart,shield,camera,map,cloud,terminal,rocket,puzzle,package,zap,laptop,atom,flame,server","summary":"what you did, problems found and fixed, production verification result","environments":[{"name":"dev","cmd":"the verified command","port":NUMBER,"envVars":{"KEY":"value"}},{"name":"production","cmd":"the production command (build && start when possible)","port":NUMBER,"envVars":{"NODE_ENV":"production","KEY":"value"}}]}
 
 Rules:
-- BUDGET DISCIPLINE (a supervisor kills runs that go silent): keep exploration MINIMAL — read package.json and the main entry file(s), at most ~8 files total. NEVER read node_modules, lockfiles, test files, or docs. Aim for ≤ 35 tool calls overall.
-- Time budget: dev boot wait ≤ 240s (poll in a short loop — never one long sleep; on Windows the first "next dev" compile takes 2-4 minutes), production build ≤ 3 min, overall target ≤ 6 minutes. If you are running out of budget, STOP exploring and return your best current valid JSON immediately — a partially verified config is far better than a timeout.
-- If a port you chose is occupied, either kill the occupying process or move to the next free port. Do NOT retry the same port in a loop.
+- BUDGET DISCIPLINE (a supervisor kills runs that go silent): keep exploration MINIMAL — read package.json and the main entry file(s), at most ~8 files total. NEVER read node_modules, lockfiles, test files, or docs. Aim for ≤ 35 tool calls overall.${selfGuardRules}- Time budget: dev boot wait ≤ 240s (poll in a short loop — never one long sleep; on Windows the first "next dev" compile takes 2-4 minutes), production build ≤ 3 min, overall target ≤ 6 minutes. If you are running out of budget, STOP exploring and return your best current valid JSON immediately — a partially verified config is far better than a timeout.
+- If a port you chose is occupied, either kill the occupying process (ONLY if it clearly belongs to the project you are analyzing) or move to the next free port. NEVER kill the process on port 3000 or anything under "${SELF_PROJECT_PATH}". Do NOT retry the same port in a loop.
 - A supervisor KILLS the whole attempt after 5 minutes of total silence: never run a command that blocks without printing anything for more than ~2 minutes (the production build is the ONLY exception). For every wait, loop with short sleeps and print each iteration.
 - NEVER run the production build before the dev verification passed, and NEVER delete .next/dev/lock without first killing the PID inside it.
 - The environments array MUST contain BOTH the verified "dev" entry AND a "production" entry, using DIFFERENT ports (e.g. dev=4001, production=4002).
@@ -823,6 +833,18 @@ export function startAnalysis(
   llmBaseUrl: string,
   projectId?: string,
 ): AnalysisSession {
+  // Hard backstop — the API layer already rejects these paths, but the
+  // engine is the component that actually spawns an unrestricted shell agent
+  // into the directory. Never let it run against the dashboard itself (or an
+  // ancestor like the home dir): the agent's pre-flight cleanup would read our
+  // own .next/dev/lock and kill the live dashboard server.
+  if (isSelfOrAncestorPath(path)) {
+    throw new Error(
+      `Refusing to analyze "${path}": it contains the dashboard itself. ` +
+      `The analysis agent would stop the dashboard's own dev server via the ` +
+      `.next/dev/lock pre-flight kill.`,
+    );
+  }
   const rt0 = engineRuntime();
   const id = randomUUID();
   const s: AnalysisSession = {

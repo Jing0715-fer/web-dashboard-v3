@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'os';
 // previous Unix-only checks made every Start fail its 30s health verification.
 import { IS_WINDOWS, tcpPortOpen, findPidsOnPortWindows, netstatListeningWindows, killTree } from '@/lib/port-utils';
 import { stripShellPrologue } from '@/lib/cmd-allowlist';
+import { isSelfPath } from '@/lib/self-guard';
 
 const execp = promisify(exec);
 
@@ -335,6 +336,20 @@ export async function startProcess(
   // PROTECT RESERVED PORTS — never start a project on the dashboard's own port.
   if (RESERVED_PORTS.has(port)) {
     return { success: false, error: `Port ${port} is reserved and protected (cannot start a project on it)` };
+  }
+
+  // PROTECT THE DASHBOARD'S OWN DIRECTORY — a second server started from the
+  // same directory shares the live dashboard's .next build dir (dev-server
+  // lock deadlock — every request then hangs) and its SQLite file. This is the
+  // funnel for start / restart / rebuild, so legacy DB rows pointing at the
+  // dashboard itself are stopped here too.
+  if (isSelfPath(cwd)) {
+    appendLog(getLogKey(projectId, envName),
+      `[${new Date().toISOString()}] ⛔ Refused to start in the dashboard's own directory (${cwd}).`);
+    return {
+      success: false,
+      error: `Refusing to start an environment inside the dashboard's own directory (${cwd}): it would share the running dashboard's .next build directory and SQLite database. Register a copy of the project in a different directory instead.`,
+    };
   }
 
   // Validate command safety

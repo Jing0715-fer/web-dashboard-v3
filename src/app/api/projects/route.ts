@@ -4,6 +4,7 @@ import { enrichEnvStatuses } from '@/lib/env-status';
 import { getRemoteProjectsCached, healSelfMirroredLocalProjects } from '@/lib/remote-sync';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
+import { isSelfOrAncestorPath, SELF_GUARD_REJECTION } from '@/lib/self-guard';
 
 // GET /api/projects - List all projects with environments and status
 // Aggregates local projects (deviceId=null) and remote projects from devices
@@ -134,6 +135,15 @@ export async function POST(req: NextRequest) {
 
     if (!path) {
       return NextResponse.json({ error: 'Project path is required' }, { status: 400 });
+    }
+
+    // SELF-GUARD — reject the dashboard's own directory (and ancestors like
+    // the home directory) before it ever reaches the analysis/start pipeline:
+    // the harness agent's pre-flight cleanup would kill the live dashboard
+    // server via its .next/dev/lock (the "service stopped during analysis" bug).
+    // Local projects only — a remote device obviously manages its own copy.
+    if (!deviceId && isSelfOrAncestorPath(String(path))) {
+      return NextResponse.json({ error: SELF_GUARD_REJECTION }, { status: 400 });
     }
 
     // A bogus deviceId (stale device list in the client, hand-crafted POST)

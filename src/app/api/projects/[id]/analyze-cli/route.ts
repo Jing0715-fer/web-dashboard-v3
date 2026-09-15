@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { requireApprovedUser } from '@/lib/auth';
 import { isAllowedCommand } from '@/lib/cmd-allowlist';
+import { isSelfOrAncestorPath, SELF_GUARD_REJECTION } from '@/lib/self-guard';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,6 +32,11 @@ export async function POST(
 
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // SELF-GUARD — never analyze the dashboard itself (see self-guard.ts).
+    if (isSelfOrAncestorPath(project.path)) {
+      return NextResponse.json({ error: SELF_GUARD_REJECTION }, { status: 400 });
     }
 
     // If replace=true, delete all existing environments first

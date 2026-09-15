@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>web-dashboard-v3 — system architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1200px; height: 700px; overflow: hidden;
+    background: #ffffff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+      "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+      "Noto Sans CJK SC", "WenQuanYi Zen Hei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .board { position: relative; width: 1200px; height: 700px; background: #ffffff; }
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+
+  /* ---------- generic panel ---------- */
+  .panel {
+    position: absolute; background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 12px; box-shadow: 0 1px 2px rgba(15,23,42,.06);
+  }
+  .zh  { color: #94a3b8; font-weight: 400; }
+
+  /* ---------- title ---------- */
+  .doctitle { position: absolute; left: 26px; top: 15px; font-size: 12.5px;
+    color: #64748b; letter-spacing: .01em; }
+  .doctitle b { color: #334155; font-weight: 600; }
+  .doctitle .dot { display:inline-block; width:8px; height:8px; border-radius:2px;
+    background:#0d9488; margin-right:8px; vertical-align: baseline; }
+
+  /* ---------- left: browser ---------- */
+  .col-label { font-size: 9.5px; font-weight: 600; letter-spacing: .09em;
+    color: #64748b; text-transform: uppercase; text-align: center; }
+  .browser { left: 24px; top: 240px; width: 168px; height: 168px; padding: 12px; }
+  .win { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(15,23,42,.05); margin-top: 8px; overflow: hidden; }
+  .win-chrome { height: 15px; border-bottom: 1px solid #f1f5f9; display: flex;
+    align-items: center; gap: 4px; padding: 0 8px; background: #f8fafc; }
+  .win-chrome i { width: 5px; height: 5px; border-radius: 50%; background: #cbd5e1; }
+  .win-body { padding: 11px 8px 10px; text-align: center; }
+  .win-body .t { font-size: 12px; font-weight: 600; color: #0f172a; }
+  .win-body .z { font-size: 9.5px; color: #94a3b8; margin-top: 2px; }
+  .win-body hr { border: none; border-top: 1px solid #f1f5f9; margin: 8px 6px; }
+  .win-body .s { font-size: 9.5px; color: #64748b; line-height: 1.5; }
+
+  /* ---------- center: dashboard server ---------- */
+  .server { left: 310px; top: 64px; width: 424px; height: 572px;
+    border: 1.5px solid #0d9488; padding: 16px; background: #f8fafc; border-radius: 14px; }
+  .srv-head { display: flex; align-items: center; gap: 8px; height: 28px; }
+  .srv-ico { width: 26px; height: 26px; border-radius: 7px; background: #0d9488;
+    display: flex; align-items: center; justify-content: center; flex: none; }
+  .srv-title { font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: -.01em; }
+  .srv-title .zh { font-size: 10.5px; margin-left: 4px; }
+  .srv-pill { margin-left: auto; font-size: 10px; color: #0f766e; background: #ccfbf1;
+    border: 1px solid #99f6e4; border-radius: 999px; padding: 2px 8px; }
+  .srv-sub { font-size: 10.5px; color: #64748b; margin: 7px 0 0 34px; }
+
+  /* component cards */
+  .card { position: absolute; width: 185px; height: 134px; background: #ffffff;
+    border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 1px 2px rgba(15,23,42,.05);
+    padding: 10px 10px 9px; }
+  .card .ct { font-size: 12px; font-weight: 600; color: #0f172a; line-height: 1.3;
+    display: flex; align-items: flex-start; gap: 6px; }
+  .card .ct .zh { font-size: 10px; margin-left: 2px; }
+  .card .cb { font-size: 10px; color: #64748b; line-height: 1.5; margin-top: 6px; }
+  .card .cb b { color: #334155; font-weight: 600; }
+  .ic { flex: none; margin-top: 1px; }
+
+  .pill { display: inline-block; font-size: 9.5px; color: #334155; background: #f1f5f9;
+    border: 1px solid #e2e8f0; border-radius: 5px; padding: 1px 7px; }
+
+  /* harness pipeline chips (violet accent) */
+  .chipline { display: flex; align-items: center; gap: 5px; margin-top: 3px; }
+  .chip { font-size: 8.5px; color: #6d28d9; background: #faf5ff; border: 1px solid #ddd6fe;
+    border-radius: 4px; padding: 2px 6px; white-space: nowrap; }
+  .arr { color: #a78bfa; font-size: 9px; }
+
+  /* db cylinder row */
+  .dbrow { display: flex; align-items: center; gap: 0; margin-top: 6px; }
+  .dbtxt { font-size: 10px; color: #64748b; line-height: 1.4; }
+  .dbtxt b { color: #334155; font-weight: 600; }
+  .dbline { width: 14px; height: 1px; background: #cbd5e1; flex: none; }
+
+  /* safety strip */
+  .safety { position: absolute; left: 326px; top: 564px; width: 392px; height: 56px;
+    background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;
+    padding: 6px 12px; }
+  .safety .s1 { display: flex; align-items: center; gap: 6px;
+    font-size: 11px; font-weight: 700; color: #92400e; }
+  .safety .s2 { font-size: 9.5px; color: #78716c; margin-top: 4px; line-height: 1.45; }
+
+  /* ---------- right groups ---------- */
+  .group { position: absolute; background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 12px; box-shadow: 0 1px 2px rgba(15,23,42,.06); padding: 12px; }
+  .ghead { font-size: 12px; font-weight: 700; color: #0f172a; }
+  .ghead .zh { font-size: 10px; font-weight: 500; }
+  .ghead .tag { font-size: 9px; color: #94a3b8; font-weight: 500; }
+
+  .proc { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(15,23,42,.05); height: 56px; margin-top: 8px;
+    padding: 9px 12px; }
+  .proc .r1 { display: flex; align-items: center; }
+  .proc .nm { font-size: 11px; font-weight: 600; color: #0f172a; }
+  .proc .nm .zh { font-size: 9.5px; }
+  .proc .pp { margin-left: auto; }
+  .proc .r2 { font-size: 9px; color: #94a3b8; margin-top: 4px; letter-spacing: .01em; }
+
+  .agents { display: flex; gap: 6px; margin-top: 9px; }
+  .agent { flex: 1; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(15,23,42,.05); height: 64px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .agent .nm { font-size: 9.5px; font-weight: 600; color: #0f172a; white-space: nowrap; }
+  .agent .nm .zh { font-size: 8.5px; }
+  .agent .pp { font-size: 9px; color: #64748b; }
+  .mnote { font-size: 9px; color: #64748b; line-height: 1.55; margin-top: 9px; }
+
+  /* ---------- arrows overlay ---------- */
+  svg.overlay { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+  .albl { position: absolute; z-index: 6; text-align: center; }
+  .albl .a1 { font-size: 10px; font-weight: 600; color: #334155; line-height: 1.4; }
+  .albl .a2 { font-size: 9.5px; color: #64748b; line-height: 1.4; }
+  .albl .a3 { font-size: 9px; color: #94a3b8; line-height: 1.4; }
+</style>
+</head>
+<body>
+<div class="board">
+
+  <!-- document title -->
+  <div class="doctitle"><span class="dot"></span><b>web-dashboard-v3</b>&nbsp;— system architecture <span class="zh">系统架构</span></div>
+
+  <!-- ============ LEFT · browser ============ -->
+  <div class="panel browser">
+    <div class="col-label">Your browser <span class="zh" style="letter-spacing:0;font-weight:400;text-transform:none;font-size:9.5px;">浏览器</span></div>
+    <div class="win">
+      <div class="win-chrome"><i></i><i></i><i></i></div>
+      <div class="win-body">
+        <div class="t">Web Dashboard UI</div>
+        <div class="z">仪表盘界面</div>
+        <hr>
+        <div class="s">Next.js 16 · React 19<br>shadcn/ui</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CENTER · dashboard server ============ -->
+  <div class="panel server">
+    <div class="srv-head">
+      <div class="srv-ico">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>
+      </div>
+      <div class="srv-title">Dashboard server<span class="zh">仪表服务</span></div>
+      <div class="srv-pill mono">:3000</div>
+    </div>
+    <div class="srv-sub">single port · Next.js standalone <span class="zh">单端口 · 独立部署</span></div>
+  </div>
+
+  <!-- cards inside server -->
+  <div class="card" style="left:326px; top:136px;">
+    <div class="ct"><svg class="ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span>Auth &amp; accounts <span class="zh">认证与账户</span></span></div>
+    <div class="cb">email/password · sessions 会话<br>approval queue 审批队列<br>roles: admin · user 角色权限</div>
+  </div>
+
+  <div class="card" style="left:533px; top:136px;">
+    <div class="ct"><svg class="ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+      <span><span style="font-size:11px; white-space:nowrap;">Projects &amp; environments</span><span class="zh" style="display:block; font-size:9.5px; margin-top:1px;">项目与环境</span></span></div>
+    <div class="dbrow">
+      <div class="dbtxt"><b>SQLite</b> via Prisma<br>数据存储</div>
+      <div class="dbline"></div>
+      <svg width="25" height="29" viewBox="0 0 24 24" fill="#f8fafc" stroke="#64748b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg>
+    </div>
+    <div class="cb" style="margin-top:4px;">environments: commands · ports<br><span class="zh" style="font-size:9px;">环境命令与端口</span></div>
+  </div>
+
+  <div class="card" style="left:326px; top:280px;">
+    <div class="ct"><svg class="ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+      <span>Harness engine <span class="zh">解析引擎</span></span></div>
+    <div class="cb" style="margin-top:5px;">in-process dsh agent <span class="zh" style="font-size:9px;">内置代理</span></div>
+    <div class="chipline"><span class="chip">install deps</span><span class="arr">→</span><span class="chip">start</span></div>
+    <div class="chipline"><span class="chip">verify</span><span class="arr">→</span><span class="chip">auto-debug</span></div>
+    <div class="cb" style="margin-top:3px; font-size:9.5px;">auto-saves verified configs <span class="zh" style="font-size:9px;">自动保存</span></div>
+  </div>
+
+  <div class="card" style="left:533px; top:280px;">
+    <div class="ct"><svg class="ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg>
+      <span>LLM gateway <span class="zh">LLM 网关</span></span></div>
+    <div class="cb" style="margin-top:5px;">OpenAI-compatible API<br><span class="pill mono" style="color:#6d28d9;background:#faf5ff;border-color:#ddd6fe;">/api/llm/v1</span><br>z-ai SDK · Anthropic<br>custom providers <span class="zh" style="font-size:9px;">自定义</span></div>
+  </div>
+
+  <div class="card" style="left:326px; top:424px;">
+    <div class="ct"><svg class="ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      <span>Repair loop <span class="zh">修复循环</span></span></div>
+    <div class="cb">LLM auto-repair 自动修复<br>when an environment fails<br>to start <span class="zh" style="font-size:9px;">环境启动失败时触发</span></div>
+  </div>
+
+  <div class="card" style="left:533px; top:424px;">
+    <div class="ct"><svg class="ic" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      <span style="color:#b45309;">Supervisor <span class="zh">监控器</span></span></div>
+    <div class="cb">60s loop <span class="zh" style="font-size:9px;">每 60 秒巡检</span><br>agent lifecycle <span class="zh" style="font-size:9px;">代理生命周期</span><br>health probes · self-update<br><span class="zh" style="font-size:9px;">健康探测 · 自更新</span></div>
+  </div>
+
+  <!-- safety strip -->
+  <div class="safety">
+    <div class="s1"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+      Safety guards <span style="font-weight:500;">安全防护</span></div>
+    <div class="s2">reserved ports <b class="mono" style="font-weight:600;color:#57534e;">3000 / 3100-3105</b> · self-path analysis rejection<br>PID-chain kill protection · command allowlist <span class="zh" style="font-size:9px;">命令白名单</span></div>
+  </div>
+
+  <!-- ============ RIGHT · child projects ============ -->
+  <div class="group" style="left:852px; top:110px; width:324px; height:246px;">
+    <div class="ghead">Child projects <span class="zh">子项目</span> <span class="tag">· detached processes 分离进程</span></div>
+    <div class="proc">
+      <div class="r1"><span class="nm">Storefront <span class="zh">商城</span></span><span class="pp pill mono">:4310</span></div>
+      <div class="r2">start · stop · restart · rebuild · logs</div>
+    </div>
+    <div class="proc">
+      <div class="r1"><span class="nm">Status page <span class="zh">状态页</span></span><span class="pp pill mono">:4301</span></div>
+      <div class="r2">start · stop · restart · rebuild · logs</div>
+    </div>
+    <div class="proc">
+      <div class="r1"><span class="nm">Python worker <span class="zh">任务进程</span></span><span class="pp pill mono">:4320</span></div>
+      <div class="r2">start · stop · restart · rebuild · logs</div>
+    </div>
+  </div>
+
+  <!-- ============ RIGHT · remote devices ============ -->
+  <div class="group" style="left:852px; top:396px; width:324px; height:150px;">
+    <div class="ghead">Remote devices <span class="zh">远程设备</span> <span class="tag">· mesh 组网</span></div>
+    <div class="agents">
+      <div class="agent">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+        <div class="nm">macOS agent <span class="zh">代理</span></div>
+        <div class="pp mono">:3100</div>
+      </div>
+      <div class="agent">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+        <div class="nm">Windows agent <span class="zh">代理</span></div>
+        <div class="pp mono">:3100</div>
+      </div>
+      <div class="agent">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+        <div class="nm">Linux agent <span class="zh">代理</span></div>
+        <div class="pp mono">:3100</div>
+      </div>
+    </div>
+    <div class="mnote">register via API key 凭据注册 · report projects<br>receive start / stop / rebuild / pull <span class="zh" style="font-size:8.5px;">接收指令</span></div>
+  </div>
+
+  <!-- ============ arrows ============ -->
+  <svg class="overlay" width="1200" height="700" viewBox="0 0 1200 700">
+    <defs>
+      <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M0,0 L8,4 L0,8 z" fill="#94a3b8"/>
+      </marker>
+      <marker id="ahs" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+        <path d="M0,0 L8,4 L0,8 z" fill="#94a3b8"/>
+      </marker>
+      <marker id="ahv" markerWidth="8" markerHeight="8" refX="6" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M0,0 L7,3.5 L0,7 z" fill="#7c3aed"/>
+      </marker>
+    </defs>
+    <!-- browser -> dashboard -->
+    <line x1="192" y1="324" x2="309" y2="324" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ah)"/>
+    <!-- dashboard -> child projects -->
+    <line x1="734" y1="233" x2="851" y2="233" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#ah)"/>
+    <!-- dashboard <-> remote devices -->
+    <line x1="740" y1="470" x2="846" y2="470" stroke="#94a3b8" stroke-width="1.6" marker-start="url(#ahs)" marker-end="url(#ah)"/>
+    <!-- harness -> llm gateway (internal, violet) -->
+    <line x1="511" y1="347" x2="532" y2="347" stroke="#7c3aed" stroke-width="1.4" marker-end="url(#ahv)"/>
+  </svg>
+
+  <!-- arrow labels -->
+  <div class="albl" style="left:192px; width:118px; top:278px;">
+    <div class="a1">HTTPS · Caddy gateway</div>
+    <div class="a2">single exposed port</div>
+    <div class="a3">单一开放端口</div>
+  </div>
+  <div class="albl" style="left:734px; width:118px; top:187px;">
+    <div class="a1">spawn 派生</div>
+    <div class="a2">env-sanitized</div>
+    <div class="a3">port-verified</div>
+  </div>
+  <div class="albl" style="left:734px; width:118px; top:452px;">
+    <div class="a1">HTTP (LAN) 局域网</div>
+  </div>
+
+</div>
+</body>
+</html>
