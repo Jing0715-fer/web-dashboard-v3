@@ -9,6 +9,7 @@ import { requireApprovedUser } from '@/lib/auth';
 import { proxyProjectAction } from '@/lib/route-decision';
 import { invalidateUpdateCache } from '@/lib/git-update-check';
 import { probeRemoteAgentHealth } from '@/lib/agent-health';
+import { isValidBranchName, switchGitBranch } from '@/lib/git-branches';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,7 +42,13 @@ function isValidRepoUrl(url: string): boolean {
  * POST /api/projects/:id/pull — one-click `git pull` for a project with a
  * configured GitHub repository.
  *
- * Local project: runs `git pull --ff-only` in the project directory here.
+ * Optional JSON body: `{ "branch": "feature-x" }` — first switches the
+ * checkout to that branch (git checkout, or checkout -b tracking
+ * origin/<branch> for remote-only branches; uncommitted changes are never
+ * touched — git refuses clobbering checkouts) and then pulls it. Without a
+ * body (or with the CURRENT branch) this behaves exactly like before.
+ *
+ * Local project: runs the git commands in the project directory here.
  * Remote project: proxies to the device agent's
  * POST /api/agent/projects/:id/pull (the code lives on that machine — git
  * runs THERE). Legacy agents without the endpoint return 404, which is
@@ -82,6 +89,20 @@ async function handlePull(
 
   const { id } = await params;
 
+  // Optional { branch } body — validated before it reaches any git argv.
+  // A missing/empty body keeps the legacy same-branch pull behaviour.
+  let branch = '';
+  try {
+    const body = await req.json();
+    if (body && typeof body.branch === 'string') branch = body.branch.trim();
+  } catch { /* no body / not JSON — plain pull */ }
+  if (branch && !isValidBranchName(branch)) {
+    return NextResponse.json(
+      { error: `Invalid branch name: ${branch.slice(0, 80)}` },
+      { status: 400 },
+    );
+  }
+
   const project = await db.project.findUnique({ where: { id } });
   if (!project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 });
@@ -89,7 +110,12 @@ async function handlePull(
 
   // Remote project → proxy the pull to its device agent.
   if (project.deviceId) {
-    const result = await proxyProjectAction(project.deviceId, `/projects/${id}/pull`, 'POST');
+    const result = await proxyProjectAction(
+      project.deviceId,
+      `/projects/${id}/pull`,
+      'POST',
+      branch ? { branch } : undefined,
+    );
     if (result.ok) {
       // The checkout moved on the device — drop the cached freshness hint
       // (the UI also re-checks with ?refresh=1; this is belt-and-braces).
@@ -97,7 +123,7 @@ async function handlePull(
       await logActivity({
         type: 'pull',
         level: 'success',
-        message: `Pulled ${project.name}${result.data?.summary ? ` (${result.data.summary})` : ''}`,
+        message: `Pulled ${project.name}${result.data?.switchedTo ? ` → ${result.data.switchedTo}` : ''}${result.data?.summary ? ` (${result.data.summary})` : ''}`,
         projectId: project.id,
         projectName: project.name,
         detail: String(result.data?.output || '').split('\n').slice(-3).join(' · ').slice(0, 300),
@@ -177,6 +203,48 @@ async function handlePull(
   }
 
   try {
+    // Optional branch switch BEFORE the pull (checkout / checkout -b track
+    // origin/<branch>). Uncommitted local changes are never stashed or
+    // overwritten — git itself refuses a clobbering checkout and that error
+    // is surfaced to the caller.
+    let switchedTo = '';
+    if (branch) {
+      let currentBranch = '';
+      try {
+        const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+          cwd: project.path,
+          timeout: 15000,
+          maxBuffer: 1024 * 512,
+        });
+        currentBranch = stdout.trim();
+      } catch { /* detached HEAD */ }
+      if (currentBranch !== branch) {
+        // Fresh remote refs so remote-only branches resolve (the picker's
+        // fetch may be stale by the time the user clicks).
+        await execFileAsync('git', ['fetch', 'origin', '--prune'], {
+          cwd: project.path,
+          timeout: 60_000,
+          maxBuffer: 1024 * 512,
+        }).catch(() => { /* offline — switchGitBranch reports the miss */ });
+        const sw = await switchGitBranch(project.path, branch);
+        if (!sw.ok) {
+          await logActivity({
+            type: 'pull',
+            level: 'error',
+            message: `Branch switch failed: ${project.name} → ${branch}`,
+            projectId: project.id,
+            projectName: project.name,
+            detail: sw.error?.slice(0, 300) || 'git checkout error',
+          });
+          return NextResponse.json(
+            { error: `git checkout ${branch} failed`, detail: sw.error, repo: sanitizeUrl(project.repoUrl) },
+            { status: 500 },
+          );
+        }
+        switchedTo = branch;
+      }
+    }
+
     // Current commit before pulling — for the "x → y" summary.
     let before = '';
     try {
@@ -306,7 +374,11 @@ async function handlePull(
       after = stdout.trim();
     } catch { /* unborn HEAD */ }
 
-    const output = (originRepaired ? `[dashboard] ${originRepaired} → ${sanitizeUrl(project.repoUrl)}\n` : '') + (stdout || stderr || '').trim();
+    const output = [
+      switchedTo ? `[dashboard] switched to branch '${switchedTo}'` : '',
+      originRepaired ? `[dashboard] ${originRepaired} → ${sanitizeUrl(project.repoUrl)}` : '',
+      (stdout || stderr || '').trim(),
+    ].filter(Boolean).join('\n');
     // Locale-independent up-to-date detection: git output text ("Already up
     // to date") only works on English git installs; identical before/after
     // SHAs is the ground truth.
@@ -319,7 +391,7 @@ async function handlePull(
     await logActivity({
       type: 'pull',
       level: 'success',
-      message: `Pulled ${project.name}${range}`,
+      message: `Pulled ${project.name}${switchedTo ? ` → ${switchedTo}` : ''}${range}`,
       projectId: project.id,
       projectName: project.name,
       detail: upToDate ? 'Already up to date' : output.split('\n').slice(-3).join(' · ').slice(0, 300),
@@ -330,7 +402,9 @@ async function handlePull(
       upToDate,
       before,
       after,
-      summary: upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done',
+      ...(switchedTo ? { switchedTo } : {}),
+      summary: (upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done')
+        + (switchedTo ? ` @ ${switchedTo}` : ''),
       output: output.slice(0, 4000),
     });
   } catch (e: any) {

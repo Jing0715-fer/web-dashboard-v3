@@ -1170,13 +1170,126 @@ async function ensureOriginRemote(
   return { originUrl: url, added: true };
 }
 
+// ---- Branch support (switch-branch pull, mirror of src/lib/git-branches.ts) ----
+
+/** Conservative branch-name guard for API-supplied values that reach git argv. */
+function isValidBranchName(name: string): boolean {
+  if (!name || name.length > 200) return false;
+  if (name.startsWith('-') || name.startsWith('.')) return false;
+  if (name.includes('..') || name.includes(' ') || name.includes('~') || name.includes('^') || name.includes(':')
+    || name.includes('?') || name.includes('*') || name.includes('[') || name.includes('\\')) return false;
+  if (name.endsWith('.lock') || name.endsWith('/')) return false;
+  return /^[A-Za-z0-9._/-]+$/.test(name);
+}
+
+/** List local + origin/* branches for the switch-branch picker (GET
+ *  /api/agent/projects/:id/branches). `fetch` runs git fetch --prune first
+ *  so freshly pushed branches show up. Never throws. */
+async function listGitBranches(path: string, fetch = false): Promise<any> {
+  if (!path || !existsSync(path) || !existsSync(join(path, '.git'))) {
+    return { current: null, branches: [], error: 'not a git repository' };
+  }
+  try {
+    if (fetch) {
+      await execFileAsync('git', ['fetch', 'origin', '--prune'], { cwd: path, timeout: 60_000, maxBuffer: 512 * 1024 }).catch(() => {});
+    }
+    const { stdout } = await execFileAsync(
+      'git',
+      ['for-each-ref', '--format=%(HEAD)%00%(refname)%00%(refname:short)', 'refs/heads', 'refs/remotes'],
+      { cwd: path, timeout: 15_000, maxBuffer: 1024 * 1024 },
+    );
+    const current = stdout.split('\n').find((l: string) => l.startsWith('*'))?.split('\0')[2]?.trim() ?? null;
+    const byName = new Map<string, any>();
+    for (const line of stdout.split('\n')) {
+      if (!line.trim()) continue;
+      const [mark, fullRef, shortRef] = line.split('\0');
+      if (!fullRef || !shortRef) continue;
+      // refs/remotes/origin/HEAD's SHORT name resolves to just "origin" —
+      // skip via the FULL refname or a phantom "origin" branch leaks in.
+      if (fullRef.endsWith('/HEAD')) continue;
+      const name = shortRef.trim();
+      const isRemote = name.includes('/');
+      const short = isRemote && name.startsWith('origin/') ? name.slice('origin/'.length) : null;
+      if (isRemote && !short) continue; // other remotes (upstream/*) — skip
+      const display = short ?? name;
+      if (!display || !isValidBranchName(display)) continue;
+      const isCurrent = mark.trim() === '*';
+      const existing = byName.get(display);
+      if (existing) {
+        if (!isRemote) existing.remote = false;
+        existing.current = existing.current || isCurrent;
+      } else {
+        byName.set(display, { name: display, current: isCurrent, remote: isRemote });
+      }
+    }
+    if (current && !byName.has(current) && isValidBranchName(current)) {
+      byName.set(current, { name: current, current: true, remote: false });
+    }
+    const branches = [...byName.values()].sort((a: any, b: any) =>
+      Number(b.current) - Number(a.current) || a.name.localeCompare(b.name));
+    return { current, branches };
+  } catch (e: any) {
+    return { current: null, branches: [], error: String(e?.message || e).slice(0, 200) };
+  }
+}
+
+/** Switch a checkout to `branch` (checkout / checkout -b tracking origin).
+ *  Local uncommitted changes are never touched — git refuses clobbering
+ *  checkouts and that error is surfaced verbatim. */
+async function switchGitBranch(path: string, branch: string): Promise<{ ok: boolean; note: string; error?: string }> {
+  if (!isValidBranchName(branch)) return { ok: false, note: '', error: `invalid branch name: ${branch}` };
+  let localExists = false;
+  let remoteExists = false;
+  try {
+    await execFileAsync('git', ['rev-parse', '--verify', `refs/heads/${branch}`], { cwd: path, timeout: 15_000, maxBuffer: 64 * 1024 });
+    localExists = true;
+  } catch {}
+  try {
+    await execFileAsync('git', ['rev-parse', '--verify', `refs/remotes/origin/${branch}`], { cwd: path, timeout: 15_000, maxBuffer: 64 * 1024 });
+    remoteExists = true;
+  } catch {}
+  try {
+    if (localExists) {
+      await execFileAsync('git', ['checkout', branch], { cwd: path, timeout: 15_000, maxBuffer: 512 * 1024 });
+      return { ok: true, note: `switched to branch '${branch}'` };
+    }
+    if (remoteExists) {
+      await execFileAsync('git', ['checkout', '-b', branch, `origin/${branch}`], { cwd: path, timeout: 15_000, maxBuffer: 512 * 1024 });
+      return { ok: true, note: `created local branch '${branch}' tracking origin/${branch}` };
+    }
+    return { ok: false, note: '', error: `branch '${branch}' not found locally or on origin` };
+  } catch (e: any) {
+    const errText = String(e?.stderr || e?.stdout || e?.message || '').trim();
+    return { ok: false, note: '', error: errText.slice(0, 400) || `git checkout ${branch} failed` };
+  }
+}
+
 /** Run `git pull --ff-only` (with upstream fallback) in a project dir.
  *  repoUrl (optional, from the project row) self-heals a missing/broken
- *  'origin' remote — see ensureOriginRemote. Pre-flight failures return
+ *  'origin' remote — see ensureOriginRemote. `branch` (optional) switches
+ *  the checkout first (see switchGitBranch). Pre-flight failures return
  *  {ok:false} instead of throwing so the route can answer 4xx-style. */
-async function gitPull(projectPath: string, repoUrl?: string | null): Promise<any> {
+async function gitPull(projectPath: string, repoUrl?: string | null, branch?: string): Promise<any> {
   const ensured = await ensureOriginRemote(projectPath, repoUrl);
   if (ensured.error) return { ok: false, error: ensured.error, hint: ensured.hint };
+
+  // Optional branch switch BEFORE the pull. Uncommitted local changes are
+  // never stashed or overwritten — git itself refuses a clobbering checkout.
+  let switchedTo = '';
+  if (branch) {
+    let currentBranch = '';
+    try {
+      currentBranch = (await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectPath, timeout: 15_000 })).stdout.trim();
+    } catch { /* detached HEAD */ }
+    if (currentBranch !== branch) {
+      await execFileAsync('git', ['fetch', 'origin', '--prune'], { cwd: projectPath, timeout: 60_000, maxBuffer: 512 * 1024 }).catch(() => {});
+      const sw = await switchGitBranch(projectPath, branch);
+      if (!sw.ok) {
+        return { ok: false, error: `git checkout ${branch} failed`, detail: sw.error };
+      }
+      switchedTo = branch;
+    }
+  }
 
   let before = '';
   try { before = (await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim(); } catch {}
@@ -1234,8 +1347,17 @@ async function gitPull(projectPath: string, repoUrl?: string | null): Promise<an
   try { after = (await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim(); } catch {}
   const output = ((pullResult && (pullResult.stdout || pullResult.stderr)) || '').trim();
   const upToDate = /Already up to date/i.test(output) || (before !== '' && before === after);
-  const notes = repairedOrigin ? `[agent] ${repairedOrigin} → ${ensured.originUrl}\n` : '';
-  return { ok: true, upToDate, before, after, summary: upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done', output: (notes + output).slice(0, 4000) };
+  const notes = [
+    switchedTo ? `[agent] switched to branch '${switchedTo}'` : '',
+    repairedOrigin ? `[agent] ${repairedOrigin} → ${ensured.originUrl}` : '',
+  ].filter(Boolean).map((l) => l + '\n').join('');
+  return {
+    ok: true, upToDate, before, after,
+    ...(switchedTo ? { switchedTo } : {}),
+    summary: (upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done')
+      + (switchedTo ? ` @ ${switchedTo}` : ''),
+    output: (notes + output).slice(0, 4000),
+  };
 }
 
 function verifyAuth(req: IncomingMessage): boolean {
@@ -1287,7 +1409,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.7.0',
+        version: '1.8.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -1302,6 +1424,7 @@ const server = createServer(async (req, res) => {
         envSanitize: true,  // child-process env sanitization (TURBOPACK leak) + pull origin self-heal
         peerRelay: true,    // caches register-response peer projects; serves them at /api/agent/peer-cache
         repoMerge: true,    // dual-store listing merge (repoUrl/notes by path) + pull cross-store repoUrl heal
+        branchSwitch: true, // GET /projects/:id/branches + switch-branch pull (git checkout + pull)
       });
       return;
     }
@@ -1330,7 +1453,33 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    // GET /api/agent/projects/:id/branches — branch list for the dashboard's
+    // switch-branch picker (?fetch=1 → git fetch --prune first). Same
+    // two-store row resolution as pull below.
+    const branchesMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/branches$/);
+    if (branchesMatch && req.method === 'GET') {
+      let project: any = null;
+      try {
+        project = await db.project.findUnique({ where: { id: branchesMatch[1] } });
+      } catch { /* schema drift — fall through to dash rows */ }
+      if (!project) project = await getDashProject(branchesMatch[1]);
+      if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
+      if (!(existsSync(project.path) && existsSync(join(project.path, '.git')))) {
+        sendJSON(res, 400, { error: `Not a git repository: ${project.path}` });
+        return;
+      }
+      const doFetch = url.searchParams.get('fetch') === '1';
+      const list = await listGitBranches(project.path, doFetch);
+      if (list.error && (!list.branches || list.branches.length === 0)) {
+        sendJSON(res, 400, { error: list.error });
+        return;
+      }
+      sendJSON(res, 200, list);
+      return;
+    }
+
     // POST /api/agent/projects/:id/pull — one-click git pull on THIS machine
+    // (optional body { branch } switches the checkout first)
     const pullMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/pull$/);
     if (pullMatch && req.method === 'POST') {
       // Schema-drift guard: if this agent.db predates the repoUrl/notes
@@ -1361,10 +1510,18 @@ const server = createServer(async (req, res) => {
         const altRepoUrl = await findRepoUrlByPath(project.path, String(project.id));
         if (altRepoUrl) project = { ...project, repoUrl: altRepoUrl };
       }
+      // Optional { branch } body — validated before it reaches git argv.
+      const pullBody = await getBody(req);
+      let branch = '';
+      if (typeof pullBody?.branch === 'string') branch = pullBody.branch.trim();
+      if (branch && !isValidBranchName(branch)) {
+        sendJSON(res, 400, { error: `Invalid branch name: ${branch.slice(0, 80)}` });
+        return;
+      }
       try {
-        const pullResult = await gitPull(project.path, project.repoUrl);
+        const pullResult = await gitPull(project.path, project.repoUrl, branch || undefined);
         if (pullResult && pullResult.ok === false) {
-          sendJSON(res, 400, { error: pullResult.error, hint: pullResult.hint });
+          sendJSON(res, 400, { error: pullResult.error, hint: pullResult.hint, detail: pullResult.detail });
         } else {
           sendJSON(res, 200, pullResult);
         }

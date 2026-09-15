@@ -1017,7 +1017,7 @@ function SortableProjectCardImpl({
   starred, onToggleStar, lanIp, currentHost, index = 0,
   batchMode = false, onDuplicate, onMoveToDevice, devices, onHover,
   focused = false, cardDensity = 'comfortable', onCompare, pinOrder, onReanalyze,
-  pendingOps = {}, onPull, pulling = false, version, update,
+  pendingOps = {}, onPull, pulling = false, version, update, onSwitchBranch,
 }: {
   project: Project
   viewMode: ViewMode
@@ -1045,6 +1045,8 @@ function SortableProjectCardImpl({
   onCompare?: (project: Project) => void
   pinOrder?: number
   onReanalyze?: (p: Project) => void
+  /** Open the switch-branch picker (branch detect + checkout + pull). */
+  onSwitchBranch?: (p: Project) => void
   /** One-click "Pull latest code" — local runs git here, remote is proxied
    *  to the device agent (which runs git on that machine). */
   onPull?: (p: Project) => void
@@ -1301,6 +1303,9 @@ function SortableProjectCardImpl({
                 {project.repoUrl && onPull && (
                   <DropdownMenuItem onClick={() => onPull(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md">{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</DropdownMenuItem>
                 )}
+                {project.repoUrl && onSwitchBranch && (
+                  <DropdownMenuItem onClick={() => onSwitchBranch(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md"><GitBranch className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.switchBranch')}</DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />{t('surf.duplicate')}</DropdownMenuItem>
                 {!project.deviceId && onMoveToDevice && (
@@ -1330,6 +1335,9 @@ function SortableProjectCardImpl({
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</ContextMenuItem>
             {project.repoUrl && onPull && (
               <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}>{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</ContextMenuItem>
+            )}
+            {project.repoUrl && onSwitchBranch && (
+              <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSwitchBranch(project)}><GitBranch className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.switchBranch')}</ContextMenuItem>
             )}
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.duplicate')}</ContextMenuItem>
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.unpin')}</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pinToTop')}</>}</ContextMenuItem>
@@ -1635,6 +1643,9 @@ function SortableProjectCardImpl({
                 <DropdownMenuItem onClick={() => onEdit(project)} className="px-2.5 py-2 text-sm rounded-md"><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')}</DropdownMenuItem>
                 {project.repoUrl && onPull && (
                   <DropdownMenuItem onClick={() => onPull(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md">{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</DropdownMenuItem>
+                )}
+                {project.repoUrl && onSwitchBranch && (
+                  <DropdownMenuItem onClick={() => onSwitchBranch(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md"><GitBranch className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.switchBranch')}</DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />{t('surf.duplicate')}</DropdownMenuItem>
@@ -2657,6 +2668,205 @@ const REPAIR_CLI_ROUND_TIMEOUT_MIN = 10
 /** Must mirror KNOWN_CLI_IDS in the /api/llm-config route. */
 const KNOWN_REPAIR_CLI_IDS = ['claude', 'codex', 'gemini', 'opencode', 'hermes']
 
+// ======================== BRANCH PICKER DIALOG ========================
+
+/** One entry of GET /api/projects/:id/branches. */
+interface BranchInfo {
+  name: string
+  current: boolean
+  remote: boolean
+}
+
+/** Switch-branch picker: lists the checkout's branches (local + origin/*,
+ *  fetched fresh on open), marks the current one, and pulls with
+ *  { branch } on confirm — the API checks the branch out first (git
+ *  checkout / checkout -b tracking origin) and then pulls it. Uncommitted
+ *  changes are never clobbered; git refuses such checkouts and the error
+ *  is surfaced verbatim. */
+function BranchPickerDialog({ project, open, onClose, onSwitched }: {
+  project: Project | null
+  open: boolean
+  onClose: () => void
+  /** Post-success refresh (versions/updates/projects). */
+  onSwitched?: () => void
+}) {
+  const t = useT()
+  const { toast } = useToast()
+  const [branches, setBranches] = React.useState<BranchInfo[]>([])
+  const [currentBranch, setCurrentBranch] = React.useState<string | null>(null)
+  const [selected, setSelected] = React.useState('')
+  const [loading, setLoading] = React.useState(false)
+  const [fetching, setFetching] = React.useState(false)
+  const [error, setError] = React.useState('')
+  const [switching, setSwitching] = React.useState(false)
+
+  const loadBranches = React.useCallback(async (projectId: string, doFetch: boolean) => {
+    if (doFetch) setFetching(true)
+    else setLoading(true)
+    setError('')
+    try {
+      const r = await fetch(`/api/projects/${projectId}/branches${doFetch ? '?fetch=1' : ''}`, {
+        signal: AbortSignal.timeout(90_000),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setBranches([])
+        setCurrentBranch(null)
+        setError(String(data?.error || data?.detail || t('dlg.branch.fetchFailed')))
+        return
+      }
+      const list: BranchInfo[] = Array.isArray(data.branches) ? data.branches : []
+      setBranches(list)
+      setCurrentBranch(typeof data.current === 'string' ? data.current : null)
+      setSelected(data.current || (list[0]?.name ?? ''))
+    } catch (e: any) {
+      setBranches([])
+      setError(e?.name === 'TimeoutError' ? t('dlg.branch.fetching') : t('dlg.branch.fetchFailed'))
+    } finally {
+      setLoading(false)
+      setFetching(false)
+    }
+  }, [t])
+
+  React.useEffect(() => {
+    if (open && project) {
+      // requestAnimationFrame avoids synchronous setState inside the effect
+      // (React 18 double-invoke guard) — same pattern as LlmConfigDialog.
+      const id = requestAnimationFrame(() => {
+        setBranches([])
+        setError('')
+        setSelected('')
+        void loadBranches(project.id, true)
+      })
+      return () => cancelAnimationFrame(id)
+    }
+  }, [open, project, loadBranches])
+
+  const handleSwitch = async () => {
+    if (!project || !selected || switching) return
+    setSwitching(true)
+    try {
+      const res = await fetch(`/api/projects/${project.id}/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branch: selected }),
+        signal: AbortSignal.timeout(5 * 60_000),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        toast({
+          title: t('dlg.branch.switchedToast', { branch: selected }),
+          description: data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`,
+          variant: 'success',
+        })
+        onSwitched?.()
+        onClose()
+      } else {
+        const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
+        toast({ title: t('dlg.branch.switchFailed'), description: summarizeError(String(data?.error || '')) + detail, detail: String(data?.detail || ''), variant: 'destructive' })
+      }
+    } catch (e: any) {
+      toast({ title: t('dlg.branch.switchFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
+    } finally {
+      setSwitching(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !switching) onClose() }}>
+      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <GitBranch className="h-5 w-5 text-emerald-600" />
+            {t('dlg.branch.title')}
+            {project && <span className="text-sm font-normal text-muted-foreground truncate">· {project.name}</span>}
+          </DialogTitle>
+          <DialogDescription>{t('dlg.branch.desc')}</DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
+            {t('dlg.branch.fetching')}
+          </div>
+        ) : error && branches.length === 0 ? (
+          <div className="space-y-3">
+            <div className="rounded-md border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-xs px-3 py-2.5 break-words">
+              {error}
+            </div>
+            {project && (
+              <Button variant="outline" size="sm" className="w-full" onClick={() => loadBranches(project.id, false)}>
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />{t('dlg.branch.refresh')}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="max-h-72 overflow-y-auto rounded-lg border divide-y" role="listbox" aria-label={t('dlg.branch.title')}>
+              {branches.map((b) => (
+                <button
+                  key={b.name}
+                  type="button"
+                  role="option"
+                  aria-selected={selected === b.name}
+                  onClick={() => setSelected(b.name)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors cursor-pointer ${
+                    selected === b.name
+                      ? 'bg-emerald-50 dark:bg-emerald-900/25'
+                      : 'hover:bg-accent'
+                  }`}
+                >
+                  <span className={`h-3.5 w-3.5 rounded-full border-2 shrink-0 flex items-center justify-center ${selected === b.name ? 'border-emerald-500' : 'border-zinc-300 dark:border-zinc-600'}`}>
+                    {selected === b.name && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+                  </span>
+                  <GitBranch className={`h-3.5 w-3.5 shrink-0 ${b.current ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
+                  <span className={`font-mono truncate flex-1 ${b.current ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}>{b.name}</span>
+                  {b.current && (
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium">{t('dlg.branch.current')}</span>
+                  )}
+                  {!b.current && b.remote && (
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border text-muted-foreground">{t('dlg.branch.remoteOnly')}</span>
+                  )}
+                </button>
+              ))}
+              {branches.length === 0 && (
+                <div className="px-3 py-6 text-center text-sm text-muted-foreground">{t('dlg.branch.none')}</div>
+              )}
+            </div>
+
+            {error && branches.length > 0 && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">{t('dlg.branch.fetchFailed')}: {error.slice(0, 160)}</p>
+            )}
+
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                type="button"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                disabled={!selected || switching || selected === currentBranch}
+                onClick={handleSwitch}
+              >
+                {switching ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <GitBranch className="h-4 w-4 mr-1.5" />}
+                {switching ? t('dlg.branch.switching') : t('dlg.branch.switchPull')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                disabled={fetching || switching}
+                title={t('dlg.branch.refresh')}
+                aria-label={t('dlg.branch.refresh')}
+                onClick={() => project && loadBranches(project.id, true)}
+              >
+                {fetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              </Button>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()
   const [provider, setProvider] = React.useState('zai')
@@ -3600,7 +3810,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch
 }: {
   project: Project | null
   open: boolean
@@ -3613,6 +3823,8 @@ function DetailSheet({
   onOpenDeviceManagement?: () => void
   onReanalyze?: (p: Project) => void
   onEdit?: (p: Project) => void
+  /** Open the switch-branch picker (branch detect + checkout + pull). */
+  onSwitchBranch?: (p: Project) => void
   /** Git snapshot — same source as the card's version chip. */
   version?: ProjectVersion | null
   /** Remote-repo freshness — hint states render an "update available" pill. */
@@ -4255,6 +4467,19 @@ function DetailSheet({
                               {pulling ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-1.5" />}
                               {pulling ? t('dlg.detail.pulling') : t('dlg.detail.pullLatest')}
                             </Button>
+                            {onSwitchBranch && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() => onSwitchBranch(project)}
+                                disabled={pulling}
+                                title={version?.branch ? `${version.branch} → ?` : t('dlg.detail.switchBranch')}
+                              >
+                                <GitBranch className="h-3.5 w-3.5 mr-1.5" />
+                                {version?.branch || t('dlg.detail.switchBranch')}
+                              </Button>
+                            )}
                             {pullResult?.ok && (
                               <span className={`text-xs flex items-center gap-1 ${pullResult.upToDate ? 'text-muted-foreground' : 'text-emerald-600 dark:text-emerald-400'}`}>
                                 <CheckCircle2 className="h-3.5 w-3.5" />
@@ -6036,6 +6261,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [systemMonitorOpen, setSystemMonitorOpen] = React.useState(false)
   const [portsPanelOpen, setPortsPanelOpen] = React.useState(false)
   const [llmOpen, setLlmOpen] = React.useState(false)
+  // Switch-branch picker (branch detect + checkout + pull) — opened from
+  // card context menus and the detail sheet's git block.
+  const [branchPickerProject, setBranchPickerProject] = React.useState<Project | null>(null)
   const [repairJobId, setRepairJobId] = React.useState<string | null>(null)
   const [repairDialogOpen, setRepairDialogOpen] = React.useState(false)
   const [harnessSession, setHarnessSession] = React.useState<HarnessSessionState | null>(null)
@@ -7060,28 +7288,38 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   }, [toast, fetchProjects, devices, startHarnessAnalysis])
 
   // One-click `git pull --ff-only` for a local project with a configured repo
-  // (POST /api/projects/:id/pull). Shows a toast for the outcome; refreshes
-  // the card list so updatedAt / activity update. Tracks the in-flight ids so
-  // the repo row on the card shows a spinner and blocks double-clicks — a
-  // ref guard blocks the second click in the same tick (before re-render).
-  // The update check is refreshed with ?refresh=1 so a just-pulled card
-  // drops its "behind" pill immediately (no 5-min cache lag).
-  const handlePullProject = React.useCallback(async (project: Project) => {
+  // (POST /api/projects/:id/pull). Optional `branch` switches the checkout
+  // first (git checkout + pull — the switch-branch picker's action). Shows a
+  // toast for the outcome; refreshes the card list so updatedAt / activity
+  // update. Tracks the in-flight ids so the repo row on the card shows a
+  // spinner and blocks double-clicks — a ref guard blocks the second click in
+  // the same tick (before re-render). The update check is refreshed with
+  // ?refresh=1 so a just-pulled card drops its "behind" pill immediately
+  // (no 5-min cache lag).
+  const handlePullProject = React.useCallback(async (project: Project, branch?: string) => {
     if (!project.repoUrl) return
     // Remote projects pull THROUGH this dashboard (the API proxies to the
     // device agent, which runs git on that machine) — no early return here.
     if (pullingProjectIdsRef.current.has(project.id)) return
     pullingProjectIdsRef.current.add(project.id)
     setPullingProjectIds((prev) => new Set(prev).add(project.id))
-    toast({ title: t('dlg.detail.pulling'), description: sanitizeGitUrl(project.repoUrl) })
+    toast({ title: branch ? t('dlg.branch.switching') : t('dlg.detail.pulling'), description: branch ? `${project.name} → ${branch}` : sanitizeGitUrl(project.repoUrl) })
     try {
-      const res = await fetch(`/api/projects/${project.id}/pull`, { method: 'POST' })
+      const res = await fetch(`/api/projects/${project.id}/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: branch ? JSON.stringify({ branch }) : undefined,
+      })
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
         if (data.upToDate) {
-          toast({ title: t('dlg.detail.pullUpToDate'), variant: 'success' })
+          toast({ title: t('dlg.detail.pullUpToDate'), description: data.switchedTo ? t('dlg.branch.switchedToast', { branch: data.switchedTo }) : undefined, variant: 'success' })
         } else {
-          toast({ title: t('dlg.detail.pullSuccess'), description: `${data.before ?? ''} → ${data.after ?? ''}`, variant: 'success' })
+          toast({
+            title: data.switchedTo ? t('dlg.branch.switchedToast', { branch: data.switchedTo }) : t('dlg.detail.pullSuccess'),
+            description: `${data.before ?? ''} → ${data.after ?? ''}`,
+            variant: 'success',
+          })
         }
         fetchProjects()
         fetchProjectVersions()
@@ -8691,6 +8929,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
                               update={projectUpdates[project.id]}
                             />
@@ -8744,6 +8983,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
                               update={projectUpdates[project.id]}
                             />
@@ -8795,6 +9035,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
                               update={projectUpdates[project.id]}
                             />
@@ -8834,6 +9075,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
                               update={projectUpdates[project.id]}
                       />
@@ -8882,6 +9124,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
                               update={projectUpdates[project.id]}
                             />
@@ -8933,6 +9176,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
                               update={projectUpdates[project.id]}
                             />
@@ -8983,6 +9227,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
                               update={projectUpdates[project.id]}
                             />
@@ -9023,6 +9268,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               pinOrder={starredIds.has(project.id) ? [...filteredProjects].filter((p) => starredIds.has(p.id)).findIndex((p) => p.id === project.id) + 1 : undefined}
                               onReanalyze={handleReanalyzeProject}
                               onPull={handlePullProject}
+                              onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
                               update={projectUpdates[project.id]}
                       />
@@ -9172,6 +9418,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         lanIp={lanIp}
         currentHost={currentHost}
         onEdit={handleEditProject}
+        onSwitchBranch={setBranchPickerProject}
         version={projectVersions[selectedProject?.id ?? '']}
         update={projectUpdates[selectedProject?.id ?? '']}
         onRefresh={() => {
@@ -9204,6 +9451,16 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
       {/* LLM config */}
       <LlmConfigDialog open={llmOpen} onClose={() => setLlmOpen(false)} />
+      <BranchPickerDialog
+        project={branchPickerProject}
+        open={!!branchPickerProject}
+        onClose={() => setBranchPickerProject(null)}
+        onSwitched={() => {
+          fetchProjects()
+          fetchProjectVersions()
+          fetchProjectUpdates({ refresh: true })
+        }}
+      />
       <RepairDialog
         jobId={repairJobId}
         open={repairDialogOpen}

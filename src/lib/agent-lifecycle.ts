@@ -263,6 +263,10 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // (remote cards lose the GitHub link) and remote pulls fail with
     // "No 'origin' remote is configured" even though the link exists.
     if (!('repoMerge' in d)) return { outdated: true, why: 'dual-store repoUrl merge + pull heal' };
+    // v1.8 marker: branch switch pull — GET /projects/:id/branches +
+    // { branch } on pull (git checkout + pull). Without it the switch-branch
+    // picker 404s on remote projects and branch pulls degrade to plain pulls.
+    if (!('branchSwitch' in d)) return { outdated: true, why: 'branch switch pull (git checkout + pull)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };
