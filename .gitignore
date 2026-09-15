@@ -2,6 +2,8 @@
 
 # dependencies
 node_modules
+# npm lockfile (this repo is bun-based; Windows installs via start-dashboard.bat)
+package-lock.json
 /.pnp
 .pnp.*
 .yarn/*

@@ -65,6 +65,13 @@ bun run dev
 
 The dashboard runs on http://localhost:3000.
 
+> **On Windows?** Skip all of the above — just run `start-dashboard.bat` from
+> the repo root. It installs dependencies (npm — works without bun), creates
+> `.env`, initializes the database and starts the dev server on port 3000.
+> Default login: `admin@dashboard.local` / `admin123456`. The Linux-only SWC
+> binary is an `optionalDependency`, so npm automatically skips it on Windows
+> and installs the win32 build instead.
+
 ### Pulling updates (important!)
 
 `bun run dev` auto-runs a `predev` step that self-heals the environment:
