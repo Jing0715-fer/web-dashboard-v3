@@ -110,11 +110,24 @@ async function handlePull(
 
   // Remote project → proxy the pull to its device agent.
   if (project.deviceId) {
+    // Carry THIS dashboard's repoUrl for the project in the body. The GitHub
+    // link was very likely saved HERE (remote-project rows live in the
+    // CALLING dashboard's DB) — the executing agent can only look it up in
+    // its own machine's databases, where it is often ''. Without this, pull
+    // dies with "No 'origin' remote is configured" even though the UI shows
+    // the link. The agent treats a body repoUrl as the highest-priority
+    // source for wiring up a missing 'origin' (v1.9.0+; older agents ignore
+    // the extra field harmlessly).
+    const proxyBody: Record<string, string> = {};
+    if (branch) proxyBody.branch = branch;
+    if (isValidRepoUrl(project.repoUrl || '')) {
+      proxyBody.repoUrl = String(project.repoUrl).trim();
+    }
     const result = await proxyProjectAction(
       project.deviceId,
       `/projects/${id}/pull`,
       'POST',
-      branch ? { branch } : undefined,
+      Object.keys(proxyBody).length > 0 ? proxyBody : undefined,
     );
     if (result.ok) {
       // The checkout moved on the device — drop the cached freshness hint
@@ -173,10 +186,32 @@ async function handlePull(
       // Pass the agent's actionable hint through (its 400s carry `hint`,
       // e.g. "No 'origin' remote … — save the project's GitHub URL so pull
       // can wire it up"); dropping it left the user with a bare error title.
+      //
+      // EXTRA: since agent v1.9.0 the dashboard SENDS its saved repoUrl in
+      // the pull body and the agent wires 'origin' up automatically. An
+      // "No 'origin' remote" answer therefore usually means the RUNNING
+      // agent predates that (it ignored the field) — probe /health (no
+      // auth) and, when confirmed old, tell the user the actual fix:
+      // git pull + RESTART the agent on that machine.
+      let upgradeHint = '';
+      if (/no 'origin' remote/i.test(String(result.data?.error || ''))) {
+        try {
+          const device = await db.device.findUnique({ where: { id: project.deviceId } });
+          if (device) {
+            const h = await probeRemoteAgentHealth({ id: device.id, ip: device.ip, port: device.port });
+            const ver = parseFloat(h.version || '0');
+            if (h.version && ver < 1.9) {
+              upgradeHint =
+                `The device agent (v${h.version}) is older than v1.9.0 and ignores the GitHub URL this dashboard already sent with the pull — on that machine: git pull the repo, then RESTART the agent, then pull again (it will wire 'origin' up automatically)`;
+            }
+          }
+        } catch { /* best-effort probe */ }
+      }
       return NextResponse.json(
         {
           error: result.data?.error || 'Remote pull failed',
           detail: result.data?.detail || result.data?.hint,
+          ...(upgradeHint ? { upgradeHint } : {}),
         },
         { status: result.status },
       );

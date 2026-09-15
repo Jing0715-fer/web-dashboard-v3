@@ -1170,6 +1170,24 @@ async function ensureOriginRemote(
   return { originUrl: url, added: true };
 }
 
+/** Validate a repoUrl that arrived in a REQUEST BODY (pull proxy from the
+ *  calling dashboard): https-only, no whitespace, bounded length, any
+ *  embedded credentials stripped. This is UNTRUSTED input that reaches
+ *  `git remote add origin <url>` — normalize before it goes anywhere near
+ *  git argv. Returns null when unusable (caller falls back to local rows). */
+function normalizeBodyRepoUrl(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (!isHealableRepoUrl(s) || s.length > 500) return null;
+  try {
+    const u = new URL(s);
+    u.username = '';
+    u.password = '';
+    const out = u.toString().replace(/\/+$/, '');
+    return isHealableRepoUrl(out) ? out : null;
+  } catch { return null; }
+}
+
 // ---- Branch support (switch-branch pull, mirror of src/lib/git-branches.ts) ----
 
 /** Conservative branch-name guard for API-supplied values that reach git argv. */
@@ -1409,7 +1427,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.8.0',
+        version: '1.9.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -1425,6 +1443,7 @@ const server = createServer(async (req, res) => {
         peerRelay: true,    // caches register-response peer projects; serves them at /api/agent/peer-cache
         repoMerge: true,    // dual-store listing merge (repoUrl/notes by path) + pull cross-store repoUrl heal
         branchSwitch: true, // GET /projects/:id/branches + switch-branch pull (git checkout + pull)
+        pullRepoUrl: true,  // pull body { repoUrl } from the calling dashboard wires up a missing 'origin' (cross-machine GitHub link)
       });
       return;
     }
@@ -1501,16 +1520,8 @@ const server = createServer(async (req, res) => {
       }
       if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
       if (!(existsSync(project.path) && existsSync(join(project.path, '.git')))) { sendJSON(res, 400, { error: `Not a git repository: ${project.path}` }); return; }
-      // repoUrl cross-store heal: the resolved row may be the store WITHOUT
-      // the GitHub link (standalone agent-DB row whose path ALSO has a
-      // dashboard row carrying repoUrl — buildPeerProjects merges them for
-      // the listing; the pull deserves the same union). A healable https
-      // repoUrl at the SAME PATH in either store is enough to wire 'origin'.
-      if (!isHealableRepoUrl(project.repoUrl)) {
-        const altRepoUrl = await findRepoUrlByPath(project.path, String(project.id));
-        if (altRepoUrl) project = { ...project, repoUrl: altRepoUrl };
-      }
-      // Optional { branch } body — validated before it reaches git argv.
+      // Read the body FIRST: { branch } (optional switch-branch pull) and
+      // { repoUrl } (optional — the CALLING dashboard's saved GitHub link).
       const pullBody = await getBody(req);
       let branch = '';
       if (typeof pullBody?.branch === 'string') branch = pullBody.branch.trim();
@@ -1518,8 +1529,25 @@ const server = createServer(async (req, res) => {
         sendJSON(res, 400, { error: `Invalid branch name: ${branch.slice(0, 80)}` });
         return;
       }
+      // repoUrl priority: REQUEST BODY > this machine's project row >
+      // same-path rows in either local store. Remote-project rows live in
+      // the CALLING dashboard's DB — the GitHub link the user saved in the
+      // web UI often exists ONLY there, so the body value wins (it is also
+      // the freshest — just saved in the UI). Body values are untrusted:
+      // normalizeBodyRepoUrl enforces https/no-space/no-credentials before
+      // anything reaches git argv. Local cross-store heal stays as the
+      // fallback for same-machine dashboards that send no repoUrl.
+      let repoUrl: string | null = null;
+      if (!isHealableRepoUrl(project.repoUrl)) {
+        const altRepoUrl = await findRepoUrlByPath(project.path, String(project.id));
+        if (altRepoUrl) repoUrl = altRepoUrl;
+      } else {
+        repoUrl = String(project.repoUrl).trim();
+      }
+      const bodyRepoUrl = normalizeBodyRepoUrl(pullBody?.repoUrl);
+      if (bodyRepoUrl) repoUrl = bodyRepoUrl;
       try {
-        const pullResult = await gitPull(project.path, project.repoUrl, branch || undefined);
+        const pullResult = await gitPull(project.path, repoUrl, branch || undefined);
         if (pullResult && pullResult.ok === false) {
           sendJSON(res, 400, { error: pullResult.error, hint: pullResult.hint, detail: pullResult.detail });
         } else {

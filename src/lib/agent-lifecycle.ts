@@ -267,6 +267,12 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // { branch } on pull (git checkout + pull). Without it the switch-branch
     // picker 404s on remote projects and branch pulls degrade to plain pulls.
     if (!('branchSwitch' in d)) return { outdated: true, why: 'branch switch pull (git checkout + pull)' };
+    // v1.9 marker: pull-body repoUrl — the CALLING dashboard sends its saved
+    // GitHub link with every remote pull and the agent wires a missing
+    // 'origin' from it. Without it, remote projects whose repoUrl lives only
+    // in the calling dashboard's DB (the normal cross-machine case) still
+    // fail with "No 'origin' remote is configured".
+    if (!('pullRepoUrl' in d)) return { outdated: true, why: 'pull-body repoUrl (cross-machine origin wire-up)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };

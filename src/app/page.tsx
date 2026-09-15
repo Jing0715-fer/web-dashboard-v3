@@ -7326,11 +7326,16 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         fetchProjectUpdates({ refresh: true })
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
+        // Agent-version upgrade hint (the pull route probes the agent's
+        // /health when it answers "No 'origin' remote"): the RUNNING agent
+        // predates v1.9.0 and ignored the repoUrl this dashboard already
+        // sent — show the actionable fix instead of the bare agent error.
+        const upgrade = data?.upgradeHint ? String(data.upgradeHint) : ''
         // No `error` in the body = the response wasn't our JSON — a crashed
         // route gets an HTML 500 page from Next. Point at the actual fix
         // (stale server code) instead of a bare "Server error".
         const errMsg = String(data?.error || '')
-        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(errMsg || t('dlg.detail.pullNoDetail')) + detail, detail: errMsg ? errMsg + (data.detail ? `\n${data.detail}` : '') : t('dlg.detail.pullNoDetail'), variant: 'destructive' })
+        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(upgrade || errMsg || t('dlg.detail.pullNoDetail')) + (upgrade ? '' : detail), detail: (upgrade || errMsg) + (data.detail ? `\n${data.detail}` : '') || t('dlg.detail.pullNoDetail'), variant: 'destructive' })
       }
     } catch (e: any) {
       toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
