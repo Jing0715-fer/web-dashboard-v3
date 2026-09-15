@@ -1398,7 +1398,7 @@ function SortableProjectCardImpl({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <CardTitle className="text-[13px] font-semibold truncate tracking-tight text-foreground dark:text-zinc-100 leading-tight min-w-0 shrink-0 max-w-[60%]">{highlightText(project.name, searchQuery)}</CardTitle>
+                  <CardTitle className="text-[13px] font-semibold truncate tracking-tight text-foreground dark:text-zinc-100 leading-snug min-w-0 shrink-0 max-w-[60%] pb-px">{highlightText(project.name, searchQuery)}</CardTitle>
                   {/* Tags inline with the title — single row, clipped when narrow */}
                   <div className="flex items-center gap-1 min-w-0 shrink overflow-hidden max-w-[40%]">
                     {tags.map((tag) => (
@@ -2440,6 +2440,31 @@ interface PortRow {
   owner: { projectId: string; projectName: string; envId: string; envName: string; remote: boolean } | null
 }
 
+interface OrganizeChange {
+  envId: string
+  envName: string
+  projectId: string
+  projectName: string
+  kind: 'dev' | 'prod' | 'custom'
+  oldPort: number
+  newPort: number
+  reason: string
+  running: boolean
+}
+
+interface OrganizeGroup {
+  deviceId: string | null
+  deviceName: string | null
+  changes: OrganizeChange[]
+  keptProjects: Array<{ projectId: string; projectName: string; devPort: number | null; prodPort: number | null }>
+  warnings: string[]
+}
+
+interface OrganizePlan {
+  groups: OrganizeGroup[]
+  stats: { devices: number; changed: number; kept: number }
+}
+
 function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () => void; onKilled?: () => void }) {
   const t = useT()
   const [rows, setRows] = React.useState<PortRow[] | null>(null)
@@ -2448,6 +2473,9 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
   const [killingPid, setKillingPid] = React.useState<number | null>(null)
   const [confirmPid, setConfirmPid] = React.useState<PortRow | null>(null)
   const [lastRefresh, setLastRefresh] = React.useState<number | null>(null)
+  const [organizePlan, setOrganizePlan] = React.useState<OrganizePlan | null>(null)
+  const [organizeOpen, setOrganizeOpen] = React.useState(false)
+  const [organizeLoading, setOrganizeLoading] = React.useState(false)
 
   const fetchPorts = React.useCallback(async () => {
     setLoading(true)
@@ -2496,6 +2524,25 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
     setConfirmPid(null)
   }, [t, fetchPorts, onKilled])
 
+  // One-click organize: fetch the deterministic dry-run plan, show it in a
+  // confirmation dialog (the dialog applies it via POST when confirmed).
+  const openOrganize = React.useCallback(async () => {
+    setOrganizeLoading(true)
+    try {
+      const res = await fetch('/api/ports/organize', { cache: 'no-store' })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.plan) {
+        setOrganizePlan(data.plan as OrganizePlan)
+        setOrganizeOpen(true)
+      } else {
+        addToast({ title: t('ports.orgFailed'), description: data.error || '', variant: 'destructive' })
+      }
+    } catch {
+      addToast({ title: t('ports.orgFailed'), variant: 'destructive' })
+    }
+    setOrganizeLoading(false)
+  }, [t])
+
   const filtered = React.useMemo(() => {
     if (!rows) return []
     const q = filter.trim().toLowerCase()
@@ -2535,6 +2582,17 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
           <Button variant="outline" size="sm" className="h-8" onClick={fetchPorts} disabled={loading}>
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
           </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={openOrganize} disabled={organizeLoading}>
+                  {organizeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="h-3.5 w-3.5 text-teal-600" />}
+                  <span className="hidden sm:inline">{t('ports.organize')}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">{t('ports.organizeTooltip')}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-muted-foreground whitespace-nowrap">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-60 animate-ping" />
@@ -2638,7 +2696,176 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* One-click port organization: preview → apply */}
+      <OrganizePortsDialog
+        open={organizeOpen}
+        onClose={() => setOrganizeOpen(false)}
+        plan={organizePlan}
+        onApplied={() => { fetchPorts(); onKilled?.() }}
+      />
     </Dialog>
+  )
+}
+
+// ======================== PORT ORGANIZE DIALOG ========================
+
+const ORG_REASON_KEY: Record<string, string> = {
+  conflict: 'ports.orgReason.conflict',
+  mispair: 'ports.orgReason.mispair',
+  reserved: 'ports.orgReason.reserved',
+  occupied: 'ports.orgReason.occupied',
+  sequence: 'ports.orgReason.sequence',
+}
+
+/** Confirmation dialog for one-click port organization. Shows the exact
+ *  deterministic plan (grouped per device) — old → new ports with reasons —
+ *  and applies it on confirm. Compliant projects are listed as untouched. */
+function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
+  open: boolean
+  onClose: () => void
+  plan: OrganizePlan | null
+  onApplied: () => void
+}) {
+  const t = useT()
+  const [applying, setApplying] = React.useState(false)
+
+  const totalChanges = plan?.stats.changed ?? 0
+  const runningAffected = plan?.groups.reduce((n, g) => n + g.changes.filter((c) => c.running).length, 0) ?? 0
+
+  const apply = React.useCallback(async () => {
+    setApplying(true)
+    try {
+      const res = await fetch('/api/ports/organize', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        if (data.failed?.length) {
+          addToast({
+            title: t('ports.orgAppliedPartial'),
+            description: data.failed.map((f: { projectName: string; envName: string }) => `${f.projectName}/${f.envName}`).slice(0, 6).join(', '),
+            variant: 'destructive',
+          })
+        } else {
+          addToast({ title: t('ports.orgApplied'), description: t('ports.orgAppliedDesc', { count: data.applied ?? 0 }), variant: 'success' })
+        }
+        onApplied()
+        onClose()
+      } else {
+        addToast({ title: t('ports.orgFailed'), description: data.error || '', variant: 'destructive' })
+      }
+    } catch {
+      addToast({ title: t('ports.orgFailed'), variant: 'destructive' })
+    }
+    setApplying(false)
+  }, [t, onApplied, onClose])
+
+  if (!plan) return null
+
+  return (
+    <AlertDialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <AlertDialogContent className="sm:max-w-2xl max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex flex-col">
+        <AlertDialogHeader className="shrink-0">
+          <AlertDialogTitle className="flex items-center gap-2">
+            <ArrowRightLeft className="h-4 w-4 text-teal-600" />
+            {t('ports.orgTitle')}
+            {totalChanges > 0 && <Badge variant="secondary" className="text-[10px] ml-1">{t('ports.orgChanges', { count: totalChanges })}</Badge>}
+          </AlertDialogTitle>
+          <AlertDialogDescription>{t('ports.orgDesc')}</AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border space-y-4 p-3">
+          {totalChanges === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+              <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+              <p className="text-sm font-medium">{t('ports.orgNoChanges')}</p>
+              {plan.stats.kept > 0 && <p className="text-xs text-muted-foreground">{t('ports.orgKept', { count: plan.stats.kept })}</p>}
+            </div>
+          ) : (
+            plan.groups.map((g) => (
+              <div key={g.deviceId ?? 'local'} className="space-y-2">
+                <div className="flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur py-1 z-10">
+                  <span className={`text-xs font-semibold ${g.deviceId ? 'text-violet-600 dark:text-violet-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                    {g.deviceId ? t('ports.orgDevice', { name: g.deviceName || g.deviceId }) : t('ports.orgLocal')}
+                  </span>
+                  {g.changes.length > 0 && <Badge variant="outline" className="text-[10px] px-1.5">{g.changes.length}</Badge>}
+                  {g.keptProjects.length > 0 && (
+                    <span className="text-[10px] text-muted-foreground truncate">{t('ports.orgKept', { count: g.keptProjects.length })}</span>
+                  )}
+                </div>
+
+                {g.changes.length === 0 ? (
+                  <p className="text-xs text-muted-foreground pl-1">{t('ports.orgNoChanges')}</p>
+                ) : (
+                  <div className="rounded-md border overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/70 dark:bg-zinc-900/80">
+                        <tr className="text-left text-muted-foreground">
+                          <th className="px-2.5 py-1.5 font-medium">{t('ports.colOwner')}</th>
+                          <th className="px-2.5 py-1.5 font-medium">{t('ports.orgColPort')}</th>
+                          <th className="px-2.5 py-1.5 font-medium">{t('ports.orgColReason')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.changes.map((c) => (
+                          <tr key={c.envId} className="border-t border-border/60">
+                            <td className="px-2.5 py-1.5">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="truncate font-medium max-w-[140px]" title={c.projectName}>{c.projectName}</span>
+                                <span className="shrink-0 text-[9px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium uppercase">{c.kind === 'custom' ? c.envName : c.kind}</span>
+                              </div>
+                            </td>
+                            <td className="px-2.5 py-1.5 whitespace-nowrap">
+                              <span className="font-mono text-zinc-500 dark:text-zinc-400">{c.oldPort}</span>
+                              <span className="mx-1 text-muted-foreground">→</span>
+                              <span className="font-mono font-semibold text-teal-600 dark:text-teal-400">{c.newPort}</span>
+                            </td>
+                            <td className="px-2.5 py-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-medium text-amber-700 dark:text-amber-400 border-amber-300/60 dark:border-amber-500/30">
+                                  {t((ORG_REASON_KEY[c.reason] || 'ports.orgReason.sequence') as Parameters<typeof t>[0])}
+                                </Badge>
+                                {c.running && (
+                                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-medium text-zinc-500 dark:text-zinc-400">{t('ports.orgRunningTag')}</Badge>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {g.warnings.map((w, i) => (
+                  <p key={i} className="text-[10px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5 pl-1">
+                    <AlertTriangle className="h-3 w-3 mt-px shrink-0" />{w}
+                  </p>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+
+        {runningAffected > 0 && (
+          <p className="shrink-0 text-[10px] text-muted-foreground flex items-start gap-1.5">
+            <Info className="h-3 w-3 mt-px shrink-0" />
+            {t('ports.orgRunning', { count: runningAffected })}
+          </p>
+        )}
+
+        <AlertDialogFooter className="shrink-0">
+          <AlertDialogCancel disabled={applying}>{t('dlg.common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-teal-600 hover:bg-teal-700 text-white"
+            disabled={totalChanges === 0 || applying}
+            onClick={(e) => { e.preventDefault(); apply() }}
+          >
+            {applying && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
+            {t('ports.orgApply')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }
 
