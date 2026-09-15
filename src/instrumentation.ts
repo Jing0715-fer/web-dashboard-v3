@@ -33,6 +33,15 @@ export async function register() {
         console.warn('[instrumentation] local agent ensure failed:', err?.message || err);
       });
     }, 2500);
+    // Same lifecycle for the auto-iter service (mini-services/auto-iter,
+    // port 3111): respawn it as a detached dashboard child when missing so
+    // the unattended iteration loop survives sandbox process reaping.
+    const { ensureAutoIterService } = await import('@/lib/auto-iter-lifecycle');
+    setTimeout(() => {
+      ensureAutoIterService().catch((err: any) => {
+        console.warn('[instrumentation] auto-iter ensure failed:', err?.message || err);
+      });
+    }, 5000);
   } catch (err: any) {
     console.warn('[instrumentation] agent module load failed:', err?.message || err);
   }

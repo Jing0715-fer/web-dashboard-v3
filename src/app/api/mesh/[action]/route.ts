@@ -282,12 +282,25 @@ export async function POST(req: NextRequest) {
   // Auth guard (Task 11-a): 'pair', 'join' and 'ensure-agent' are UI actions
   // and require an approved session. 'register' stays OPEN — remote device
   // CLIs call it with apiKey + pair code, no cookies available.
-  if (action === 'pair' || action === 'join' || action === 'ensure-agent') {
+  if (action === 'pair' || action === 'join' || action === 'ensure-agent' || action === 'ensure-iter') {
     const authGuard = await requireApprovedUser(req);
     if (authGuard.error) return authGuard.error;
   }
 
   try {
+    if (action === 'ensure-iter') {
+      // Start (or verify) the auto-iter service (mini-services/auto-iter,
+      // port 3111) — same supervisor pattern as ensure-agent: the service is
+      // spawned as a detached DASHBOARD child so it survives shell-session
+      // reaping (user-shell children die with their session in the sandbox).
+      const { ensureAutoIterService } = await import('@/lib/auto-iter-lifecycle');
+      const iter = await ensureAutoIterService();
+      if (!iter.running) {
+        return NextResponse.json({ error: iter.error || 'auto-iter failed to start', ...iter }, { status: 500 });
+      }
+      return NextResponse.json(iter);
+    }
+
     if (action === 'ensure-agent') {
       // Start (or verify) the LOCAL agent service. The agent ships with the
       // project (mini-services/agent*), so the dashboard can bring it up on
