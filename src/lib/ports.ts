@@ -103,7 +103,32 @@ function reservedPortsSet(): Set<number> {
     const n = parseInt(extra.trim(), 10);
     if (Number.isFinite(n) && n > 0) set.add(n);
   }
+  // The dashboard's own infrastructure children (local mesh agent, auto-iter
+  // service) register their ports here at spawn/boot time — the stray sweeper
+  // must never treat them as leftover project processes.
+  for (const m of meshServicePorts()) set.add(m);
   return set;
+}
+
+// ============================= mesh-service ports =============================
+
+/**
+ * Ports belonging to the dashboard's own long-lived children (mini-services:
+ * the local agent, the auto-iter service). Stored on globalThis so the set
+ * survives dev-mode hot reloads. Registered by agent-lifecycle /
+ * auto-iter-lifecycle when they spawn (or restore) each service.
+ */
+function meshServicePorts(): Set<number> {
+  const g = globalThis as unknown as { __meshServicePorts?: Set<number> };
+  if (!g.__meshServicePorts) g.__meshServicePorts = new Set<number>();
+  return g.__meshServicePorts;
+}
+
+/** Register a mesh/infra service port (agent, auto-iter, …) so sweeps and
+ *  port-choice logic treat it as reserved for the dashboard's own plumbing. */
+export function registerMeshServicePort(port: number): void {
+  const p = Number(port);
+  if (Number.isInteger(p) && p > 0) meshServicePorts().add(p);
 }
 
 // ============================= listing =============================

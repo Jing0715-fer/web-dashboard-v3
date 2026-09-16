@@ -16,7 +16,7 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { PrismaClient } from '@prisma/client';
 import { spawn, ChildProcess, execSync, execFile } from 'child_process';
 import { promisify } from 'util';
-import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync, statSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync, statSync, readdirSync, realpathSync } from 'fs';
 import { join, resolve, dirname, basename, isAbsolute } from 'path';
 import { randomBytes, randomUUID } from 'crypto';
 import { hostname, tmpdir, platform, arch, homedir, networkInterfaces } from 'os';
@@ -26,7 +26,117 @@ import { hostname, tmpdir, platform, arch, homedir, networkInterfaces } from 'os
 const IS_WINDOWS = platform() === 'win32';
 const PATH_SEP = IS_WINDOWS ? ';' : ':';
 
+// ======================== DASHBOARD SELF-GUARD ========================
+// This agent frequently runs ON the same machine as the dashboard that
+// spawned it (supervisor-managed under <dashboard>/mini-services/<agent dir>).
+// When some dashboard — remote OR the co-located one — asks us to analyze or
+// start a project that IS the co-located dashboard's own directory, the
+// verification spawn would race the LIVE dashboard server (shared .next
+// build dir + SQLite database) and stop the service: the "fetching its own
+// environment kills the dashboard" bug. Never operate on that tree.
+
+/** Canonical comparison form: realpath (symlinks/junctions/short-names +
+ *  on-disk casing) → forward slashes → lowercase on Windows. */
+function canonAgentPath(p: string): string {
+  let out: string;
+  try {
+    out = realpathSync(p);
+  } catch {
+    try { out = resolve(p); } catch { return String(p); }
+  }
+  if (IS_WINDOWS) out = out.toLowerCase();
+  return out.replace(/\\/g, '/');
+}
+
+/** The co-located dashboard's root, canonicalized (null when this agent is
+ *  standalone — nothing to protect then). DASHBOARD_ROOT env (set by the
+ *  dashboard's agent-lifecycle at spawn) wins; otherwise walk up from this
+ *  agent's own location: <dashboard>/mini-services/agent-<variant>. */
+let DASHBOARD_ROOT_CANON: string | null = null;
+(function detectDashboardRoot(): void {
+  if (process.env.DASHBOARD_ROOT) {
+    try { DASHBOARD_ROOT_CANON = canonAgentPath(process.env.DASHBOARD_ROOT); return; } catch { /* fall through */ }
+  }
+  try {
+    let dir = resolve(__dirname);
+    for (let i = 0; i < 6; i++) {
+      const parent = dirname(dir);
+      if (basename(parent) === 'mini-services' && basename(dir).startsWith('agent')) {
+        const root = dirname(parent);
+        if (existsSync(join(root, 'package.json')) && existsSync(join(root, 'src', 'app'))) {
+          DASHBOARD_ROOT_CANON = canonAgentPath(root);
+          return;
+        }
+      }
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch { /* standalone install — no co-located dashboard */ }
+})();
+
+/** The project root an analyzer would discover for p: the nearest directory
+ *  (including p) with a package.json — mirrors the dashboard's own guard. */
+function discoveredProjectRoot(p: string): string {
+  let dir = canonAgentPath(p);
+  for (let i = 0; i < 8; i++) {
+    try { if (existsSync(join(dir, 'package.json'))) return dir; } catch { /* unreadable */ }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return canonAgentPath(p);
+}
+
+/** True when p IS the co-located dashboard's directory or an ancestor of it. */
+function isDashboardTreePath(p: string): boolean {
+  if (!DASHBOARD_ROOT_CANON || !p) return false;
+  try {
+    const t = canonAgentPath(p);
+    const root = DASHBOARD_ROOT_CANON;
+    if (t === root) return true;
+    if (dirname(t) === t) return true;      // filesystem root contains everything
+    return root.startsWith(t + '/');        // p is an ancestor of the dashboard
+  } catch { return false; }
+}
+
+/** True when analyzing/starting p would point us at the co-located dashboard:
+ *  its own tree, or a path whose package.json walk-up lands on the dashboard. */
+function isUnsafeDashboardPath(p: string): boolean {
+  if (isDashboardTreePath(p)) return true;
+  if (!DASHBOARD_ROOT_CANON || !p) return false;
+  try {
+    const start = canonAgentPath(p);
+    const root = discoveredProjectRoot(p);
+    return root !== start && isDashboardTreePath(root);
+  } catch { return false; }
+}
+
+function dashboardSelfGuardError(p: string): string {
+  return `Refusing to operate on "${p}": it is (or resolves to) the dashboard's own directory${DASHBOARD_ROOT_CANON ? ` (${DASHBOARD_ROOT_CANON})` : ''}. Analyzing or starting the dashboard from its own agent would race the LIVE dashboard server (shared .next build dir + SQLite database) and stop the service. Register a separate copy/clone of the project instead.`;
+}
+
+/** True when pid belongs to the dashboard's own process chain (itself or an
+ *  ancestor) — killing it kills the dashboard. DASHBOARD_PID is set by the
+ *  spawning dashboard; the ancestor walk needs /proc (Unix). */
+function isProtectedDashboardPid(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  if (pid === process.pid) return true;
+  let cur = parseInt(process.env.DASHBOARD_PID || '', 10);
+  let guard = 0;
+  while (Number.isInteger(cur) && cur > 1 && guard++ < 64) {
+    if (cur === pid) return true;
+    try {
+      const st = readFileSync(`/proc/${cur}/status`, 'utf-8');
+      const m = st.match(/^PPid:\s+(\d+)/m);
+      if (!m) break;
+      cur = parseInt(m[1], 10);
+    } catch { break; } // /proc unavailable (Windows) — DASHBOARD_PID itself still protected
+  }
+  return false;
+}
+
 console.log(`[Agent] Platform: ${platform()} ${arch()} (${IS_WINDOWS ? 'Windows' : 'Unix-like'})`);
+if (DASHBOARD_ROOT_CANON) console.log(`[Agent] Co-located dashboard root: ${DASHBOARD_ROOT_CANON} (self-guard active)`);
 
 // ======================== CONFIG ========================
 
@@ -878,6 +988,12 @@ function isCommandSafe(cmd: string): boolean {
  * - Windows: taskkill /PID /T /F (tree kill)
  */
 function killProcess(pid: number, force: boolean = false): boolean {
+  // SELF-GUARD: never signal the co-located dashboard or its ancestors —
+  // "start the dashboard project" must not be able to stop the dashboard.
+  if (isProtectedDashboardPid(pid)) {
+    console.error(`[Agent] SELF-GUARD: refusing to kill pid ${pid} — it belongs to the dashboard process tree`);
+    return false;
+  }
   try {
     if (IS_WINDOWS) {
       // Windows: use taskkill for tree-kill (kills child processes too)
@@ -953,6 +1069,12 @@ async function startProcess(
 ): Promise<{ success: boolean; pid?: number; error?: string; detail?: string; logFile?: string }> {
   if (!isCommandSafe(cmd)) {
     return { success: false, error: `Command not allowed: ${cmd}` };
+  }
+
+  // SELF-GUARD: starting anything whose project root IS the co-located
+  // dashboard races the live server (shared .next + SQLite) — refuse.
+  if (isUnsafeDashboardPath(projectPath)) {
+    return { success: false, error: dashboardSelfGuardError(projectPath) };
   }
 
   const key = getProcessKey(projectId, envName);
@@ -1802,6 +1924,15 @@ async function runAutoDebugAnalyze(job: AnalyzeJob, llmBaseUrl: string | null, u
       job.error = 'No LLM endpoint provided (llmBaseUrl) — remote analysis must be started from the dashboard';
       return;
     }
+    // SELF-GUARD (belt + braces — the POST route already checks): never
+    // verify-spawn anything whose discovered root is the co-located
+    // dashboard; the spawned second server would race the live one.
+    if (isUnsafeDashboardPath(job.path)) {
+      job.status = 'failed';
+      job.error = dashboardSelfGuardError(job.path);
+      jobProgress(job, 'error', job.error);
+      return;
+    }
     jobProgress(job, 'note', `Project: ${job.name} (${job.path})`);
 
     const digest = readProjectDigest(job.path);
@@ -1917,7 +2048,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.14.0',
+        version: '1.15.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -1941,6 +2072,7 @@ const server = createServer(async (req, res) => {
         dashDbLazy: true,   // multi-candidate dashboard-DB detection (.env-aware, __dirname-anchored) + lazy re-probe + agentMeta reporting
         restart: true,      // POST /api/agent/restart — dashboard-triggered respawn (stale-process heal without a code pull)
         autoDebug: true,     // POST /api/agent/analyze-project — LLM-driven remote project analysis (dashboard supplies the LLM endpoint)
+        selfGuard: true,     // v1.15: refuses to analyze/start the co-located dashboard's own directory (self-kill guard)
       });
       return;
     }
@@ -2491,6 +2623,141 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    // ======================== POST /api/agent/projects/:id/analyze ========================
+    // Lightweight local analyzer — no LLM needed. Reads package.json scripts
+    // and auto-creates dev/prod environments based on common patterns. This is
+    // the endpoint behind the dashboard's per-project "Re-fetch environments"
+    // button on REMOTE project cards (the TS reference agent used to 404 it —
+    // only the JS package variants implemented it).
+    const reanalyzeMatch = pathname.match(/^\/api\/agent\/projects\/([^/]+)\/analyze$/);
+    if (reanalyzeMatch && req.method === 'POST') {
+      const projectId = reanalyzeMatch[1];
+      // Dashboard DB first, standalone agent DB second.
+      const dashProject = getDashDb() ? await getDashProject(projectId) : null;
+      const project: any = dashProject || (await db.project.findUnique({
+        where: { id: projectId },
+        include: { environments: true },
+      }));
+      if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
+
+      // SELF-GUARD: never "re-fetch" the co-located dashboard's own project —
+      // the generated dev/prod entries would point the start flow straight at
+      // the live server's directory (shared .next + SQLite) and kill it.
+      if (isUnsafeDashboardPath(String(project.path || ''))) {
+        sendJSON(res, 400, { error: dashboardSelfGuardError(String(project.path || '')), code: 'DASHBOARD_SELF_GUARD' });
+        return;
+      }
+
+      // Read package.json from the project directory
+      const pkgPath = join(project.path, 'package.json');
+      let scripts: Record<string, string> = {};
+      try {
+        const pkgRaw = readFileSync(pkgPath, 'utf-8');
+        scripts = JSON.parse(pkgRaw).scripts || {};
+      } catch {
+        sendJSON(res, 400, { error: 'Cannot read package.json — ensure the project path is correct and accessible.' });
+        return;
+      }
+
+      const scriptNames = Object.keys(scripts);
+      const devCandidates = ['dev', 'start', 'serve', 'develop', 'dev:server'];
+      const devScript = devCandidates.find(s => scriptNames.includes(s)) || scriptNames[0];
+      const devCmd = devScript ? `npm run ${devScript}` : 'npm start';
+      const hasBuild = scriptNames.includes('build');
+      const hasPreview = scriptNames.includes('preview');
+      const hasStart = scriptNames.includes('start');
+      let prodCmd: string;
+      if (hasBuild && hasPreview) prodCmd = 'npm run build && npm run preview';
+      else if (hasBuild) prodCmd = 'npm run build && npm start';
+      else if (hasStart) prodCmd = 'npm start';
+      else prodCmd = devCmd;
+
+      // Pick ports: try to extract from the dev command, avoid 3000 (the
+      // dashboard's own default) and the agent/mesh range entirely.
+      let devPort = 4300;
+      let prodPort = 4301;
+      const portMatch = scripts[devScript]?.match(/--port\s+(\d+)/);
+      if (portMatch) {
+        devPort = parseInt(portMatch[1], 10);
+        prodPort = devPort + 1;
+      }
+      if (devPort === 3000 || (devPort >= 3100 && devPort <= 3120)) devPort = 4300;
+      if (prodPort === 3000 || (prodPort >= 3100 && prodPort <= 3120)) prodPort = 4301;
+
+      const body = await getBody(req).catch(() => ({} as any));
+
+      if (dashProject) {
+        // Dashboard store: raw SQL upserts (the co-located dashboard's schema).
+        if (body.replace) {
+          await getDashDb()!.$executeRawUnsafe('DELETE FROM "Environment" WHERE "projectId" = ?', projectId);
+        }
+        const existingDev = (dashProject.environments || []).find((e: any) => e.name === 'dev' || e.name === 'development');
+        const existingProd = (dashProject.environments || []).find((e: any) => e.name === 'prod' || e.name === 'production');
+        const now = Date.now();
+        if (existingDev) {
+          await getDashDb()!.$executeRawUnsafe(
+            'UPDATE "Environment" SET "cmd" = ?, "port" = ?, "envVars" = ?, "updatedAt" = ? WHERE "id" = ?',
+            devCmd, devPort, JSON.stringify({ NODE_ENV: 'development', PORT: String(devPort) }), now, existingDev.id
+          );
+        } else {
+          const id = `c${randomBytes(11).toString('hex')}`;
+          await getDashDb()!.$executeRawUnsafe(
+            'INSERT INTO "Environment" ("id","projectId","name","cmd","port","envVars","status","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?,?,?)',
+            id, projectId, 'dev', devCmd, devPort, JSON.stringify({ NODE_ENV: 'development', PORT: String(devPort) }), 'stopped', now, now
+          );
+        }
+        if (prodCmd !== devCmd || prodPort !== devPort) {
+          if (existingProd) {
+            await getDashDb()!.$executeRawUnsafe(
+              'UPDATE "Environment" SET "cmd" = ?, "port" = ?, "envVars" = ?, "updatedAt" = ? WHERE "id" = ?',
+              prodCmd, prodPort, JSON.stringify({ NODE_ENV: 'production', PORT: String(prodPort) }), now, existingProd.id
+            );
+          } else {
+            const id = `c${randomBytes(11).toString('hex')}`;
+            await getDashDb()!.$executeRawUnsafe(
+              'INSERT INTO "Environment" ("id","projectId","name","cmd","port","envVars","status","createdAt","updatedAt") VALUES (?,?,?,?,?,?,?,?,?)',
+              id, projectId, 'prod', prodCmd, prodPort, JSON.stringify({ NODE_ENV: 'production', PORT: String(prodPort) }), 'stopped', now, now
+            );
+          }
+        }
+        const updated = await getDashProject(projectId);
+        sendJSON(res, 200, { project: updated, analyzed: { devCmd, devPort, prodCmd, prodPort, scripts: scriptNames } });
+        return;
+      }
+
+      // Standalone agent store: Prisma upserts.
+      if (body.replace) {
+        await db.environment.deleteMany({ where: { projectId } });
+      }
+      const existingDev = (project.environments || []).find((e: any) => e.name === 'dev' || e.name === 'development');
+      const existingProd = (project.environments || []).find((e: any) => e.name === 'prod' || e.name === 'production');
+      if (existingDev) {
+        await db.environment.update({
+          where: { id: existingDev.id },
+          data: { cmd: devCmd, port: devPort, envVars: JSON.stringify({ NODE_ENV: 'development', PORT: String(devPort) }) },
+        });
+      } else {
+        await db.environment.create({
+          data: { projectId, name: 'dev', cmd: devCmd, port: devPort, envVars: JSON.stringify({ NODE_ENV: 'development', PORT: String(devPort) }), status: 'stopped' },
+        });
+      }
+      if (prodCmd !== devCmd || prodPort !== devPort) {
+        if (existingProd) {
+          await db.environment.update({
+            where: { id: existingProd.id },
+            data: { cmd: prodCmd, port: prodPort, envVars: JSON.stringify({ NODE_ENV: 'production', PORT: String(prodPort) }) },
+          });
+        } else {
+          await db.environment.create({
+            data: { projectId, name: 'prod', cmd: prodCmd, port: prodPort, envVars: JSON.stringify({ NODE_ENV: 'production', PORT: String(prodPort) }), status: 'stopped' },
+          });
+        }
+      }
+      const updated = await db.project.findUnique({ where: { id: projectId }, include: { environments: true } });
+      sendJSON(res, 200, { project: updated, analyzed: { devCmd, devPort, prodCmd, prodPort, scripts: scriptNames } });
+      return;
+    }
+
     // ======================== AUTO-DEBUG ANALYZE (LLM-driven, async job) ========================
     // POST /api/agent/analyze-project {path, name, llmBaseUrl, usedPorts?}
     // GET  /api/agent/analyze-project/:jobId
@@ -2510,6 +2777,13 @@ const server = createServer(async (req, res) => {
       const projectPath = resolve(String(body.path || ''));
       if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
         sendJSON(res, 400, { error: `Invalid path: ${projectPath}` });
+        return;
+      }
+      // SELF-GUARD: analyzing the co-located dashboard's own directory is the
+      // remote flavor of the "analysis kills the service" bug — the verify
+      // spawn would race the live dashboard server. Refuse with the story.
+      if (isUnsafeDashboardPath(projectPath)) {
+        sendJSON(res, 400, { error: dashboardSelfGuardError(projectPath), code: 'DASHBOARD_SELF_GUARD' });
         return;
       }
       const jobId = randomUUID();

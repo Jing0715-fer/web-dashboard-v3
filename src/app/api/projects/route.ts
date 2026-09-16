@@ -4,7 +4,7 @@ import { enrichEnvStatuses } from '@/lib/env-status';
 import { getRemoteProjectsCached, healSelfMirroredLocalProjects } from '@/lib/remote-sync';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
-import { isSelfOrAncestorPath, SELF_GUARD_REJECTION } from '@/lib/self-guard';
+import { isUnsafeAnalysisPath, analysisGuardRejection } from '@/lib/self-guard';
 
 // GET /api/projects - List all projects with environments and status
 // Aggregates local projects (deviceId=null) and remote projects from devices
@@ -142,8 +142,8 @@ export async function POST(req: NextRequest) {
     // the harness agent's pre-flight cleanup would kill the live dashboard
     // server via its .next/dev/lock (the "service stopped during analysis" bug).
     // Local projects only — a remote device obviously manages its own copy.
-    if (!deviceId && isSelfOrAncestorPath(String(path))) {
-      return NextResponse.json({ error: SELF_GUARD_REJECTION }, { status: 400 });
+    if (!deviceId && isUnsafeAnalysisPath(String(path))) {
+      return NextResponse.json({ error: analysisGuardRejection(String(path)) }, { status: 400 });
     }
 
     // A bogus deviceId (stale device list in the client, hand-crafted POST)

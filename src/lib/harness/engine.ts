@@ -9,7 +9,7 @@ import * as zlib from 'zlib';
 import { tmpdir, platform } from 'os';
 import * as fzstd from 'fzstd';
 import { isAllowedCommand } from '@/lib/cmd-allowlist';
-import { isSelfOrAncestorPath, SELF_PROJECT_PATH } from '@/lib/self-guard';
+import { isUnsafeAnalysisPath, isSelfOrAncestorPath, SELF_PROJECT_PATH } from '@/lib/self-guard';
 
 /**
  * Harness engine — the former mini-services/harness-agent(:3022), now running
@@ -249,8 +249,8 @@ function buildTask(s: AnalysisSession, feedback?: string): string {
   // and kills the dashboard server (the "service stopped during analysis" bug).
   const selfGuardRules = `
 - ABSOLUTE SAFETY BOUNDARY — the dashboard that is running you right now:
-  - The dashboard process tree lives in "${SELF_PROJECT_PATH}" (its dev-server PID may differ per platform; NEVER try to discover or kill it).
-  - NEVER kill, signal, or stop ANY process whose working directory or command line is inside "${SELF_PROJECT_PATH}" — that includes the .next/dev/lock you may find there. If you encounter a lock file under "${SELF_PROJECT_PATH}", leave it completely alone and simply pick a different port for the server you are testing.
+  - The dashboard server is PID ${process.pid} (this very analysis is one of its child tasks). NEVER kill PID ${process.pid}, any of its parent processes, or ANY process whose working directory or command line is inside "${SELF_PROJECT_PATH}" — a path that differs only in casing or through a symlink is the SAME directory on disk; resolve it before comparing.
+  - That includes the .next/dev/lock you may find under "${SELF_PROJECT_PATH}" — it holds the LIVE dashboard server's PID. Do NOT read, kill, or delete anything there; just pick a different port for the server you are testing.
   - NEVER kill a process just because it occupies your chosen port unless that process clearly belongs to the project you are analyzing. When in doubt, move to the next free port.
 `;
   return `You are a DevOps agent. Analyze the project in the current working directory and produce a VERIFIED startup configuration.
@@ -404,8 +404,9 @@ function killProjectOrphans(s: AnalysisSession, why: string): Promise<number> {
     try {
       const myCwd = process.cwd();
       // Safety: never sweep a directory that contains the dashboard itself (would
-      // kill the dashboard server / its node_modules workers).
-      if (myCwd === s.path || myCwd.startsWith(s.path + '/')) { resolve(0); return; }
+      // kill the dashboard server / its node_modules workers). Canonicalized
+      // compare — see self-guard.ts (case/symlink-hardened).
+      if (isSelfOrAncestorPath(s.path) || myCwd === s.path || myCwd.startsWith(s.path + '/')) { resolve(0); return; }
       const victims: number[] = [];
       for (const ent of readdirSync('/proc')) {
         if (!/^\d+$/.test(ent)) continue;
@@ -438,8 +439,9 @@ function sweepWindowsOrphans(s: AnalysisSession, why: string): Promise<number> {
       const norm = (p: string) => p.toLowerCase().replace(/\\/g, '/');
       const nProj = norm(projPath);
       const nMine = norm(process.cwd());
-      // Safety: never sweep the dashboard's own directory tree (either direction).
-      if (!nProj || nProj === nMine || nMine.startsWith(nProj + '/') || nProj.startsWith(nMine + '/')) {
+      // Safety: never sweep the dashboard's own directory tree (either
+      // direction) — canonicalized predicate for case/symlink safety.
+      if (isSelfOrAncestorPath(s.path) || !nProj || nProj === nMine || nMine.startsWith(nProj + '/') || nProj.startsWith(nMine + '/')) {
         resolve(0);
         return;
       }
@@ -836,9 +838,10 @@ export function startAnalysis(
   // Hard backstop — the API layer already rejects these paths, but the
   // engine is the component that actually spawns an unrestricted shell agent
   // into the directory. Never let it run against the dashboard itself (or an
-  // ancestor like the home dir): the agent's pre-flight cleanup would read our
-  // own .next/dev/lock and kill the live dashboard server.
-  if (isSelfOrAncestorPath(path)) {
+  // ancestor like the home dir, or an inside-tree dir whose walk-up lands on
+  // the dashboard's package.json): the agent's pre-flight cleanup would read
+  // our own .next/dev/lock and kill the live dashboard server.
+  if (isUnsafeAnalysisPath(path)) {
     throw new Error(
       `Refusing to analyze "${path}": it contains the dashboard itself. ` +
       `The analysis agent would stop the dashboard's own dev server via the ` +

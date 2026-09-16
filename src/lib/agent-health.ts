@@ -96,6 +96,11 @@ export async function probeRemoteAgentHealth(
         // agent lacked /api/agent/analyze-project until v1.14 — remote
         // analysis against such a device failed with a bare "Not found".
         else if (!('autoDebug' in d)) why = 'remote project analysis (/api/agent/analyze-project)'
+        // v1.15 marker: dashboard self-guard — the agent refuses to analyze
+        // or start the co-located dashboard's own directory. Without it, a
+        // remote "fetch environments" on the dashboard's own project kills
+        // the live dashboard server on that machine.
+        else if (!('selfGuard' in d)) why = 'dashboard self-analysis protection (self-kill guard)'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',

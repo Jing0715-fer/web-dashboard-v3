@@ -2,6 +2,7 @@ import { spawn, execSync, type ChildProcess } from 'child_process';
 import { existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
+import { registerMeshServicePort } from '@/lib/ports';
 
 /**
  * Supervisor for the auto-iter mini-service (mini-services/auto-iter, port
@@ -62,7 +63,12 @@ async function waitForIter(ms: number): Promise<boolean> {
  * boot, mesh route, manual curl); a concurrent spawn is guarded by a lock.
  */
 export async function ensureAutoIterService(): Promise<AutoIterStatus> {
-  if (await probeIter()) return { running: true, started: false, port: ITER_PORT };
+  if (await probeIter()) {
+    // Already running (typical boot path) — its port is the dashboard's own
+    // infrastructure; keep the stray sweeper from ever killing it.
+    registerMeshServicePort(ITER_PORT);
+    return { running: true, started: false, port: ITER_PORT };
+  }
 
   if (!existsSync(path.join(ITER_DIR, 'index.ts'))) {
     return { running: false, started: false, port: ITER_PORT, error: 'mini-services/auto-iter not present' };
@@ -98,6 +104,7 @@ export async function ensureAutoIterService(): Promise<AutoIterStatus> {
       env: { ...process.env, AUTO_ITER_INTERVAL_MS: String(30 * 60_000) },
     });
     child.unref();             // let the dashboard not wait on it
+    registerMeshServicePort(ITER_PORT);
 
     const running = await waitForIter(15_000);
     return {

@@ -95,6 +95,16 @@ export async function POST(
           { status: 502 },
         );
       }
+      // 400 DASHBOARD_SELF_GUARD from the agent = it refused to analyze the
+      // path because it IS that machine's co-located dashboard directory (the
+      // remote flavor of the self-analysis kill). Pass the agent's verdict
+      // through as a first-class rejection, not a gateway failure.
+      if (result.status === 400 && result.data?.code === 'DASHBOARD_SELF_GUARD') {
+        return NextResponse.json(
+          { error: result.data.error, code: 'DASHBOARD_SELF_GUARD' },
+          { status: 400 },
+        );
+      }
       return NextResponse.json({ error: result.data?.error || `Agent returned ${result.status}` }, { status: 502 });
     }
 

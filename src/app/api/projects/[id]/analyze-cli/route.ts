@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { requireApprovedUser } from '@/lib/auth';
 import { isAllowedCommand } from '@/lib/cmd-allowlist';
-import { isSelfOrAncestorPath, SELF_GUARD_REJECTION } from '@/lib/self-guard';
+import { isUnsafeAnalysisPath, analysisGuardRejection } from '@/lib/self-guard';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,8 +35,8 @@ export async function POST(
     }
 
     // SELF-GUARD — never analyze the dashboard itself (see self-guard.ts).
-    if (isSelfOrAncestorPath(project.path)) {
-      return NextResponse.json({ error: SELF_GUARD_REJECTION }, { status: 400 });
+    if (isUnsafeAnalysisPath(project.path)) {
+      return NextResponse.json({ error: analysisGuardRejection(project.path) }, { status: 400 });
     }
 
     // If replace=true, delete all existing environments first

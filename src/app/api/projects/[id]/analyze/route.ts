@@ -5,7 +5,7 @@ import { callLLM } from '@/lib/llm-providers';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
 import { isAllowedCommand } from '@/lib/cmd-allowlist';
-import { isSelfOrAncestorPath, SELF_GUARD_REJECTION } from '@/lib/self-guard';
+import { isUnsafeAnalysisPath, analysisGuardRejection } from '@/lib/self-guard';
 
 const SYSTEM_PROMPT = 'You are a DevOps expert that analyzes project structures and generates startup configurations. Always respond with valid JSON only. Ensure all port numbers are different between environments and all IP addresses are valid.';
 
@@ -34,8 +34,8 @@ export async function POST(
 
     // SELF-GUARD — never analyze the dashboard itself (see self-guard.ts).
     // Blocks legacy rows that already point at the dashboard's own directory.
-    if (isSelfOrAncestorPath(project.path)) {
-      return NextResponse.json({ error: SELF_GUARD_REJECTION }, { status: 400 });
+    if (isUnsafeAnalysisPath(project.path)) {
+      return NextResponse.json({ error: analysisGuardRejection(project.path) }, { status: 400 });
     }
 
     // If replace=true, delete all existing environments first

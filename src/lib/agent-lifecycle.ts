@@ -5,6 +5,7 @@ import { spawn, execSync } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import { logActivity } from '@/lib/activity';
+import { registerMeshServicePort } from '@/lib/ports';
 
 /**
  * Local agent lifecycle — shared by the mesh pairing routes AND the server
@@ -300,6 +301,12 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // until v1.14: remote analysis against such an agent answered a bare
     // "Not found" (the user-facing bug this marker now detects + heals).
     if (!('autoDebug' in d)) return { outdated: true, why: 'remote project analysis (/api/agent/analyze-project)' };
+    // v1.15 marker: dashboard self-guard — the agent refuses to analyze or
+    // start the co-located dashboard's own directory. Without it, a remote
+    // "fetch environments" against the dashboard's own project KILLS the
+    // live dashboard server on that machine (verify-spawn races the shared
+    // .next + SQLite). Respawn so the guard takes over after a git pull.
+    if (!('selfGuard' in d)) return { outdated: true, why: 'dashboard self-analysis protection (self-kill guard)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };
@@ -521,6 +528,9 @@ export async function ensureLocalAgent(): Promise<
   }
 
   if (detected?.running && !restarted) {
+    // Already-running agent (typical boot path): its port is the dashboard's
+    // own mesh infrastructure — make sure the stray sweeper knows.
+    registerMeshServicePort(detected.port);
     return { ok: true, agent: detected, started: false, restarted };
   }
 
@@ -583,6 +593,9 @@ export async function ensureLocalAgent(): Promise<
     const m = envTxt.match(/^AGENT_PORT=(\d+)\s*$/m);
     if (m) port = parseInt(m[1], 10);
   } catch { /* no session file */ }
+  // Whatever the port ended up being, it belongs to the dashboard's own
+  // mesh infrastructure — the stray sweeper must never kill this listener.
+  registerMeshServicePort(port);
 
   const logFile = path.join('/tmp', 'dashboard-agent.log');
   const out = openSyncAppend(logFile);
@@ -596,6 +609,13 @@ export async function ensureLocalAgent(): Promise<
   const agentEnv: Record<string, string | undefined> = {
     ...process.env,
     DATABASE_URL: `file:${path.join(base, 'db', 'agent.db')}`,
+    // Tell the agent WHICH dashboard spawned it, so its own self-guard can
+    // refuse to analyze/start/kill anything inside the co-located dashboard's
+    // directory (the remote self-analysis kill vector — see mini-services/agent
+    // "DASHBOARD SELF-GUARD").
+    DASHBOARD_ROOT: base,
+    DASHBOARD_PID: String(process.pid),
+    DASHBOARD_PORT: String(parseInt(process.env.PORT || '3000', 10) || 3000),
   };
   delete agentEnv.TURBOPACK;
   delete agentEnv.NEXT_RUNTIME;
