@@ -230,6 +230,19 @@ export async function listListeningPorts(): Promise<PortEntry[]> {
     }
   }
 
+  // One row per (port, pid). Both netstat -ano and ss list the SAME listener
+  // once per bound address, so a dual-stack service (classic: Windows
+  // "System" pid 4 on 0.0.0.0:139 + [::]:139) yields two identical rows.
+  // That duplicated the Ports-panel table entry AND collided as a duplicate
+  // React key (`139-4`). Unknown-pid rows on the same port collapse too.
+  const seenPortPid = new Set<string>();
+  raw = raw.filter((r) => {
+    const key = `${r.port}|${r.pid ?? ''}`;
+    if (seenPortPid.has(key)) return false;
+    seenPortPid.add(key);
+    return true;
+  });
+
   const chain = selfChain();
   const entries: PortEntry[] = [];
   // Batch ps for all pids in ONE call (avoid N spawns): `ps -o pid=,args= -p 1,2,3`

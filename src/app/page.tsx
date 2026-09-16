@@ -2625,11 +2625,14 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => {
+                {filtered.map((r, i) => {
                   const selfRow = r.self || r.reserved
                   const killable = !selfRow && r.pid != null
                   return (
-                    <tr key={`${r.port}-${r.pid ?? 'x'}`} className="border-t border-border/60 hover:bg-accent/40 transition-colors">
+                    // Index-prefixed key: port+pid alone can collide if a
+                    // scanner regression ever reintroduces duplicate rows
+                    // (dual-stack listeners share port AND pid).
+                    <tr key={`${i}:${r.port}-${r.pid ?? 'x'}`} className="border-t border-border/60 hover:bg-accent/40 transition-colors">
                       <td className="px-3 py-2">
                         <span className={`font-mono font-semibold ${selfRow ? 'text-amber-600 dark:text-amber-400' : 'text-teal-600 dark:text-teal-400'}`}>:{r.port}</span>
                         {r.reserved && <LockIcon className="inline ml-1 h-3 w-3 text-amber-500" />}
