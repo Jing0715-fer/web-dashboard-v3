@@ -1773,6 +1773,7 @@ const server = http.createServer(async (req, res) => {
         envSanitize: true,  // child-process env sanitization (TURBOPACK leak) + pull origin self-heal
         peerRelay: true,    // caches register-response peer projects; serves them at /api/agent/peer-cache
         repoMerge: true,    // dual-store listing merge (repoUrl/notes by path) + pull cross-store repoUrl heal
+        autoDebug: true,    // POST /api/agent/analyze-project — LLM-driven remote project analysis (dashboard supplies the LLM endpoint)
       });
       return;
     }

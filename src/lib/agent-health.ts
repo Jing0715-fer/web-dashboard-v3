@@ -92,6 +92,10 @@ export async function probeRemoteAgentHealth(
         else if (!('dashDbLazy' in d)) why = 'hardened dashboard-DB detection (.env-aware + lazy re-probe)'
         // v1.13 marker: dashboard-triggered agent restart (POST /api/agent/restart).
         else if (!('restart' in d)) why = 'remote agent restart (POST /api/agent/restart)'
+        // v1.14 marker: LLM-driven remote project analysis. The TS reference
+        // agent lacked /api/agent/analyze-project until v1.14 — remote
+        // analysis against such a device failed with a bare "Not found".
+        else if (!('autoDebug' in d)) why = 'remote project analysis (/api/agent/analyze-project)'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',

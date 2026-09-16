@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { proxyToAgent } from '@/lib/remote-agent';
 import { networkInterfaces } from 'os';
 import { requireApprovedUser } from '@/lib/auth';
+import { probeRemoteAgentHealth } from '@/lib/agent-health';
 import { registerRemoteAutoApply, getAutoApplyOutcome } from '@/lib/harness/auto-apply';
 
 /**
@@ -20,6 +21,14 @@ import { registerRemoteAutoApply, getAutoApplyOutcome } from '@/lib/harness/auto
  * decision). Closing the dialog / reloading before clicking "add" can no
  * longer lose the remote result. The GET response is enriched with `applied`
  * so the dialog can render the auto-saved state.
+ *
+ * Error contract (beyond plain HTTP errors): failures the UI can render a
+ * dedicated message for carry a machine `code` —
+ *   AGENT_ANALYZE_UNSUPPORTED  the agent answered but has no analyze-project
+ *                              endpoint (pre-1.14 TS agents / old packages);
+ *                              `agentVersion` says what is running.
+ *   JOB_NOT_FOUND              the job vanished (agent restarted / GC) — the
+ *                              dialog stops polling and offers a restart.
  */
 
 function getLanIp(): string {
@@ -29,6 +38,20 @@ function getLanIp(): string {
     }
   }
   return '127.0.0.1';
+}
+
+/** The in-process LLM gateway lives on the dashboard's own port. Deriving it
+ * from the request's Host header (with a process.env.PORT fallback) keeps
+ * remote analysis working when the dashboard doesn't run on the default
+ * :3000 — the old hardcode pointed remote agents at a dead port. */
+function getGatewayBaseUrl(req: NextRequest): string {
+  let port = process.env.PORT ? String(parseInt(process.env.PORT, 10) || 3000) : '3000';
+  try {
+    const host = req.headers.get('host') || '';
+    const m = host.match(/:(\d+)$/);
+    if (m) port = m[1];
+  } catch { /* keep fallback */ }
+  return `http://${getLanIp()}:${port}/api/llm/v1`;
 }
 
 export async function POST(
@@ -47,8 +70,7 @@ export async function POST(
     if (!body?.path) return NextResponse.json({ error: 'path is required' }, { status: 400 });
 
     const usedPorts = Array.isArray(body.usedPorts) ? body.usedPorts : [];
-    // In-process gateway lives on the dashboard port itself (formerly :3021).
-    const llmBaseUrl = `http://${getLanIp()}:3000/api/llm/v1`;
+    const llmBaseUrl = getGatewayBaseUrl(req);
 
     const result = await proxyToAgent(
       { ip: device.ip, port: device.port, apiKey: device.apiKey },
@@ -57,6 +79,22 @@ export async function POST(
       { path: body.path, name: body.name, llmBaseUrl, usedPorts: [...usedPorts, 3000, 3100] }
     );
     if (!result.ok) {
+      // 404 from the agent = the endpoint doesn't exist on that process:
+      // the device runs a pre-1.14 TS agent (the reference variant didn't
+      // ship analyze-project until v1.14) or a stale downloaded package.
+      // A bare "Not found" told the user nothing — probe the agent's health
+      // (no auth, 60s-cached) for its running version and say what to do.
+      if (result.status === 404) {
+        const probe = await probeRemoteAgentHealth(device);
+        const agentVersion = probe.version || null;
+        const error = probe.reachable && agentVersion
+          ? `The agent on ${device.name} (v${agentVersion}) does not support remote project analysis — it needs the analyze endpoint introduced in agent v1.14. Update the agent on that device (in the project directory: git pull, then restart the agent; or re-download the package from the Devices panel) and retry.`
+          : `The agent on ${device.name} did not recognize the analysis request (HTTP 404) and its version could not be determined. Make sure a current Dashboard Agent is running on that device's ip:port, update it, and retry.`;
+        return NextResponse.json(
+          { error, code: 'AGENT_ANALYZE_UNSUPPORTED', agentVersion },
+          { status: 502 },
+        );
+      }
       return NextResponse.json({ error: result.data?.error || `Agent returned ${result.status}` }, { status: 502 });
     }
 
@@ -97,6 +135,18 @@ export async function GET(
       'GET'
     );
     if (!result.ok) {
+      // A missing job is terminal — most often the device agent restarted
+      // (jobs are in-memory) or aged out of the 1h GC. Retrying the same
+      // jobId can never succeed, so tell the dialog to stop polling.
+      if (result.status === 404) {
+        return NextResponse.json(
+          {
+            error: 'The analysis job no longer exists on the device — the agent most likely restarted. Start the analysis again.',
+            code: 'JOB_NOT_FOUND',
+          },
+          { status: 502 },
+        );
+      }
       return NextResponse.json({ error: result.data?.error || `Agent returned ${result.status}` }, { status: 502 });
     }
     const data = result.data ?? {};

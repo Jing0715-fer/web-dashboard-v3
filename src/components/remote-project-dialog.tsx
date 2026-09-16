@@ -133,6 +133,19 @@ export function RemoteProjectDialog({
             }
             return
           }
+        } else {
+          const err = await res.json().catch(() => null)
+          // Terminal: the job no longer exists on the device (the agent
+          // restarted — jobs are in-memory — or it aged out of the 1h GC).
+          // Re-polling the same jobId can never succeed; fail the dialog
+          // so the retry button appears instead of an endless spinner.
+          if (err?.code === 'JOB_NOT_FOUND' && !stop) {
+            const message = t('dlg.remoteProject.jobLost')
+            setError(message)
+            setJob((j: any) => ({ ...(j ?? {}), status: 'failed', error: message, progress: j?.progress ?? [] }))
+            clearRemoteSession()
+            return
+          }
         }
       } catch (e: any) {
         if (!stop) setError(e?.message || t('dlg.common.networkError'))
@@ -141,7 +154,7 @@ export function RemoteProjectDialog({
     }
     let timer = window.setTimeout(tick, 800)
     return () => { stop = true; window.clearTimeout(timer) }
-  }, [jobId, deviceId])
+  }, [jobId, deviceId, clearRemoteSession, t])
 
   // Auto-apply succeeded → toast + refresh the project list, once.
   const autoOutcome = job?.applied && !job.applied.pending ? (job.applied as AppliedInfo) : null
@@ -188,9 +201,15 @@ export function RemoteProjectDialog({
         try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId: data.jobId, deviceId, path: path.trim(), name: name.trim() })) } catch {}
         addToast({ title: t('dlg.remoteProject.startedToast'), description: t('dlg.remoteProject.startedDesc'), variant: 'success' })
       } else {
-        const err = await res.json()
-        setError(err.error || t('dlg.toast.analysisStartFailed'))
-        addToast({ title: t('dlg.toast.analysisStartFailed'), description: err.error || t('dlg.remoteProject.agentUnreachable'), variant: 'destructive' })
+        const err = await res.json().catch(() => ({} as any))
+        // Actionable version: the agent answered but predates the
+        // analyze-project endpoint (pre-1.14 TS agents / stale packages) —
+        // a bare "Not found" told the user nothing about what to do.
+        const message = err?.code === 'AGENT_ANALYZE_UNSUPPORTED'
+          ? t('dlg.remoteProject.agentTooOld', { version: err.agentVersion || '?' })
+          : err.error || t('dlg.toast.analysisStartFailed')
+        setError(message)
+        addToast({ title: t('dlg.toast.analysisStartFailed'), description: message, variant: 'destructive' })
       }
     } catch (e: any) {
       setError(e?.message)

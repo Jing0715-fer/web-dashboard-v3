@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { motion } from 'framer-motion'
-import { Clock, XCircle, LogOut, Loader2, Zap } from 'lucide-react'
+import { Clock, XCircle, LogOut, Loader2, LayoutDashboard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useT } from '@/lib/i18n'
 import type { PublicUser } from './auth-types'
@@ -61,7 +61,7 @@ export function AccountStatusScreen({ user, onLogout }: { user: PublicUser; onLo
             {/* Mobile logo row */}
             <div className="flex items-center gap-2.5 lg:hidden mb-6">
               <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/40 ring-1 ring-primary/30 ring-inset">
-                <Zap className="h-4 w-4" />
+                <LayoutDashboard className="h-4 w-4" />
               </div>
               <span className="text-base font-bold">Dashboard</span>
             </div>

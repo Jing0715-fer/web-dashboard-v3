@@ -7,7 +7,7 @@ import {
   Plus, Search, LayoutGrid, List, Bell, Settings,
   Play, Square, RotateCw, Hammer, Trash2, Edit3,
   Folder, ChevronRight, X, AlertTriangle, Info, AlertCircle,
-  Clock, Cpu, HardDrive, Server, Globe, Shield, Zap, Activity,
+  Clock, Cpu, HardDrive, Server, Globe, Shield, Zap, Activity, LayoutDashboard,
   Copy, GripVertical, Terminal, RefreshCw, ChevronDown,
   ChevronUp, MoreVertical, Eye, Filter, Tag, Layers,
   Monitor, Database, Smartphone, Cpu as CpuIcon, GitBranch,
@@ -8391,7 +8391,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 shrink-0">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shrink-0 shadow-sm shadow-primary/40 ring-1 ring-primary/30 ring-inset">
-              <Zap className="h-4 w-4" />
+              <LayoutDashboard className="h-4 w-4" />
             </div>
             <div className="hidden sm:flex flex-col">
               <h1 className="text-lg font-bold leading-tight">Dashboard</h1>

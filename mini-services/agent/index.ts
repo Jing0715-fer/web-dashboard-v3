@@ -16,9 +16,9 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { PrismaClient } from '@prisma/client';
 import { spawn, ChildProcess, execSync, execFile } from 'child_process';
 import { promisify } from 'util';
-import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync, statSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync, statSync, readdirSync } from 'fs';
 import { join, resolve, dirname, basename, isAbsolute } from 'path';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { hostname, tmpdir, platform, arch, homedir, networkInterfaces } from 'os';
 
 // ======================== PLATFORM DETECTION ========================
@@ -1659,6 +1659,238 @@ function getBody(req: IncomingMessage): Promise<any> {
   });
 }
 
+// ======================== AUTO-DEBUG ANALYZE ENGINE ========================
+// Lightweight LLM-driven loop used on remote devices (no dsh required):
+//   files → LLM JSON config → start → verify port → feed errors back → retry.
+// The dashboard supplies the LLM endpoint (its llm-gateway) so remote devices
+// need no LLM credentials of their own — the dashboard is the mesh's brain.
+// (Ported from the JS package variants: the TS reference agent used to 404
+// /api/agent/analyze-project, which surfaced as a bare "Not found" toast in
+// the dashboard's Add-Remote-Project dialog.)
+
+interface AnalyzeJob {
+  id: string;
+  path: string;
+  name: string;
+  status: 'running' | 'completed' | 'failed';
+  createdAt: number;
+  updatedAt: number;
+  progress: { ts: number; kind: string; text: string }[];
+  result: any;
+  error: string | null;
+}
+
+const analyzeJobs = new Map<string, AnalyzeJob>();
+
+function jobProgress(job: AnalyzeJob, kind: string, text: string): void {
+  job.progress.push({ ts: Date.now(), kind, text });
+  if (job.progress.length > 300) job.progress.splice(0, job.progress.length - 300);
+  job.updatedAt = Date.now();
+}
+
+/** Read a project directory into a compact file digest for the LLM. */
+function readProjectDigest(dir: string): string {
+  const interesting = ['package.json', 'bun.lock', 'bun.lockb', 'package-lock.json', 'yarn.lock',
+    'README.md', 'next.config.js', 'next.config.ts', 'next.config.mjs', 'vite.config.js',
+    'vite.config.ts', 'nuxt.config.ts', 'requirements.txt', 'pyproject.toml', 'Makefile',
+    'Dockerfile', 'docker-compose.yml', 'go.mod', 'Cargo.toml', '.env.example'];
+  const parts: string[] = [];
+  for (const name of interesting) {
+    const f = join(dir, name);
+    if (!existsSync(f)) continue;
+    try {
+      const content = readFileSync(f, 'utf-8').split('\n').slice(0, 60).join('\n');
+      parts.push(`=== ${name} ===\n${content}`);
+    } catch { /* unreadable */ }
+  }
+  try {
+    const sub = readdirSync(dir).filter(e => {
+      try { return statSync(join(dir, e)).isDirectory() && !e.startsWith('.') && e !== 'node_modules'; } catch { return false; }
+    }).slice(0, 15).join(', ');
+    parts.push(`=== top-level dirs ===\n${sub || '(none)'}`);
+  } catch { /* unreadable dir */ }
+  return parts.join('\n\n').slice(0, 12000);
+}
+
+/** Call an OpenAI-compatible chat endpoint (the dashboard's in-process
+ * llm-gateway — reached over the LAN with the shared key). */
+async function llmChat(llmBaseUrl: string, messages: { role: string; content: string }[], retries = 3): Promise<string> {
+  const url = llmBaseUrl.replace(/\/$/, '') + '/chat/completions';
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const controller = new AbortController();
+      const to = setTimeout(() => controller.abort(), 120000);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer local-gateway-key' },
+          body: JSON.stringify({ messages, temperature: 0.2 }),
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          if ((res.status === 429 || res.status >= 500) && i < retries) {
+            await new Promise(r => setTimeout(r, 4000 * (i + 1)));
+            continue;
+          }
+          throw new Error(`LLM ${res.status}: ${text.slice(0, 200)}`);
+        }
+        const data: any = await res.json();
+        return data.choices?.[0]?.message?.content || '';
+      } finally {
+        clearTimeout(to);
+      }
+    } catch (e) {
+      if (i === retries) throw e;
+      await new Promise(r => setTimeout(r, 3000 * (i + 1)));
+    }
+  }
+  return '';
+}
+
+/** Extract the {projectName, environments[]} config object from an LLM reply. */
+function parseConfigFromText(text: string): any {
+  if (!text) return null;
+  let t = text.trim();
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) t = fence[1].trim();
+  const s = t.indexOf('{'), e = t.lastIndexOf('}');
+  if (s === -1 || e <= s) return null;
+  try {
+    const obj = JSON.parse(t.slice(s, e + 1));
+    if (!Array.isArray(obj.environments) || obj.environments.length === 0) return null;
+    const valid = (obj.environments as any[]).filter(env => env && env.cmd && Number(env.port) > 0 && Number(env.port) !== 3000);
+    if (valid.length === 0) return null;
+    obj.environments = valid.map(env => ({
+      name: String(env.name || 'dev').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50) || 'dev',
+      cmd: String(env.cmd).slice(0, 500),
+      port: Number(env.port),
+      envVars: (env.envVars && typeof env.envVars === 'object') ? env.envVars : {},
+    }));
+    return obj;
+  } catch { return null; }
+}
+
+/** HTTP check via curl when available (validates an actual response, not
+ * just an open socket — some servers accept TCP then never answer). */
+function curlCheck(port: number): string {
+  try {
+    const out = execSync(`curl -s -o /dev/null -w "%{http_code}" --max-time 4 http://127.0.0.1:${port}/ || true`, { encoding: 'utf-8', timeout: 6000 });
+    return out.trim();
+  } catch { return '000'; }
+}
+
+/** Kill the verification child AND its grandchildren (npm → node under the
+ * shell). The analyze verification spawns a DETACHED shell, so on Unix the
+ * whole process group must go — killing only the shell pid would leak the
+ * actual dev server it started. */
+function killAnalyzeChild(pid: number | undefined): void {
+  if (!pid) return;
+  try {
+    if (IS_WINDOWS) {
+      execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'pipe', timeout: 5000 });
+    } else {
+      try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ } }
+    }
+  } catch { /* already dead */ }
+}
+
+async function runAutoDebugAnalyze(job: AnalyzeJob, llmBaseUrl: string | null, usedPorts: number[]): Promise<void> {
+  try {
+    if (!llmBaseUrl) {
+      job.status = 'failed';
+      job.error = 'No LLM endpoint provided (llmBaseUrl) — remote analysis must be started from the dashboard';
+      return;
+    }
+    jobProgress(job, 'note', `Project: ${job.name} (${job.path})`);
+
+    const digest = readProjectDigest(job.path);
+    jobProgress(job, 'file', 'Reading project files (package.json / configs / README)');
+
+    let feedback: string | null = null;
+    const MAX_ROUNDS = 4;
+    for (let round = 1; round <= MAX_ROUNDS; round++) {
+      jobProgress(job, 'start', `Round ${round}/${MAX_ROUNDS}: generating startup config (LLM)`);
+      const prompt = `You are a DevOps expert. Analyze this project and generate a startup configuration.
+
+Project path: ${job.path}
+Ports already in use (NEVER use these): ${(usedPorts || []).join(', ')}
+
+Project files:
+${digest}
+${feedback ? `\nA previous startup attempt FAILED. Fix the issue and produce an updated configuration.\nFailure details:\n${feedback}` : ''}
+
+Reply with ONLY a JSON object:
+{"projectName":"...","description":"one sentence","icon":"one of folder,globe,code,database,smartphone,terminal,rocket,server,package,zap,cloud","summary":"what you did / fixed","environments":[{"name":"dev","cmd":"single shell command","port":NUMBER,"envVars":{"KEY":"value"}}]}
+
+Rules:
+- The cmd must actually start the service from the project directory (install deps first with && if needed, e.g. "npm install && npm start").
+- Choose a free port (never 3000 or the used list).
+- envVars values must be strings (include PORT and HOST=0.0.0.0 when the server needs them).`;
+
+      const text = await llmChat(llmBaseUrl, [
+        { role: 'system', content: 'You are a DevOps expert. Always respond with valid JSON only.' },
+        { role: 'user', content: prompt },
+      ]);
+      const config = parseConfigFromText(text);
+      if (!config) {
+        jobProgress(job, 'error', 'LLM did not return a valid configuration, retrying…');
+        feedback = 'The previous reply was not valid JSON with environments[].';
+        continue;
+      }
+
+      const env = config.environments[0];
+      jobProgress(job, 'command', `Verifying: ${env.cmd} (:${env.port})`);
+
+      // ---- start & verify ----
+      const envVars: Record<string, string> = { ...env.envVars };
+      if (!Object.keys(envVars).some(k => k.toUpperCase() === 'PORT')) envVars.PORT = String(env.port);
+      // `as any` on the options mirrors the existing startProcess pattern —
+      // the repo-level ProcessEnv augmentation (NODE_ENV required via
+      // next-env.d.ts) otherwise rejects a plain Record<string, string> env.
+      const child = spawn(IS_WINDOWS ? 'cmd' : 'sh',
+        IS_WINDOWS ? ['/c', env.cmd] : ['-c', env.cmd],
+        { cwd: job.path, env: stripNextInternals({ ...process.env, ...envVars } as Record<string, string>), detached: true, stdio: ['ignore' as const, 'pipe' as const, 'pipe' as const] } as any);
+      child.unref?.();
+      let output = '';
+      child.stdout?.on('data', (c: Buffer) => { output += c.toString(); if (output.length > 8000) output = output.slice(-8000); });
+      child.stderr?.on('data', (c: Buffer) => { output += c.toString(); if (output.length > 8000) output = output.slice(-8000); });
+
+      let verified = false;
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 45000) {
+        await new Promise(r => setTimeout(r, 2500));
+        const httpCode = curlCheck(env.port);
+        if (httpCode !== '000' && httpCode !== '') { verified = true; break; }
+        if (child.pid) { try { process.kill(child.pid, 0); } catch { break; } } // exited early
+      }
+
+      // ---- stop the verification process (whole tree) ----
+      killAnalyzeChild(child.pid);
+      await new Promise(r => setTimeout(r, 1000));
+
+      if (verified) {
+        job.status = 'completed';
+        job.result = { ...config, attempts: round, verified: true, finishedAt: Date.now() };
+        jobProgress(job, 'result', `Verified in ${round} round(s): ${env.cmd} → :${env.port} is responding`);
+        return;
+      }
+      feedback = `Startup command "${env.cmd}" on port ${env.port} did not respond within 45s. Process output:\n${output.slice(-1500) || '(no output)'}`;
+      jobProgress(job, 'error', `No response on port ${env.port} — feeding output back for the next round…`);
+    }
+
+    job.status = 'failed';
+    job.error = `Auto-debug did not succeed within ${MAX_ROUNDS} rounds. Last feedback: ${(feedback || '').slice(0, 400)}`;
+  } catch (e: any) {
+    job.status = 'failed';
+    job.error = String(e?.message || e);
+  } finally {
+    // GC the job after 1h
+    const t = setTimeout(() => analyzeJobs.delete(job.id), 60 * 60 * 1000);
+    t.unref?.();
+  }
+}
+
 // ======================== HTTP SERVER ========================
 
 const startTime = Date.now();
@@ -1685,7 +1917,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.13.0',
+        version: '1.14.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -1708,6 +1940,7 @@ const server = createServer(async (req, res) => {
         repoSync: true,     // heartbeat-response repoSync overrides → links edited on a peer dashboard land in the projects' home stores
         dashDbLazy: true,   // multi-candidate dashboard-DB detection (.env-aware, __dirname-anchored) + lazy re-probe + agentMeta reporting
         restart: true,      // POST /api/agent/restart — dashboard-triggered respawn (stale-process heal without a code pull)
+        autoDebug: true,     // POST /api/agent/analyze-project — LLM-driven remote project analysis (dashboard supplies the LLM endpoint)
       });
       return;
     }
@@ -2255,6 +2488,39 @@ const server = createServer(async (req, res) => {
         });
       }
       sendJSON(res, 200, logs);
+      return;
+    }
+
+    // ======================== AUTO-DEBUG ANALYZE (LLM-driven, async job) ========================
+    // POST /api/agent/analyze-project {path, name, llmBaseUrl, usedPorts?}
+    // GET  /api/agent/analyze-project/:jobId
+    //
+    // The dashboard provides the LLM endpoint (its llm-gateway, OpenAI-compatible).
+    // This device-side loop: read files → LLM config → try start → check port →
+    // feed errors back to the LLM → retry, until the service actually boots.
+    const analyzeJobMatch = pathname.match(/^\/api\/agent\/analyze-project\/([^/]+)$/);
+    if (analyzeJobMatch && req.method === 'GET') {
+      const job = analyzeJobs.get(analyzeJobMatch[1]);
+      if (!job) { sendJSON(res, 404, { error: 'Job not found' }); return; }
+      sendJSON(res, 200, job);
+      return;
+    }
+    if (pathname === '/api/agent/analyze-project' && req.method === 'POST') {
+      const body = await getBody(req);
+      const projectPath = resolve(String(body.path || ''));
+      if (!existsSync(projectPath) || !statSync(projectPath).isDirectory()) {
+        sendJSON(res, 400, { error: `Invalid path: ${projectPath}` });
+        return;
+      }
+      const jobId = randomUUID();
+      const job: AnalyzeJob = {
+        id: jobId, path: projectPath, name: String(body.name || basename(projectPath)),
+        status: 'running', createdAt: Date.now(), updatedAt: Date.now(),
+        progress: [], result: null, error: null,
+      };
+      analyzeJobs.set(jobId, job);
+      runAutoDebugAnalyze(job, body.llmBaseUrl || null, Array.isArray(body.usedPorts) ? body.usedPorts : [3000, 3100, 3021, 3022]);
+      sendJSON(res, 200, { jobId });
       return;
     }
 

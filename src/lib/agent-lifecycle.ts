@@ -295,6 +295,11 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // button 404s and stale agents still need a manual restart on that
     // machine (git pull hot-reloads the dashboard, not the spawned agent).
     if (!('restart' in d)) return { outdated: true, why: 'remote agent restart (POST /api/agent/restart)' };
+    // v1.14 marker: LLM-driven remote project analysis — POST
+    // /api/agent/analyze-project. The TS reference agent lacked the endpoint
+    // until v1.14: remote analysis against such an agent answered a bare
+    // "Not found" (the user-facing bug this marker now detects + heals).
+    if (!('autoDebug' in d)) return { outdated: true, why: 'remote project analysis (/api/agent/analyze-project)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };

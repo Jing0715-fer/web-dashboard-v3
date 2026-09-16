@@ -782,6 +782,8 @@ export const dialogs = {
   'dlg.remoteProject.autoSavedLine': '已自动添加到设备 — {count} 个环境配置已保存（关闭或刷新不会丢失）',
   'dlg.remoteProject.startedDesc2': '已在 {device} 上配置并启动 {count} 个环境。',
   'dlg.remoteProject.applyFailed': '应用失败',
+  'dlg.remoteProject.agentTooOld': '该设备上的 agent（v{version}）版本过旧，不支持远程解析 —— 请先在那台设备上更新 agent（在项目目录执行 git pull 后重启 agent，或在设备面板重新下载安装包）再重试',
+  'dlg.remoteProject.jobLost': '设备上的解析任务已丢失（agent 很可能重启过）—— 请重新发起解析',
 
   // ---- 设备配对对话框 ----
   'dlg.meshPairing.title': '设备配对',

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { AuthContextValue, AuthStatus, PublicUser } from './auth-types'
-import { Zap } from 'lucide-react'
+import { LayoutDashboard } from 'lucide-react'
 import {
   clearSessionToken,
   consumeTokenFromHash,
@@ -114,7 +114,7 @@ export function AuthLoadingSplash() {
       <div className="flex-1 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="relative flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/40 ring-1 ring-primary/30 ring-inset animate-pulse">
-            <Zap className="h-6 w-6" />
+            <LayoutDashboard className="h-6 w-6" />
           </div>
           <p className="text-sm text-muted-foreground">{t('auth.loading')}</p>
         </div>

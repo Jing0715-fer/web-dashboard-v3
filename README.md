@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="public/logo.svg" width="72" alt="Web Dashboard logo" />
-
 # Web Dashboard
 
 **A self-hosted control panel for the projects running on all your machines.**
@@ -164,6 +162,7 @@ Managing processes is the whole point of this tool, so the guards are part of th
 | Symptom | Cause and fix |
 |---|---|
 | Adding a project fails with "it contains the dashboard itself" | Intentional. Analyzing the dashboard's own directory used to stop the service (the agent killed the live dev server via its `.next/dev/lock`). Register a copy of the project in a different directory instead. |
+| Remote analysis ("Add remote project") fails with "Not found" | The agent on the target device predates the analysis endpoint (TS agents before v1.14, older downloaded packages). The dialog names the running version — update the agent on that machine (`git pull` in the project directory + restart the agent, or re-download the package from the Devices panel) and retry. |
 | Device shows "online" but 0 projects, while that machine sees its own projects | The agent on that machine can't find the co-located dashboard database (`DATABASE_URL` in a non-default location). `git pull` and restart the agent (v1.12+ auto-detects custom locations); the device card names the problem. |
 | "Agent too old" on pull / one machine can't see the other's projects | The machine pulled new code but didn't restart the agent (git can't hot-swap a running process). The amber badge on the device card says which one. Restart the agent. |
 | Remote edit returns 401 | Key rotation after an agent reinstall. Modern versions re-authenticate automatically; if it persists, pair once more. |

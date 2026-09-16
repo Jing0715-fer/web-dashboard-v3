@@ -786,6 +786,8 @@ export const dialogs = {
   'dlg.remoteProject.autoSavedLine': 'Auto-added on the device — {count} environments saved (closing or refreshing will not lose them)',
   'dlg.remoteProject.startedDesc2': '{count} environments configured and started on {device}.',
   'dlg.remoteProject.applyFailed': 'Apply failed',
+  'dlg.remoteProject.agentTooOld': 'The agent on this device (v{version}) is too old for remote analysis — update it on that device (git pull in the project directory, then restart the agent; or re-download the package from the Devices panel) and retry',
+  'dlg.remoteProject.jobLost': 'The analysis job was lost on the device — the agent most likely restarted. Start the analysis again',
 
   // ---- mesh pairing dialog ----
   'dlg.meshPairing.title': 'Device Pairing',
