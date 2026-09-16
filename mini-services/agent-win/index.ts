@@ -14,7 +14,7 @@
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { PrismaClient } from '@prisma/client';
-import { spawn, ChildProcess, execSync, execFile } from 'child_process';
+import { spawn, ChildProcess, execSync, execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync, statSync, readdirSync, realpathSync } from 'fs';
 import { join, resolve, dirname, basename, isAbsolute } from 'path';
@@ -209,15 +209,22 @@ function parseGatewayIp(text: string): string | null {
 let gatewayCache: { ip: string | null; at: number } | null = null;
 function defaultGateway(): string | null {
   if (gatewayCache && Date.now() - gatewayCache.at < 60_000) return gatewayCache.ip;
-  const run = (cmd: string): string => {
-    try { return execSync(cmd, { timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).toString(); }
-    catch { return ''; }
+  // SILENT SPAWN: never shell out here (`cmd.exe /c route print …`). The
+  // agent usually runs detached from any console, so every cmd.exe child
+  // allocates a console WINDOW that flashes on the user's desktop — and
+  // the heartbeat re-registers every 60s. Direct argv + windowsHide
+  // (CREATE_NO_WINDOW) keeps the probe invisible on Windows and behaves
+  // identically on Unix.
+  const run = (file: string, argv: string[]): string => {
+    try {
+      return execFileSync(file, argv, { timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).toString();
+    } catch { return ''; }
   };
   let ip: string | null = null;
   try {
-    if (IS_WINDOWS) ip = parseGatewayIp(run('route print -4 0.0.0.0'));
-    else if (platform() === 'darwin') ip = parseGatewayIp(run('route -n get default'));
-    else ip = parseGatewayIp(run('ip route show default')) || parseGatewayIp(run('route -n'));
+    if (IS_WINDOWS) ip = parseGatewayIp(run('route', ['print', '-4', '0.0.0.0']));
+    else if (platform() === 'darwin') ip = parseGatewayIp(run('route', ['-n', 'get', 'default']));
+    else ip = parseGatewayIp(run('ip', ['route', 'show', 'default'])) || parseGatewayIp(run('route', ['-n']));
   } catch { /* no route table access */ }
   gatewayCache = { ip, at: Date.now() };
   return ip;
@@ -1018,9 +1025,11 @@ function killProcess(pid: number, force: boolean = false): boolean {
   }
   try {
     if (IS_WINDOWS) {
-      // Windows: use taskkill for tree-kill (kills child processes too)
-      const forceFlag = force ? '/F' : '';
-      execSync(`taskkill /PID ${pid} /T ${forceFlag}`, { stdio: 'pipe', timeout: 5000 });
+      // Windows: use taskkill for tree-kill (kills child processes too).
+      // Direct argv + windowsHide — no cmd.exe wrapper, no console flash.
+      execFileSync('taskkill',
+        force ? ['/PID', String(pid), '/T', '/F'] : ['/PID', String(pid), '/T'],
+        { stdio: 'pipe', timeout: 5000, windowsHide: true });
       return true;
     } else {
       // Unix: use signal-based kill
@@ -1148,12 +1157,15 @@ async function startProcess(
       env.PATH = `${nodeBin}${PATH_SEP}${env.PATH}`;
     }
 
-    // On Windows, use cmd.exe for shell if needed
+    // On Windows, use cmd.exe for shell if needed. windowsHide keeps the
+    // cmd.exe wrapper AND the managed dev server invisible — the dashboard
+    // shows their logs; the desktop must not flash a console window.
     const spawnOptions: any = {
       cwd: projectPath,
       env,
       shell: true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     };
 
     // On Unix, detach so child survives parent exit
@@ -1254,21 +1266,48 @@ async function stopProcess(
   return { success: true };
 }
 
+// ---- silent port probes -------------------------------------------------
+// v1.16: port status used to shell out PER PORT (`cmd.exe /c netstat -ano |
+// findstr :PORT | findstr LISTENING`) from the 30s health/projects poll —
+// on a console-less agent every cmd.exe child allocated a console window
+// that flashed on the desktop (plus 3 processes per port). Now: ONE direct
+// `netstat -ano` (no cmd.exe, no findstr), parsed in JS, shared by every
+// port in the same poll via a 2.5s cache, spawned with windowsHide
+// (CREATE_NO_WINDOW). Invisible AND ~3× cheaper per port checked.
+let netstatAnoCache: { at: number; out: string } | null = null;
+function readNetstatAno(): string {
+  if (netstatAnoCache && Date.now() - netstatAnoCache.at < 2500) return netstatAnoCache.out;
+  try {
+    const out = execFileSync('netstat', ['-ano'], {
+      encoding: 'utf-8', timeout: 5000, windowsHide: true,
+    });
+    netstatAnoCache = { at: Date.now(), out };
+    return out;
+  } catch {
+    return netstatAnoCache?.out ?? '';
+  }
+}
+
+/** First netstat LISTENING row that mentions `:PORT ` — same substring
+ * semantics the old `findstr ":PORT" | findstr LISTENING` pipeline had. */
+function netstatListeningLine(port: number): string | null {
+  for (const line of readNetstatAno().split('\n')) {
+    if (line.includes(`:${port} `) && /LISTENING/i.test(line)) return line;
+  }
+  return null;
+}
+
 /**
  * Find PID listening on a port — cross-platform
- * - Windows: netstat -ano | findstr :PORT | findstr LISTENING
+ * - Windows: one shared `netstat -ano`, parsed in JS (silent — see above)
  * - Unix: lsof or ss
  */
 function findPidOnPort(port: number): number | null {
   try {
     if (IS_WINDOWS) {
-      // Windows: netstat -ano
-      const output = execSync(
-        `netstat -ano | findstr :${port} | findstr LISTENING`,
-        { encoding: 'utf-8', timeout: 5000 }
-      ).trim();
       // Output format: "  TCP    0.0.0.0:3000    0.0.0.0:0    LISTENING    12345"
-      const match = output.match(/LISTENING\s+(\d+)/);
+      const line = netstatListeningLine(port);
+      const match = line ? line.match(/LISTENING\s+(\d+)/i) : null;
       return match ? parseInt(match[1], 10) : null;
     } else {
       // Unix: try lsof first, then ss
@@ -1302,11 +1341,8 @@ function findPidOnPort(port: number): number | null {
 async function checkPortStatus(port: number): Promise<boolean> {
   try {
     if (IS_WINDOWS) {
-      const output = execSync(
-        `netstat -ano | findstr :${port} | findstr LISTENING`,
-        { encoding: 'utf-8', timeout: 5000 }
-      ).trim();
-      return output.length > 0;
+      // Silent shared probe — see readNetstatAno() above.
+      return netstatListeningLine(port) !== null;
     } else {
       const output = execSync(
         `ss -tlnp 'sport = :${port}' 2>/dev/null || lsof -t -i :${port} -sTCP:LISTEN 2>/dev/null`,
@@ -1340,7 +1376,15 @@ function getLogs(projectId: string, envName: string): string[] {
 // one-click pull. Same response shape across every agent variant AND the
 // dashboard's own src/lib/git-version.ts.
 
-const execFileAsync = promisify(execFile);
+// execFile with windowsHide ON by default: git.exe / git-remote-https.exe
+// are console-subsystem programs — from a console-less agent every one of
+// them allocates a window on the desktop (the repeated git-fetch flashes
+// during the 60s heartbeat self-update). CREATE_NO_WINDOW on Windows,
+// no-op elsewhere.
+const execFileRawAsync = promisify(execFile);
+function execFileAsync(file: string, args: string[], opts: any = {}): Promise<{ stdout: string; stderr: string }> {
+  return execFileRawAsync(file, args, { windowsHide: true, ...opts }) as unknown as Promise<{ stdout: string; stderr: string }>;
+}
 
 async function readGitVersion(path: string): Promise<any> {
   if (!path || !existsSync(path) || !existsSync(join(path, '.git'))) return null;
@@ -1466,6 +1510,11 @@ async function agentRepoRoot(): Promise<string | null> {
 
 let selfUpdateBusy = false;
 let lastSelfUpdateAt = 0;
+// A no-op GitHub fetch still costs a full network round-trip. When the
+// advertised sha can't be reached (diverged clone, dirty tree, offline),
+// the 60s heartbeat used to re-attempt `git fetch` EVERY minute, forever.
+// Throttle fetch attempts with the same 3-minute floor as restarts.
+let lastSelfFetchAt = 0;
 const SELF_UPDATE_MIN_INTERVAL_MS = 3 * 60 * 1000;
 
 /** Spawn a detached replacement process (waits for our port release, then
@@ -1557,6 +1606,10 @@ async function performSelfUpdate(signal?: {
       return { ok: false, action: 'skip', detail: `git status failed: ${String(e?.message || e).slice(0, 120)}` };
     }
 
+    if (Date.now() - lastSelfFetchAt < SELF_UPDATE_MIN_INTERVAL_MS) {
+      return { ok: false, action: 'throttled', detail: 'origin fetch attempted recently' };
+    }
+    lastSelfFetchAt = Date.now();
     await execFileAsync('git', ['fetch', 'origin', '--prune'], { cwd: root, timeout: 120_000, maxBuffer: 1024 * 1024 });
     await execFileAsync('git', ['pull', '--ff-only'], { cwd: root, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
     const after = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: root, timeout: 15_000 })).stdout.trim();
@@ -1918,8 +1971,16 @@ function parseConfigFromText(text: string): any {
 /** HTTP check via curl when available (validates an actual response, not
  * just an open socket — some servers accept TCP then never answer). */
 function curlCheck(port: number): string {
+  // Silent: direct argv (no cmd.exe wrapper) + windowsHide. `NUL` on
+  // Windows — /dev/null is not a device path there. A refused connection
+  // makes curl exit non-zero; the catch returns the same '000' the old
+  // `|| true` produced.
   try {
-    const out = execSync(`curl -s -o /dev/null -w "%{http_code}" --max-time 4 http://127.0.0.1:${port}/ || true`, { encoding: 'utf-8', timeout: 6000 });
+    const out = execFileSync('curl', [
+      '-s', '-o', IS_WINDOWS ? 'NUL' : '/dev/null',
+      '-w', '%{http_code}', '--max-time', '4',
+      `http://127.0.0.1:${port}/`,
+    ], { encoding: 'utf-8', timeout: 6000, windowsHide: true });
     return out.trim();
   } catch { return '000'; }
 }
@@ -1932,7 +1993,8 @@ function killAnalyzeChild(pid: number | undefined): void {
   if (!pid) return;
   try {
     if (IS_WINDOWS) {
-      execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'pipe', timeout: 5000 });
+      // Silent tree-kill — direct argv + windowsHide, no console flash.
+      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'pipe', timeout: 5000, windowsHide: true });
     } else {
       try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ } }
     }
@@ -2003,7 +2065,7 @@ Rules:
       // next-env.d.ts) otherwise rejects a plain Record<string, string> env.
       const child = spawn(IS_WINDOWS ? 'cmd' : 'sh',
         IS_WINDOWS ? ['/c', env.cmd] : ['-c', env.cmd],
-        { cwd: job.path, env: stripNextInternals({ ...process.env, ...envVars } as Record<string, string>), detached: true, stdio: ['ignore' as const, 'pipe' as const, 'pipe' as const] } as any);
+        { cwd: job.path, env: stripNextInternals({ ...process.env, ...envVars } as Record<string, string>), detached: true, stdio: ['ignore' as const, 'pipe' as const, 'pipe' as const], windowsHide: true } as any);
       child.unref?.();
       let output = '';
       child.stdout?.on('data', (c: Buffer) => { output += c.toString(); if (output.length > 8000) output = output.slice(-8000); });
@@ -2070,7 +2132,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.15.0',
+        version: '1.16.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -2095,6 +2157,7 @@ const server = createServer(async (req, res) => {
         restart: true,      // POST /api/agent/restart — dashboard-triggered respawn (stale-process heal without a code pull)
         autoDebug: true,     // POST /api/agent/analyze-project — LLM-driven remote project analysis (dashboard supplies the LLM endpoint)
         selfGuard: true,     // v1.15: refuses to analyze/start the co-located dashboard's own directory (self-kill guard)
+        silentSpawns: true,  // v1.16: all background probes/spawns are silent (windowsHide + direct argv) — no console-window flashes on Windows
       });
       return;
     }

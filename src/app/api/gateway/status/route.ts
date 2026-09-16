@@ -24,7 +24,7 @@ function getDiskUsage(): { total: number; used: number; free: number; percentage
       const drive = process.cwd().slice(0, 2)
       output = execSync(
         `wmic logicaldisk where "DeviceID='${drive}'" get Size,FreeSpace /value 2>nul`,
-        { encoding: 'utf-8', timeout: 5000 }
+        { encoding: 'utf-8', timeout: 5000, windowsHide: true }
       )
       const freeMatch = output.match(/FreeSpace=(\d+)/)
       const sizeMatch = output.match(/Size=(\d+)/)

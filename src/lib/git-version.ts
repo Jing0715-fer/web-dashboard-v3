@@ -3,7 +3,13 @@ import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { join } from 'path';
 
-const execFileAsync = promisify(execFile);
+// execFile with windowsHide ON by default: git.exe / git-remote-https.exe
+// are console-subsystem programs — from a console-less dashboard server
+// (supervisor/scheduled start) every git call allocates a WINDOW on the
+// user's desktop. CREATE_NO_WINDOW on Windows, no-op elsewhere.
+const execFileRawAsync = promisify(execFile);
+const execFileAsync = (file: string, args: string[], opts: any = {}): Promise<{ stdout: string; stderr: string }> =>
+  execFileRawAsync(file, args, { windowsHide: true, ...opts }) as unknown as Promise<{ stdout: string; stderr: string }>;
 
 /** Git checkout snapshot shown on project cards next to the repo URL. */
 export interface GitVersion {

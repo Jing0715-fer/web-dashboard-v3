@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import { promises as fs } from 'fs';
 import { existsSync, openSync, closeSync } from 'fs';
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, execFileSync } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import { logActivity } from '@/lib/activity';
@@ -104,18 +104,24 @@ let gatewayCache: { ip: string | null; at: number } | null = null;
 /** Default gateway IP (the physical LAN's router), cached 60s. */
 function defaultGateway(): string | null {
   if (gatewayCache && Date.now() - gatewayCache.at < 60_000) return gatewayCache.ip;
-  const run = (cmd: string): string => {
-    try { return execSync(cmd, { timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).toString(); }
+  // SILENT SPAWN: never shell out (`cmd.exe /c route print …`) — the
+  // dashboard server often runs detached from any console (supervisor,
+  // scheduled start), and every cmd.exe child then allocates a console
+  // WINDOW that flashes on the user's desktop. Direct argv + windowsHide
+  // (CREATE_NO_WINDOW) keeps the probe invisible on Windows and behaves
+  // identically on Unix.
+  const run = (file: string, argv: string[]): string => {
+    try { return execFileSync(file, argv, { timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).toString(); }
     catch { return ''; }
   };
   let ip: string | null = null;
   try {
     if (process.platform === 'win32') {
-      ip = parseGatewayIp(run('route print -4 0.0.0.0'));
+      ip = parseGatewayIp(run('route', ['print', '-4', '0.0.0.0']));
     } else if (process.platform === 'darwin') {
-      ip = parseGatewayIp(run('route -n get default'));
+      ip = parseGatewayIp(run('route', ['-n', 'get', 'default']));
     } else {
-      ip = parseGatewayIp(run('ip route show default')) || parseGatewayIp(run('route -n'));
+      ip = parseGatewayIp(run('ip', ['route', 'show', 'default'])) || parseGatewayIp(run('route', ['-n']));
     }
   } catch { /* no route table access */ }
   gatewayCache = { ip, at: Date.now() };
@@ -307,6 +313,12 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // live dashboard server on that machine (verify-spawn races the shared
     // .next + SQLite). Respawn so the guard takes over after a git pull.
     if (!('selfGuard' in d)) return { outdated: true, why: 'dashboard self-analysis protection (self-kill guard)' };
+    // v1.16 marker: silent background spawns — every probe/spawn the agent
+    // performs (netstat port checks, git fetch, taskkill, project starts)
+    // runs with CREATE_NO_WINDOW + direct argv. Without it, a console-less
+    // agent flashed a cmd.exe window on the desktop every ~30s poll and
+    // during every git self-update fetch.
+    if (!('silentSpawns' in d)) return { outdated: true, why: 'silent background spawns (no console-window flashes)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };
@@ -330,28 +342,34 @@ function portListenerPids(port: number): number[] {
     }
   };
   try {
-    addAll(execSync(`lsof -ti tcp:${port} 2>/dev/null`, { timeout: 2000 }).toString(), /(\d+)/g);
-  } catch { /* no lsof (common on linux) or nothing listening */ }
-  if (pids.size === 0) {
-    try {
-      const ss = execSync('ss -tlnp 2>/dev/null', { timeout: 2000 }).toString();
-      for (const line of ss.split('\n')) {
-        if (!line.includes(`:${port} `)) continue;
-        addAll(line, /pid=(\d+)/g);
-      }
-    } catch { /* no ss / nothing listening */ }
-  }
-  if (pids.size === 0 && process.platform === 'win32') {
-    try {
-      const ns = execSync(`netstat -ano | findstr ":${port} "`, { timeout: 3000 }).toString();
+    if (process.platform === 'win32') {
+      // SILENT SPAWN: direct `netstat -ano` argv + windowsHide — the old
+      // `cmd.exe /c netstat | findstr` pipeline flashed a console window
+      // on the desktop every supervisor tick (and the lsof/ss probes above
+      // would have flashed too before failing — they don't exist on
+      // Windows, so they now run on non-Windows only).
+      const ns = execFileSync('netstat', ['-ano'], { encoding: 'utf-8', timeout: 3000, windowsHide: true }).toString();
       for (const line of ns.split('\n')) {
-        if (!line.includes('LISTENING')) continue;
+        if (!line.includes(`:${port} `) || !line.includes('LISTENING')) continue;
         const parts = line.trim().split(/\s+/);
         const pid = Number(parts[parts.length - 1]);
         if (Number.isFinite(pid) && pid > 0) pids.add(pid);
       }
-    } catch { /* nothing listening */ }
-  }
+    } else {
+      try {
+        addAll(execSync(`lsof -ti tcp:${port} 2>/dev/null`, { timeout: 2000 }).toString(), /(\d+)/g);
+      } catch { /* no lsof (common on linux) or nothing listening */ }
+      if (pids.size === 0) {
+        try {
+          const ss = execSync('ss -tlnp 2>/dev/null', { timeout: 2000 }).toString();
+          for (const line of ss.split('\n')) {
+            if (!line.includes(`:${port} `)) continue;
+            addAll(line, /pid=(\d+)/g);
+          }
+        } catch { /* no ss / nothing listening */ }
+      }
+    }
+  } catch { /* nothing listening */ }
   return [...pids];
 }
 
@@ -544,7 +562,7 @@ export async function ensureLocalAgent(): Promise<
   const root = process.cwd();
   let bunAvailable = false;
   try {
-    execSync('bun --version', { stdio: 'ignore', timeout: 3000 });
+    execSync('bun --version', { stdio: 'ignore', timeout: 3000, windowsHide: true });
     bunAvailable = true;
   } catch { /* no bun CLI */ }
   const platformDir = os.platform() === 'darwin' ? 'agent-macos' : os.platform() === 'win32' ? 'agent-windows' : 'agent-linux';
@@ -629,6 +647,10 @@ export async function ensureLocalAgent(): Promise<
     detached: true,
     stdio: ['ignore', out, out],
     env: agentEnv,
+    // The agent is a headless background service — never give it (or any
+    // process it later spawns without a console of its own) a visible
+    // console window on the desktop.
+    windowsHide: true,
   });
   child.unref();
   if (out !== 1 && out !== 2) { try { closeSync(out); } catch { /* already closed */ } }

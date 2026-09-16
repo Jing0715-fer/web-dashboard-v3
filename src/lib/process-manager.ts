@@ -461,6 +461,10 @@ export async function startProcess(
       env,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Managed envs are background services — their cmd.exe wrapper (shell
+      // mode) and the dev server itself must never flash a console window
+      // on the user's desktop. Logs are surfaced in the dashboard.
+      windowsHide: true,
     });
 
     child.stdout?.on('data', (data: Buffer) => {

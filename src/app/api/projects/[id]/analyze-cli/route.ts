@@ -48,7 +48,7 @@ export async function POST(
     // Check if claude CLI is available
     let claudePath: string;
     try {
-      const { stdout } = await execFileAsync('which', ['claude']);
+      const { stdout } = await execFileAsync('which', ['claude'], { windowsHide: true });
       claudePath = stdout.trim();
     } catch {
       return NextResponse.json({
@@ -136,6 +136,7 @@ CRITICAL Rules:
       cwd: project.path,
       timeout: 120000,
       maxBuffer: 1024 * 1024, // 1MB buffer
+      windowsHide: true,
       env: {
         ...process.env,
         // Ensure Claude Code uses the project directory

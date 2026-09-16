@@ -80,7 +80,7 @@ function saveState(s: IterState) {
 
 function git(args: string): { ok: boolean; out: string } {
   try {
-    const out = execSync(`git ${args}`, { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000 })
+    const out = execSync(`git ${args}`, { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], timeout: 120_000, windowsHide: true })
     return { ok: true, out }
   } catch (e: any) {
     return { ok: false, out: (e?.stdout || '') + (e?.stderr || e?.message || '') }
@@ -179,14 +179,14 @@ function ensureCleanWorktree(): { ok: boolean; reason: string } {
 
 function lintPasses(): boolean {
   try {
-    execSync('bun run lint', { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], timeout: 180_000 })
+    execSync('bun run lint', { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], timeout: 180_000, windowsHide: true })
     return true
   } catch { return false }
 }
 
 function devServerAlive(): boolean {
   try {
-    const r = execSync(`curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://localhost:3000/api/auth/session`, { encoding: 'utf8', timeout: 30_000 })
+    const r = execSync(`curl -s -o /dev/null -w '%{http_code}' --max-time 20 http://localhost:3000/api/auth/session`, { encoding: 'utf8', timeout: 30_000, windowsHide: true })
     return r === '200' || r === '401' || r === '403'
   } catch { return false }
 }
@@ -292,7 +292,7 @@ async function backlogRound(): Promise<{ plan: LlmPlan | null; note: string }> {
   const item = nextItem.replace(/^-\s*\[\s*\]\s*/, '').trim()
 
   // context: api route tree + route header comments + schema
-  const routes = execSync(`find src/app/api -name route.ts | sort`, { cwd: ROOT, encoding: 'utf8', timeout: 30_000 }).trim().split('\n').filter(Boolean)
+  const routes = execSync(`find src/app/api -name route.ts | sort`, { cwd: ROOT, encoding: 'utf8', timeout: 30_000, windowsHide: true }).trim().split('\n').filter(Boolean)
   const routeBlocks: string[] = []
   for (const r of routes.slice(0, 60)) {
     try {
@@ -430,7 +430,7 @@ async function runIteration(): Promise<void> {
     if (!lintOk || !alive) {
       // rollback
       for (const [p, original] of originals) {
-        if (original === null) { /* new file that failed verify — remove */ try { execSync(`rm -f "${join(ROOT, p)}"`) } catch { /* ignore */ } }
+        if (original === null) { /* new file that failed verify — remove */ try { execSync(`rm -f "${join(ROOT, p)}"`, { windowsHide: true }) } catch { /* ignore */ } }
         else writeFileSync(join(ROOT, p), original)
       }
       git('checkout -- .') // safety net for any straggler
@@ -453,7 +453,7 @@ async function runIteration(): Promise<void> {
     const push = commitAndPush(touched, message)
     if (!push.ok) {
       for (const [p, original] of originals) {
-        if (original === null) { try { execSync(`rm -f "${join(ROOT, p)}"`) } catch { /* ignore */ } }
+        if (original === null) { try { execSync(`rm -f "${join(ROOT, p)}"`, { windowsHide: true }) } catch { /* ignore */ } }
         else writeFileSync(join(ROOT, p), original)
       }
       git('checkout -- .')

@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     // Create a zip file of the agent directory
     const tmpDir = join(process.cwd(), '.tmp')
     if (!existsSync(tmpDir)) {
-      execSync(`mkdir -p ${tmpDir}`)
+      execSync(`mkdir -p ${tmpDir}`, { windowsHide: true })
     }
 
     const zipFileName = `dashboard-agent-${platform}.zip`
@@ -48,13 +48,13 @@ export async function GET(req: NextRequest) {
 
     // Remove old zip if exists
     if (existsSync(zipPath)) {
-      execSync(`rm -f ${zipPath}`)
+      execSync(`rm -f ${zipPath}`, { windowsHide: true })
     }
 
     // Create the zip (exclude node_modules, db files, dist, zip archives, and temp files)
     execSync(
       `cd ${agentDir} && zip -r ${zipPath} . -x "node_modules/*" -x "db/*" -x "*.db" -x "*.lock" -x ".tmp/*" -x "dist/*" -x "*.zip"`,
-      { timeout: 30000 }
+      { timeout: 30000, windowsHide: true }
     )
 
     if (!existsSync(zipPath)) {
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
     const fileSize = statSync(zipPath).size
 
     // Clean up the temp zip
-    try { execSync(`rm -f ${zipPath}`) } catch {}
+    try { execSync(`rm -f ${zipPath}`, { windowsHide: true }) } catch {}
 
     return new NextResponse(zipBuffer, {
       status: 200,

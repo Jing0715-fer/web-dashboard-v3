@@ -101,6 +101,12 @@ export async function probeRemoteAgentHealth(
         // remote "fetch environments" on the dashboard's own project kills
         // the live dashboard server on that machine.
         else if (!('selfGuard' in d)) why = 'dashboard self-analysis protection (self-kill guard)'
+        // v1.16 marker: silent background spawns — every probe/spawn the
+        // agent performs (netstat port checks, git fetch, taskkill, project
+        // starts) runs with CREATE_NO_WINDOW + direct argv. Without it, a
+        // console-less agent flashed a cmd.exe window on the desktop every
+        // ~30s poll and during every git self-update fetch.
+        else if (!('silentSpawns' in d)) why = 'silent background spawns (no console-window flashes)'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',

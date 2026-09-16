@@ -206,6 +206,7 @@ export async function GET(req: Request) {
         const { stdout } = await execFileAsync('claude', ['config', 'list'], {
           timeout: 10000,
           maxBuffer: 64 * 1024,
+          windowsHide: true,
         });
         // Parse output for model setting
         const modelMatch = stdout.match(/model[:\s]+(\S+)/i);

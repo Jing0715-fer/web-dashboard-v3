@@ -327,7 +327,7 @@ function writeTaskPatch(llmBaseUrl: string, attemptFile: string): string {
 function killTree(pid: number | undefined) {
   if (!pid) return;
   try {
-    if (platform() === 'win32') spawn('taskkill', ['/PID', String(pid), '/T', '/F']);
+    if (platform() === 'win32') spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
     else spawn('sh', ['-c', `kill -TERM -${pid} 2>/dev/null; kill -TERM ${pid} 2>/dev/null; sleep 1; kill -KILL -${pid} 2>/dev/null; kill -KILL ${pid} 2>/dev/null`]);
   } catch { /* best effort */ }
 }
@@ -453,7 +453,7 @@ function sweepWindowsOrphans(s: AnalysisSession, why: string): Promise<number> {
       const child = spawn('powershell.exe', [
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
         '-File', script, '-ProjPath', projPath, '-ExcludePids', exclude.join(','),
-      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+      ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
       let out = '';
       const timer = setTimeout(() => { try { child.kill(); } catch {} }, 10_000);
       timer.unref?.();
@@ -664,6 +664,8 @@ async function startAttempt(s: AnalysisSession, feedback?: string): Promise<void
     // Process-group leader: killTree(-PGID) then reliably reaps dsh AND every
     // job it spawned (npm/node servers), instead of just the dsh process.
     detached: true,
+    // The dsh agent runs headless — never flash a console window.
+    windowsHide: true,
   });
   s.child = child;
 

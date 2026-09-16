@@ -81,7 +81,7 @@ export async function ensureAutoIterService(): Promise<AutoIterStatus> {
   try {
     let bunAvailable = false;
     try {
-      execSync('bun --version', { stdio: 'ignore', timeout: 3000 });
+      execSync('bun --version', { stdio: 'ignore', timeout: 3000, windowsHide: true });
       bunAvailable = true;
     } catch { /* no bun CLI */ }
     if (!bunAvailable) {
@@ -91,7 +91,7 @@ export async function ensureAutoIterService(): Promise<AutoIterStatus> {
     // Fresh clone / wiped sandbox: deps must exist before `bun run dev`.
     if (!existsSync(path.join(ITER_DIR, 'node_modules'))) {
       try {
-        execSync('bun install', { cwd: ITER_DIR, stdio: 'ignore', timeout: 120_000 });
+        execSync('bun install', { cwd: ITER_DIR, stdio: 'ignore', timeout: 120_000, windowsHide: true });
       } catch {
         return { running: false, started: false, port: ITER_PORT, error: 'bun install failed in mini-services/auto-iter' };
       }
@@ -101,6 +101,7 @@ export async function ensureAutoIterService(): Promise<AutoIterStatus> {
       cwd: ITER_DIR,
       detached: true,          // survive the spawning request/shell
       stdio: 'ignore',         // no pipes to hold the parent open
+      windowsHide: true,        // headless background service — no console window
       env: { ...process.env, AUTO_ITER_INTERVAL_MS: String(30 * 60_000) },
     });
     child.unref();             // let the dashboard not wait on it
