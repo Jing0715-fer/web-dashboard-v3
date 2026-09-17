@@ -125,6 +125,11 @@ export interface AnalysisSession {
    *  bytes or session-log growth). Drives the longer first-response stall
    *  grace — dsh is legitimately silent while its first LLM call is in flight. */
   attemptAlive: boolean;
+  /** The dsh session-log file currently being tailed. Identity switch — NOT
+   *  size tracking — is what moves the counters between attempts (see
+   *  pollDshLog): a dead attempt's big file must never shadow or re-emit as
+   *  the next attempt's smaller file. */
+  logTailFile: string | null;
   /** Warn-once flag for the 2-minute inactivity note. */
   stalledNote: boolean;
   /** True for lightweight sessions rebuilt from RESULTS_DIR after a restart. */
@@ -212,10 +217,28 @@ function findSessionLogFile(cwd: string, since: number): string | null {
   return best?.file ?? null;
 }
 
-/** Map dsh session events to friendly progress items (idempotent per size). */
+/** Map dsh session events to friendly progress items (idempotent per size).
+ *
+ *  FILE-IDENTITY SWITCH: each dsh run writes a NEW session file. The tail
+ *  counters (lastLogSize/lastEventLine) belong to the FILE, not the session —
+ *  they reset only when pollDshLog sees a DIFFERENT file. The old
+ *  reset-at-attempt-entry scheme had two fatal interactions with the retry
+ *  window (sweep/pre-check delay before the next dsh creates its file):
+ *    (a) the poller re-read the DEAD attempt's file with zeroed counters —
+ *        re-emitting its whole history tagged with the NEW attempt number;
+ *    (b) that read raised lastLogSize to the dead file's size, so the new
+ *        attempt's smaller file was skipped (size <= lastLogSize) until it
+ *        grew past it — retries looked "event-less" and a live agent could
+ *        be stall-killed as silent (the observed zero-event attempt). */
 function pollDshLog(s: AnalysisSession) {
   const file = findSessionLogFile(s.path, s.createdAt);
   if (!file) return;
+  if (file !== s.logTailFile) {
+    // New dsh run detected — tail the new file from its beginning.
+    s.logTailFile = file;
+    s.lastLogSize = 0;
+    s.lastEventLine = 0;
+  }
   {
     let size = 0;
     try { size = statSync(file).size; } catch { return; }
@@ -799,8 +822,12 @@ async function startAttempt(s: AnalysisSession, feedback?: string): Promise<void
   // A session cancelled while still queued must never spawn a run.
   if (s.cancelled) return;
   s.attempt += 1;
-  s.lastLogSize = 0;
-  s.lastEventLine = 0;
+  // NOTE: lastLogSize/lastEventLine are deliberately NOT reset here — they
+  // follow the dsh session FILE identity (see pollDshLog). Resetting them at
+  // attempt entry while the next dsh hasn't created its file yet made the
+  // poller re-emit the dead attempt's events under the new number and then
+  // size-shadow the new attempt's smaller file (the zero-event retry bug).
+  // The identity switch handles the transition the moment the new file exists.
   s.stalledNote = false;
   s.attemptAlive = false;
   s.stalledNoEvent = false;
@@ -1089,6 +1116,11 @@ export function startAnalysis(
     stalledAttempt: null,
     stalledNoEvent: false,
     attemptAlive: false,
+    // Pre-own any session file a PREVIOUS analysis of this path left behind
+    // (findSessionLogFile's 60s mtime window can still match it) so the
+    // poller never adopts it as this session's — only files created AFTER
+    // this point (our own dsh runs) trigger the identity switch.
+    logTailFile: findSessionLogFile(path, Date.now()),
     stalledNote: false,
     llmBaseUrl,
     projectId: projectId || undefined,
@@ -1109,7 +1141,7 @@ export function startAnalysis(
       clearInterval(s.poller);
       return;
     }
-    try { pollDshLog(s); } catch { /* ignore */ }
+    try { if (s.child) pollDshLog(s); } catch { /* ignore — no dsh running means nothing to tail; the pre-check pushes its own notes */ }
     const idleMs = Date.now() - s.lastActivityAt;
     const stallLimit = s.attemptAlive ? STALL_KILL_MS : FIRST_STALL_KILL_MS;
     if (s.child && idleMs > stallLimit) {
@@ -1120,7 +1152,7 @@ export function startAnalysis(
         : `Agent 启动后 ${Math.round(FIRST_STALL_KILL_MS / 60000)} 分钟内没有任何输出（LLM 后端无响应），终止本次尝试`);
       killTree(s.child.pid);
       setTimeout(() => { void killProjectOrphans(s, '卡死清扫'); }, 2500).unref?.();
-    } else if (idleMs > 120_000) {
+    } else if (s.child && idleMs > 120_000) {
       if (!s.stalledNote) {
         s.stalledNote = true;
         pushProgress(s, 'note', s.attemptAlive
@@ -1314,6 +1346,7 @@ function restoreSessionsFromDisk(): number {
           stalledAttempt: null,
           stalledNoEvent: false,
           attemptAlive: false,
+          logTailFile: null,
           stalledNote: false,
           restored: true,
           llmBaseUrl: '',

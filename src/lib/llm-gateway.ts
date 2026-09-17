@@ -337,64 +337,96 @@ async function finishZaiCompletion(completion: any, wantsStream: boolean): Promi
  * leaves the downstream SSE pipe byte-silent, and the agent-side stream-idle
  * watchdog (dsh, 2.5 min) kills the call even though the upstream is alive
  * and working. Heartbeat comments every 15s — same trick as the z-ai path —
- * keep the pipe warm without altering the SSE payload for consumers. */
+ * keep the pipe warm without altering the SSE payload for consumers.
+ * Armed at stream START (headers received ≠ first token) so the first-token
+ * gap is covered too, and every enqueue is guarded: enqueueing on an
+ * errored/closed controller throws, and an uncaught throw from a timer
+ * would crash the whole dashboard server. */
 function bodyThroughText(body: ReadableStream<Uint8Array>): ReadableStream<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let keepAlive: any = null;
-  const armKeepalive = (enqueue: (s: string) => void) => {
+  const stopKeepalive = () => {
     clearInterval(keepAlive);
-    keepAlive = setInterval(() => enqueue(': keepalive\n\n'), 15000);
+    keepAlive = null;
+  };
+  const armKeepalive = (enqueue: (s: string) => void) => {
+    stopKeepalive();
+    keepAlive = setInterval(() => {
+      try {
+        enqueue(': keepalive\n\n');
+      } catch {
+        // Stream errored/closed — stop before the next tick throws.
+        stopKeepalive();
+      }
+    }, 15000);
   };
   return new ReadableStream<string>({
+    start(controller) {
+      armKeepalive(controller.enqueue.bind(controller));
+    },
     async pull(controller) {
-      const enqueue = controller.enqueue.bind(controller);
       const { done, value } = await reader.read();
       if (done) {
-        clearInterval(keepAlive);
+        stopKeepalive();
         controller.close();
         return;
       }
       const text = decoder.decode(value, { stream: true });
       if (text) {
-        enqueue(text);
-        armKeepalive(enqueue);
+        controller.enqueue(text);
+        // Re-arm so a keepalive never immediately follows real data.
+        armKeepalive(controller.enqueue.bind(controller));
       }
     },
     cancel(reason) {
-      clearInterval(keepAlive);
+      stopKeepalive();
       try { reader.cancel(reason); } catch { /* already closed */ }
     },
   });
 }
 
-/** Decode + re-enqueue the z-ai SSE stream, with keepalive comments. */
+/** Decode + re-enqueue the z-ai SSE stream, with keepalive comments.
+ * Same hardening as bodyThroughText: armed at stream start (first-token
+ * gap) and every enqueue guarded so a dead stream can never crash the
+ * server from the timer. */
 function completionThroughText(stream: ReadableStream<any>): ReadableStream<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let keepAlive: any = null;
-  const armKeepalive = (enqueue: (s: string) => void) => {
+  const stopKeepalive = () => {
     clearInterval(keepAlive);
-    keepAlive = setInterval(() => enqueue(': keepalive\n\n'), 15000);
+    keepAlive = null;
+  };
+  const armKeepalive = (enqueue: (s: string) => void) => {
+    stopKeepalive();
+    keepAlive = setInterval(() => {
+      try {
+        enqueue(': keepalive\n\n');
+      } catch {
+        stopKeepalive();
+      }
+    }, 15000);
   };
   return new ReadableStream<string>({
+    start(controller) {
+      armKeepalive(controller.enqueue.bind(controller));
+    },
     async pull(controller) {
-      const enqueue = controller.enqueue.bind(controller);
       const { done, value } = await reader.read();
       if (done) {
-        clearInterval(keepAlive);
+        stopKeepalive();
         controller.close();
         return;
       }
       const text = decoder.decode(value, { stream: true });
       if (text) {
-        enqueue(text);
-        // Heartbeat comments keep intermediate proxies from closing the pipe.
-        armKeepalive(enqueue);
+        controller.enqueue(text);
+        armKeepalive(controller.enqueue.bind(controller));
       }
     },
     cancel() {
-      clearInterval(keepAlive);
+      stopKeepalive();
       try { reader.cancel(); } catch { /* already closed */ }
     },
   });
