@@ -2919,14 +2919,16 @@ interface BranchInfo {
  *  checkout / checkout -b tracking origin) and then pulls it. Uncommitted
  *  changes are never clobbered; git refuses such checkouts and the error
  *  is surfaced verbatim. */
-function BranchPickerDialog({ project, open, onClose, onSwitched, onPullConflict }: {
+function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure }: {
   project: Project | null
   open: boolean
   onClose: () => void
   /** Post-success refresh (versions/updates/projects). */
   onSwitched?: () => void
-  /** Local changes block the checkout/pull — open the shared conflict dialog. */
-  onPullConflict?: (p: Project, branch: string | undefined, data: any) => void
+  /** A pull/switch FAILED (v1.19): the dashboard routes it to the AI
+   * diagnosis flow — data carries { error, detail, transient } for any
+   * class, or { modified, untracked } for the 409 conflict class. */
+  onPullFailure?: (p: Project, branch: string | undefined, data: any) => void
 }) {
   const t = useT()
   const { toast } = useToast()
@@ -3001,9 +3003,10 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullConflict
         onClose()
       } else if (data?.conflict && (Array.isArray(data.modified) || Array.isArray(data.untracked))) {
         // Local changes block the checkout/pull — hand the file lists to the
-        // shared conflict dialog (stash / discard / cancel) instead of a
-        // dead-end error, and close the picker to avoid stacked dialogs.
-        if (project) onPullConflict?.(project, selected, data)
+        // AI diagnosis flow (falls back to the v1.17 conflict dialog when the
+        // LLM is unavailable) instead of a dead-end error, and close the
+        // picker to avoid stacked dialogs.
+        if (project) onPullFailure?.(project, selected, data)
         setSwitching(false)
         onClose()
         return
@@ -3011,6 +3014,9 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullConflict
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
         const transient = pullTransientNote(data, t)
         toast({ title: t('dlg.branch.switchFailed'), description: summarizeError(String(data?.error || '')) + detail + (transient ? `\n${transient}` : ''), detail: String(data?.detail || ''), variant: 'destructive' })
+        // v1.19: non-conflict failures go through the AI diagnosis too —
+        // the LLM names the root cause and offers the whitelisted fixes.
+        if (project) onPullFailure?.(project, selected, { error: String(data?.error || ''), detail: String(data?.detail || ''), transient: !!data?.transient })
       }
     } catch (e: any) {
       toast({ title: t('dlg.branch.switchFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
@@ -3228,6 +3234,219 @@ function PullConflictDialog({ conflict, busy, onResolve, onClose }: {
             {t('dlg.pullConflict.cancel')}
           </Button>
         </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** LLM pull-diagnosis answer — mirrors src/lib/pull-diagnose.ts's PullDiagnosis
+ * (kept local here: the lib itself imports server-only code, which a client
+ * component must never pull into its graph). */
+interface PullDiagnosis {
+  rootCause: string
+  explanation: string
+  severity: 'low' | 'medium' | 'high'
+  recommendedAction: 'retry' | 'stash' | 'force' | 'manual'
+  reason: string
+  steps: string[]
+}
+
+/** AI pull diagnosis dialog (v1.19): a pull failed — ANY class (network after
+ * the v1.18 retries, a 409 conflict, auth, a broken repo…). The dashboard
+ * automatically asked the configured LLM to diagnose it (route
+ * /api/projects/:id/pull-diagnose) and this dialog presents the result: root
+ * cause, a plain-language explanation, the AI's recommended fix, and buttons
+ * for the strategies the dashboard ALREADY implements.
+ *
+ * Trust model — the LLM only picks from a fixed whitelist, it never
+ * generates commands:
+ *   - retry  → re-run the pull (transient errors)
+ *   - stash  → the v1.17 stash→pull→pop strategy (nothing lost)
+ *   - force  → the v1.17 discard-listed-files strategy (destructive — this
+ *              dialog asks for an explicit second confirmation first)
+ *   - manual → do nothing automatic; the suggested steps are shown above
+ * The USER confirms every action before anything runs. If the diagnosis
+ * call itself fails, the caller falls back to the v1.17 conflict dialog
+ * (409 class) or the plain error toast. */
+function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfirm, onAction, onClose }: {
+  req: {
+    projectId: string
+    projectName: string
+    branch?: string
+    modified: string[]
+    untracked: string[]
+    error: string
+    detail?: string
+    transient?: boolean
+  } | null
+  diagnosis: PullDiagnosis | null
+  busy: 'retry' | 'stash' | 'force' | null
+  forceConfirm: boolean
+  onForceConfirm: (v: boolean) => void
+  onAction: (action: 'retry' | 'stash' | 'force' | 'manual') => void
+  onClose: () => void
+}) {
+  const t = useT()
+  const busyNow = busy !== null
+  const loading = !!req && !diagnosis
+  const hasConflict = !!req && (req.modified.length > 0 || req.untracked.length > 0)
+  // Whitelisted offer set: stash/force only exist when the failure actually
+  // carried blocking file lists; retry/manual are always available.
+  const base: Array<'retry' | 'stash' | 'force' | 'manual'> = hasConflict
+    ? ['stash', 'force', 'retry', 'manual']
+    : ['retry', 'manual']
+  const rec = diagnosis?.recommendedAction
+  const actions: Array<'retry' | 'stash' | 'force' | 'manual'> =
+    rec && base.includes(rec) ? [rec, ...base.filter((a) => a !== rec)] : base
+  const severityClass = diagnosis?.severity === 'high'
+    ? 'text-rose-600 dark:text-rose-400'
+    : diagnosis?.severity === 'medium'
+      ? 'text-amber-600 dark:text-amber-400'
+      : 'text-emerald-600 dark:text-emerald-400'
+  const fileRow = (f: string, i: number, kind: 'modified' | 'untracked') => (
+    <li key={`${kind}:${i}:${f}`} className="flex items-start gap-1.5 py-0.5 break-all">
+      <span className={kind === 'modified' ? 'text-amber-600 dark:text-amber-400 shrink-0' : 'text-rose-600 dark:text-rose-400 shrink-0'}>•</span>
+      <span className="font-mono text-[11px] leading-4">{f}</span>
+    </li>
+  )
+  return (
+    <Dialog open={!!req} onOpenChange={(o) => { if (!o && !busyNow) onClose() }}>
+      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-amber-500 shrink-0" />
+            {t('dlg.pullDiag.title')}
+            {req ? <span className="text-sm font-normal text-muted-foreground truncate">· {req.projectName}</span> : null}
+          </DialogTitle>
+          <DialogDescription>
+            {loading ? t('dlg.pullDiag.loadingDesc') : (diagnosis?.rootCause || req?.error || '')}
+          </DialogDescription>
+        </DialogHeader>
+
+        {req && (
+          <div className="space-y-3 min-h-0 overflow-y-auto pr-1">
+            {loading ? (
+              <div className="flex flex-col items-center gap-3 py-8">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <div className="text-sm text-muted-foreground">{t('dlg.pullDiag.loading')}</div>
+              </div>
+            ) : diagnosis ? (
+              <>
+                <div className="rounded-md border px-3 py-2">
+                  <div className="flex items-baseline gap-2 mb-1">
+                    <span className={`text-xs font-semibold uppercase tracking-wide ${severityClass}`}>{t(`dlg.pullDiag.severity.${diagnosis.severity}`)}</span>
+                    <span className="text-[11px] text-muted-foreground">{t('dlg.pullDiag.severityLabel')}</span>
+                  </div>
+                  <div className="text-sm font-medium break-words">{diagnosis.rootCause}</div>
+                  {diagnosis.explanation ? <div className="text-xs text-muted-foreground mt-1 break-words">{diagnosis.explanation}</div> : null}
+                </div>
+                {diagnosis.steps.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullDiag.steps')}</div>
+                    <ol className="rounded-md border bg-muted/40 px-4 py-2 space-y-1 max-h-40 overflow-y-auto list-decimal">
+                      {diagnosis.steps.map((s, i) => (
+                        <li key={i} className="text-xs leading-4 break-words">{s}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+                {hasConflict && (
+                  <div className="space-y-2">
+                    {req.modified.length > 0 && (
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.modified')} · {req.modified.length}</div>
+                        <ul className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 max-h-32 overflow-y-auto">
+                          {req.modified.map((f, i) => fileRow(f, i, 'modified'))}
+                        </ul>
+                      </div>
+                    )}
+                    {req.untracked.length > 0 && (
+                      <div>
+                        <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.untracked')} · {req.untracked.length}</div>
+                        <ul className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 max-h-32 overflow-y-auto">
+                          {req.untracked.map((f, i) => fileRow(f, i, 'untracked'))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : null}
+          </div>
+        )}
+
+        {!loading && diagnosis && (
+          <div className="flex flex-col gap-2 pt-1">
+            {diagnosis.reason && (
+              <div className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2">
+                <div className="text-[11px] font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  {t('dlg.pullDiag.whyLabel')}
+                </div>
+                <div className="text-xs text-amber-900/80 dark:text-amber-200/80 break-words">{diagnosis.reason}</div>
+              </div>
+            )}
+            {forceConfirm ? (
+              <div className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 space-y-2">
+                <div className="text-sm font-medium text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  {t('dlg.pullDiag.confirmForceTitle')}
+                </div>
+                <div className="text-xs text-muted-foreground">{t('dlg.pullDiag.confirmForceDesc')}</div>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" className="flex-1" disabled={busyNow} onClick={() => onForceConfirm(false)}>
+                    {t('dlg.pullDiag.goBack')}
+                  </Button>
+                  <Button variant="destructive" size="sm" className="flex-1" disabled={busyNow} onClick={() => onAction('force')}>
+                    {busy === 'force' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    {busy === 'force' ? t('dlg.pullDiag.busy') : t('dlg.pullDiag.confirmForce')}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {actions.map((a) => {
+                  const cfg = a === 'retry'
+                    ? { icon: RefreshCw, label: t('dlg.pullDiag.action.retry'), desc: t('dlg.pullDiag.action.retryDesc'), variant: 'default' as const }
+                    : a === 'stash'
+                      ? { icon: Archive, label: t('dlg.pullConflict.stash'), desc: t('dlg.pullConflict.stashDesc'), variant: 'default' as const }
+                      : a === 'force'
+                        ? { icon: Trash2, label: t('dlg.pullConflict.force'), desc: t('dlg.pullConflict.forceDesc'), variant: 'destructive' as const }
+                        : { icon: Terminal, label: t('dlg.pullDiag.action.manual'), desc: t('dlg.pullDiag.action.manualDesc'), variant: 'ghost' as const }
+                  const RecIcon = cfg.icon
+                  return (
+                    <Button
+                      key={a}
+                      variant={cfg.variant}
+                      className="w-full justify-start text-left h-auto py-2.5"
+                      disabled={busyNow}
+                      onClick={() => (a === 'force' ? onForceConfirm(true) : onAction(a))}
+                    >
+                      <div className="flex items-center gap-2">
+                        {busy === a ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <RecIcon className="h-4 w-4 shrink-0" />}
+                        <div className="flex flex-col items-start">
+                          <span className="text-sm font-medium flex items-center gap-1.5 flex-wrap">
+                            {busy === a ? t('dlg.pullDiag.busy') : cfg.label}
+                            {a === rec ? (
+                              <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-1.5 py-px text-[10px] font-semibold">
+                                <Sparkles className="h-2.5 w-2.5" />
+                                {t('dlg.pullDiag.aiRecommended')}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className={`text-xs font-normal ${a === 'force' ? 'text-destructive/80' : 'text-muted-foreground'}`}>{cfg.desc}</span>
+                        </div>
+                      </div>
+                    </Button>
+                  )
+                })}
+                <Button variant="ghost" className="w-full" disabled={busyNow} onClick={onClose}>
+                  {t('dlg.pullDiag.close')}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -4176,7 +4395,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch, onPullConflict
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch, onPullFailure
 }: {
   project: Project | null
   open: boolean
@@ -4191,8 +4410,10 @@ function DetailSheet({
   onEdit?: (p: Project) => void
   /** Open the switch-branch picker (branch detect + checkout + pull). */
   onSwitchBranch?: (p: Project) => void
-  /** Local changes block the pull — open the shared conflict dialog. */
-  onPullConflict?: (p: Project, branch: string | undefined, data: any) => void
+  /** A pull FAILED (v1.19): the dashboard routes it to the AI diagnosis
+   * flow — data carries { error, detail, transient } for any class, or
+   * { modified, untracked } for the 409 conflict class. */
+  onPullFailure?: (p: Project, branch: string | undefined, data: any) => void
   /** Git snapshot — same source as the card's version chip. */
   version?: ProjectVersion | null
   /** Remote-repo freshness — hint states render an "update available" pill. */
@@ -4402,9 +4623,10 @@ function DetailSheet({
         })
         onRefresh?.()
       } else if (data?.conflict && (Array.isArray(data.modified) || Array.isArray(data.untracked))) {
-        // Local changes block the pull — open the shared conflict dialog
-        // (stash / discard / cancel) instead of a dead-end error toast.
-        if (project) onPullConflict?.(project, undefined, data)
+        // Local changes block the pull — route to the AI diagnosis flow
+        // (v1.19; falls back to the shared conflict dialog when the LLM is
+        // unavailable) instead of a dead-end error toast.
+        if (project) onPullFailure?.(project, undefined, data)
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
         // No `error` in the body = non-JSON response (crashed route) — hint
@@ -4412,6 +4634,9 @@ function DetailSheet({
         const transient = pullTransientNote(data, t)
         setPullResult({ ok: false, upToDate: false, summary: String(data?.error || t('dlg.detail.pullNoDetail')), output: detail + (transient ? `\n${transient}` : '') })
         toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(String(data?.error || t('dlg.detail.pullNoDetail'))) + detail + (transient ? ` — ${transient}` : ''), variant: 'destructive' })
+        // v1.19: non-conflict failures go through the AI diagnosis too —
+        // the LLM names the root cause and offers the whitelisted fixes.
+        if (project) onPullFailure?.(project, undefined, { error: String(data?.error || ''), detail: String(data?.detail || ''), transient: !!data?.transient })
       }
     } catch (e: any) {
       const msg = e?.message || t('dlg.common.networkError')
@@ -4420,7 +4645,7 @@ function DetailSheet({
     } finally {
       setPulling(false)
     }
-  }, [project, pulling, toast, onRefresh, onPullConflict, t])
+  }, [project, pulling, toast, onRefresh, onPullFailure, t])
 
   React.useEffect(() => {
     if (project && (activeTab === 'activity' || activeTab === 'deployments') && open) {
@@ -6626,8 +6851,9 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 // renders only for authenticated + approved users.
 
 function DashboardInner({ session }: { session: DashboardSession }) {
-  // i18n (task 17): top-bar chrome strings
-  const { t } = useI18n()
+  // i18n (task 17): top-bar chrome strings. `lang` also feeds the AI pull
+  // diagnosis (v1.19) so the LLM answers in the user's language.
+  const { t, lang } = useI18n()
   // State
   const [userMgmtOpen, setUserMgmtOpen] = React.useState(false)
   const [changePwOpen, setChangePwOpen] = React.useState(false)
@@ -6732,6 +6958,26 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     detail?: string
   } | null>(null)
   const [pullConflictBusy, setPullConflictBusy] = React.useState<'stash' | 'force' | null>(null)
+  // AI pull diagnosis (v1.19): when a pull fails (ANY class), the dashboard
+  // automatically asks the configured LLM to diagnose it. `pullDiag` holds
+  // the failure context (round-tripped to /api/projects/:id/pull-diagnose),
+  // `pullDiagnosis` the whitelisted LLM answer; the dialog renders the
+  // loading state between them. `pullDiagBusy` drives the executing spinner
+  // (retry / stash / force), and the destructive force strategy always
+  // passes through the in-dialog second confirmation.
+  const [pullDiag, setPullDiag] = React.useState<{
+    projectId: string
+    projectName: string
+    branch?: string
+    modified: string[]
+    untracked: string[]
+    error: string
+    detail?: string
+    transient?: boolean
+  } | null>(null)
+  const [pullDiagnosis, setPullDiagnosis] = React.useState<PullDiagnosis | null>(null)
+  const [pullDiagBusy, setPullDiagBusy] = React.useState<'retry' | 'stash' | 'force' | null>(null)
+  const [pullDiagForceConfirm, setPullDiagForceConfirm] = React.useState(false)
   // Per-env in-flight operations (envId → action). Drives the progress
   // spinners on env rows and blocks duplicate clicks while an operation runs.
   const [pendingEnvOps, setPendingEnvOps] = React.useState<Record<string, string>>({})
@@ -7753,20 +7999,26 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     })
   }, [])
 
-  // The conflict dialog's chosen strategy → re-run the pull with it.
+  // Strategy executor shared by the v1.17 conflict dialog AND the v1.19 AI
+  // diagnosis dialog (parameterized so both surfaces run the exact same,
+  // already-verified pull-with-strategy flow):
   //   stash: git stash --include-untracked → pull → git stash pop
   //   force: discard ONLY the listed blocking files, then pull
-  // A NEW 409 (git can reveal more blockers after the first batch clears)
-  // refreshes the dialog instead of closing it.
-  const handleResolvePullConflict = React.useCallback(async (strategy: 'stash' | 'force') => {
-    if (!pullConflict || pullConflictBusy) return
-    setPullConflictBusy(strategy)
-    const { projectId, branch, modified, untracked } = pullConflict
+  // Returns the outcome so each caller can do its own state cleanup —
+  // 'conflict' also carries the fresh 409 data (git can reveal more
+  // blockers after the first batch clears).
+  const runPullWithStrategy = React.useCallback(async (info: {
+    projectId: string
+    projectName: string
+    branch?: string
+    modified: string[]
+    untracked: string[]
+  }, strategy: 'stash' | 'force'): Promise<{ outcome: 'ok' | 'conflict' | 'failed'; data?: any }> => {
     try {
-      const res = await fetch(`/api/projects/${projectId}/pull`, {
+      const res = await fetch(`/api/projects/${info.projectId}/pull`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategy, branch, modified, untracked }),
+        body: JSON.stringify({ strategy, branch: info.branch, modified: info.modified, untracked: info.untracked }),
         signal: AbortSignal.timeout(5 * 60_000),
       })
       const data = await res.json().catch(() => ({}))
@@ -7800,14 +8052,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             variant: 'success',
           })
         }
-        setPullConflict(null)
         fetchProjects()
         fetchProjectVersions()
         fetchProjectUpdates({ refresh: true })
+        return { outcome: 'ok' }
       } else if (data?.conflict && (Array.isArray(data.modified) || Array.isArray(data.untracked))) {
-        // More blockers surfaced — refresh the dialog's file lists.
-        openPullConflict({ id: projectId, name: pullConflict.projectName, repoUrl: '' } as Project, branch, data)
-        toast({ title: t('dlg.pullConflict.updated'), variant: 'default' })
+        // More blockers surfaced — the caller refreshes its dialog.
+        return { outcome: 'conflict', data }
       } else {
         toast({
           title: t('dlg.detail.pullFailed'),
@@ -7815,13 +8066,100 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           detail: String(data?.error || '') + (data.detail ? `\n${data.detail}` : ''),
           variant: 'destructive',
         })
+        return { outcome: 'failed' }
       }
     } catch (e: any) {
       toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
+      return { outcome: 'failed' }
+    }
+  }, [toast, t, fetchProjects, fetchProjectVersions, fetchProjectUpdates])
+
+  // The conflict dialog's chosen strategy → re-run the pull with it.
+  // A NEW 409 (git can reveal more blockers after the first batch clears)
+  // refreshes the dialog instead of closing it.
+  const handleResolvePullConflict = React.useCallback(async (strategy: 'stash' | 'force') => {
+    if (!pullConflict || pullConflictBusy) return
+    setPullConflictBusy(strategy)
+    try {
+      const r = await runPullWithStrategy(pullConflict, strategy)
+      if (r.outcome === 'ok') {
+        setPullConflict(null)
+      } else if (r.outcome === 'conflict' && r.data) {
+        openPullConflict({ id: pullConflict.projectId, name: pullConflict.projectName, repoUrl: '' } as Project, pullConflict.branch, r.data)
+        toast({ title: t('dlg.pullConflict.updated'), variant: 'default' })
+      }
     } finally {
       setPullConflictBusy(null)
     }
-  }, [pullConflict, pullConflictBusy, toast, t, fetchProjects, fetchProjectVersions, fetchProjectUpdates, openPullConflict])
+  }, [pullConflict, pullConflictBusy, runPullWithStrategy, openPullConflict, toast, t])
+
+  // AI pull diagnosis (v1.19): a pull just failed on ANY surface (card row,
+  // detail sheet, branch picker). Remember the failure, ask the configured
+  // LLM for the root cause + a whitelisted fix, and open the diagnosis
+  // dialog. If the LLM cannot be reached, fall back to the v1.17 conflict
+  // dialog (409 class, file lists present) — otherwise stay with the plain
+  // error toast the caller already showed.
+  const openPullDiagnosis = React.useCallback(async (project: Project, branch: string | undefined, data: any) => {
+    const modified = Array.isArray(data?.modified) ? data.modified.map((f: unknown) => String(f).slice(0, 400)) : []
+    const untracked = Array.isArray(data?.untracked) ? data.untracked.map((f: unknown) => String(f).slice(0, 400)) : []
+    const error = String(data?.error || 'git pull failed').slice(0, 400)
+    const detail = data?.detail ? String(data.detail).slice(0, 1200) : undefined
+    const transient = !!data?.transient
+    // Degenerate callers (no error text at all) — nothing to diagnose.
+    if (!error && !detail && modified.length === 0 && untracked.length === 0) return
+    setPullDiag({
+      projectId: project.id,
+      projectName: project.name,
+      branch,
+      modified,
+      untracked,
+      error,
+      detail,
+      transient,
+    })
+    setPullDiagnosis(null)
+    setPullDiagForceConfirm(false)
+    try {
+      const res = await fetch(`/api/projects/${project.id}/pull-diagnose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error, detail, transient, branch, locale: lang, modified, untracked }),
+        signal: AbortSignal.timeout(90_000),
+      })
+      const diag = await res.json().catch(() => ({}))
+      if (res.ok && diag?.ok && diag?.diagnosis) {
+        // Whitelist again on the client — the server did too, but the
+        // dialog must never trust a shape it didn't verify.
+        const a = String(diag.diagnosis.recommendedAction || '')
+        const sev = String(diag.diagnosis.severity || '')
+        setPullDiagnosis({
+          rootCause: String(diag.diagnosis.rootCause || '').slice(0, 300),
+          explanation: String(diag.diagnosis.explanation || '').slice(0, 900),
+          severity: sev === 'low' || sev === 'high' ? sev : 'medium',
+          recommendedAction: a === 'retry' || a === 'stash' || a === 'force' || a === 'manual' ? a : 'manual',
+          reason: String(diag.diagnosis.reason || '').slice(0, 500),
+          steps: Array.isArray(diag.diagnosis.steps)
+            ? diag.diagnosis.steps.map((s: unknown) => String(s).slice(0, 400)).filter(Boolean).slice(0, 8)
+            : [],
+        })
+        return
+      }
+      throw new Error(String(diag?.error || diag?.detail || 'diagnosis unavailable'))
+    } catch {
+      // LLM unreachable / unparseable — degrade to the established UX.
+      setPullDiag(null)
+      setPullDiagnosis(null)
+      if (modified.length > 0 || untracked.length > 0) {
+        openPullConflict(project, branch, { ...data, modified, untracked })
+      } else {
+        toast({
+          title: t('dlg.pullDiag.unavailable'),
+          description: t('dlg.pullDiag.unavailableDesc'),
+          variant: 'default',
+        })
+      }
+    }
+  }, [lang, openPullConflict, toast, t])
 
   // One-click `git pull --ff-only` for a local project with a configured repo
   // (POST /api/projects/:id/pull). Optional `branch` switches the checkout
@@ -7831,8 +8169,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // spinner and blocks double-clicks — a ref guard blocks the second click in
   // the same tick (before re-render). The update check is refreshed with
   // ?refresh=1 so a just-pulled card drops its "behind" pill immediately
-  // (no 5-min cache lag). A 409 conflict answer opens the shared conflict
-  // dialog (stash / discard / cancel) instead of a dead-end error.
+  // (no 5-min cache lag). ANY failure (v1.19) routes to the AI diagnosis
+  // flow — a 409 conflict answer carries the blocking file lists, other
+  // errors carry the error text; the LLM names the root cause and the user
+  // confirms the fix (the v1.17 conflict dialog remains the fallback).
   const handlePullProject = React.useCallback(async (project: Project, branch?: string) => {
     if (!project.repoUrl) return
     // Remote projects pull THROUGH this dashboard (the API proxies to the
@@ -7862,9 +8202,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         fetchProjectVersions()
         fetchProjectUpdates({ refresh: true })
       } else if (data?.conflict && (Array.isArray(data.modified) || Array.isArray(data.untracked))) {
-        // Local changes block the pull — open the shared conflict dialog
-        // (stash / discard / cancel) instead of a dead-end error toast.
-        openPullConflict(project, branch, data)
+        // Local changes block the pull — route to the AI diagnosis flow
+        // (v1.19; falls back to the shared v1.17 conflict dialog when the
+        // LLM is unavailable) instead of a dead-end error toast.
+        openPullDiagnosis(project, branch, data)
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
         // Agent-version upgrade hint (the pull route probes the agent's
@@ -7878,6 +8219,12 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         const errMsg = String(data?.error || '')
         const transient = pullTransientNote(data, t)
         toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(upgrade || errMsg || t('dlg.detail.pullNoDetail')) + (upgrade ? '' : detail) + (transient ? `\n${transient}` : ''), detail: (upgrade || errMsg) + (data.detail ? `\n${data.detail}` : '') || t('dlg.detail.pullNoDetail'), variant: 'destructive' })
+        // v1.19: route non-conflict failures through the AI diagnosis too —
+        // EXCEPT when the upgrade hint already told the user exactly what to
+        // do (diagnosing "your agent is old" through the LLM adds nothing).
+        if (!upgrade && (errMsg || data?.detail)) {
+          openPullDiagnosis(project, branch, { error: errMsg, detail: String(data?.detail || ''), transient: !!data?.transient })
+        }
       }
     } catch (e: any) {
       toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
@@ -7885,7 +8232,53 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       pullingProjectIdsRef.current.delete(project.id)
       setPullingProjectIds((prev) => { const next = new Set(prev); next.delete(project.id); return next })
     }
-  }, [toast, fetchProjects, fetchProjectVersions, fetchProjectUpdates, openPullConflict, t])
+  }, [toast, fetchProjects, fetchProjectVersions, fetchProjectUpdates, openPullDiagnosis, t])
+
+  // The AI diagnosis dialog's chosen action (user-confirmed in the dialog;
+  // 'force' only arrives here AFTER the in-dialog second confirmation).
+  //   retry → re-run the plain pull (a fresh failure re-opens the diagnosis)
+  //   stash/force → the shared strategy executor
+  //   manual → nothing to execute; the suggested steps were shown in-dialog
+  const handleDiagAction = React.useCallback(async (action: 'retry' | 'stash' | 'force' | 'manual') => {
+    if (!pullDiag || pullDiagBusy) return
+    if (action === 'manual') {
+      setPullDiag(null)
+      setPullDiagnosis(null)
+      return
+    }
+    const { projectId, projectName, branch, modified, untracked } = pullDiag
+    setPullDiagBusy(action)
+    try {
+      if (action === 'retry') {
+        // Close first: a failing retry re-opens the diagnosis on its own
+        // failure (handlePullProject routes any failure back here).
+        setPullDiag(null)
+        setPullDiagnosis(null)
+        toast({ title: t('dlg.pullDiag.retrying'), description: projectName })
+        const project = projects.find((p) => p.id === projectId)
+          || ({ id: projectId, name: projectName, repoUrl: 'retry' } as Project)
+        await handlePullProject(project, branch)
+        return
+      }
+      // stash / force — the shared v1.17 strategy executor.
+      const r = await runPullWithStrategy({ projectId, projectName, branch, modified, untracked }, action)
+      if (r.outcome === 'ok') {
+        setPullDiag(null)
+        setPullDiagnosis(null)
+      } else if (r.outcome === 'conflict' && r.data) {
+        // Fresh blockers surfaced — diagnose the new 409 in place.
+        const project = projects.find((p) => p.id === projectId)
+          || ({ id: projectId, name: projectName, repoUrl: 'retry' } as Project)
+        setPullDiag(null)
+        setPullDiagnosis(null)
+        openPullDiagnosis(project, branch, r.data)
+      }
+      // 'failed' — keep the dialog open so the user can pick another option.
+    } finally {
+      setPullDiagBusy(null)
+      setPullDiagForceConfirm(false)
+    }
+  }, [pullDiag, pullDiagBusy, projects, handlePullProject, runPullWithStrategy, openPullDiagnosis, toast, t])
 
   const handleMoveProject = React.useCallback(async (projectId: string, targetDeviceId: string | null) => {
     try {
@@ -9987,7 +10380,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         devices={devices}
         onOpenDeviceManagement={() => setDeviceManagementOpen(true)}
         onReanalyze={handleReanalyzeProject}
-        onPullConflict={openPullConflict}
+        onPullFailure={openPullDiagnosis}
       />
 
       {/* Gateway monitor */}
@@ -10008,7 +10401,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           fetchProjectVersions()
           fetchProjectUpdates({ refresh: true })
         }}
-        onPullConflict={openPullConflict}
+        onPullFailure={openPullDiagnosis}
       />
       {/* Pull blocked by local changes — ask stash / discard / cancel (v1.17) */}
       <PullConflictDialog
@@ -10016,6 +10409,21 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         busy={pullConflictBusy}
         onResolve={handleResolvePullConflict}
         onClose={() => setPullConflict(null)}
+      />
+      {/* AI pull diagnosis (v1.19): any pull failure is auto-diagnosed by the
+          configured LLM; the user confirms the whitelisted fix here */}
+      <PullAIDiagnoseDialog
+        req={pullDiag}
+        diagnosis={pullDiagnosis}
+        busy={pullDiagBusy}
+        forceConfirm={pullDiagForceConfirm}
+        onForceConfirm={setPullDiagForceConfirm}
+        onAction={handleDiagAction}
+        onClose={() => {
+          setPullDiag(null)
+          setPullDiagnosis(null)
+          setPullDiagForceConfirm(false)
+        }}
       />
       <RepairDialog
         jobId={repairJobId}
