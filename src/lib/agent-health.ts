@@ -112,6 +112,11 @@ export async function probeRemoteAgentHealth(
         // it, a pull blocked by local changes dead-ends on git's raw error
         // with no in-dashboard way out.
         else if (!('pullConflict' in d)) why = 'conflict-aware pull (stash or discard local changes)'
+        // v1.18 marker: transient-network auto-retry — pulls/fetches that die
+        // with e.g. `OpenSSL SSL_connect: SSL_ERROR_SYSCALL` (the classic
+        // "click Pull again and it works") are retried automatically inside
+        // the agent instead of surfacing an error.
+        else if (!('gitRetry' in d)) why = 'auto-retry for transient git network errors (SSL reset to github.com)'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',

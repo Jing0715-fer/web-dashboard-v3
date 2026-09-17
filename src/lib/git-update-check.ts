@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { execGitNetwork } from '@/lib/git-retry';
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
 // are console-subsystem programs — from a console-less dashboard server
@@ -85,7 +86,9 @@ function unknown(error: string, remoteSha: string | null = null): RepoUpdateStat
  * `git ls-remote` accepts (no clone, no auth prompt for public repos).
  */
 async function lsRemoteHead(repoUrl: string): Promise<{ sha: string; branch: string | null }> {
-  const { stdout } = await execFileAsync('git', ['ls-remote', '--symref', repoUrl, 'HEAD'], {
+  // ls-remote IS the network round trip — transient flakes (classic:
+  // `OpenSSL SSL_connect: SSL_ERROR_SYSCALL`) are auto-retried inside.
+  const { stdout } = await execGitNetwork(['ls-remote', '--symref', repoUrl, 'HEAD'], {
     timeout: GIT_TIMEOUT,
     maxBuffer: 64 * 1024,
   });
@@ -143,8 +146,7 @@ async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUp
   // Fetch the remote's default branch tip into FETCH_HEAD. Falling back to
   // the literal 'HEAD' ref covers servers that don't answer --symref.
   try {
-    await execFileAsync(
-      'git',
+    await execGitNetwork(
       ['-C', path, 'fetch', '--quiet', '--no-tags', repoUrl, head.branch || 'HEAD'],
       { timeout: GIT_TIMEOUT, maxBuffer: 1024 * 512 },
     );

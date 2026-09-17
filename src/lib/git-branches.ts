@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { execGitNetwork } from '@/lib/git-retry';
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
 // are console-subsystem programs — from a console-less dashboard server
@@ -73,7 +74,10 @@ export async function listGitBranches(path: string, fetch = false): Promise<GitB
   }
   try {
     if (fetch) {
-      await execFileAsync('git', ['fetch', 'origin', '--prune'], {
+      // Transient network flakes (SSL_ERROR_SYSCALL to github.com:443…)
+      // are auto-retried inside (v1.18) — the picker keeps its "offline →
+      // cached refs" fallback for genuinely down links.
+      await execGitNetwork(['fetch', 'origin', '--prune'], {
         cwd: path, timeout: FETCH_TIMEOUT, maxBuffer: 512 * 1024,
       }).catch(() => { /* offline / no origin — list cached refs below */ });
     }

@@ -174,6 +174,7 @@ LLM 提供方在应用内配置（系统 → LLM 设置）：内置网关在 `/a
 | 启动报「进程立即退出」 | 命令在该机器上不存在（PATH 问题）。错误信息带退出码和日志路径，用绝对路径写命令。 |
 | `package.json` 冲突标记导致启动失败 | `git checkout origin/main -- package.json` 后重启；本地有改动先 commit / stash 再 pull。 |
 | 终端 `git pull` 报「本地修改会被合并覆盖」（如 `src/app/api/jobs/[id]/outputs/route.ts`）＋「未跟踪文件」（`package-lock.json`） | 本地改动与远程提交冲突。v1.17 起面板的一键拉取会直接弹窗询问：「暂存本地修改后拉取」（保留修改，拉取后自动恢复）或「放弃本地修改并拉取」（仅丢弃所列文件，取远程版）——不再死路一条。手动处理：`git stash push --include-untracked && git pull && git stash pop`（保留修改）或 `git checkout -- <文件>`＋删除所列未跟踪文件（取远程）。 |
+| 一键拉取偶尔报 `fatal: unable to access 'https://github.com/...': OpenSSL SSL_connect: SSL_ERROR_SYSCALL in connection to github.com:443`，再点一次就好了 | 访问 github.com 的 TLS 连接被中途掐断（网络抖动，常见于不稳定的链路）。v1.18 起面板和 agent 会对这类瞬时网络错误自动重试最多 3 次（约 1 秒/2.5 秒/5 秒退避）——原来需要手动「再点一次」的步骤现在自动完成，重试成功后提示「网络抖动，已自动重试后成功」；若重试后仍失败，错误会标记为网络瞬时问题，稍后再点一次拉取即可。 |
 
 ## 更新
 

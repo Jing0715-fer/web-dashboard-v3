@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { db } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
+import { execGitNetwork } from '@/lib/git-retry';
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
 // are console-subsystem programs — from a console-less dashboard server
@@ -174,9 +175,10 @@ export async function probeSelfUpdate(force = false): Promise<SelfUpdateStatus> 
       try {
         // `git fetch origin <branch>` updates remote-tracking refs only (the
         // exact pre-step `git pull` runs — safe by construction), then
-        // rev-list gives an exact behind count.
-        await execFileAsync(
-          'git', ['fetch', '--quiet', 'origin', remote.branch || 'HEAD'],
+        // rev-list gives an exact behind count. Transient network flakes
+        // are auto-retried inside (v1.18).
+        await execGitNetwork(
+          ['fetch', '--quiet', 'origin', remote.branch || 'HEAD'],
           { timeout: GIT_TIMEOUT, maxBuffer: 1024 * 512 },
         );
         const { stdout } = await execFileAsync(
@@ -273,9 +275,10 @@ export async function autoPullIfSafe(): Promise<AutoPullResult> {
     }
 
     // Safe: default branch, clean tree, strictly behind → ff-only pull.
+    // Transient network flakes (SSL_ERROR_SYSCALL…) auto-retry inside.
     const fromSha = status.localSha || undefined;
     try {
-      await execFileAsync('git', ['pull', '--ff-only'], {
+      await execGitNetwork(['pull', '--ff-only'], {
         timeout: 3 * 60 * 1000, maxBuffer: 1024 * 1024,
       });
     } catch (e: any) {

@@ -268,6 +268,8 @@ export const dialogs = {
   'dlg.detail.pullUpToDate': 'Already up to date',
   'dlg.detail.pullSuccess': 'Pulled latest code',
   'dlg.detail.pullFailed': 'Pull failed',
+  'dlg.detail.pullRetried': 'Network hiccup — auto-retried {n}× and succeeded',
+  'dlg.detail.pullTransientFailed': 'The link to the remote flaked after automatic retries — pull again in a moment',
   'dlg.detail.pullNoDetail': 'The dashboard returned an error with no details (the running server code may be stale) — try: git pull, then restart bun run dev',
   'dlg.detail.pullRemoteOnly': 'Pull runs on the device that owns this project — use that device\u2019s dashboard',
   // ---- Switch-branch dialog ----

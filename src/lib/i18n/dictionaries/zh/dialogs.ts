@@ -264,6 +264,8 @@ export const dialogs = {
   'dlg.detail.pullUpToDate': '已是最新',
   'dlg.detail.pullSuccess': '已拉取最新代码',
   'dlg.detail.pullFailed': '拉取失败',
+  'dlg.detail.pullRetried': '网络抖动，已自动重试 {n} 次后成功',
+  'dlg.detail.pullTransientFailed': '网络不稳定，自动重试后仍失败 — 稍后再点一次拉取即可',
   'dlg.detail.pullNoDetail': '仪表盘返回了无详情的错误（本地服务可能运行旧代码）— 请尝试 git pull 后重启 bun run dev',
   'dlg.detail.pullRemoteOnly': '拉取在项目所属设备上执行 — 请在该设备的控制台操作',
   // ---- 切换分支对话框 ----

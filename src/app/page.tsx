@@ -2994,7 +2994,7 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullConflict
       if (res.ok) {
         toast({
           title: t('dlg.branch.switchedToast', { branch: selected }),
-          description: data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`,
+          description: [data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`, pullRetriedNote(data, t)].filter(Boolean).join(' · ') || undefined,
           variant: 'success',
         })
         onSwitched?.()
@@ -3009,7 +3009,8 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullConflict
         return
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
-        toast({ title: t('dlg.branch.switchFailed'), description: summarizeError(String(data?.error || '')) + detail, detail: String(data?.detail || ''), variant: 'destructive' })
+        const transient = pullTransientNote(data, t)
+        toast({ title: t('dlg.branch.switchFailed'), description: summarizeError(String(data?.error || '')) + detail + (transient ? `\n${transient}` : ''), detail: String(data?.detail || ''), variant: 'destructive' })
       }
     } catch (e: any) {
       toast({ title: t('dlg.branch.switchFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
@@ -3111,6 +3112,23 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullConflict
       </DialogContent>
     </Dialog>
   )
+}
+
+/**
+ * v1.18 auto-retry notes. A pull that survived a transient network flake
+ * (SSL_ERROR_SYSCALL to github.com:443…) answers { retried: n } — append a
+ * "recovered" note to the success toast so the user knows the retry layer
+ * saved them a click. A pull that exhausted every retry answers
+ * { transient: true } — append the "click again in a moment" advice instead
+ * of letting git's raw fatal read like a bug in the dashboard.
+ */
+function pullRetriedNote(data: any, t: (key: string, params?: Record<string, unknown>) => string): string {
+  const n = Number(data?.retried) || 0
+  return n > 0 ? t('dlg.detail.pullRetried', { n }) : ''
+}
+
+function pullTransientNote(data: any, t: (key: string, params?: Record<string, unknown>) => string): string {
+  return data?.transient ? t('dlg.detail.pullTransientFailed') : ''
 }
 
 /**
@@ -4379,7 +4397,7 @@ function DetailSheet({
         setPullResult({ ok: true, upToDate: !!data.upToDate, summary: String(data.summary || ''), output: String(data.output || '') })
         toast({
           title: data.upToDate ? t('dlg.detail.pullUpToDate') : t('dlg.detail.pullSuccess'),
-          description: data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`,
+          description: [data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`, pullRetriedNote(data, t)].filter(Boolean).join(' · ') || undefined,
           variant: 'success',
         })
         onRefresh?.()
@@ -4391,8 +4409,9 @@ function DetailSheet({
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
         // No `error` in the body = non-JSON response (crashed route) — hint
         // at stale server code instead of a dead-end "Pull failed".
-        setPullResult({ ok: false, upToDate: false, summary: String(data?.error || t('dlg.detail.pullNoDetail')), output: detail })
-        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(String(data?.error || t('dlg.detail.pullNoDetail'))) + detail, variant: 'destructive' })
+        const transient = pullTransientNote(data, t)
+        setPullResult({ ok: false, upToDate: false, summary: String(data?.error || t('dlg.detail.pullNoDetail')), output: detail + (transient ? `\n${transient}` : '') })
+        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(String(data?.error || t('dlg.detail.pullNoDetail'))) + detail + (transient ? ` — ${transient}` : ''), variant: 'destructive' })
       }
     } catch (e: any) {
       const msg = e?.message || t('dlg.common.networkError')
@@ -7775,9 +7794,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         } else {
           toast({
             title: data.upToDate ? t('dlg.detail.pullUpToDate') : t('dlg.detail.pullSuccess'),
-            description: strategy === 'stash'
+            description: [strategy === 'stash'
               ? t('dlg.pullConflict.stashRestored')
-              : data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`,
+              : data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`, pullRetriedNote(data, t)].filter(Boolean).join(' · ') || undefined,
             variant: 'success',
           })
         }
@@ -7831,11 +7850,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
         if (data.upToDate) {
-          toast({ title: t('dlg.detail.pullUpToDate'), description: data.switchedTo ? t('dlg.branch.switchedToast', { branch: data.switchedTo }) : undefined, variant: 'success' })
+          toast({ title: t('dlg.detail.pullUpToDate'), description: [data.switchedTo ? t('dlg.branch.switchedToast', { branch: data.switchedTo }) : undefined, pullRetriedNote(data, t)].filter(Boolean).join(' · ') || undefined, variant: 'success' })
         } else {
           toast({
             title: data.switchedTo ? t('dlg.branch.switchedToast', { branch: data.switchedTo }) : t('dlg.detail.pullSuccess'),
-            description: `${data.before ?? ''} → ${data.after ?? ''}`,
+            description: [`${data.before ?? ''} → ${data.after ?? ''}`, pullRetriedNote(data, t)].filter(Boolean).join(' · '),
             variant: 'success',
           })
         }
@@ -7857,7 +7876,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         // route gets an HTML 500 page from Next. Point at the actual fix
         // (stale server code) instead of a bare "Server error".
         const errMsg = String(data?.error || '')
-        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(upgrade || errMsg || t('dlg.detail.pullNoDetail')) + (upgrade ? '' : detail), detail: (upgrade || errMsg) + (data.detail ? `\n${data.detail}` : '') || t('dlg.detail.pullNoDetail'), variant: 'destructive' })
+        const transient = pullTransientNote(data, t)
+        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(upgrade || errMsg || t('dlg.detail.pullNoDetail')) + (upgrade ? '' : detail) + (transient ? `\n${transient}` : ''), detail: (upgrade || errMsg) + (data.detail ? `\n${data.detail}` : '') || t('dlg.detail.pullNoDetail'), variant: 'destructive' })
       }
     } catch (e: any) {
       toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })

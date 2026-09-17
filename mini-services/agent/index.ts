@@ -1364,6 +1364,54 @@ function execFileAsync(file: string, args: string[], opts: any = {}): Promise<{ 
   return execFileRawAsync(file, args, { windowsHide: true, ...opts }) as unknown as Promise<{ stdout: string; stderr: string }>;
 }
 
+// ---- transient-network auto-retry (v1.18) ------------------------------
+// Pulling from github.com:443 over a flaky link (typical: connection torn
+// down mid-TLS) dies with e.g. `OpenSSL SSL_connect: SSL_ERROR_SYSCALL in
+// connection to github.com:443` — and the VERY NEXT attempt succeeds (real
+// user report: "click Pull again and it works"). Retry those classes with a
+// short backoff instead of surfacing the error. Non-network failures
+// (merge conflicts, auth, not-a-repo) throw on the first attempt.
+const TRANSIENT_GIT_NET_RE = new RegExp(
+  [
+    'SSL_ERROR_SYSCALL', 'SSL_connect', 'SSL_read', 'SSL_write',
+    'schannel:', 'GnuTLS',
+    'connection reset', 'was reset by peer', 'remote end hung up',
+    'timed out', 'timeout', 'Timeout was reached', 'ETIMEDOUT',
+    'Failed to connect', "couldn't connect", 'Could not resolve host', 'EAI_AGAIN',
+    'ECONNRESET', 'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH',
+    'Empty reply from server', 'RPC failed',
+    'HTTP 5\\d\\d',
+    'curl \\((?:28|35|55|56)\\)',
+  ].join('|'),
+  'i',
+);
+
+function isTransientGitNetErr(e: any): boolean {
+  return TRANSIENT_GIT_NET_RE.test(String(e?.stderr || e?.stdout || e?.message || ''));
+}
+
+const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Run a NETWORK-bound git subcommand (pull / fetch / ls-remote) with
+ *  auto-retry: transient failures are retried up to 3 times (backoff
+ *  ~1s → 2.5s → 5s, ±30% jitter). Resolves with the result plus `retried`
+ *  so callers can surface "network hiccup — auto-recovered". */
+async function gitNet(args: string[], opts: any = {}): Promise<{ stdout: string; stderr: string; retried: number }> {
+  const { maxRetries = 3, ...execOpts } = opts;
+  let retried = 0;
+  for (;;) {
+    try {
+      const r = await execFileAsync('git', args, execOpts);
+      return { stdout: r.stdout, stderr: r.stderr, retried };
+    } catch (e: any) {
+      if (retried >= maxRetries || !isTransientGitNetErr(e)) throw e;
+      retried++;
+      const factor = retried === 1 ? 1 : retried === 2 ? 2.5 : 5;
+      await sleepMs(Math.round(1000 * factor * (0.7 + Math.random() * 0.6)));
+    }
+  }
+}
+
 async function readGitVersion(path: string): Promise<any> {
   if (!path || !existsSync(path) || !existsSync(join(path, '.git'))) return null;
   const v: any = { branch: null, sha: null, dirty: null, committedAt: null };
@@ -1588,8 +1636,9 @@ async function performSelfUpdate(signal?: {
       return { ok: false, action: 'throttled', detail: 'origin fetch attempted recently' };
     }
     lastSelfFetchAt = Date.now();
-    await execFileAsync('git', ['fetch', 'origin', '--prune'], { cwd: root, timeout: 120_000, maxBuffer: 1024 * 1024 });
-    await execFileAsync('git', ['pull', '--ff-only'], { cwd: root, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+    // v1.18: transient network flakes (SSL_ERROR_SYSCALL…) auto-retry inside.
+    await gitNet(['fetch', 'origin', '--prune'], { cwd: root, timeout: 120_000, maxBuffer: 1024 * 1024 });
+    await gitNet(['pull', '--ff-only'], { cwd: root, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
     const after = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: root, timeout: 15_000 })).stdout.trim();
     if (after === before) {
       return { ok: true, action: 'current', detail: 'already up to date' };
@@ -1641,7 +1690,8 @@ async function listGitBranches(path: string, fetch = false): Promise<any> {
   }
   try {
     if (fetch) {
-      await execFileAsync('git', ['fetch', 'origin', '--prune'], { cwd: path, timeout: 60_000, maxBuffer: 512 * 1024 }).catch(() => {});
+      // v1.18: transient network flakes auto-retry inside.
+      await gitNet(['fetch', 'origin', '--prune'], { cwd: path, timeout: 60_000, maxBuffer: 512 * 1024 }).catch(() => {});
     }
     const { stdout } = await execFileAsync(
       'git',
@@ -1886,7 +1936,8 @@ async function gitPull(projectPath: string, repoUrl?: string | null, branch?: st
       currentBranch = (await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectPath, timeout: 15_000 })).stdout.trim();
     } catch { /* detached HEAD */ }
     if (currentBranch !== branch) {
-      await execFileAsync('git', ['fetch', 'origin', '--prune'], { cwd: projectPath, timeout: 60_000, maxBuffer: 512 * 1024 }).catch(() => {});
+      // v1.18: transient network flakes (SSL_ERROR_SYSCALL…) auto-retry inside.
+      await gitNet(['fetch', 'origin', '--prune'], { cwd: projectPath, timeout: 60_000, maxBuffer: 512 * 1024 }).catch(() => {});
       const sw = await switchGitBranch(projectPath, branch);
       if (!sw.ok) {
         // The clobbering-checkout class becomes a 409 carrying the file
@@ -1927,8 +1978,15 @@ async function gitPull(projectPath: string, repoUrl?: string | null, branch?: st
   let repairedOrigin = ensured.added ? "wired up 'origin' (it was missing)" : '';
   let pullResult: { stdout: string; stderr: string } | null = null;
   let pullError: any = null;
+  let pullRetries = 0;
   try {
-    pullResult = await execFileAsync('git', await buildPullArgs(), { cwd: projectPath, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+    // v1.18: transient network flakes (the classic `OpenSSL SSL_connect:
+    // SSL_ERROR_SYSCALL` to github.com:443) succeed on the next attempt —
+    // auto-retry instead of surfacing the error the user used to fix by
+    // clicking Pull again.
+    const pr = await gitNet(await buildPullArgs(), { cwd: projectPath, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+    pullRetries = pr.retried;
+    pullResult = pr;
   } catch (e: any) {
     // 'origin' exists but is unreadable (dead local path from a copied
     // repo, wrong URL…) AND the project carries a different, valid https
@@ -1944,7 +2002,9 @@ async function gitPull(projectPath: string, repoUrl?: string | null, branch?: st
           await execFileAsync('git', ['remote', 'add', 'origin', wantUrl], { cwd: projectPath, timeout: 15000 });
         }
         repairedOrigin = "repointed 'origin' (its old URL was unreadable)";
-        pullResult = await execFileAsync('git', await buildPullArgs(), { cwd: projectPath, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+        const pr2 = await gitNet(await buildPullArgs(), { cwd: projectPath, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
+        pullRetries += pr2.retried;
+        pullResult = pr2;
       } catch (e2: any) {
         // Surface BOTH the original failure and the retry failure.
         const merged: any = new Error(String(e2?.stderr || e2?.stdout || e2?.message || '').trim() || 'git pull failed');
@@ -1980,6 +2040,11 @@ async function gitPull(projectPath: string, repoUrl?: string | null, branch?: st
 
   let after = '';
   try { after = (await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim(); } catch {}
+  // v1.18: a transient network flake was recovered in-process — surface it
+  // so the user knows the retry layer handled what used to be a manual click.
+  if (pullRetries > 0) {
+    strategyNotes.push(`[agent] transient network error — auto-retry succeeded (retry #${pullRetries})`);
+  }
   const output = ((pullResult && (pullResult.stdout || pullResult.stderr)) || '').trim();
   const upToDate = /Already up to date/i.test(output) || (before !== '' && before === after);
 
@@ -2012,6 +2077,7 @@ async function gitPull(projectPath: string, repoUrl?: string | null, branch?: st
   ].filter(Boolean).map((l) => l + '\n').join('');
   return {
     ok: true, upToDate, before, after,
+    ...(pullRetries > 0 ? { retried: pullRetries } : {}),
     ...(switchedTo ? { switchedTo } : {}),
     ...(stashedForPull ? { stashRestored: !stashConflict } : {}),
     ...(stashPartial ? { stashPartial, stashDetail: stashDetail.slice(0, 600) } : {}),
@@ -2322,7 +2388,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.17.0',
+        version: '1.18.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -2349,6 +2415,7 @@ const server = createServer(async (req, res) => {
         selfGuard: true,     // v1.15: refuses to analyze/start the co-located dashboard's own directory (self-kill guard)
         silentSpawns: true,  // v1.16: all background probes/spawns are silent (windowsHide + direct argv) — no console-window flashes on Windows
         pullConflict: true,   // v1.17: 409 { conflict, modified, untracked } pull answers + { strategy: stash|force } resolutions (conflict dialog instead of a dead-end error)
+        gitRetry: true,       // v1.18: transient git network failures (SSL_ERROR_SYSCALL…) auto-retried with backoff instead of surfacing "click again"
       });
       return;
     }

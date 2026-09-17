@@ -10,6 +10,7 @@ import { proxyProjectAction } from '@/lib/route-decision';
 import { invalidateUpdateCache } from '@/lib/git-update-check';
 import { probeRemoteAgentHealth } from '@/lib/agent-health';
 import { isValidBranchName, switchGitBranch } from '@/lib/git-branches';
+import { execGitNetwork, isTransientGitNetworkError } from '@/lib/git-retry';
 import {
   parsePullConflict, sanitizeConflictFiles, discardTrackedChanges, removeUntrackedBlockers,
   stashLocalChanges, popStash, isValidPullStrategy,
@@ -341,8 +342,9 @@ async function handlePull(
       } catch { /* detached HEAD */ }
       if (currentBranch !== branch) {
         // Fresh remote refs so remote-only branches resolve (the picker's
-        // fetch may be stale by the time the user clicks).
-        await execFileAsync('git', ['fetch', 'origin', '--prune'], {
+        // fetch may be stale by the time the user clicks). Transient network
+        // flakes (SSL_ERROR_SYSCALL…) are auto-retried inside.
+        await execGitNetwork(['fetch', 'origin', '--prune'], {
           cwd: project.path,
           timeout: 60_000,
           maxBuffer: 1024 * 512,
@@ -451,12 +453,18 @@ async function handlePull(
     };
 
     let pullResult: { stdout: string; stderr: string } | null = null;
+    let pullRetries = 0;
     try {
-      pullResult = await execFileAsync('git', await buildPullArgs(), {
+      // Transient network flakes to github.com:443 (classic:
+      // `OpenSSL SSL_connect: SSL_ERROR_SYSCALL`) succeed on the next
+      // attempt — auto-retry them instead of surfacing the error (v1.18).
+      const pr = await execGitNetwork(await buildPullArgs(), {
         cwd: project.path,
         timeout: 5 * 60 * 1000,
         maxBuffer: 1024 * 1024,
       });
+      pullRetries = pr.retried;
+      pullResult = pr;
     } catch (e: any) {
       // 'origin' exists but is unreadable (dead local path from a copied
       // repo, wrong URL…) AND differs from the configured repoUrl → repoint
@@ -480,11 +488,13 @@ async function handlePull(
             });
           }
           originRepaired = "repointed 'origin' (its old URL was unreadable)";
-          pullResult = await execFileAsync('git', await buildPullArgs(), {
+          const pr2 = await execGitNetwork(await buildPullArgs(), {
             cwd: project.path,
             timeout: 5 * 60 * 1000,
             maxBuffer: 1024 * 1024,
           });
+          pullRetries += pr2.retried;
+          pullResult = pr2;
         } catch (e2: any) {
           // Surface BOTH the original failure and the retry failure through
           // the outer handler.
@@ -507,6 +517,13 @@ async function handlePull(
     }
     if (!pullResult) throw new Error('git pull failed');
     const { stdout, stderr } = pullResult;
+
+    // Auto-retry note: a transient network flake was recovered in-process —
+    // surface it so the user knows why the pull took a few seconds longer
+    // (and that the error they used to see by hand-retrying is now handled).
+    if (pullRetries > 0) {
+      strategyNotes.push(`[dashboard] transient network error — auto-retry succeeded (retry #${pullRetries})`);
+    }
 
     let after = '';
     try {
@@ -573,6 +590,7 @@ async function handlePull(
       upToDate,
       before,
       after,
+      ...(pullRetries > 0 ? { retried: pullRetries } : {}),
       ...(switchedTo ? { switchedTo } : {}),
       ...(stashedForPull ? { stashRestored: !stashConflict } : {}),
       ...(stashPartial ? { stashPartial, stashDetail: stashDetail.slice(0, 600) } : {}),
@@ -622,8 +640,17 @@ async function handlePull(
       projectName: project.name,
       detail: detail || 'git pull error',
     });
+    // Transient-network class: every auto-retry attempt failed too — the
+    // classic "click again and it works" situation, just rarer now. Flag it
+    // so the UI can say "try again in a moment" instead of a scary error.
+    const transientNet = isTransientGitNetworkError(e);
     return NextResponse.json(
-      { error: 'git pull failed', detail: detail || undefined, repo: sanitizeUrl(project.repoUrl) },
+      {
+        error: 'git pull failed',
+        detail: detail || undefined,
+        repo: sanitizeUrl(project.repoUrl),
+        ...(transientNet ? { transient: true } : {}),
+      },
       { status: 500 },
     );
   }
