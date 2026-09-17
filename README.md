@@ -173,6 +173,7 @@ Managing processes is the whole point of this tool, so the guards are part of th
 | Duplicate device rows | They self-merge within minutes. When adding devices manually, use the agent's real apiKey. |
 | Start fails with "process exited immediately" | The command doesn't exist on that machine (PATH). The error includes the exit code and log path — write the command with absolute paths. |
 | Startup fails on `package.json` conflict markers | `git checkout origin/main -- package.json` and restart; commit or stash local changes before pulling. |
+| `git pull` in the terminal says "Your local changes to the following files would be overwritten by merge" (e.g. `src/app/api/jobs/[id]/outputs/route.ts`) plus "untracked working tree files" (`package-lock.json`) | Local edits collide with incoming commits. In the dashboard (v1.17+), the one-click pull detects this and ASKS: *stash local changes & pull* (kept, re-applied automatically after the pull) or *discard them and take the remote* — no more dead-end errors. Manually: `git stash push --include-untracked && git pull && git stash pop` (keep changes) or `git checkout -- <file>` + remove the untracked blockers (take remote). |
 
 ## Updating
 

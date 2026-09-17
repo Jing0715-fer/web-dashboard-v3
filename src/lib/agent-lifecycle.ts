@@ -319,6 +319,12 @@ async function agentOutdated(port: number): Promise<{ outdated: boolean; why: st
     // agent flashed a cmd.exe window on the desktop every ~30s poll and
     // during every git self-update fetch.
     if (!('silentSpawns' in d)) return { outdated: true, why: 'silent background spawns (no console-window flashes)' };
+    // v1.17 marker: conflict-aware pull — when a pull is blocked by local
+    // changes the agent answers 409 { conflict, modified, untracked } and
+    // accepts { strategy: "stash" | "force" } resolutions. Without it the
+    // dashboard's conflict dialog can never appear for remote projects and
+    // the user is stuck on git's raw "would be overwritten" error.
+    if (!('pullConflict' in d)) return { outdated: true, why: 'conflict-aware pull (stash or discard local changes)' };
     return { outdated: false, why: '' };
   } catch {
     return { outdated: false, why: '' };

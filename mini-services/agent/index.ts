@@ -16,7 +16,7 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { PrismaClient } from '@prisma/client';
 import { spawn, ChildProcess, execSync, execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
-import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync, statSync, readdirSync, realpathSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, createWriteStream, writeFileSync, statSync, readdirSync, realpathSync, rmSync } from 'fs';
 import { join, resolve, dirname, basename, isAbsolute } from 'path';
 import { randomBytes, randomUUID } from 'crypto';
 import { hostname, tmpdir, platform, arch, homedir, networkInterfaces } from 'os';
@@ -1714,12 +1714,166 @@ async function switchGitBranch(path: string, branch: string): Promise<{ ok: bool
   }
 }
 
+// ---- conflict-aware pull (v1.17) -------------------------------------
+// `git pull` refuses to clobber local changes with a stderr wall that a
+// terminal user parses by eye but a dashboard user is STUCK on:
+//   error: Your local changes to the following files would be overwritten by merge:
+//   src/app/api/jobs/[id]/outputs/route.ts
+//   Please commit your changes or stash them before you merge.
+//   error: The following untracked working tree files would be overwritten by merge:
+//   package-lock.json
+//   Please move or remove them before you merge.
+//   Aborting
+// (plus the "by checkout:" twin for branch switches). Parse those into the
+// blocking file lists → 409 { conflict, modified, untracked } → the dashboard
+// asks the user, then re-sends the pull with { strategy }:
+//   stash: git stash --include-untracked → pull → git stash pop (kept)
+//   force: discard ONLY the listed files, take the remote (irreversible)
+
+function unquoteGitPath(f: string): string {
+  if (f.length >= 2 && f.startsWith('"') && f.endsWith('"')) {
+    return f.slice(1, -1).replace(/\\"/g, '"');
+  }
+  return f;
+}
+
+/** Parse git's "would be overwritten by merge/checkout" stderr into the
+ *  blocking file lists. Returns null for every other error class. */
+function parsePullConflict(errText: string): { modified: string[]; untracked: string[] } | null {
+  if (!errText || !/would be overwritten by (merge|checkout)/i.test(errText)) return null;
+  const modified: string[] = [];
+  const untracked: string[] = [];
+  let section: 'modified' | 'untracked' | null = null;
+  for (const raw of String(errText).split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    if (/error:\s*Your local changes to the following files would be overwritten by (merge|checkout):/i.test(line)) { section = 'modified'; continue; }
+    if (/error:\s*The following untracked working tree files would be overwritten by (merge|checkout):/i.test(line)) { section = 'untracked'; continue; }
+    if (/^Please (commit your changes or stash them|move or remove them) before you (merge|checkout)/i.test(line.trim())) { section = null; continue; }
+    if (/^Aborting/i.test(line.trim())) { section = null; continue; }
+    if (section) {
+      const f = unquoteGitPath(line.trim());
+      if (f && !f.startsWith('error:') && !f.startsWith('fatal:') && !f.startsWith('warning:')) {
+        (section === 'modified' ? modified : untracked).push(f);
+      }
+    }
+  }
+  if (modified.length === 0 && untracked.length === 0) return null;
+  return { modified, untracked };
+}
+
+/** Validate a conflict file list that came from a REQUEST BODY (the calling
+ *  dashboard round-trips the lists this agent's own 409 carried). These
+ *  strings reach git argv as pathspecs — only plain repo-relative paths:
+ *  no traversal, no absolute paths, no glob/pathspec magic, no leading
+ *  dashes, bounded size. */
+function sanitizeConflictFiles(list: any): string[] {
+  if (!Array.isArray(list)) return [];
+  const out: string[] = [];
+  for (const raw of list.slice(0, 200)) {
+    if (typeof raw !== 'string') continue;
+    let f = raw.trim();
+    if (f.startsWith('"') && f.endsWith('"') && f.length >= 2) f = f.slice(1, -1).replace(/\\"/g, '"');
+    if (!f || f.length > 400) continue;
+    if (f.includes('\0') || f.includes('\n')) continue;
+    if (/(^|[\\/])\.\.([\\/]|$)/.test(f)) continue; // parent traversal
+    if (f.startsWith('/') || f.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(f)) continue; // absolute
+    if (/[*?[\]~^:!]/.test(f)) continue; // glob / pathspec magic
+    out.push(f);
+  }
+  return out;
+}
+
+/** Force strategy — restore tracked files that block the pull to their HEAD
+ *  content. Paths are ./-prefixed so a leading dash can never become a git
+ *  option. Never throws (git's own text flows back through the pull result). */
+async function discardTrackedChanges(projectPath: string, modified: string[]): Promise<string> {
+  if (modified.length === 0) return '';
+  await execFileAsync('git', ['checkout', 'HEAD', '--', ...modified.map((f) => `./${f}`)],
+    { cwd: projectPath, timeout: 30_000, maxBuffer: 1024 * 1024 });
+  return `restored ${modified.length} modified file(s) to HEAD`;
+}
+
+/** Force strategy — remove the untracked files that block the pull, exactly
+ *  those paths and nothing else (git clean with a pathspec; fs.rmSync as the
+ *  last resort for ignored files). */
+async function removeUntrackedBlockers(projectPath: string, untracked: string[]): Promise<string> {
+  if (untracked.length === 0) return '';
+  const rel = untracked.map((f) => `./${f}`);
+  try {
+    await execFileAsync('git', ['clean', '-fd', '--', ...rel], { cwd: projectPath, timeout: 30_000, maxBuffer: 1024 * 1024 });
+  } catch {
+    try {
+      await execFileAsync('git', ['clean', '-fdx', '--', ...rel], { cwd: projectPath, timeout: 30_000, maxBuffer: 1024 * 1024 });
+    } catch {
+      for (const f of untracked) {
+        try { rmSync(join(projectPath, f), { recursive: true, force: true }); } catch { /* the retrying pull reports it */ }
+      }
+    }
+  }
+  return `removed ${untracked.length} untracked blocking file(s)`;
+}
+
+/** Stash strategy — `git stash push --include-untracked`. Captures modified
+ *  tracked files AND untracked ones (the exact classes the pull refuses to
+ *  clobber). Returns true when a stash entry was created. */
+async function stashLocalChanges(projectPath: string, label: string): Promise<boolean> {
+  const out = await execFileAsync('git',
+    ['stash', 'push', '--include-untracked', '-m', `dashboard-pull ${label}`],
+    { cwd: projectPath, timeout: 60_000, maxBuffer: 1024 * 1024 });
+  return !/No local changes/i.test(out.stdout || '');
+}
+
+/** Stash strategy — re-apply the stashed changes on the pulled code. On
+ *  CONFLICT git leaves markers in the tree and KEEPS the stash entry; that
+ *  surfaces as ok:false (the pull still succeeded — the caller reports both).
+ *
+ *  Partial-success class: when the pull ADDED a file that the stash holds
+ *  UNTRACKED (the classic package-lock.json case), the tracked changes
+ *  apply cleanly but restoring the untracked copy collides with the now-
+ *  tracked path — "could not restore untracked files from stash". That is
+ *  NOT a merge conflict (no unmerged paths); report ok:true with a precise
+ *  note (the local copies remain in the kept stash entry). */
+async function popStash(projectPath: string): Promise<{ ok: boolean; detail: string; partial?: boolean }> {
+  try {
+    const out = await execFileAsync('git', ['stash', 'pop'], { cwd: projectPath, timeout: 60_000, maxBuffer: 1024 * 1024 });
+    return { ok: true, detail: (out.stdout || out.stderr || '').trim() };
+  } catch (e: any) {
+    const detail = String(e?.stderr || e?.stdout || e?.message || '').trim().slice(0, 600);
+    if (/could not restore untracked files from stash/i.test(detail)) {
+      try {
+        const unmerged = await execFileAsync('git', ['diff', '--name-only', '--diff-filter=U'], { cwd: projectPath, timeout: 15_000, maxBuffer: 64 * 1024 });
+        if (!(unmerged.stdout || '').trim()) {
+          return { ok: true, partial: true, detail: 'local changes re-applied; the former untracked blocking files now exist as tracked files, so their local copies remain in the stash entry (git stash list)' };
+        }
+      } catch { /* fall through to the conflict report */ }
+    }
+    return { ok: false, detail };
+  }
+}
+
 /** Run `git pull --ff-only` (with upstream fallback) in a project dir.
  *  repoUrl (optional, from the project row) self-heals a missing/broken
  *  'origin' remote — see ensureOriginRemote. `branch` (optional) switches
- *  the checkout first (see switchGitBranch). Pre-flight failures return
- *  {ok:false} instead of throwing so the route can answer 4xx-style. */
-async function gitPull(projectPath: string, repoUrl?: string | null, branch?: string): Promise<any> {
+ *  the checkout first (see switchGitBranch). `resolve` (optional, v1.17)
+ *  carries the conflict-resolution strategy chosen in the dashboard's
+ *  conflict dialog. Pre-flight failures return {ok:false} instead of
+ *  throwing so the route can answer 4xx-style; the blocked-by-local-changes
+ *  class returns {ok:false, conflict:true, modified, untracked} for a 409. */
+async function gitPull(projectPath: string, repoUrl?: string | null, branch?: string, resolve?: { strategy: 'force' | 'stash'; modified: string[]; untracked: string[] }): Promise<any> {
+  // Conflict strategies run FIRST — they unblock both the checkout and
+  // merge phases below.
+  const strategyNotes: string[] = [];
+  let stashedForPull = false;
+  if (resolve?.strategy === 'force') {
+    const n1 = await discardTrackedChanges(projectPath, resolve.modified).catch((e: any) => { throw e; });
+    if (n1) strategyNotes.push(`[agent] ${n1}`);
+    const n2 = await removeUntrackedBlockers(projectPath, resolve.untracked);
+    if (n2) strategyNotes.push(`[agent] ${n2}`);
+  } else if (resolve?.strategy === 'stash') {
+    stashedForPull = await stashLocalChanges(projectPath, new Date().toISOString());
+    if (stashedForPull) strategyNotes.push('[agent] stashed local changes (--include-untracked)');
+  }
+
   const ensured = await ensureOriginRemote(projectPath, repoUrl);
   if (ensured.error) return { ok: false, error: ensured.error, hint: ensured.hint };
 
@@ -1735,6 +1889,19 @@ async function gitPull(projectPath: string, repoUrl?: string | null, branch?: st
       await execFileAsync('git', ['fetch', 'origin', '--prune'], { cwd: projectPath, timeout: 60_000, maxBuffer: 512 * 1024 }).catch(() => {});
       const sw = await switchGitBranch(projectPath, branch);
       if (!sw.ok) {
+        // The clobbering-checkout class becomes a 409 carrying the file
+        // lists (the same shape as the merge conflict below).
+        const cf = parsePullConflict(String(sw.error || ''));
+        if (cf) {
+          if (stashedForPull) await popStash(projectPath).catch(() => {});
+          return {
+            ok: false, conflict: true,
+            modified: cf.modified, untracked: cf.untracked,
+            error: 'Local changes block the checkout/pull',
+            hint: 'Stash the local changes (kept, restored after the pull) or discard them and take the remote version',
+            detail: String(sw.error || '').slice(0, 600),
+          };
+        }
         return { ok: false, error: `git checkout ${branch} failed`, detail: sw.error };
       }
       switchedTo = branch;
@@ -1791,19 +1958,64 @@ async function gitPull(projectPath: string, repoUrl?: string | null, branch?: st
       pullError = e;
     }
   }
-  if (pullError) throw pullError;
+  // The blocked-by-local-changes class returns {ok:false, conflict:true,
+  // modified, untracked} — the route answers 409 and the dashboard asks the
+  // user (stash / discard / cancel) instead of dead-ending on raw stderr.
+  if (pullError) {
+    const cf = parsePullConflict(String((pullError as any)?.stderr || (pullError as any)?.stdout || (pullError as any)?.message || ''));
+    if (cf) {
+      // Stash strategy failure path: restore the user's changes first
+      // (nothing lost, tree back to its pre-pull state).
+      if (stashedForPull) await popStash(projectPath).catch(() => {});
+      return {
+        ok: false, conflict: true,
+        modified: cf.modified, untracked: cf.untracked,
+        error: 'Local changes block the pull',
+        hint: 'Stash the local changes (kept, restored after the pull) or discard them and take the remote version',
+        detail: String((pullError as any)?.stderr || (pullError as any)?.stdout || (pullError as any)?.message || '').trim().slice(0, 600),
+      };
+    }
+    throw pullError;
+  }
 
   let after = '';
   try { after = (await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd: projectPath, timeout: 15000 })).stdout.trim(); } catch {}
   const output = ((pullResult && (pullResult.stdout || pullResult.stderr)) || '').trim();
   const upToDate = /Already up to date/i.test(output) || (before !== '' && before === after);
+
+  // Stash strategy, final step — re-apply the user's local changes on the
+  // pulled code. A conflicting pop does NOT fail the pull: the code IS
+  // updated and the changes are safe in the stash entry; surface
+  // stashConflict so the UI can tell the user exactly that.
+  let stashConflict = false;
+  let stashPartial = false;
+  let stashDetail = '';
+  if (stashedForPull) {
+    const pop = await popStash(projectPath);
+    if (pop.ok) {
+      strategyNotes.push('[agent] re-applied stashed local changes');
+      if (pop.partial) {
+        stashPartial = true;
+        stashDetail = pop.detail;
+        strategyNotes.push(`[agent] ${pop.detail}`);
+      }
+    } else {
+      stashConflict = true;
+      stashDetail = pop.detail;
+    }
+  }
+
   const notes = [
     switchedTo ? `[agent] switched to branch '${switchedTo}'` : '',
     repairedOrigin ? `[agent] ${repairedOrigin} → ${ensured.originUrl}` : '',
+    ...strategyNotes,
   ].filter(Boolean).map((l) => l + '\n').join('');
   return {
     ok: true, upToDate, before, after,
     ...(switchedTo ? { switchedTo } : {}),
+    ...(stashedForPull ? { stashRestored: !stashConflict } : {}),
+    ...(stashPartial ? { stashPartial, stashDetail: stashDetail.slice(0, 600) } : {}),
+    ...(stashConflict ? { stashConflict, stashDetail: stashDetail.slice(0, 600) } : {}),
     summary: (upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done')
       + (switchedTo ? ` @ ${switchedTo}` : ''),
     output: (notes + output).slice(0, 4000),
@@ -2110,7 +2322,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.16.0',
+        version: '1.17.0',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects
@@ -2136,6 +2348,7 @@ const server = createServer(async (req, res) => {
         autoDebug: true,     // POST /api/agent/analyze-project — LLM-driven remote project analysis (dashboard supplies the LLM endpoint)
         selfGuard: true,     // v1.15: refuses to analyze/start the co-located dashboard's own directory (self-kill guard)
         silentSpawns: true,  // v1.16: all background probes/spawns are silent (windowsHide + direct argv) — no console-window flashes on Windows
+        pullConflict: true,   // v1.17: 409 { conflict, modified, untracked } pull answers + { strategy: stash|force } resolutions (conflict dialog instead of a dead-end error)
       });
       return;
     }
@@ -2237,8 +2450,10 @@ const server = createServer(async (req, res) => {
       }
       if (!project) { sendJSON(res, 404, { error: 'Project not found' }); return; }
       if (!(existsSync(project.path) && existsSync(join(project.path, '.git')))) { sendJSON(res, 400, { error: `Not a git repository: ${project.path}` }); return; }
-      // Read the body FIRST: { branch } (optional switch-branch pull) and
-      // { repoUrl } (optional — the CALLING dashboard's saved GitHub link).
+      // Read the body FIRST: { branch } (optional switch-branch pull),
+      // { repoUrl } (optional — the CALLING dashboard's saved GitHub link)
+      // and { strategy, modified, untracked } (optional, v1.17 — the
+      // conflict-dialog resolution for a 409 this agent produced earlier).
       const pullBody = await getBody(req);
       let branch = '';
       if (typeof pullBody?.branch === 'string') branch = pullBody.branch.trim();
@@ -2246,6 +2461,17 @@ const server = createServer(async (req, res) => {
         sendJSON(res, 400, { error: `Invalid branch name: ${branch.slice(0, 80)}` });
         return;
       }
+      // Conflict resolution (v1.17): strategy + the blocking file lists this
+      // agent's own 409 carried, round-tripped by the calling dashboard.
+      // Untrusted input — validated before anything reaches git argv.
+      const strategy = pullBody?.strategy === 'force' || pullBody?.strategy === 'stash' ? pullBody.strategy : null;
+      const modifiedFiles = sanitizeConflictFiles(pullBody?.modified);
+      const untrackedFiles = sanitizeConflictFiles(pullBody?.untracked);
+      if (strategy === 'force' && modifiedFiles.length === 0 && untrackedFiles.length === 0) {
+        sendJSON(res, 400, { error: 'Force pull requires the blocking file lists from a conflict answer (modified/untracked)' });
+        return;
+      }
+      const resolve = strategy ? { strategy, modified: modifiedFiles, untracked: untrackedFiles } : undefined;
       // repoUrl priority: REQUEST BODY > this machine's project row >
       // same-path rows in either local store. Remote-project rows live in
       // the CALLING dashboard's DB — the GitHub link the user saved in the
@@ -2264,9 +2490,14 @@ const server = createServer(async (req, res) => {
       const bodyRepoUrl = normalizeBodyRepoUrl(pullBody?.repoUrl);
       if (bodyRepoUrl) repoUrl = bodyRepoUrl;
       try {
-        const pullResult = await gitPull(project.path, repoUrl, branch || undefined);
+        const pullResult = await gitPull(project.path, repoUrl, branch || undefined, resolve);
         if (pullResult && pullResult.ok === false) {
-          sendJSON(res, 400, { error: pullResult.error, hint: pullResult.hint, detail: pullResult.detail });
+          // v1.17: the blocked-by-local-changes class answers 409 with the
+          // file lists — the dashboard's conflict dialog takes it from here
+          // (stash / discard / cancel) instead of dead-ending.
+          sendJSON(res, pullResult.conflict ? 409 : 400, pullResult.conflict
+            ? pullResult
+            : { error: pullResult.error, hint: pullResult.hint, detail: pullResult.detail });
         } else {
           sendJSON(res, 200, pullResult);
         }

@@ -107,6 +107,11 @@ export async function probeRemoteAgentHealth(
         // console-less agent flashed a cmd.exe window on the desktop every
         // ~30s poll and during every git self-update fetch.
         else if (!('silentSpawns' in d)) why = 'silent background spawns (no console-window flashes)'
+        // v1.17 marker: conflict-aware pull — 409 { conflict, modified,
+        // untracked } answers + { strategy: stash|force } resolutions. Without
+        // it, a pull blocked by local changes dead-ends on git's raw error
+        // with no in-dashboard way out.
+        else if (!('pullConflict' in d)) why = 'conflict-aware pull (stash or discard local changes)'
         result = {
           version: String(d.version ?? ''),
           outdated: why !== '',

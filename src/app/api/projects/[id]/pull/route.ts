@@ -10,6 +10,10 @@ import { proxyProjectAction } from '@/lib/route-decision';
 import { invalidateUpdateCache } from '@/lib/git-update-check';
 import { probeRemoteAgentHealth } from '@/lib/agent-health';
 import { isValidBranchName, switchGitBranch } from '@/lib/git-branches';
+import {
+  parsePullConflict, sanitizeConflictFiles, discardTrackedChanges, removeUntrackedBlockers,
+  stashLocalChanges, popStash, isValidPullStrategy,
+} from '@/lib/pull-conflict';
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
 // are console-subsystem programs — from a console-less dashboard server
@@ -48,11 +52,21 @@ function isValidRepoUrl(url: string): boolean {
  * POST /api/projects/:id/pull — one-click `git pull` for a project with a
  * configured GitHub repository.
  *
- * Optional JSON body: `{ "branch": "feature-x" }` — first switches the
- * checkout to that branch (git checkout, or checkout -b tracking
- * origin/<branch> for remote-only branches; uncommitted changes are never
- * touched — git refuses clobbering checkouts) and then pulls it. Without a
- * body (or with the CURRENT branch) this behaves exactly like before.
+ * Optional JSON body:
+ *   { "branch": "feature-x" } — switches the checkout to that branch first
+ *   { "strategy": "stash" | "force", "modified": [...], "untracked": [...] } —
+ *     conflict resolution chosen in the UI after a 409 { conflict: true }
+ *     answer (the file lists are the 409's own lists, round-tripped):
+ *     - "stash": git stash --include-untracked → pull → git stash pop
+ *       (local changes are KEPT and re-applied; pop conflicts are reported
+ *       as stashConflict without failing the pull)
+ *     - "force": discard ONLY the listed blocking files (git checkout HEAD
+ *       -- / clean) and take the remote version — irreversible for those
+ *       files, but unrelated local edits are preserved
+ *
+ * When the pull is blocked by local changes the answer is 409 with
+ * { conflict: true, modified, untracked } so the frontend can ask the user
+ * instead of dead-ending on git's raw stderr.
  *
  * Local project: runs the git commands in the project directory here.
  * Remote project: proxies to the device agent's
@@ -98,13 +112,31 @@ async function handlePull(
   // Optional { branch } body — validated before it reaches any git argv.
   // A missing/empty body keeps the legacy same-branch pull behaviour.
   let branch = '';
+  // Conflict-resolution strategy + the exact blocking file lists from the
+  // earlier 409 (round-tripped by the conflict dialog). Untrusted input —
+  // both go through the shared validators.
+  let strategy: 'force' | 'stash' | null = null;
+  let modifiedFiles: string[] = [];
+  let untrackedFiles: string[] = [];
   try {
     const body = await req.json();
     if (body && typeof body.branch === 'string') branch = body.branch.trim();
+    if (body && isValidPullStrategy(body.strategy)) strategy = body.strategy;
+    modifiedFiles = sanitizeConflictFiles(body?.modified);
+    untrackedFiles = sanitizeConflictFiles(body?.untracked);
   } catch { /* no body / not JSON — plain pull */ }
   if (branch && !isValidBranchName(branch)) {
     return NextResponse.json(
       { error: `Invalid branch name: ${branch.slice(0, 80)}` },
+      { status: 400 },
+    );
+  }
+  // "force" without the exact blocking file lists would mean discarding
+  // EVERYTHING (or nothing) — the UI always sends the lists; a bare force
+  // request is rejected rather than guessed at.
+  if (strategy === 'force' && modifiedFiles.length === 0 && untrackedFiles.length === 0) {
+    return NextResponse.json(
+      { error: 'Force pull requires the blocking file lists from a conflict answer (modified/untracked)' },
       { status: 400 },
     );
   }
@@ -124,11 +156,16 @@ async function handlePull(
     // the link. The agent treats a body repoUrl as the highest-priority
     // source for wiring up a missing 'origin' (v1.9.0+; older agents ignore
     // the extra field harmlessly).
-    const proxyBody: Record<string, string> = {};
+    const proxyBody: Record<string, unknown> = {};
     if (branch) proxyBody.branch = branch;
     if (isValidRepoUrl(project.repoUrl || '')) {
       proxyBody.repoUrl = String(project.repoUrl).trim();
     }
+    // Conflict resolution (v1.17 agents): pass the chosen strategy + the
+    // blocking file lists through — older agents ignore the extra fields.
+    if (strategy) proxyBody.strategy = strategy;
+    if (modifiedFiles.length > 0) proxyBody.modified = modifiedFiles;
+    if (untrackedFiles.length > 0) proxyBody.untracked = untrackedFiles;
     const result = await proxyProjectAction(
       project.deviceId,
       `/projects/${id}/pull`,
@@ -156,6 +193,11 @@ async function handlePull(
         },
         { status: 404 },
       );
+    } else if (result.status === 409 && result.data?.conflict) {
+      // v1.17 agent: the pull on that machine is blocked by local changes —
+      // pass the file lists through so THIS dashboard's UI can offer the
+      // stash / discard / cancel choice instead of a dead-end error.
+      return NextResponse.json(result.data, { status: 409 });
     } else if (result.status === 404 && result.data?.error === 'Project not found') {
       // The agent ANSWERED (it has the route) but its own DB has no such row:
       // a dash-managed mirror row (the code lives on that machine's dashboard
@@ -243,11 +285,49 @@ async function handlePull(
     );
   }
 
+  // ---- Conflict-resolution strategies (LOCAL projects) ----
+  // Applied BEFORE the switch/pull so both the checkout and merge phases
+  // run on a tree the strategy just unblocked.
+  const strategyNotes: string[] = [];
+  let stashedForPull = false;
+  if (strategy === 'force') {
+    try {
+      const n1 = await discardTrackedChanges(project.path, modifiedFiles);
+      if (n1) strategyNotes.push(`[dashboard] ${n1}`);
+      const n2 = await removeUntrackedBlockers(project.path, untrackedFiles);
+      if (n2) strategyNotes.push(`[dashboard] ${n2}`);
+    } catch (e: any) {
+      return NextResponse.json(
+        {
+          error: 'Discarding the local changes failed',
+          detail: String(e?.stderr || e?.message || '').trim().slice(0, 400),
+          repo: sanitizeUrl(project.repoUrl),
+        },
+        { status: 500 },
+      );
+    }
+  } else if (strategy === 'stash') {
+    try {
+      stashedForPull = await stashLocalChanges(project.path, new Date().toISOString());
+      if (stashedForPull) strategyNotes.push('[dashboard] stashed local changes (--include-untracked)');
+    } catch (e: any) {
+      return NextResponse.json(
+        {
+          error: 'Stashing the local changes failed',
+          detail: String(e?.stderr || e?.message || '').trim().slice(0, 400),
+          repo: sanitizeUrl(project.repoUrl),
+        },
+        { status: 500 },
+      );
+    }
+  }
+
   try {
     // Optional branch switch BEFORE the pull (checkout / checkout -b track
     // origin/<branch>). Uncommitted local changes are never stashed or
     // overwritten — git itself refuses a clobbering checkout and that error
-    // is surfaced to the caller.
+    // is surfaced to the caller (as a 409 with file lists when it is the
+    // conflict class — the UI then offers stash/discard).
     let switchedTo = '';
     if (branch) {
       let currentBranch = '';
@@ -269,6 +349,27 @@ async function handlePull(
         }).catch(() => { /* offline — switchGitBranch reports the miss */ });
         const sw = await switchGitBranch(project.path, branch);
         if (!sw.ok) {
+          // The clobbering-checkout class becomes a 409 with the file lists.
+          const cf = parsePullConflict(String(sw.error || ''));
+          if (cf) {
+            await logActivity({
+              type: 'pull', level: 'warn',
+              message: `Pull blocked by local changes: ${project.name}`,
+              projectId: project.id, projectName: project.name,
+              detail: [...cf.modified, ...cf.untracked].slice(0, 20).join(', ').slice(0, 300),
+            });
+            return NextResponse.json(
+              {
+                error: 'Local changes block the checkout/pull',
+                conflict: true,
+                modified: cf.modified,
+                untracked: cf.untracked,
+                detail: String(sw.error || '').slice(0, 600),
+                hint: 'Stash the local changes (kept, restored after the pull) or discard them and take the remote version',
+              },
+              { status: 409 },
+            );
+          }
           await logActivity({
             type: 'pull',
             level: 'error',
@@ -277,6 +378,8 @@ async function handlePull(
             projectName: project.name,
             detail: sw.error?.slice(0, 300) || 'git checkout error',
           });
+          // Stash strategy: restore the user's changes before failing out.
+          if (stashedForPull) await popStash(project.path).catch(() => {});
           return NextResponse.json(
             { error: `git checkout ${branch} failed`, detail: sw.error, repo: sanitizeUrl(project.repoUrl) },
             { status: 500 },
@@ -418,6 +521,7 @@ async function handlePull(
     const output = [
       switchedTo ? `[dashboard] switched to branch '${switchedTo}'` : '',
       originRepaired ? `[dashboard] ${originRepaired} → ${sanitizeUrl(project.repoUrl)}` : '',
+      ...strategyNotes,
       (stdout || stderr || '').trim(),
     ].filter(Boolean).join('\n');
     // Locale-independent up-to-date detection: git output text ("Already up
@@ -429,13 +533,39 @@ async function handlePull(
     // Fresh HEAD now matches the remote — drop the stale "behind" hint.
     invalidateUpdateCache([project.id]);
 
+    // Stash strategy, final step — re-apply the user's local changes on top
+    // of the pulled code. A conflicting pop does NOT fail the pull: the code
+    // IS updated and the changes are safe in the stash entry (git keeps it);
+    // surface stashConflict so the UI can tell the user exactly that.
+    let stashConflict = false;
+    let stashPartial = false;
+    let stashDetail = '';
+    if (stashedForPull) {
+      const pop = await popStash(project.path);
+      if (pop.ok) {
+        strategyNotes.push('[dashboard] re-applied stashed local changes');
+        if (pop.partial) {
+          stashPartial = true;
+          stashDetail = pop.detail;
+          strategyNotes.push(`[dashboard] ${pop.detail}`);
+        }
+      } else {
+        stashConflict = true;
+        stashDetail = pop.detail;
+      }
+    }
+
     await logActivity({
       type: 'pull',
-      level: 'success',
+      level: stashConflict ? 'warn' : 'success',
       message: `Pulled ${project.name}${switchedTo ? ` → ${switchedTo}` : ''}${range}`,
       projectId: project.id,
       projectName: project.name,
-      detail: upToDate ? 'Already up to date' : output.split('\n').slice(-3).join(' · ').slice(0, 300),
+      detail: stashConflict
+        ? `Pulled, but restoring the stashed local changes hit conflicts — they are kept in the git stash (${stashDetail.slice(0, 200)})`
+        : stashPartial
+          ? `Pulled; local changes re-applied (${stashDetail.slice(0, 200)})`
+          : upToDate ? 'Already up to date' : output.split('\n').slice(-3).join(' · ').slice(0, 300),
     });
 
     return NextResponse.json({
@@ -444,12 +574,46 @@ async function handlePull(
       before,
       after,
       ...(switchedTo ? { switchedTo } : {}),
+      ...(stashedForPull ? { stashRestored: !stashConflict } : {}),
+      ...(stashPartial ? { stashPartial, stashDetail: stashDetail.slice(0, 600) } : {}),
+      ...(stashConflict ? { stashConflict, stashDetail: stashDetail.slice(0, 600) } : {}),
       summary: (upToDate ? 'Already up to date' : before || after ? `${before} → ${after}` : 'done')
         + (switchedTo ? ` @ ${switchedTo}` : ''),
-      output: output.slice(0, 4000),
+      output: [...strategyNotes, (stdout || stderr || '').trim()].filter(Boolean).join('\n').slice(0, 4000),
     });
   } catch (e: any) {
     const detail = String(e?.stderr || e?.stdout || e?.message || '').trim().slice(0, 400);
+
+    // Stash strategy, failure path — restore the user's changes before
+    // reporting (nothing was lost, the tree is back to its pre-pull state).
+    if (stashedForPull) await popStash(project.path).catch(() => {});
+
+    // The blocked-by-local-changes class becomes a 409 carrying the exact
+    // file lists — the UI opens the conflict dialog (stash / discard /
+    // cancel) instead of dead-ending on git's raw stderr.
+    const cf = parsePullConflict(String(e?.stderr || e?.stdout || e?.message || ''));
+    if (cf) {
+      await logActivity({
+        type: 'pull',
+        level: 'warn',
+        message: `Pull blocked by local changes: ${project.name}`,
+        projectId: project.id,
+        projectName: project.name,
+        detail: [...cf.modified, ...cf.untracked].slice(0, 20).join(', ').slice(0, 300),
+      });
+      return NextResponse.json(
+        {
+          error: 'Local changes block the pull',
+          conflict: true,
+          modified: cf.modified,
+          untracked: cf.untracked,
+          detail: detail || undefined,
+          hint: 'Stash the local changes (kept, restored after the pull) or discard them and take the remote version',
+        },
+        { status: 409 },
+      );
+    }
+
     await logActivity({
       type: 'pull',
       level: 'error',

@@ -23,6 +23,7 @@ import {
   EyeOff, KeyRound, Sparkles, Radio,
   ShieldAlert, ShieldCheck, ShieldX, Minimize2,
   UserPlus, Github, GitPullRequest,
+  Archive,
 } from 'lucide-react'
 
 import {
@@ -2918,12 +2919,14 @@ interface BranchInfo {
  *  checkout / checkout -b tracking origin) and then pulls it. Uncommitted
  *  changes are never clobbered; git refuses such checkouts and the error
  *  is surfaced verbatim. */
-function BranchPickerDialog({ project, open, onClose, onSwitched }: {
+function BranchPickerDialog({ project, open, onClose, onSwitched, onPullConflict }: {
   project: Project | null
   open: boolean
   onClose: () => void
   /** Post-success refresh (versions/updates/projects). */
   onSwitched?: () => void
+  /** Local changes block the checkout/pull — open the shared conflict dialog. */
+  onPullConflict?: (p: Project, branch: string | undefined, data: any) => void
 }) {
   const t = useT()
   const { toast } = useToast()
@@ -2996,6 +2999,14 @@ function BranchPickerDialog({ project, open, onClose, onSwitched }: {
         })
         onSwitched?.()
         onClose()
+      } else if (data?.conflict && (Array.isArray(data.modified) || Array.isArray(data.untracked))) {
+        // Local changes block the checkout/pull — hand the file lists to the
+        // shared conflict dialog (stash / discard / cancel) instead of a
+        // dead-end error, and close the picker to avoid stacked dialogs.
+        if (project) onPullConflict?.(project, selected, data)
+        setSwitching(false)
+        onClose()
+        return
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
         toast({ title: t('dlg.branch.switchFailed'), description: summarizeError(String(data?.error || '')) + detail, detail: String(data?.detail || ''), variant: 'destructive' })
@@ -3097,6 +3108,108 @@ function BranchPickerDialog({ project, open, onClose, onSwitched }: {
             </div>
           </>
         )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * Pull-conflict dialog (v1.17): `git pull` refused to clobber local changes
+ * and the API answered 409 { conflict, modified, untracked }. Instead of
+ * dead-ending on git's raw stderr, ASK the user how to proceed:
+ *   - Stash: git stash --include-untracked → pull → git stash pop (kept)
+ *   - Force: discard ONLY the listed files, take the remote (irreversible)
+ *   - Cancel: resolve by hand
+ * The file lists are scrollable; the strategies explain exactly what they do.
+ */
+function PullConflictDialog({ conflict, busy, onResolve, onClose }: {
+  conflict: {
+    projectId: string
+    projectName: string
+    branch?: string
+    modified: string[]
+    untracked: string[]
+    detail?: string
+  } | null
+  busy: 'stash' | 'force' | null
+  onResolve: (strategy: 'stash' | 'force') => void
+  onClose: () => void
+}) {
+  const t = useT()
+  const busyNow = busy !== null
+  const fileRow = (f: string, i: number, kind: 'modified' | 'untracked') => (
+    <li key={`${kind}:${i}:${f}`} className="flex items-start gap-1.5 py-0.5 break-all">
+      <span className={kind === 'modified' ? 'text-amber-600 dark:text-amber-400 shrink-0' : 'text-rose-600 dark:text-rose-400 shrink-0'}>•</span>
+      <span className="font-mono text-[11px] leading-4">{f}</span>
+    </li>
+  )
+  return (
+    <Dialog open={!!conflict} onOpenChange={(o) => { if (!o && !busyNow) onClose() }}>
+      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
+            {t('dlg.pullConflict.title')}
+          </DialogTitle>
+          <DialogDescription>
+            {t('dlg.pullConflict.desc')}
+            {conflict?.branch ? <span className="ml-1 font-mono text-xs">({conflict.projectName} → {conflict.branch})</span> : null}
+          </DialogDescription>
+        </DialogHeader>
+
+        {conflict && (
+          <div className="space-y-3 min-h-0 overflow-y-auto pr-1">
+            {conflict.modified.length > 0 && (
+              <div>
+                <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.modified')} · {conflict.modified.length}</div>
+                <ul className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 max-h-40 overflow-y-auto">
+                  {conflict.modified.map((f, i) => fileRow(f, i, 'modified'))}
+                </ul>
+              </div>
+            )}
+            {conflict.untracked.length > 0 && (
+              <div>
+                <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.untracked')} · {conflict.untracked.length}</div>
+                <ul className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 max-h-40 overflow-y-auto">
+                  {conflict.untracked.map((f, i) => fileRow(f, i, 'untracked'))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2 pt-1">
+          <Button
+            className="w-full justify-start text-left h-auto py-2.5"
+            disabled={busyNow}
+            onClick={() => onResolve('stash')}
+          >
+            <div className="flex items-center gap-2">
+              {busy === 'stash' ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <Archive className="h-4 w-4 shrink-0" />}
+              <div className="flex flex-col items-start">
+                <span className="text-sm font-medium">{busy === 'stash' ? t('dlg.pullConflict.stashing') : t('dlg.pullConflict.stash')}</span>
+                <span className="text-xs font-normal text-muted-foreground">{t('dlg.pullConflict.stashDesc')}</span>
+              </div>
+            </div>
+          </Button>
+          <Button
+            variant="destructive"
+            className="w-full justify-start text-left h-auto py-2.5"
+            disabled={busyNow}
+            onClick={() => onResolve('force')}
+          >
+            <div className="flex items-center gap-2">
+              {busy === 'force' ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <Trash2 className="h-4 w-4 shrink-0" />}
+              <div className="flex flex-col items-start">
+                <span className="text-sm font-medium">{busy === 'force' ? t('dlg.pullConflict.forcing') : t('dlg.pullConflict.force')}</span>
+                <span className="text-xs font-normal text-destructive/80">{t('dlg.pullConflict.forceDesc')}</span>
+              </div>
+            </div>
+          </Button>
+          <Button variant="ghost" className="w-full" disabled={busyNow} onClick={onClose}>
+            {t('dlg.pullConflict.cancel')}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   )
@@ -4045,7 +4158,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch, onPullConflict
 }: {
   project: Project | null
   open: boolean
@@ -4060,6 +4173,8 @@ function DetailSheet({
   onEdit?: (p: Project) => void
   /** Open the switch-branch picker (branch detect + checkout + pull). */
   onSwitchBranch?: (p: Project) => void
+  /** Local changes block the pull — open the shared conflict dialog. */
+  onPullConflict?: (p: Project, branch: string | undefined, data: any) => void
   /** Git snapshot — same source as the card's version chip. */
   version?: ProjectVersion | null
   /** Remote-repo freshness — hint states render an "update available" pill. */
@@ -4268,6 +4383,10 @@ function DetailSheet({
           variant: 'success',
         })
         onRefresh?.()
+      } else if (data?.conflict && (Array.isArray(data.modified) || Array.isArray(data.untracked))) {
+        // Local changes block the pull — open the shared conflict dialog
+        // (stash / discard / cancel) instead of a dead-end error toast.
+        if (project) onPullConflict?.(project, undefined, data)
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
         // No `error` in the body = non-JSON response (crashed route) — hint
@@ -4282,7 +4401,7 @@ function DetailSheet({
     } finally {
       setPulling(false)
     }
-  }, [project, pulling, toast, onRefresh, t])
+  }, [project, pulling, toast, onRefresh, onPullConflict, t])
 
   React.useEffect(() => {
     if (project && (activeTab === 'activity' || activeTab === 'deployments') && open) {
@@ -6582,6 +6701,18 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // Ref mirror of the set above: guards double-clicks in the same tick (the
   // state check only takes effect after a re-render).
   const pullingProjectIdsRef = React.useRef<Set<string>>(new Set())
+  // Pull-conflict dialog (v1.17): a pull blocked by local changes answered
+  // 409 { conflict, modified, untracked } — this state renders the shared
+  // dialog that asks stash / discard / cancel instead of dead-ending.
+  const [pullConflict, setPullConflict] = React.useState<{
+    projectId: string
+    projectName: string
+    branch?: string
+    modified: string[]
+    untracked: string[]
+    detail?: string
+  } | null>(null)
+  const [pullConflictBusy, setPullConflictBusy] = React.useState<'stash' | 'force' | null>(null)
   // Per-env in-flight operations (envId → action). Drives the progress
   // spinners on env rows and blocks duplicate clicks while an operation runs.
   const [pendingEnvOps, setPendingEnvOps] = React.useState<Record<string, string>>({})
@@ -7587,6 +7718,92 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     }
   }, [toast, fetchProjects, devices, startHarnessAnalysis])
 
+  // Pull blocked by local changes → shared conflict dialog (v1.17). Called
+  // from all three pull surfaces (card row, detail sheet, branch picker).
+  const openPullConflict = React.useCallback((project: Project, branch: string | undefined, data: any) => {
+    const modified = Array.isArray(data?.modified) ? data.modified.map((f: unknown) => String(f).slice(0, 400)) : []
+    const untracked = Array.isArray(data?.untracked) ? data.untracked.map((f: unknown) => String(f).slice(0, 400)) : []
+    if (modified.length === 0 && untracked.length === 0) return
+    setPullConflict({
+      projectId: project.id,
+      projectName: project.name,
+      branch,
+      modified,
+      untracked,
+      detail: data?.detail ? String(data.detail).slice(0, 600) : undefined,
+    })
+  }, [])
+
+  // The conflict dialog's chosen strategy → re-run the pull with it.
+  //   stash: git stash --include-untracked → pull → git stash pop
+  //   force: discard ONLY the listed blocking files, then pull
+  // A NEW 409 (git can reveal more blockers after the first batch clears)
+  // refreshes the dialog instead of closing it.
+  const handleResolvePullConflict = React.useCallback(async (strategy: 'stash' | 'force') => {
+    if (!pullConflict || pullConflictBusy) return
+    setPullConflictBusy(strategy)
+    const { projectId, branch, modified, untracked } = pullConflict
+    try {
+      const res = await fetch(`/api/projects/${projectId}/pull`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ strategy, branch, modified, untracked }),
+        signal: AbortSignal.timeout(5 * 60_000),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        if (data.stashConflict) {
+          // Pull OK, but the stash pop conflicted: changes are SAFE in the
+          // stash entry — tell the user exactly where they are.
+          toast({
+            title: t('dlg.pullConflict.stashConflictTitle'),
+            description: t('dlg.pullConflict.stashConflictDesc'),
+            detail: String(data.stashDetail || ''),
+            variant: 'destructive',
+            duration: 15000,
+          })
+        } else if (data.stashPartial) {
+          // Pull OK, tracked changes restored; the former untracked blockers
+          // are now tracked — their local copies stay in the stash entry.
+          toast({
+            title: data.upToDate ? t('dlg.detail.pullUpToDate') : t('dlg.detail.pullSuccess'),
+            description: t('dlg.pullConflict.stashPartialDesc'),
+            detail: String(data.stashDetail || ''),
+            variant: 'default',
+            duration: 12000,
+          })
+        } else {
+          toast({
+            title: data.upToDate ? t('dlg.detail.pullUpToDate') : t('dlg.detail.pullSuccess'),
+            description: strategy === 'stash'
+              ? t('dlg.pullConflict.stashRestored')
+              : data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`,
+            variant: 'success',
+          })
+        }
+        setPullConflict(null)
+        fetchProjects()
+        fetchProjectVersions()
+        fetchProjectUpdates({ refresh: true })
+      } else if (data?.conflict && (Array.isArray(data.modified) || Array.isArray(data.untracked))) {
+        // More blockers surfaced — refresh the dialog's file lists.
+        openPullConflict({ id: projectId, name: pullConflict.projectName, repoUrl: '' } as Project, branch, data)
+        toast({ title: t('dlg.pullConflict.updated'), variant: 'default' })
+      } else {
+        toast({
+          title: t('dlg.detail.pullFailed'),
+          description: summarizeError(String(data?.error || '')) + (data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''),
+          detail: String(data?.error || '') + (data.detail ? `\n${data.detail}` : ''),
+          variant: 'destructive',
+        })
+      }
+    } catch (e: any) {
+      toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
+    } finally {
+      setPullConflictBusy(null)
+    }
+  }, [pullConflict, pullConflictBusy, toast, t, fetchProjects, fetchProjectVersions, fetchProjectUpdates, openPullConflict])
+
   // One-click `git pull --ff-only` for a local project with a configured repo
   // (POST /api/projects/:id/pull). Optional `branch` switches the checkout
   // first (git checkout + pull — the switch-branch picker's action). Shows a
@@ -7595,7 +7812,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // spinner and blocks double-clicks — a ref guard blocks the second click in
   // the same tick (before re-render). The update check is refreshed with
   // ?refresh=1 so a just-pulled card drops its "behind" pill immediately
-  // (no 5-min cache lag).
+  // (no 5-min cache lag). A 409 conflict answer opens the shared conflict
+  // dialog (stash / discard / cancel) instead of a dead-end error.
   const handlePullProject = React.useCallback(async (project: Project, branch?: string) => {
     if (!project.repoUrl) return
     // Remote projects pull THROUGH this dashboard (the API proxies to the
@@ -7624,6 +7842,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         fetchProjects()
         fetchProjectVersions()
         fetchProjectUpdates({ refresh: true })
+      } else if (data?.conflict && (Array.isArray(data.modified) || Array.isArray(data.untracked))) {
+        // Local changes block the pull — open the shared conflict dialog
+        // (stash / discard / cancel) instead of a dead-end error toast.
+        openPullConflict(project, branch, data)
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
         // Agent-version upgrade hint (the pull route probes the agent's
@@ -7643,7 +7865,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       pullingProjectIdsRef.current.delete(project.id)
       setPullingProjectIds((prev) => { const next = new Set(prev); next.delete(project.id); return next })
     }
-  }, [toast, fetchProjects, fetchProjectVersions, fetchProjectUpdates, t])
+  }, [toast, fetchProjects, fetchProjectVersions, fetchProjectUpdates, openPullConflict, t])
 
   const handleMoveProject = React.useCallback(async (projectId: string, targetDeviceId: string | null) => {
     try {
@@ -9745,6 +9967,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         devices={devices}
         onOpenDeviceManagement={() => setDeviceManagementOpen(true)}
         onReanalyze={handleReanalyzeProject}
+        onPullConflict={openPullConflict}
       />
 
       {/* Gateway monitor */}
@@ -9765,6 +9988,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           fetchProjectVersions()
           fetchProjectUpdates({ refresh: true })
         }}
+        onPullConflict={openPullConflict}
+      />
+      {/* Pull blocked by local changes — ask stash / discard / cancel (v1.17) */}
+      <PullConflictDialog
+        conflict={pullConflict}
+        busy={pullConflictBusy}
+        onResolve={handleResolvePullConflict}
+        onClose={() => setPullConflict(null)}
       />
       <RepairDialog
         jobId={repairJobId}
