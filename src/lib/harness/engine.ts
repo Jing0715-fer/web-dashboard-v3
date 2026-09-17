@@ -33,8 +33,8 @@ import { isUnsafeAnalysisPath, isSelfOrAncestorPath, SELF_PROJECT_PATH } from '@
 const DSH_BIN = resolve(process.cwd(), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js');
 const DSH_HOME = resolve(process.cwd(), '.dsh-home');
 const GATEWAY_KEY = 'local-gateway-key';
-const ATTEMPT_TIMEOUT_MS = 8 * 60 * 1000; // per dsh run
-const STALL_KILL_MS = 5 * 60 * 1000; // no activity at all → kill the attempt
+const ATTEMPT_TIMEOUT_MS = 10 * 60 * 1000; // per dsh run — a Windows cold "next dev" compile alone takes 2-4 min
+const STALL_KILL_MS = 6 * 60 * 1000; // no activity at all → kill (cmd hard-cap 3 min + slow LLM think)
 const MAX_ATTEMPTS = 3;
 const LOG_DIR = join(tmpdir(), 'harness-agent-logs');
 /** Terminal-session snapshots, used to rebuild sessions after a restart. */
@@ -257,20 +257,20 @@ function buildTask(s: AnalysisSession, feedback?: string): string {
 
 Steps you MUST complete:
 1. Inspect the project files (package.json, bun.lock, config files, README) to understand the stack, scripts, and how it starts. Also note the tech stack (framework + language + key libraries) — you will use it to write the "description" field.
-2. If dependencies are missing or incomplete, install them with the project's own package manager (bun install / npm install / pip install -r requirements.txt / go mod download etc).
+2. If dependencies are missing or incomplete, install them with the project's own package manager (bun install / npm install / pip install -r requirements.txt / go mod download etc). Installs often exceed the 3-minute command cap: run them DETACHED from your shell (run_in_background:true and poll with job_output, or "nohup ... > install.log 2>&1 &" / Start-Process with redirected logs) and check progress with short commands.
 3. Choose a "dev" startup command and a free port. NEVER use port 3000 (reserved for the dashboard itself) and NEVER use ports 3100-3105 (reserved for the mesh agent service)${s.usedPorts.length > 0 ? ` and never use these already-assigned ports: ${usedPorts}` : ''}.
 4. PRE-FLIGHT CLEANUP before starting any server: if the project has a .next/dev/lock file, a dev server for this project is (or was) already running — read the file, get the owning PID (JSON field "pid"), KILL that process tree first (Windows: taskkill /PID <pid> /T /F, otherwise kill -9 <pid>) and only THEN delete the lock file. NEVER delete .next/dev/lock while its process is still alive: two dev servers sharing one .next directory deadlock and every HTTP request then hangs forever. EXCEPTION: if the lock file is under "${SELF_PROJECT_PATH}" it belongs to the dashboard you are running inside — do NOT read, kill, or delete anything there, just pick a different port. Also verify the port you chose is actually free.
-5. VERIFY the dev startup command ACTUALLY WORKS: run it in the background and poll the port in a SHORT LOOP (one curl/TCP check per 5-10 seconds, print every result) for up to 240 seconds. On Windows the FIRST compile of "next dev" regularly takes 2-4 minutes — TCP connects but HTTP still hangs means compilation is in progress: KEEP POLLING, do NOT restart the server, do NOT touch .next/dev/lock. Read the process output/log to diagnose real failures.
+5. VERIFY the dev startup command ACTUALLY WORKS: start it DETACHED from your shell (Windows: Start-Process with -RedirectStandardOutput/-RedirectStandardError to log files; Unix: run_in_background:true or "nohup ... &"), then check readiness with ONE SHORT COMMAND PER CHECK — NEVER a while/for loop, NEVER one command that runs longer than 60 seconds. Windows PowerShell check (the -TimeoutSec 5 is MANDATORY — a compiling Next.js dev server accepts the TCP connection but never answers, and an unguarded Invoke-WebRequest hangs FOREVER): (try { (Invoke-WebRequest -Uri 'http://127.0.0.1:<PORT>/' -UseBasicParsing -TimeoutSec 5).StatusCode } catch { 'not-ready' }). Unix check: curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1:<PORT>/. Between checks sleep in a SEPARATE short command (Start-Sleep -Seconds 15 / sleep 15). On Windows the FIRST compile of "next dev" regularly takes 2-4 minutes — keep checking every ~15s for up to ~6 minutes total; TCP connects but HTTP hangs means compilation is in progress: KEEP POLLING, do NOT restart the server, do NOT touch .next/dev/lock. Read the server log files you redirected to diagnose real failures.
 6. If it fails, DEBUG: read the error output, fix the problem (install missing packages, adjust the command or the port, fix trivial config issues), and retry. Keep iterating until the service successfully responds on its port.
-7. Determine the PRODUCTION startup — ONLY AFTER the dev verification passed: check package.json (or equivalent) for build/start scripts. If they exist, run the production build once (npm run build / bun run build, budget ~3 minutes), then verify the production start command (e.g. npm run start) on a DIFFERENT port (dev port + 1 unless taken). If the production build or start fails, debug briefly (max 2 fix attempts — install missing deps, fix trivial issues); if it still fails, still include a best-guess production entry (build && start with a distinct port) and mention the failure in "summary". If you already spent more than ~4 minutes in total, SKIP the production build entirely and return the best-guess production entry instead. If the project has NO build script at all, use the dev command with NODE_ENV=production on a distinct port as the production entry.
+7. Determine the PRODUCTION startup — ONLY AFTER the dev verification passed: check package.json (or equivalent) for build/start scripts. If they exist, run the production build ONCE in the BACKGROUND (Windows: Start-Process with redirected logs; Unix: "npm run build > build.log 2>&1 &") and poll the log/process with short commands — a foreground build hits the 3-minute command cap and is killed. Budget ~3 minutes of polling; if it still has not finished, stop it and use a best-guess production entry, mentioning the failure in "summary". If it finishes, verify the production start command (e.g. npm run start) on a DIFFERENT port (dev port + 1 unless taken) using the same one-short-check-per-command pattern. If the production start fails, debug briefly (max 2 fix attempts — install missing deps, fix trivial issues); if it still fails, still include a best-guess production entry (build && start with a distinct port) and mention the failure in "summary". If you already spent more than ~6 minutes in total, SKIP the production build entirely and return the best-guess production entry instead. If the project has NO build script at all, use the dev command with NODE_ENV=production on a distinct port as the production entry.
 8. STOP every process you started (kill them all) so all ports are free again.
 9. Finally, reply with ONLY a JSON object (no markdown fences, no extra text):
 {"projectName":"...","description":"2-3 short sentences describing what this project IS and does: its purpose, the tech stack (framework/language/key libraries), and how it runs. Plain text, no markdown.","repoUrl":"the https:// URL of the git remote origin (run: git remote get-url origin) converted to https form, or "" if there is no remote — never include tokens","icon":"one of folder,globe,code,database,smartphone,shopping-cart,layout,palette,cpu,book-open,music,gamepad-2,bar-chart,shield,camera,map,cloud,terminal,rocket,puzzle,package,zap,laptop,atom,flame,server","summary":"what you did, problems found and fixed, production verification result","environments":[{"name":"dev","cmd":"the verified command","port":NUMBER,"envVars":{"KEY":"value"}},{"name":"production","cmd":"the production command (build && start when possible)","port":NUMBER,"envVars":{"NODE_ENV":"production","KEY":"value"}}]}
 
 Rules:
-- BUDGET DISCIPLINE (a supervisor kills runs that go silent): keep exploration MINIMAL — read package.json and the main entry file(s), at most ~8 files total. NEVER read node_modules, lockfiles, test files, or docs. Aim for ≤ 35 tool calls overall.${selfGuardRules}- Time budget: dev boot wait ≤ 240s (poll in a short loop — never one long sleep; on Windows the first "next dev" compile takes 2-4 minutes), production build ≤ 3 min, overall target ≤ 6 minutes. If you are running out of budget, STOP exploring and return your best current valid JSON immediately — a partially verified config is far better than a timeout.
+- BUDGET DISCIPLINE (a supervisor kills runs that go silent): keep exploration MINIMAL — read package.json and the main entry file(s), at most ~8 files total. NEVER read node_modules, lockfiles, test files, or docs. Aim for ≤ 35 tool calls overall.${selfGuardRules}- Time budget: overall target ≤ 8 minutes (hard supervisor timeout 10). On Windows allow up to ~6 minutes of short readiness checks for the first "next dev" compile (2-4 minutes is NORMAL). If you are running out of budget, STOP exploring and return your best current valid JSON immediately — a partially verified config is far better than a timeout.
 - If a port you chose is occupied, either kill the occupying process (ONLY if it clearly belongs to the project you are analyzing) or move to the next free port. NEVER kill the process on port 3000 or anything under "${SELF_PROJECT_PATH}". Do NOT retry the same port in a loop.
-- A supervisor KILLS the whole attempt after 5 minutes of total silence: never run a command that blocks without printing anything for more than ~2 minutes (the production build is the ONLY exception). For every wait, loop with short sleeps and print each iteration.
+- A supervisor KILLS the whole attempt after 6 minutes of total silence, and the executor hard-caps every foreground command at 3 minutes: keep EVERY foreground command under 60 seconds — readiness checks and sleeps are always separate short commands. Long work (installs, builds, dev servers) runs detached/background (run_in_background:true, nohup &, Start-Process) and is polled with short commands or job_output. NEVER wrap an HTTP readiness check in a while loop and never call Invoke-WebRequest without -TimeoutSec — a compiling Next.js server accepts TCP but never answers, and the unguarded call hangs forever.
 - NEVER run the production build before the dev verification passed, and NEVER delete .next/dev/lock without first killing the PID inside it.
 - The environments array MUST contain BOTH the verified "dev" entry AND a "production" entry, using DIFFERENT ports (e.g. dev=4001, production=4002).
 - The production command must be a single shell command; combine build+start with && (e.g. "npm run build && npm run start"). Use bun run instead of npm run if the project uses bun.
@@ -308,7 +308,23 @@ function writeTaskPatch(llmBaseUrl: string, attemptFile: string): string {
 
 - id: bash-sandbox
   config:
-    timeoutMs: 600000
+    timeoutMs: 120000
+    maxTimeoutMs: 180000
+
+# Windows twin of bash-sandbox (bash-sandbox is disabled on win32 and
+# vice versa — patching both keeps one patch platform-neutral).
+- id: pwsh-sandbox
+  config:
+    timeoutMs: 120000
+    maxTimeoutMs: 180000
+
+# A job_output(wait:true) call is silent from the supervisor's point of view
+# — without this cap the model can legally block for 10 minutes on one call
+# and get stall-killed for it.
+- id: tool-jobs
+  config:
+    waitTimeoutMs: 30000
+    maxWaitTimeoutMs: 45000
 
 # This host has no bwrap/landlock sandbox backend — run commands directly.
 - id: sandbox-policy
@@ -354,10 +370,13 @@ function Test-CmdlineMatch([string]$cl) {
   if ($cl.IndexOf($probe2, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) { return $true }
   return ($cl.Trim('"').Trim() -ieq $proj)
 }
-# Only kill processes that actually own a LISTENING port (spares editors'
-# language servers etc.). $null = cmdlet unavailable -> no port filter.
-$listenerPids = $null
-try { $listenerPids = @(Get-NetTCPConnection -State Listen | ForEach-Object { [int]$_.OwningProcess }) } catch { $listenerPids = $null }
+# Kill project-owned processes by command line alone. The previous
+# LISTEN-port filter let a first-boot dev server (compiling for minutes
+# before it ever listens) survive the sweep while the lock file below was
+# still deleted — the next attempt then shared .next with the zombie and
+# every request hung forever. Command-line match + executable-name filter
+# already spares editors' language servers (their argv carries extension
+# paths, not the project directory).
 $victims = @{}
 $names = @{}
 $procs = Get-CimInstance Win32_Process -Filter "Name='node.exe' OR Name='bun.exe' OR Name='npm.exe' OR Name='next.exe'"
@@ -365,19 +384,21 @@ foreach ($p in $procs) {
   $v = [int]$p.ProcessId
   if ($excl.ContainsKey($v)) { continue }
   if (-not (Test-CmdlineMatch $p.CommandLine)) { continue }
-  if ($null -ne $listenerPids -and -not ($listenerPids -contains $v)) { continue }
   $victims[$v] = $true
   $names[$v] = [string]$p.Name
 }
-# Next.js dev lock: JSON {"pid":...} of a live dev server for this project.
+# Next.js dev lock: JSON {"pid":...} of a dev server for this project. Kill the
+# lock owner REGARDLESS of listening state — that process owns .next; letting
+# it live across attempts is exactly how zombie dev servers accumulate.
 $lock = Join-Path $proj '.next\\dev\\lock'
+$lockPid = $null
 if (Test-Path $lock) {
-  $lockPid = $null
   try { $j = Get-Content $lock -Raw | ConvertFrom-Json; if ($j -and $j.pid) { $lockPid = [int]$j.pid } } catch {}
-  if ($lockPid -and -not $excl.ContainsKey($lockPid)) {
+  if ($lockPid -and -not $excl.ContainsKey($lockPid) -and -not $victims.ContainsKey($lockPid)) {
     $lp = Get-CimInstance Win32_Process -Filter "ProcessId=$lockPid"
-    if ($lp -and $lp.Name -match '^(node|bun|next|npm)\\.exe$' -and ($null -eq $listenerPids -or ($listenerPids -contains $lockPid))) {
-      if (-not $victims.ContainsKey($lockPid)) { $victims[$lockPid] = $true; $names[$lockPid] = "$($lp.Name) (next dev lock)" }
+    if ($lp -and $lp.Name -match '^(node|bun|next|npm|cmd|powershell|pwsh)\\.exe$') {
+      $victims[$lockPid] = $true
+      $names[$lockPid] = "$($lp.Name) (next dev lock)"
     }
   }
 }
@@ -385,7 +406,15 @@ foreach ($v in @($victims.Keys)) {
   Write-Output ("KILL " + $v + " " + $names[$v])
   & taskkill /PID $v /T /f 2>$null | Out-Null
 }
-if (Test-Path $lock) { Remove-Item $lock -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Milliseconds 800
+# Delete the lock ONLY when its owner is really gone. A surviving owner plus
+# a deleted lock is exactly how two dev servers end up sharing one .next and
+# deadlocking every HTTP request.
+if (Test-Path $lock) {
+  $alive = $false
+  if ($lockPid) { if (Get-Process -Id $lockPid -ErrorAction SilentlyContinue) { $alive = $true } }
+  if (-not $alive) { Remove-Item $lock -Force -ErrorAction SilentlyContinue }
+}
 `;
 
 /**
@@ -455,7 +484,7 @@ function sweepWindowsOrphans(s: AnalysisSession, why: string): Promise<number> {
         '-File', script, '-ProjPath', projPath, '-ExcludePids', exclude.join(','),
       ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
       let out = '';
-      const timer = setTimeout(() => { try { child.kill(); } catch {} }, 10_000);
+      const timer = setTimeout(() => { try { child.kill(); } catch {} }, 15_000);
       timer.unref?.();
       child.stdout!.on('data', (c: Buffer) => { out += c.toString(); });
       child.on('error', () => { clearTimeout(timer); resolve(0); });
@@ -775,11 +804,22 @@ function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: stri
   if (s.attempt < s.maxAttempts) {
     const tail = stdout.trim().slice(-600) || lastProgressTail(s, 600) || '(no output)';
     const stallNote = s.stalledAttempt === s.attempt
-      ? 'The previous attempt STALLED — no agent activity for 5 minutes and the supervisor killed it (likely a hung command or a blocking wait). Avoid long blocking sleeps; poll with short sleeps instead. '
+      ? 'The previous attempt STALLED — no agent activity for 6 minutes and the supervisor killed it (likely a hung command or an unguarded network call). Never wrap a readiness check in a while-loop and never run one foreground command longer than 60 seconds; poll with separate short commands instead. '
+      : '';
+    // Facts from the dead attempt — without this the retry burns half its
+    // budget re-reading package.json, .env and re-checking ports it already
+    // knows (the classic 3-timeout cascade on slow Windows machines).
+    const facts = s.progress
+      .filter((p) => p.attempt === s.attempt && (p.kind === 'command' || p.kind === 'file' || p.kind === 'note'))
+      .slice(-30)
+      .map((p) => `- ${p.text.replace(/\s+/g, ' ').slice(0, 110)}`)
+      .join('\n');
+    const factsBlock = facts
+      ? `\nFACTS the previous attempt already established (trust them, do NOT re-read these files or re-run these checks — continue from where it stopped):\n${facts}\n`
       : '';
     pushProgress(s, 'error', `第 ${s.attempt} 次尝试未返回有效配置，准备重试`);
     setTimeout(() => {
-      if (!s.cancelled && s.status === 'running') runAttempt(s, `${stallNote}${issueFeedback}The previous attempt exited with code ${code} and its final output was not a valid JSON config. Last output:\n${tail}`);
+      if (!s.cancelled && s.status === 'running') runAttempt(s, `${stallNote}${issueFeedback}The previous attempt exited with code ${code} and its final output was not a valid JSON config.${factsBlock}Last output:\n${tail}`);
     }, 1500);
   } else {
     s.status = 'failed';
@@ -883,7 +923,7 @@ export function startAnalysis(
 
   // Live progress poller — tails the dsh session event log, and doubles as
   // the stall supervisor: an agent with no log growth, no stdout and no
-  // progress events for 5 minutes is considered hung.
+  // progress events for 6 minutes is considered hung.
   s.poller = setInterval(() => {
     if (s.status !== 'running') {
       clearInterval(s.poller);
