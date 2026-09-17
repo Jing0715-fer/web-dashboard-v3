@@ -330,18 +330,41 @@ async function finishZaiCompletion(completion: any, wantsStream: boolean): Promi
   return { kind: 'sse-stream', data: singleBurst(JSON.stringify(completion)) };
 }
 
-/** Wrap a byte stream as a text ReadableStream (SSE passthrough). */
+/** Wrap a byte stream as a text ReadableStream (SSE passthrough).
+ *
+ * KEEPALIVE-INJECTED: a proxy provider that takes minutes before its first
+ * token (long prompts on a busy deepseek-class backend are exactly that)
+ * leaves the downstream SSE pipe byte-silent, and the agent-side stream-idle
+ * watchdog (dsh, 2.5 min) kills the call even though the upstream is alive
+ * and working. Heartbeat comments every 15s — same trick as the z-ai path —
+ * keep the pipe warm without altering the SSE payload for consumers. */
 function bodyThroughText(body: ReadableStream<Uint8Array>): ReadableStream<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
+  let keepAlive: any = null;
+  const armKeepalive = (enqueue: (s: string) => void) => {
+    clearInterval(keepAlive);
+    keepAlive = setInterval(() => enqueue(': keepalive\n\n'), 15000);
+  };
   return new ReadableStream<string>({
     async pull(controller) {
+      const enqueue = controller.enqueue.bind(controller);
       const { done, value } = await reader.read();
-      if (done) { controller.close(); return; }
+      if (done) {
+        clearInterval(keepAlive);
+        controller.close();
+        return;
+      }
       const text = decoder.decode(value, { stream: true });
-      if (text) controller.enqueue(text);
+      if (text) {
+        enqueue(text);
+        armKeepalive(enqueue);
+      }
     },
-    cancel(reason) { try { reader.cancel(reason); } catch { /* already closed */ } },
+    cancel(reason) {
+      clearInterval(keepAlive);
+      try { reader.cancel(reason); } catch { /* already closed */ }
+    },
   });
 }
 

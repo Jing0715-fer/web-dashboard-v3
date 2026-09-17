@@ -35,6 +35,18 @@ const DSH_HOME = resolve(process.cwd(), '.dsh-home');
 const GATEWAY_KEY = 'local-gateway-key';
 const ATTEMPT_TIMEOUT_MS = 10 * 60 * 1000; // per dsh run — a Windows cold "next dev" compile alone takes 2-4 min
 const STALL_KILL_MS = 6 * 60 * 1000; // no activity at all → kill (cmd hard-cap 3 min + slow LLM think)
+/** Stall grace BEFORE the attempt's first sign of life. dsh writes NOTHING
+ *  while its first LLM call is in flight (the session log only records
+ *  completed tool calls/turns), so a cold-start model call on a busy backend
+ *  legitimately looks "silent" for minutes — killing it at the normal stall
+ *  deadline is how attempt 2 of the cryoflow run died having produced zero
+ *  events. The dsh patch bounds the hang itself (streamIdleTimeoutMs +
+ *  1 retry ≈ ≤5.3 min), so this grace only ever buys startup slack. */
+const FIRST_STALL_KILL_MS = 8 * 60 * 1000;
+/** LLM gateway pre-check (before each attempt spawn): one tiny completion. */
+const LLM_PRECHECK_TIMEOUT_MS = 45_000;
+/** Total time the pre-check waits for an unresponsive gateway before giving up and spawning anyway. */
+const LLM_PRECHECK_WAIT_MS = 3 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const LOG_DIR = join(tmpdir(), 'harness-agent-logs');
 /** Terminal-session snapshots, used to rebuild sessions after a restart. */
@@ -106,6 +118,13 @@ export interface AnalysisSession {
   lastActivityAt: number;
   /** Attempt number that was killed for stalling (fed back into the retry prompt). */
   stalledAttempt: number | null;
+  /** True when the stall kill happened before ANY sign of life — the retry
+   *  feedback then names the unresponsive LLM backend instead of loops. */
+  stalledNoEvent: boolean;
+  /** True once the CURRENT attempt produced any sign of life (stdout/stderr
+   *  bytes or session-log growth). Drives the longer first-response stall
+   *  grace — dsh is legitimately silent while its first LLM call is in flight. */
+  attemptAlive: boolean;
   /** Warn-once flag for the 2-minute inactivity note. */
   stalledNote: boolean;
   /** True for lightweight sessions rebuilt from RESULTS_DIR after a restart. */
@@ -203,6 +222,7 @@ function pollDshLog(s: AnalysisSession) {
     if (size <= s.lastLogSize && size !== 0) return;
     s.lastLogSize = size;
     s.lastActivityAt = Date.now(); // log file grew → the agent is alive
+    s.attemptAlive = true; // current attempt produced output
     let text = '';
     try { text = readZstdFrames(file); } catch { return; }
     const lines = text.split('\n').filter(l => l.trim());
@@ -260,7 +280,7 @@ Steps you MUST complete:
 2. If dependencies are missing or incomplete, install them with the project's own package manager (bun install / npm install / pip install -r requirements.txt / go mod download etc). Installs often exceed the 3-minute command cap: run them DETACHED from your shell (run_in_background:true and poll with job_output, or "nohup ... > install.log 2>&1 &" / Start-Process with redirected logs) and check progress with short commands.
 3. Choose a "dev" startup command and a free port. NEVER use port 3000 (reserved for the dashboard itself) and NEVER use ports 3100-3105 (reserved for the mesh agent service)${s.usedPorts.length > 0 ? ` and never use these already-assigned ports: ${usedPorts}` : ''}.
 4. PRE-FLIGHT CLEANUP before starting any server: if the project has a .next/dev/lock file, a dev server for this project is (or was) already running — read the file, get the owning PID (JSON field "pid"), KILL that process tree first (Windows: taskkill /PID <pid> /T /F, otherwise kill -9 <pid>) and only THEN delete the lock file. NEVER delete .next/dev/lock while its process is still alive: two dev servers sharing one .next directory deadlock and every HTTP request then hangs forever. EXCEPTION: if the lock file is under "${SELF_PROJECT_PATH}" it belongs to the dashboard you are running inside — do NOT read, kill, or delete anything there, just pick a different port. Also verify the port you chose is actually free.
-5. VERIFY the dev startup command ACTUALLY WORKS: start it DETACHED from your shell (Windows: Start-Process with -RedirectStandardOutput/-RedirectStandardError to log files; Unix: run_in_background:true or "nohup ... &"), then check readiness with ONE SHORT COMMAND PER CHECK — NEVER a while/for loop, NEVER one command that runs longer than 60 seconds. Windows PowerShell check (the -TimeoutSec 5 is MANDATORY — a compiling Next.js dev server accepts the TCP connection but never answers, and an unguarded Invoke-WebRequest hangs FOREVER): (try { (Invoke-WebRequest -Uri 'http://127.0.0.1:<PORT>/' -UseBasicParsing -TimeoutSec 5).StatusCode } catch { 'not-ready' }). Unix check: curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1:<PORT>/. Between checks sleep in a SEPARATE short command (Start-Sleep -Seconds 15 / sleep 15). On Windows the FIRST compile of "next dev" regularly takes 2-4 minutes — keep checking every ~15s for up to ~6 minutes total; TCP connects but HTTP hangs means compilation is in progress: KEEP POLLING, do NOT restart the server, do NOT touch .next/dev/lock. Read the server log files you redirected to diagnose real failures.
+5. VERIFY the dev startup command ACTUALLY WORKS: start it DETACHED from your shell (Windows: Start-Process with -RedirectStandardOutput/-RedirectStandardError to log files; Unix: run_in_background:true or "nohup ... &"), then check readiness with ONE SHORT COMMAND PER CHECK — NEVER a while/for loop, NEVER one command that runs longer than 60 seconds. Windows PowerShell check (the -TimeoutSec 5 is MANDATORY — a compiling Next.js dev server accepts the TCP connection but never answers, and an unguarded Invoke-WebRequest hangs FOREVER): (try { (Invoke-WebRequest -Uri 'http://127.0.0.1:<PORT>/' -UseBasicParsing -TimeoutSec 5).StatusCode } catch { 'not-ready' }). Unix check: curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1:<PORT>/. Between checks sleep in a SEPARATE short command (Start-Sleep -Seconds 15 / sleep 15). On Windows the FIRST compile of "next dev" regularly takes 2-4 minutes — keep checking every ~15s for up to ~6 minutes total; TCP connects but HTTP hangs means compilation is in progress: KEEP POLLING, do NOT restart the server, do NOT touch .next/dev/lock. If the server is still not ready after 4-5 checks, read the TAIL of the redirected dev-server log (Get-Content <log> -Tail 40 / tail -n 40) — an in-progress compile shows progress lines, a real failure shows the error. NEVER start a production build (next build / npm run build / bun run build) to diagnose or "pre-verify" a slow dev server: builds take minutes, burn the whole budget, and tell you nothing the dev log doesn't.
 6. If it fails, DEBUG: read the error output, fix the problem (install missing packages, adjust the command or the port, fix trivial config issues), and retry. Keep iterating until the service successfully responds on its port.
 7. Determine the PRODUCTION startup — ONLY AFTER the dev verification passed: check package.json (or equivalent) for build/start scripts. If they exist, run the production build ONCE in the BACKGROUND (Windows: Start-Process with redirected logs; Unix: "npm run build > build.log 2>&1 &") and poll the log/process with short commands — a foreground build hits the 3-minute command cap and is killed. Budget ~3 minutes of polling; if it still has not finished, stop it and use a best-guess production entry, mentioning the failure in "summary". If it finishes, verify the production start command (e.g. npm run start) on a DIFFERENT port (dev port + 1 unless taken) using the same one-short-check-per-command pattern. If the production start fails, debug briefly (max 2 fix attempts — install missing deps, fix trivial issues); if it still fails, still include a best-guess production entry (build && start with a distinct port) and mention the failure in "summary". If you already spent more than ~6 minutes in total, SKIP the production build entirely and return the best-guess production entry instead. If the project has NO build script at all, use the dev command with NODE_ENV=production on a distinct port as the production entry.
 8. STOP every process you started (kill them all) so all ports are free again.
@@ -269,6 +289,8 @@ Steps you MUST complete:
 
 Rules:
 - BUDGET DISCIPLINE (a supervisor kills runs that go silent): keep exploration MINIMAL — read package.json and the main entry file(s), at most ~8 files total. NEVER read node_modules, lockfiles, test files, or docs. Aim for ≤ 35 tool calls overall.${selfGuardRules}- Time budget: overall target ≤ 8 minutes (hard supervisor timeout 10). On Windows allow up to ~6 minutes of short readiness checks for the first "next dev" compile (2-4 minutes is NORMAL). If you are running out of budget, STOP exploring and return your best current valid JSON immediately — a partially verified config is far better than a timeout.
+- CONTEXT HYGIENE (a supervisor also kills you when your LLM calls take too long, and every oversized tool result makes EVERY later call slower): when reading ANY log file ALWAYS tail it (Windows: Get-Content <log> -Tail 40; Unix: tail -n 40 <log>) — NEVER cat / Get-Content a whole log, a lockfile, or anything that could be large. An agent that swallowed a full build log made every following LLM call take minutes and died mid-call.
+- SPAWN VISIBILITY: when starting any background process (dev server, install, build) always pass ABSOLUTE paths for BOTH the executable and any node_modules binary — Windows example: Start-Process -FilePath "node.exe" -ArgumentList "D:\\absolute\\project\\node_modules\\next\\dist\\bin\\next","dev","-p","<PORT>". Relative paths (node_modules\\next\\dist\\bin\\next) make the process INVISIBLE to the supervisor's cleanup sweep, so it survives this run, corrupts .next, and breaks every retry after you.
 - If a port you chose is occupied, either kill the occupying process (ONLY if it clearly belongs to the project you are analyzing) or move to the next free port. NEVER kill the process on port 3000 or anything under "${SELF_PROJECT_PATH}". Do NOT retry the same port in a loop.
 - A supervisor KILLS the whole attempt after 6 minutes of total silence, and the executor hard-caps every foreground command at 3 minutes: keep EVERY foreground command under 60 seconds — readiness checks and sleeps are always separate short commands. Long work (installs, builds, dev servers) runs detached/background (run_in_background:true, nohup &, Start-Process) and is polled with short commands or job_output. NEVER wrap an HTTP readiness check in a while loop and never call Invoke-WebRequest without -TimeoutSec — a compiling Next.js server accepts TCP but never answers, and the unguarded call hangs forever.
 - NEVER run the production build before the dev verification passed, and NEVER delete .next/dev/lock without first killing the PID inside it.
@@ -291,6 +313,25 @@ function writeTaskPatch(llmBaseUrl: string, attemptFile: string): string {
         apiKeyEnv: ZAI_GATEWAY_KEY
         api: openai-completions
         baseURL: ${llmBaseUrl.replace(/\/$/, '')}
+        # Bound hung upstream streams. Default is 5 MINUTES of silence before
+        # dsh itself gives up — one dead LLM call could legally out-sit the
+        # supervisor's stall watchdog (6 min) while the agent produces zero
+        # events (the cryoflow attempt-2 death: killed mid first-LLM-call).
+        # 2.5 min + the single retry below ≈ ≤5.3 min worst-case silence,
+        # under the stall kill; streaming + gateway keepalives keep slow
+        # but LIVE generations from tripping this.
+        streamIdleTimeoutMs: 150000
+        # Fail fast (one retry, short backoff) instead of dsh's default 5
+        # retries: a hung or rate-limited call then surfaces as a loud agent
+        # error the engine can retry at the ATTEMPT level, instead of silent
+        # multi-minute stalls.
+        retryPolicy:
+          mode: normal
+          maxRetries: 1
+          backoff:
+            initialDelayMs: 2000
+            maxDelayMs: 15000
+            jitterRatio: 0.2
         compat:
           supportsDeveloperRole: false
           supportsUsageInStreaming: false
@@ -352,7 +393,8 @@ function killTree(pid: number | undefined) {
  *  on purpose: PowerShell 5.1 reads BOM-less .ps1 files as the system codepage. */
 const SWEEP_PS1 = `param(
   [string]$ProjPath,
-  [string]$ExcludePids = ''
+  [string]$ExcludePids = '',
+  [long]$SinceMs = 0
 )
 $ErrorActionPreference = 'SilentlyContinue'
 $proj = $ProjPath.TrimEnd('\\').TrimEnd('/')
@@ -386,6 +428,57 @@ foreach ($p in $procs) {
   if (-not (Test-CmdlineMatch $p.CommandLine)) { continue }
   $victims[$v] = $true
   $names[$v] = [string]$p.Name
+}
+# ---- class 3: orphans of THIS analysis run ----
+# Relative-path spawns (Start-Process -ArgumentList "node_modules\\next\\dist\\bin\\next","build")
+# carry no project path in their command line, so the path match above cannot
+# see them — and they escape the engine's tree kill because Start-Process
+# detaches them from the dsh process tree once the spawning pwsh exits (it
+# runs one command per invocation). A leftover "next build" then races every
+# later attempt's .next forever (the cryoflow cascade).
+# SAFE discriminator, all three must hold:
+#   - created AFTER the analysis session started (CreationDate gate), and
+#   - node/bun/npm/next executable with a framework-CLI marker in the
+#     command line (next / node_modules / npx), and
+#   - the parent chain hits a DEAD pid within 3 hops. Anything started from
+#     a live terminal roots at live processes (explorer/WindowsTerminal/ssh)
+#     and is spared; the dashboard's own workers root at a live excluded
+#     pid and are spared. PID reuse turns a kill into a miss (chain walks
+#     into a live process) — the safe direction.
+if ($SinceMs -gt 0) {
+  $since = $null
+  try { $since = [DateTimeOffset]::FromUnixTimeMilliseconds($SinceMs).LocalDateTime } catch {}
+  if ($since) {
+    $all = @(Get-CimInstance Win32_Process)
+    $byId = @{}
+    foreach ($q in $all) { $byId[[int]$q.ProcessId] = $q }
+    foreach ($q in $all) {
+      if ($q.Name -ne 'node.exe' -and $q.Name -ne 'bun.exe' -and $q.Name -ne 'npm.exe' -and $q.Name -ne 'next.exe') { continue }
+      $v = [int]$q.ProcessId
+      if ($excl.ContainsKey($v)) { continue }
+      if ($victims.ContainsKey($v)) { continue }
+      if (-not $q.CreationDate -or $q.CreationDate -lt $since) { continue }
+      $cl = [string]$q.CommandLine
+      if (-not $cl) { continue }
+      if ($cl.IndexOf('next', [System.StringComparison]::OrdinalIgnoreCase) -lt 0 -and $cl.IndexOf('node_modules', [System.StringComparison]::OrdinalIgnoreCase) -lt 0 -and $cl.IndexOf('npx', [System.StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
+      $cur = $q
+      $hops = 0
+      $orphan = $false
+      while ($hops -lt 3) {
+        $hops++
+        $pp = [int]$cur.ParentProcessId
+        if ($pp -le 0) { break }
+        if ($excl.ContainsKey($pp) -and $byId.ContainsKey($pp)) { break }
+        $parent = $byId[$pp]
+        if (-not $parent) { $orphan = $true; break }
+        $cur = $parent
+      }
+      if ($orphan) {
+        $victims[$v] = $true
+        $names[$v] = [string]$q.Name + ' (orphaned by analysis)'
+      }
+    }
+  }
 }
 # Next.js dev lock: JSON {"pid":...} of a dev server for this project. Kill the
 # lock owner REGARDLESS of listening state — that process owns .next; letting
@@ -436,11 +529,17 @@ function killProjectOrphans(s: AnalysisSession, why: string): Promise<number> {
       // kill the dashboard server / its node_modules workers). Canonicalized
       // compare — see self-guard.ts (case/symlink-hardened).
       if (isSelfOrAncestorPath(s.path) || myCwd === s.path || myCwd.startsWith(s.path + '/')) { resolve(0); return; }
+      // NEVER kill the CURRENT attempt's dsh: it spawns with cwd = project
+      // path, so a cwd-matching sweep fired around an attempt transition
+      // would SIGTERM the brand-new dsh of the NEXT attempt (found live in
+      // E2E: attempts 2/3 died instantly with no session and no output —
+      // the previous attempt's delayed exit sweep had shot them).
+      const ownPid = s.child?.pid;
       const victims: number[] = [];
       for (const ent of readdirSync('/proc')) {
         if (!/^\d+$/.test(ent)) continue;
         const pid = Number(ent);
-        if (pid === process.pid) continue;
+        if (pid === process.pid || pid === ownPid) continue;
         try {
           const cwd = readlinkSync(join('/proc', ent, 'cwd'));
           if (cwd === s.path) victims.push(pid);
@@ -462,9 +561,14 @@ function killProjectOrphans(s: AnalysisSession, why: string): Promise<number> {
 
 /** Windows implementation of the orphan sweep (taskkill via PowerShell). */
 function sweepWindowsOrphans(s: AnalysisSession, why: string): Promise<number> {
+  // path.resolve OUTSIDE the promise executor: the executor parameter used to
+  // shadow it, so `resolve(s.path)` resolved the PROMISE and left projPath
+  // undefined — the function then threw immediately and the catch swallowed
+  // it, making the ENTIRE Windows sweep a silent no-op (orphan dev servers
+  // and builds survived every attempt; the cryoflow cascade).
+  const projPath = resolve(s.path);
   return new Promise((resolve) => {
     try {
-      const projPath = resolve(s.path);
       const norm = (p: string) => p.toLowerCase().replace(/\\/g, '/');
       const nProj = norm(projPath);
       const nMine = norm(process.cwd());
@@ -482,6 +586,9 @@ function sweepWindowsOrphans(s: AnalysisSession, why: string): Promise<number> {
       const child = spawn('powershell.exe', [
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
         '-File', script, '-ProjPath', projPath, '-ExcludePids', exclude.join(','),
+        // Session start gate for the class-3 orphan detection: only processes
+        // CREATED during this analysis may be killed as run-orphans.
+        '-SinceMs', String(s.createdAt),
       ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
       let out = '';
       const timer = setTimeout(() => { try { child.kill(); } catch {} }, 15_000);
@@ -647,21 +754,68 @@ function runAttempt(s: AnalysisSession, feedback?: string) {
   enqueueRun(s, () => startAttempt(s, feedback));
 }
 
+/** Probe the LLM gateway with a tiny completion before burning an attempt.
+ *
+ * dsh is completely silent while an LLM call is in flight (its session log
+ * only records completed tool calls/turns), so an unresponsive backend turns
+ * a whole attempt into 6-8 minutes of nothing — the cryoflow attempt-2 death
+ * (killed having produced ZERO events). Pinging first costs one cheap
+ * completion on a healthy backend and converts "spawn into a dead provider"
+ * into a bounded, VISIBLE wait. Never blocks forever: gives up after
+ * LLM_PRECHECK_WAIT_MS and spawns anyway (best effort). */
+async function precheckLlmGateway(s: AnalysisSession, attemptNo: number): Promise<void> {
+  const url = `${s.llmBaseUrl.replace(/\/$/, '')}/chat/completions`;
+  const probe = async (): Promise<boolean> => {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GATEWAY_KEY}` },
+        body: JSON.stringify({
+          model: 'glm-4-plus',
+          messages: [{ role: 'user', content: 'gateway health probe' }],
+          max_tokens: 8,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(LLM_PRECHECK_TIMEOUT_MS),
+      });
+      return res.ok;
+    } catch { return false; }
+  };
+  if (await probe()) return; // healthy → no delay
+  pushProgress(s, 'note', `LLM 网关预检未通过 — 第 ${attemptNo} 次尝试暂缓，等待后端恢复（最多 ${Math.round(LLM_PRECHECK_WAIT_MS / 60000)} 分钟，期间可安全取消）`);
+  const deadline = Date.now() + LLM_PRECHECK_WAIT_MS;
+  while (Date.now() < deadline && !s.cancelled) {
+    await new Promise((r) => setTimeout(r, 20_000));
+    if (s.cancelled || s.status !== 'running') return;
+    if (await probe()) {
+      pushProgress(s, 'note', 'LLM 网关已恢复 — 继续启动');
+      return;
+    }
+  }
+  pushProgress(s, 'note', 'LLM 网关仍未恢复 — 仍将启动本次尝试（若持续无响应会被看门狗终止并重试）');
+}
+
 async function startAttempt(s: AnalysisSession, feedback?: string): Promise<void> {
   // A session cancelled while still queued must never spawn a run.
   if (s.cancelled) return;
   s.attempt += 1;
   s.lastLogSize = 0;
   s.lastEventLine = 0;
-  s.lastActivityAt = Date.now();
   s.stalledNote = false;
+  s.attemptAlive = false;
+  s.stalledNoEvent = false;
   // Clear orphans from a previous attempt BEFORE spawning — awaited so the
   // retry truly starts with free ports (on Windows this runs taskkill on
   // leftover dev servers; a zombie holding .next/dev/lock or the port is
   // the #1 cause of retry failures and "port occupied" cascades).
   await killProjectOrphans(s, `第 ${s.attempt} 次尝试前清扫`);
   if (s.cancelled) return; // cancelled while the sweep was running
+  // One cheap probe first: never spawn a fresh dsh into a dead LLM backend.
+  await precheckLlmGateway(s, s.attempt);
+  if (s.cancelled || s.status !== 'running') return;
   pushProgress(s, 'start', `第 ${s.attempt}/${s.maxAttempts} 次分析启动（deepseek-harness agent）`);
+  // Stall clock starts HERE (after sweep + pre-check), not at attempt entry.
+  s.lastActivityAt = Date.now();
 
   const task = buildTask(s, feedback);
   const logFile = join(LOG_DIR, `${s.id}-attempt${s.attempt}.log`);
@@ -671,13 +825,13 @@ async function startAttempt(s: AnalysisSession, feedback?: string): Promise<void
   const child = spawn('node', [DSH_BIN, '--profile', 'headless', '--patch', patchFile, task], {
     cwd: s.path,
     env: (() => {
-      const env: Record<string, string> = {
+      const env: NodeJS.ProcessEnv = {
         ...process.env,
         DSH_HOME,
         ZAI_GATEWAY_KEY: GATEWAY_KEY,
         DSH_TELEMETRY_DISABLED: '1',
         DSH_PERMISSION_MODE: 'danger-full-access',
-      } as Record<string, string>;
+      } as NodeJS.ProcessEnv;
       // The Next.js dev server mutates process.env AT RUNTIME (PORT=<dev port>
       // for its build workers, TURBOPACK=1, …). Passing those through hijacks
       // analyzed projects that read process.env.PORT onto the dashboard's own
@@ -702,10 +856,12 @@ async function startAttempt(s: AnalysisSession, feedback?: string): Promise<void
   child.stdout!.on('data', (c: Buffer) => {
     stdout += c.toString();
     s.lastActivityAt = Date.now();
+    s.attemptAlive = true; // dsh printed something — the run is alive
     try { appendFileSync(logFile, c); } catch {}
   });
   child.stderr!.on('data', (c: Buffer) => {
     s.lastActivityAt = Date.now();
+    s.attemptAlive = true;
     try { appendFileSync(logFile, c); } catch {}
     const line = c.toString().trim();
     if (line && !line.startsWith('dsh: ')) pushProgress(s, 'note', line.slice(0, 140));
@@ -759,13 +915,19 @@ function lastProgressTail(s: AnalysisSession, max: number): string {
 /** Shared exit path: evaluate output, sanitize, retry or finish, persist. */
 function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: string) {
   s.child = null;
-  // Final sweep regardless of outcome — the task tells the agent to stop its
-  // servers, but a supervisor-side guarantee is worth more than a promise.
-  setTimeout(() => { void killProjectOrphans(s, '会话收尾校验'); }, 2000).unref?.();
+  // Exit sweep — scheduled ONLY on the terminal branches below. The retry
+  // branch must NOT schedule one: the next dsh spawns ~1.5-4s later with
+  // cwd = project path, and a cwd-matching sweep fired around that moment
+  // SIGTERMs the brand-new attempt (found live in E2E: attempts 2/3 died
+  // instantly, no session, no output). The retry path re-sweeps inside
+  // startAttempt BEFORE spawning, which is the race-free place for it.
+  const exitSweep = () =>
+    setTimeout(() => { void killProjectOrphans(s, '会话收尾校验'); }, 2000).unref?.();
   if (s.cancelled) {
     s.status = 'cancelled';
     pushProgress(s, 'error', '已取消');
     persistResult(s);
+    exitSweep();
     return;
   }
   pollDshLog(s);
@@ -792,9 +954,11 @@ function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: stri
         s.applyOutcome = { pending: true };
         persistResult(s);
         void autoApplyResult(s);
+        exitSweep();
         return;
       }
       persistResult(s);
+      exitSweep();
       return;
     }
     // Parsed, but sanitization dropped every environment — retry with the
@@ -804,18 +968,24 @@ function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: stri
   if (s.attempt < s.maxAttempts) {
     const tail = stdout.trim().slice(-600) || lastProgressTail(s, 600) || '(no output)';
     const stallNote = s.stalledAttempt === s.attempt
-      ? 'The previous attempt STALLED — no agent activity for 6 minutes and the supervisor killed it (likely a hung command or an unguarded network call). Never wrap a readiness check in a while-loop and never run one foreground command longer than 60 seconds; poll with separate short commands instead. '
+      ? (s.stalledNoEvent
+        ? 'The previous attempt produced NO output at all — it never received its first LLM response (the backend was unresponsive) and the supervisor killed it. The gateway has been re-checked before this attempt. Keep your exploration minimal and, if calls feel slow, return your best-guess valid JSON earlier rather than later. '
+        : 'The previous attempt STALLED — no agent activity for 6 minutes and the supervisor killed it (likely a hung command, an oversized tool result, or an unguarded network call). Never wrap a readiness check in a while-loop and never run one foreground command longer than 60 seconds; poll with separate short commands instead. Also NEVER read whole log files — oversized tool results make every later LLM call take minutes and the agent dies mid-call. ')
       : '';
-    // Facts from the dead attempt — without this the retry burns half its
-    // budget re-reading package.json, .env and re-checking ports it already
-    // knows (the classic 3-timeout cascade on slow Windows machines).
+    // Facts from the dead attempts — ACCUMULATED across ALL prior attempts,
+    // not just the last one: a no-event attempt (killed waiting for its first
+    // LLM response) has an empty progress list, and feeding ONLY that to the
+    // retry threw away everything attempt 1 learned — the next attempt then
+    // re-read package.json/.env and re-checked ports (the cryoflow attempt-3
+    // behavior). Tag each fact with its attempt so the model can tell stale
+    // from fresh.
     const facts = s.progress
-      .filter((p) => p.attempt === s.attempt && (p.kind === 'command' || p.kind === 'file' || p.kind === 'note'))
-      .slice(-30)
-      .map((p) => `- ${p.text.replace(/\s+/g, ' ').slice(0, 110)}`)
+      .filter((p) => p.attempt < s.attempt && (p.kind === 'command' || p.kind === 'file' || p.kind === 'note'))
+      .slice(-45)
+      .map((p) => `- [attempt ${p.attempt}] ${p.text.replace(/\s+/g, ' ').slice(0, 110)}`)
       .join('\n');
     const factsBlock = facts
-      ? `\nFACTS the previous attempt already established (trust them, do NOT re-read these files or re-run these checks — continue from where it stopped):\n${facts}\n`
+      ? `\nFACTS earlier attempts already established (trust them, do NOT re-read these files or re-run these checks — continue from where they stopped):\n${facts}\nProcesses from earlier attempts have been swept by the supervisor, but VERIFY your chosen port is free with ONE short command before starting a server.\n`
       : '';
     pushProgress(s, 'error', `第 ${s.attempt} 次尝试未返回有效配置，准备重试`);
     setTimeout(() => {
@@ -823,9 +993,13 @@ function handleAttemptExit(s: AnalysisSession, code: number | null, stdout: stri
     }, 1500);
   } else {
     s.status = 'failed';
-    s.error = `Agent 未能生成有效的启动配置（已尝试 ${s.attempt} 次）。${issueFeedback ? `校验问题：${issueFeedback.replace(/\n/g, ' ').slice(0, 300)} ` : ''}最后输出: ${stdout.trim().slice(-400) || lastProgressTail(s, 400) || 'empty'}`;
+    const lastNoEvent = s.stalledAttempt === s.attempt && s.stalledNoEvent
+      ? `第 ${s.attempt} 次尝试自始至终没有任何输出（LLM 后端无响应，看门狗终止）。请检查 LLM 网关/Provider 可用性后重试。 `
+      : '';
+    s.error = `Agent 未能生成有效的启动配置（已尝试 ${s.attempt} 次）。${lastNoEvent}${issueFeedback ? `校验问题：${issueFeedback.replace(/\n/g, ' ').slice(0, 300)} ` : ''}最后输出: ${stdout.trim().slice(-400) || lastProgressTail(s, 400) || 'empty'}`;
     pushProgress(s, 'error', s.error);
     persistResult(s);
+    exitSweep();
   }
 }
 
@@ -913,6 +1087,8 @@ export function startAnalysis(
     poller: null,
     lastActivityAt: Date.now(),
     stalledAttempt: null,
+    stalledNoEvent: false,
+    attemptAlive: false,
     stalledNote: false,
     llmBaseUrl,
     projectId: projectId || undefined,
@@ -923,7 +1099,11 @@ export function startAnalysis(
 
   // Live progress poller — tails the dsh session event log, and doubles as
   // the stall supervisor: an agent with no log growth, no stdout and no
-  // progress events for 6 minutes is considered hung.
+  // progress events for 6 minutes is considered hung. EXCEPTION: before the
+  // attempt's FIRST sign of life the deadline is 8 minutes — dsh is
+  // legitimately silent while its first LLM call is in flight (the session
+  // log only records completed tool calls/turns), so a cold backend must not
+  // be misjudged as a stuck agent (the cryoflow attempt-2 death).
   s.poller = setInterval(() => {
     if (s.status !== 'running') {
       clearInterval(s.poller);
@@ -931,15 +1111,21 @@ export function startAnalysis(
     }
     try { pollDshLog(s); } catch { /* ignore */ }
     const idleMs = Date.now() - s.lastActivityAt;
-    if (s.child && idleMs > STALL_KILL_MS) {
+    const stallLimit = s.attemptAlive ? STALL_KILL_MS : FIRST_STALL_KILL_MS;
+    if (s.child && idleMs > stallLimit) {
       s.stalledAttempt = s.attempt;
-      pushProgress(s, 'error', `Agent 已 ${Math.round(STALL_KILL_MS / 60000)} 分钟无任何活动，判定卡死，终止本次尝试`);
+      s.stalledNoEvent = !s.attemptAlive;
+      pushProgress(s, 'error', s.attemptAlive
+        ? `Agent 已 ${Math.round(STALL_KILL_MS / 60000)} 分钟无任何活动，判定卡死，终止本次尝试`
+        : `Agent 启动后 ${Math.round(FIRST_STALL_KILL_MS / 60000)} 分钟内没有任何输出（LLM 后端无响应），终止本次尝试`);
       killTree(s.child.pid);
       setTimeout(() => { void killProjectOrphans(s, '卡死清扫'); }, 2500).unref?.();
     } else if (idleMs > 120_000) {
       if (!s.stalledNote) {
         s.stalledNote = true;
-        pushProgress(s, 'note', '（两分钟无新事件 — agent 可能正在执行安装/构建等耗时命令，继续等待）');
+        pushProgress(s, 'note', s.attemptAlive
+          ? '（两分钟无新事件 — agent 可能正在执行安装/构建等耗时命令，继续等待）'
+          : '（尚无任何输出 — agent 正在等待 LLM 首次响应，继续等待）');
       }
     } else if (idleMs < 60_000) {
       s.stalledNote = false; // activity resumed — allow a future warn
@@ -1126,6 +1312,8 @@ function restoreSessionsFromDisk(): number {
           poller: null,
           lastActivityAt: finishedAt,
           stalledAttempt: null,
+          stalledNoEvent: false,
+          attemptAlive: false,
           stalledNote: false,
           restored: true,
           llmBaseUrl: '',

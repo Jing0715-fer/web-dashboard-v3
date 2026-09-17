@@ -767,6 +767,7 @@ export const dialogs = {
   'dlg.analyze.status.failed': '失败',
   'dlg.analyze.queued': '排队中 · 第 {pos} 位',
   'dlg.analyze.attempt': '尝试 {attempt}/{max}',
+  'dlg.analyze.attemptDivider': '第 {attempt} 次尝试从这里开始 — 上方为之前尝试的记录',
   'dlg.analyze.elapsed': '{count} 秒',
   'dlg.analyze.phase.explore': '探索项目结构',
   'dlg.analyze.phase.deps': '安装依赖',

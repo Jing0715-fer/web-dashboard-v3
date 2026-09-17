@@ -350,24 +350,37 @@ export function AnalyzeWizard({
             </div>
           )}
           <AnimatePresence initial={false}>
-            {progressItems.map((p, i) => (
-              <motion.div
-                key={`${p.ts}-${i}`}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex items-start gap-2 text-xs leading-5"
-              >
-                <span className="mt-0.5 shrink-0">{kindIcon[p.kind]}</span>
-                <span className={
-                  p.kind === 'command' ? 'font-mono text-emerald-700 dark:text-emerald-300'
-                  : p.kind === 'error' ? 'text-red-500'
-                  : p.kind === 'result' ? 'text-emerald-600 dark:text-emerald-400 font-medium'
-                  : 'text-muted-foreground'
-                }>
-                  {p.text}
-                </span>
-              </motion.div>
-            ))}
+            {progressItems.map((p, i) => {
+              const prev = progressItems[i - 1]
+              const showDivider = p.attempt > 1 && prev?.attempt !== p.attempt
+              const isHistory = p.attempt < attempt
+              return (
+                <React.Fragment key={`${p.ts}-${i}`}>
+                  {showDivider && (
+                    <div className="flex items-center gap-2 pt-1.5" title={t('dlg.analyze.attemptDivider', { attempt: p.attempt })}>
+                      <span className="h-px flex-1 bg-border" />
+                      <span className="text-[10px] font-medium text-muted-foreground/80 shrink-0">{t('dlg.analyze.attemptDivider', { attempt: p.attempt })}</span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`flex items-start gap-2 text-xs leading-5${isHistory ? ' opacity-45' : ''}`}
+                  >
+                    <span className="mt-0.5 shrink-0">{kindIcon[p.kind]}</span>
+                    <span className={
+                      p.kind === 'command' ? 'font-mono text-emerald-700 dark:text-emerald-300'
+                      : p.kind === 'error' ? 'text-red-500'
+                      : p.kind === 'result' ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+                      : 'text-muted-foreground'
+                    }>
+                      {p.text}
+                    </span>
+                  </motion.div>
+                </React.Fragment>
+              )
+            })}
           </AnimatePresence>
         </div>
 

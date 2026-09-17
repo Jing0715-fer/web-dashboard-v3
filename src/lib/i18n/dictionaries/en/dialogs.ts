@@ -771,6 +771,7 @@ export const dialogs = {
   'dlg.analyze.status.failed': 'Failed',
   'dlg.analyze.queued': 'Queued · position {pos}',
   'dlg.analyze.attempt': 'Attempt {attempt}/{max}',
+  'dlg.analyze.attemptDivider': 'Attempt {attempt} starts here — items above are from earlier attempts',
   'dlg.analyze.elapsed': '{count}s',
   'dlg.analyze.phase.explore': 'Exploring project structure',
   'dlg.analyze.phase.deps': 'Installing dependencies',
