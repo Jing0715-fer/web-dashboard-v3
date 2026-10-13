@@ -93,8 +93,18 @@ export interface CliSpec {
   bin: string;
   /** Lower number = preferred when auto-detecting. */
   priority: number;
-  /** Build the shell command. All commands run with cwd = project root. */
-  buildCommand: () => CliInvocation;
+  /** Build the shell command. `exe` is the CONCRETE executable — the bare
+   * bin name when resolved from PATH, or the absolute path when resolved
+   * from a probe location (installers that never touch the service PATH).
+   * All commands run with cwd = project root; templates embed it quoted. */
+  buildCommand: (exe: string) => CliInvocation;
+  /** Extra absolute-path candidates probed when `bin` is not on PATH —
+   * covers installers that never touch a background service's PATH:
+   * Claude's native installer (~/.local/bin), bun/npm globals, Homebrew.
+   * Optional. */
+  probePaths?: () => string[];
+  /** Shown in the settings dialog next to the version (usability hints). */
+  note?: string;
 }
 
 const READ_TASK_ARG = `Read and execute the repair task file ${TASK_FILE_NAME} in the current directory, then perform the fix autonomously.`;
@@ -104,20 +114,76 @@ const READ_TASK_ARG = `Read and execute the repair task file ${TASK_FILE_NAME} i
  * wires the pipe between the two commands itself). */
 const pipeRead = () => (IS_WINDOWS ? 'type' : 'cat');
 
+/** Extra locations for the `claude` CLI (Claude Code) — probed only after
+ * the PATH lookup fails. The native installer and global-install prefixes
+ * never add themselves to a background service's PATH, which is exactly
+ * how "installed but never detected" happens. */
+function claudeCliProbePaths(): string[] {
+  const home = os.homedir();
+  const win = IS_WINDOWS;
+  const cands = [
+    join(home, '.local', 'bin', win ? 'claude.exe' : 'claude'),   // native installer
+    join(home, '.local', 'bin', win ? 'claude.cmd' : 'claude'),
+    join(home, '.claude', 'local', win ? 'claude.cmd' : 'claude'), // legacy local install
+    join(home, '.claude', 'local', 'claude'),
+    join(home, '.bun', 'bin', win ? 'claude.exe' : 'claude'),       // bun global
+    win ? join(home, 'AppData', 'Roaming', 'npm', 'claude.cmd') : '', // npm -g shim
+    win ? '' : '/opt/homebrew/bin/claude',                          // homebrew (arm)
+    win ? '' : '/usr/local/bin/claude',                             // manual / npm -g
+  ];
+  return cands.filter((p) => !!p);
+}
+
+/** Whether the Claude Desktop APP is installed on this machine. The desktop
+ * app itself cannot run headless repairs — this only feeds the "detected"
+ * list so the situation is visible; the spec's note explains that delegated
+ * repair goes through the claude CLI. */
+function claudeDesktopAppInstalled(): boolean {
+  try {
+    if (IS_WINDOWS) {
+      return existsSync(join(process.env.LOCALAPPDATA || join(os.homedir(), 'AppData', 'Local'), 'AnthropicClaude'));
+    }
+    if (process.platform === 'darwin') {
+      return existsSync('/Applications/Claude.app');
+    }
+    return false; // no official Linux desktop build
+  } catch {
+    return false;
+  }
+}
+
 export const CLI_SPECS: CliSpec[] = [
   {
     id: 'claude',
     label: 'Claude Code',
     bin: 'claude',
     priority: 1,
-    buildCommand: () => ({
+    probePaths: claudeCliProbePaths,
+    buildCommand: (exe) => ({
       // -p = headless print mode; prompt arrives via stdin pipe.
       // --output-format json → final envelope (result / is_error / num_turns).
-      primary: `${pipeRead()} ${TASK_FILE_NAME} | claude -p --output-format json --max-turns 60 --dangerously-skip-permissions`,
+      primary: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}" -p --output-format json --max-turns 60 --dangerously-skip-permissions`,
       // Some installs gate the bypass flag behind an acceptance prompt —
       // retry once with the default permission mode (edits still auto-apply
       // in -p mode; unpermitted bash just fails per-command).
-      fallback: `${pipeRead()} ${TASK_FILE_NAME} | claude -p --output-format json --max-turns 60`,
+      fallback: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}" -p --output-format json --max-turns 60`,
+    }),
+  },
+  {
+    id: 'claude-desktop',
+    label: 'Claude Desktop',
+    bin: 'claude',
+    priority: 1.5,
+    probePaths: claudeCliProbePaths,
+    note: '桌面应用无法无人值守运行 — 委托修复实际经由 claude CLI 执行（未检出 CLI 时自动回退内置引擎）',
+    buildCommand: (exe) => ({
+      // Identical to the Claude Code invocation: when this engine is chosen,
+      // repair is delegated through the claude CLI (the desktop app cannot
+      // be driven headless). resolveRepairCli only resolves this spec when
+      // that CLI actually exists — otherwise it returns null and the
+      // orchestrator falls back to the legacy engine with a logged warning.
+      primary: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}" -p --output-format json --max-turns 60 --dangerously-skip-permissions`,
+      fallback: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}" -p --output-format json --max-turns 60`,
     }),
   },
   {
@@ -125,9 +191,9 @@ export const CLI_SPECS: CliSpec[] = [
     label: 'Codex CLI',
     bin: 'codex',
     priority: 2,
-    buildCommand: () => ({
-      primary: `codex exec --dangerously-bypass-approvals-and-sandbox "${READ_TASK_ARG}"`,
-      fallback: `codex exec --full-auto "${READ_TASK_ARG}"`,
+    buildCommand: (exe) => ({
+      primary: `"${exe}" exec --dangerously-bypass-approvals-and-sandbox "${READ_TASK_ARG}"`,
+      fallback: `"${exe}" exec --full-auto "${READ_TASK_ARG}"`,
     }),
   },
   {
@@ -135,10 +201,10 @@ export const CLI_SPECS: CliSpec[] = [
     label: 'Gemini CLI',
     bin: 'gemini',
     priority: 3,
-    buildCommand: () => ({
+    buildCommand: (exe) => ({
       // Non-interactive: gemini reads piped stdin as the prompt.
-      primary: `${pipeRead()} ${TASK_FILE_NAME} | gemini`,
-      fallback: `gemini "${READ_TASK_ARG}"`,
+      primary: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}"`,
+      fallback: `"${exe}" "${READ_TASK_ARG}"`,
     }),
   },
   {
@@ -146,8 +212,8 @@ export const CLI_SPECS: CliSpec[] = [
     label: 'OpenCode',
     bin: 'opencode',
     priority: 4,
-    buildCommand: () => ({
-      primary: `opencode run "${READ_TASK_ARG}"`,
+    buildCommand: (exe) => ({
+      primary: `"${exe}" run "${READ_TASK_ARG}"`,
     }),
   },
   {
@@ -158,9 +224,9 @@ export const CLI_SPECS: CliSpec[] = [
     // Hermes CLI flags vary across forks/installers; the reference-prompt
     // form below is the common denominator. If your build differs, use a
     // custom:template with {promptFile} instead (see resolveRepairCli).
-    buildCommand: () => ({
-      primary: `hermes exec --auto-approve "${READ_TASK_ARG}"`,
-      fallback: `hermes "${READ_TASK_ARG}"`,
+    buildCommand: (exe) => ({
+      primary: `"${exe}" exec --auto-approve "${READ_TASK_ARG}"`,
+      fallback: `"${exe}" "${READ_TASK_ARG}"`,
     }),
   },
 ];
@@ -168,7 +234,9 @@ export const CLI_SPECS: CliSpec[] = [
 export interface ResolvedCli {
   id: string;
   label: string;
-  buildCommand: () => CliInvocation;
+  /** Concrete executable — bare bin name (PATH) or absolute path (probe). */
+  exe: string;
+  buildCommand: (exe: string) => CliInvocation;
 }
 
 // ============================= detection =============================
@@ -179,6 +247,19 @@ export interface DetectedCli {
   bin: string;
   found: boolean;
   version: string;
+  /** Dialog hint (e.g. claude-desktop's delegation note). Optional.
+   *  Raw backend string — the dialog prefers its localized counterpart. */
+  note?: string;
+  /** claude-desktop only: the Desktop APP is installed. For that entry
+   *  `found` means "the app exists" while `cliReady` carries whether the
+   *  claude CLI (the actual delegation vehicle) exists. */
+  appInstalled?: boolean;
+  /** TRUE only when this entry can ACTUALLY be delegated to at repair time
+   *  (the underlying CLI executable exists). For every entry except
+   *  claude-desktop this equals `found`; for claude-desktop it is the honest
+   *  signal behind the "N CLIs installed" count — an app-only install
+   *  silently degrades to the legacy engine at repair time. */
+  cliReady?: boolean;
 }
 
 async function binOnPath(bin: string): Promise<boolean> {
@@ -191,17 +272,37 @@ async function binOnPath(bin: string): Promise<boolean> {
   }
 }
 
-async function binVersion(bin: string, args: string[]): Promise<string> {
+async function binVersion(exe: string, args: string[]): Promise<string> {
+  // npm-global .cmd/.bat shims cannot be executed by CreateProcess directly —
+  // they need the shell. Plain-word args (--version) keep this safe; wrap a
+  // quoted exe so paths with spaces survive the shell round-trip. (The repair
+  // invocation itself always goes through a shell elsewhere — this is only
+  // the cosmetic version badge in the settings dialog.)
+  const isCmdScript = /\.(cmd|bat)$/i.test(exe);
   try {
-    const { stdout } = await execFileAsync(bin, args, {
+    const { stdout } = await execFileAsync(isCmdScript ? `"${exe}"` : exe, args, {
       timeout: 10_000,
       windowsHide: true,
       maxBuffer: 64 * 1024,
+      ...(isCmdScript ? { shell: true } : {}),
     });
     return (stdout || '').trim();
   } catch {
     return '';
   }
+}
+
+/** Where a spec's executable actually lives: PATH first, then the spec's
+ * probe paths (installers that never touch the service PATH). Returns the
+ * concrete exe string commands should embed, or null when absent. */
+async function resolveCliExe(spec: CliSpec): Promise<{ exe: string; source: 'path' | 'probe' } | null> {
+  if (await binOnPath(spec.bin)) return { exe: spec.bin, source: 'path' };
+  for (const p of spec.probePaths?.() ?? []) {
+    try {
+      if (existsSync(p)) return { exe: p, source: 'probe' };
+    } catch { /* keep probing */ }
+  }
+  return null;
 }
 
 /** Locate every catalog CLI on PATH (parallel, with versions). Powers both
@@ -221,16 +322,36 @@ export async function detectRepairClis(): Promise<DetectedCli[]> {
   }
   const specs = [...CLI_SPECS].sort((a, b) => a.priority - b.priority);
   const value = await Promise.all(
-    specs.map(async (spec) => {
-      const found = await binOnPath(spec.bin);
-      const version = found ? await binVersion(spec.bin, ['--version']) : '';
-      return {
+    specs.map(async (spec): Promise<DetectedCli> => {
+      const exeInfo = await resolveCliExe(spec);
+      const version = exeInfo
+        ? (await binVersion(exeInfo.exe, ['--version'])).split('\n')[0].slice(0, 80)
+        : '';
+      const base: DetectedCli = {
         id: spec.id,
         label: spec.label,
         bin: spec.bin,
-        found,
-        version: version.split('\n')[0].slice(0, 80),
+        found: !!exeInfo,
+        cliReady: !!exeInfo,
+        version,
+        note: spec.note,
       };
+      if (spec.id === 'claude-desktop') {
+        // found = the DESKTOP APP is installed (the thing this entry names
+        // and detects); cliReady = the claude CLI actually exists, i.e.
+        // delegating through this entry will really work at repair time.
+        // An app-only install must NOT count as a usable engine in the
+        // "N CLIs installed" line — it silently falls back to legacy.
+        const appInstalled = claudeDesktopAppInstalled();
+        return {
+          ...base,
+          appInstalled,
+          found: appInstalled,
+          cliReady: !!exeInfo,
+          version: version || (appInstalled ? 'desktop app' : ''),
+        };
+      }
+      return base;
     }),
   );
   detectCache = { at: Date.now(), value };
@@ -240,12 +361,17 @@ export async function detectRepairClis(): Promise<DetectedCli[]> {
 /** Resolve the configured preference into a concrete CLI.
  *
  * Accepted preference values (validated at PUT time, re-validated here):
- *   ''                    → auto: first INSTALLED CLI by priority
- *   'claude' | 'codex' | …→ that specific CLI (null if not on PATH)
+ *   ''                    → auto: first USABLE CLI by priority
+ *   'claude' | 'codex' | …→ that specific CLI (null if not installed anywhere)
  *   'custom:<template>'   → admin-provided command template; must contain
  *                           {promptFile} (relative) or {promptFileAbs}
  * Returns null when nothing usable is installed — the caller falls back to
- * the legacy tool loop (and logs that it did). */
+ * the legacy tool loop (and logs that it did).
+ *
+ * "Usable" = a concrete executable resolved from PATH or the spec's probe
+ * paths. claude-desktop resolves through the claude CLI (the desktop app
+ * cannot be driven headless) — an app-only install resolves to null here
+ * and falls back to legacy, exactly as the engine note in the dialog says. */
 export async function resolveRepairCli(prefRaw: string): Promise<ResolvedCli | null> {
   const pref = (prefRaw || '').trim();
   if (pref.startsWith('custom:')) {
@@ -254,21 +380,30 @@ export async function resolveRepairCli(prefRaw: string): Promise<ResolvedCli | n
     return {
       id: 'custom',
       label: '自定义 CLI',
+      exe: '',
       buildCommand: () => ({ primary: template }),
     };
   }
-  const detected = await detectRepairClis();
+  // claude-desktop delegates through the claude CLI (never the app binary).
+  const pick = async (spec: CliSpec): Promise<ResolvedCli | null> => {
+    const targetSpec = spec.id === 'claude-desktop'
+      ? CLI_SPECS.find((s) => s.id === 'claude') ?? spec
+      : spec;
+    const exeInfo = await resolveCliExe(targetSpec);
+    if (!exeInfo) return null;
+    return { id: spec.id, label: spec.label, exe: exeInfo.exe, buildCommand: spec.buildCommand };
+  };
+  const specs = [...CLI_SPECS].sort((a, b) => a.priority - b.priority);
   if (!pref) {
-    const first = detected.find((d) => d.found);
-    if (!first) return null;
-    const spec = CLI_SPECS.find((s) => s.id === first.id)!;
-    return { id: spec.id, label: spec.label, buildCommand: spec.buildCommand };
+    for (const spec of specs) {
+      const resolved = await pick(spec);
+      if (resolved) return resolved;
+    }
+    return null;
   }
-  const spec = CLI_SPECS.find((s) => s.id === pref);
+  const spec = specs.find((s) => s.id === pref);
   if (!spec) return null;
-  const hit = detected.find((d) => d.id === spec.id);
-  if (!hit?.found) return null;
-  return { id: spec.id, label: spec.label, buildCommand: spec.buildCommand };
+  return pick(spec);
 }
 
 /** Substitute the task-file placeholders in a custom template. Raw paths —
@@ -471,7 +606,9 @@ export async function runCliRepair(
       }
 
       // ---- 2. invoke headless (with compatibility fallback) ----
-      let invocation = cli.buildCommand();
+      // buildCommand receives the CONCRETE exe (bare name from PATH, or the
+      // absolute probe-resolved path for off-PATH installs).
+      let invocation = cli.buildCommand(cli.exe);
       // custom templates carry {promptFile} / {promptFileAbs} placeholders
       if (cli.id === 'custom') {
         invocation = { primary: expandCustomTemplate(invocation.primary, promptRel, promptAbs) };

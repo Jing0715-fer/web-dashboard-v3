@@ -173,6 +173,9 @@ export const dialogs = {
 
   // ---- LLM 配置对话框 ----
   'dlg.llm.title': 'LLM 配置',
+  'dlg.llm.sectionConnection': '连接',
+  'dlg.llm.sectionModel': '模型',
+  'dlg.llm.footerHint': '项目分析、失败自动修复与 Agent 层均使用此配置。',
   'dlg.llm.desc': '选择供应商并填入 API Key — 项目分析、失败自动修复与 Agent 层均使用此配置。',
   'dlg.llm.provider': '供应商',
   'dlg.llm.providerPlaceholder': '选择供应商',
@@ -216,6 +219,7 @@ export const dialogs = {
   'dlg.llm.repairDetecting': '检测中…',
   'dlg.llm.repairNoneDetected': '未检测到任何 Agent CLI — 保存后仍为该模式，但修复时会自动回退 legacy',
   'dlg.llm.repairDetectedCount': '检测到 {count} 个已安装 CLI',
+  'dlg.llm.cliNote.claudeDesktop': '桌面应用无法无人值守运行 — 委托修复实际经由 claude CLI 执行（未检出 CLI 时自动回退内置引擎）',
 
   // ---- LLM 自动修复对话框 ----
   'dlg.repair.title': 'AI 自动修复',
@@ -226,9 +230,13 @@ export const dialogs = {
   'dlg.repair.descStart': '{project} · {env} · 启动失败 — AI 通过探查/测试工具诊断修复，并健康验证后重试',
   'dlg.repair.creating': '正在创建修复任务…',
   'dlg.repair.notFound': '修复任务不存在（可能属于上一个服务进程）。请重新触发操作。',
+  'dlg.repair.sessionLost': '登录会话已失效',
+  'dlg.repair.sessionLostDesc': '修复轮询因会话过期/权限丢失被拒绝（401/403），无法继续读取任务进度 — 已停止轮询，避免对话框永远停留在“LLM 处理中”。',
+  'dlg.repair.sessionLostNote': '修复任务可能仍在后台运行。重新登录后刷新页面，或稍后在「活动」面板查看该次修复的结果记录。',
   'dlg.repair.diagnosis': 'LLM 诊断：',
   'dlg.repair.waiting': 'LLM 处理中，等待下一步…',
   'dlg.repair.failedTitle': '未能自动修复：',
+  'dlg.repair.watchdogTimeout': '修复引擎看门狗：连续 {minutes} 分钟无任何进展，判定引擎挂死（未预见的 spawn/await 卡住）。已强制结束本任务 — 可重新触发启动让修复重试。',
   'dlg.repair.background': '后台继续',
   'dlg.repair.logTitle': 'repair.log',
   'dlg.repair.round': '第 {round} / {max} 步',

@@ -1311,7 +1311,7 @@ function SortableProjectCardImpl({
               {/* Repo chip lives on the path line (not the title row) so the
                   title row never overflows; one-click pull stays reachable. */}
               {project.repoUrl ? (
-                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[200px]" title={pulling ? t('card.repo.pulling') : `${sanitizeGitUrl(project.repoUrl)} · ${t('card.ctx.pullLatest')}${updateTooltip ? ` · ${updateTooltip}` : ''}`} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
+                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[200px]" title={pulling ? t('card.repo.pulling') : `${sanitizeGitUrl(project.repoUrl)} · ${t('card.ctx.pullLatest')}${updateTooltip ? ` · ${updateTooltip}` : ''}`} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl ?? ""), "_blank", "noreferrer") }}>
                   {pulling ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Github className="h-3 w-3 shrink-0" />}
                   {!pulling && updateHint && <span aria-label={t('card.repo.updateAvailable')} title={updateTooltip ?? undefined} className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />}
                   <span className="truncate">{repoShortLabel(project.repoUrl)}</span>
@@ -1555,7 +1555,7 @@ function SortableProjectCardImpl({
                     </span>
                   )}
                   {project.repoUrl && (
-                    <button type="button" className="shrink-0 cursor-pointer text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" title={sanitizeGitUrl(project.repoUrl)} aria-label={t('card.ctx.pullLatest')} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer') }}>
+                    <button type="button" className="shrink-0 cursor-pointer text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" title={sanitizeGitUrl(project.repoUrl)} aria-label={t('card.ctx.pullLatest')} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl ?? ""), "_blank", "noreferrer") }}>
                       <Github className="h-3 w-3" />
                     </button>
                   )}
@@ -3038,10 +3038,20 @@ interface DetectedCliInfo {
   bin: string
   found: boolean
   version: string
+  /** Dialog hint (e.g. claude-desktop's "runs via the claude CLI" note). Raw
+   *  backend string — the dialog prefers its localized counterpart. */
+  note?: string
+  /** claude-desktop only: the desktop APP is installed. */
+  appInstalled?: boolean
+  /** TRUE only when delegation through this entry will actually work at
+   *  repair time. For claude-desktop `found` tracks the desktop APP while
+   *  `cliReady` tracks the claude CLI — the two diverge, and only
+   *  found && cliReady counts as a usable engine in the detect note. */
+  cliReady?: boolean
 }
 const REPAIR_CLI_ROUND_TIMEOUT_MIN = 10
 /** Must mirror KNOWN_CLI_IDS in the /api/llm-config route. */
-const KNOWN_REPAIR_CLI_IDS = ['claude', 'codex', 'gemini', 'opencode', 'hermes']
+const KNOWN_REPAIR_CLI_IDS = ['claude', 'claude-desktop', 'codex', 'gemini', 'opencode', 'hermes']
 
 // ======================== BRANCH PICKER DIALOG ========================
 
@@ -3267,12 +3277,12 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
  * { transient: true } — append the "click again in a moment" advice instead
  * of letting git's raw fatal read like a bug in the dashboard.
  */
-function pullRetriedNote(data: any, t: (key: string, params?: Record<string, unknown>) => string): string {
+function pullRetriedNote(data: any, t: I18nContextValue['t']): string {
   const n = Number(data?.retried) || 0
   return n > 0 ? t('dlg.detail.pullRetried', { n }) : ''
 }
 
-function pullTransientNote(data: any, t: (key: string, params?: Record<string, unknown>) => string): string {
+function pullTransientNote(data: any, t: I18nContextValue['t']): string {
   return data?.transient ? t('dlg.detail.pullTransientFailed') : ''
 }
 
@@ -4010,9 +4020,12 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
       const data = await r.json()
       const clis: DetectedCliInfo[] = Array.isArray(data.clis) ? data.clis : []
       setDetectedClis(clis)
-      const found = clis.filter((c) => c.found)
-      setDetectNote(found.length
-        ? t('dlg.llm.repairDetectedCount', { count: found.length })
+      // Count only engines that can ACTUALLY be delegated to: claude-desktop
+      // with the app installed but no claude CLI silently degrades to the
+      // legacy engine at repair time — it must not inflate the count.
+      const usable = clis.filter((c) => c.found && c.cliReady !== false)
+      setDetectNote(usable.length
+        ? t('dlg.llm.repairDetectedCount', { count: usable.length })
         : t('dlg.llm.repairNoneDetected'))
     } catch {
       setDetectNote(t('dlg.llm.fetchFailed'))
@@ -4139,88 +4152,114 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[90dvh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Bot className="h-5 w-5 text-emerald-600" />
-            {t('dlg.llm.title')}
+      <DialogContent className="sm:max-w-xl max-h-[90dvh] overflow-y-auto [&>*:not(:last-child)]:mb-0">
+        <DialogHeader className="pb-1">
+          <DialogTitle className="flex items-center gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/15 to-teal-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20">
+              <Bot className="h-5 w-5" />
+            </span>
+            <span className="flex flex-col items-start leading-tight">
+              <span>{t('dlg.llm.title')}</span>
+              <span className="text-[11px] font-normal text-muted-foreground">{t('dlg.llm.desc')}</span>
+            </span>
           </DialogTitle>
-          <DialogDescription>{t('dlg.llm.desc')}</DialogDescription>
         </DialogHeader>
         {loading ? (
-          <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
+          <div className="flex items-center justify-center py-10"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div>
         ) : (
-          <div className="space-y-3.5">
+          <div className="space-y-4">
             {loadError && (
-              <div className="rounded-md border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-xs px-3 py-2.5">
-                {loadError}
+              <div className="flex items-start gap-2.5 rounded-xl border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-xs px-3.5 py-3">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span className="break-all">{loadError}</span>
               </div>
             )}
-            <div className="space-y-1">
-              <Label>{t('dlg.llm.provider')}</Label>
-              <Select value={provider} onValueChange={handleProviderChange}>
-                <SelectTrigger><SelectValue placeholder={t('dlg.llm.providerPlaceholder')} /></SelectTrigger>
-                <SelectContent className="max-h-72">
-                  {catalog.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      <span className="font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mr-2">{p.label}</span>
-                      {p.displayName}
+
+            {/* ---- Section: connection (provider / key / base URL) ---- */}
+            <section className="space-y-3.5 rounded-xl border border-border/70 bg-card/60 p-4 dark:bg-card/40">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
+                  <PlugZap className="h-4 w-4" />
+                </span>
+                <p className="text-xs font-semibold tracking-wide">{t('dlg.llm.sectionConnection')}</p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">{t('dlg.llm.provider')}</Label>
+                <Select value={provider} onValueChange={handleProviderChange}>
+                  <SelectTrigger className="h-9"><SelectValue placeholder={t('dlg.llm.providerPlaceholder')} /></SelectTrigger>
+                  <SelectContent className="max-h-72">
+                    {catalog.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <span className="mr-2 inline-flex h-4 min-w-8 items-center justify-center rounded bg-emerald-500/10 px-1 font-mono text-[9px] font-bold text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{p.label}</span>
+                        {p.displayName}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value="custom">
+                      <span className="mr-2 inline-flex h-4 min-w-8 items-center justify-center rounded bg-muted px-1 font-mono text-[9px] font-bold text-muted-foreground">CU</span>
+                      {t('dlg.llm.custom')}
                     </SelectItem>
-                  ))}
-                  <SelectItem value="custom">
-                    <span className="font-mono text-[10px] font-bold text-muted-foreground mr-2">CU</span>
-                    {t('dlg.llm.custom')}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            {isZai && (
-              <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50/70 dark:bg-emerald-950/20 p-3 text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-2">
-                <Sparkles className="h-4 w-4 shrink-0 mt-0.5" />
-                <div>
-                  {t('dlg.llm.zaiHintBefore')} <span className="font-semibold">{t('dlg.llm.zaiHintNoKey')}</span>{t('dlg.llm.zaiHintAfter')}
+              {isZai && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-200/80 bg-emerald-50/70 p-3 text-xs leading-relaxed text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-950/25 dark:text-emerald-300">
+                  <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    {t('dlg.llm.zaiHintBefore')} <span className="font-semibold">{t('dlg.llm.zaiHintNoKey')}</span>{t('dlg.llm.zaiHintAfter')}
+                  </span>
                 </div>
-              </div>
-            )}
+              )}
 
-            {!isZai && (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <Label>{t('dlg.llm.apiKey')}</Label>
-                  {activeProfile?.docsUrl && (
-                    <a href={activeProfile.docsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline">
-                      <KeyRound className="h-3 w-3" />{t('dlg.llm.getKey')}<ExternalLink className="h-2.5 w-2.5" />
-                    </a>
-                  )}
+              {!isZai && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs">{t('dlg.llm.apiKey')}</Label>
+                    {activeProfile?.docsUrl && (
+                      <a href={activeProfile.docsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-emerald-600 hover:underline dark:text-emerald-400">
+                        <KeyRound className="h-3 w-3" />{t('dlg.llm.getKey')}<ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
+                    <Input
+                      type="password"
+                      className="h-9 pl-9"
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={hasApiKey && keyUnchanged ? t('dlg.llm.savedKeyPlaceholder', { mask: keyMask }) : (activeProfile?.apiKeyEnv ? t('dlg.llm.keyEnvPlaceholder', { env: activeProfile.apiKeyEnv }) : 'sk-...')}
+                    />
+                  </div>
                 </div>
-                <Input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={hasApiKey && keyUnchanged ? t('dlg.llm.savedKeyPlaceholder', { mask: keyMask }) : (activeProfile?.apiKeyEnv ? t('dlg.llm.keyEnvPlaceholder', { env: activeProfile.apiKeyEnv }) : 'sk-...')}
-                />
-              </div>
-            )}
+              )}
 
-            {!isZai && (
-              <div className="space-y-1">
-                <Label>{t('dlg.llm.baseUrl')}</Label>
-                <Input
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder={provider === 'custom' ? 'https://your-provider.com/v1' : activeProfile?.baseURL || 'https://api.openai.com/v1'}
-                />
-                {provider === 'custom' && <p className="text-[11px] text-muted-foreground">{t('dlg.llm.baseUrlHint')}</p>}
-              </div>
-            )}
+              {!isZai && (
+                <div className="space-y-1">
+                  <Label className="text-xs">{t('dlg.llm.baseUrl')}</Label>
+                  <Input
+                    className="h-9"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder={provider === 'custom' ? 'https://your-provider.com/v1' : activeProfile?.baseURL || 'https://api.openai.com/v1'}
+                  />
+                  {provider === 'custom' && <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.baseUrlHint')}</p>}
+                </div>
+              )}
+            </section>
 
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <Label>{t('dlg.llm.model')}</Label>
+            {/* ---- Section: model ---- */}
+            <section className="space-y-3.5 rounded-xl border border-border/70 bg-card/60 p-4 dark:bg-card/40">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <p className="text-xs font-semibold tracking-wide">{t('dlg.llm.sectionModel')}</p>
+                </div>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/60 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50/60 disabled:opacity-50 dark:text-emerald-400 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
                   onClick={() => fetchModels(provider, keyUnchanged ? '' : apiKey, baseUrl, savedKeyUsable)}
                   disabled={fetchingModels}
                 >
@@ -4228,49 +4267,60 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                   {fetchingModels ? t('dlg.llm.fetching') : t('dlg.llm.fetchLive')}
                 </button>
               </div>
-              <Input
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                placeholder={activeProfile?.defaultModel || t('dlg.llm.modelPlaceholder')}
-                list="llm-model-options"
-              />
-              <datalist id="llm-model-options">
-                {models.map((m) => (<option key={m.id} value={m.id}>{m.name}</option>))}
-              </datalist>
-              {models.length > 0 && (
-                <div className="max-h-28 overflow-y-auto flex flex-wrap gap-1.5 pt-1">
-                  {models.slice(0, 60).map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => setModel(m.id)}
-                      className={`px-2 py-0.5 rounded-md text-[11px] border transition-colors cursor-pointer ${model === m.id
-                        ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-medium'
-                        : 'border-border text-muted-foreground hover:border-emerald-300 hover:text-foreground'}`}
-                      title={m.name}
-                    >
-                      {m.id}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {modelNote && (
-                <p className={`text-[11px] ${modelsLive ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                  {modelsLive ? '✓ ' : ''}{modelNote}
-                </p>
-              )}
-            </div>
+              <div className="space-y-1">
+                <Input
+                  className="h-9"
+                  aria-label={t('dlg.llm.sectionModel')}
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={activeProfile?.defaultModel || t('dlg.llm.modelPlaceholder')}
+                  list="llm-model-options"
+                />
+                <datalist id="llm-model-options">
+                  {models.map((m) => (<option key={m.id} value={m.id}>{m.name}</option>))}
+                </datalist>
+                {models.length > 0 && (
+                  <div className="max-h-28 overflow-y-auto flex flex-wrap gap-1.5 pt-1 [scrollbar-width:thin]">
+                    {models.slice(0, 60).map((m) => {
+                      const selected = model === m.id
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setModel(m.id)}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-all cursor-pointer ${selected
+                            ? 'border-emerald-400 bg-emerald-50 font-medium text-emerald-700 shadow-sm dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                            : 'border-border/80 bg-background/40 text-muted-foreground hover:border-emerald-300/70 hover:text-foreground dark:hover:border-emerald-700/60'}`}
+                          title={m.name}
+                        >
+                          {selected && <CheckCircle2 className="h-3 w-3" />}
+                          <span className="font-mono">{m.id}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+                {modelNote && (
+                  <p className={`flex items-start gap-1.5 pt-0.5 text-[11px] leading-snug ${modelsLive ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {modelsLive && <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />}
+                    <span>{modelNote}</span>
+                  </p>
+                )}
+              </div>
+            </section>
 
-            {/* ---- Auto-repair engine: legacy tool loop vs. delegated agent CLI ---- */}
-            <div className="space-y-2 rounded-lg border border-border/70 p-3">
+            {/* ---- Section: auto-repair engine (legacy tool loop vs. delegated agent CLI) ---- */}
+            <section className="space-y-3.5 rounded-xl border border-border/70 bg-card/60 p-4 dark:bg-card/40">
               <div className="flex items-center justify-between gap-2">
-                <Label className="flex items-center gap-1.5">
-                  <Wrench className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-                  {t('dlg.llm.repairEngine')}
-                </Label>
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400">
+                    <Wrench className="h-4 w-4" />
+                  </span>
+                  <p className="text-xs font-semibold tracking-wide">{t('dlg.llm.repairEngine')}</p>
+                </div>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/60 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50/60 disabled:opacity-50 dark:text-emerald-400 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
                   onClick={() => void detectClis()}
                   disabled={detecting}
                 >
@@ -4278,58 +4328,65 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                   {detecting ? t('dlg.llm.repairDetecting') : t('dlg.llm.repairDetect')}
                 </button>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <button
                   type="button"
                   onClick={() => setRepairMode('legacy')}
-                  className={`rounded-md border p-2.5 text-left transition-colors cursor-pointer ${repairMode === 'legacy'
-                    ? 'border-emerald-400 bg-emerald-50/70 dark:bg-emerald-900/25'
-                    : 'border-border hover:border-emerald-300/70'}`}
                   aria-pressed={repairMode === 'legacy'}
+                  className={`group relative rounded-lg border p-3 text-left transition-all cursor-pointer ${repairMode === 'legacy'
+                    ? 'border-emerald-400/90 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-300/50 dark:border-emerald-700 dark:bg-emerald-950/30 dark:ring-emerald-800/50'
+                    : 'border-border/80 hover:border-emerald-300/70 hover:bg-emerald-50/30 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'}`}
                 >
-                  <span className={`flex items-center gap-1.5 text-xs font-medium ${repairMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
+                  {repairMode === 'legacy' && (
+                    <CheckCircle2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  )}
+                  <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
                     <Bot className="h-3.5 w-3.5" />
                     {t('dlg.llm.repairModeLegacy')}
                   </span>
-                  <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">
+                  <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
                     {t('dlg.llm.repairModeLegacyDesc')}
                   </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setRepairMode('cli')}
-                  className={`rounded-md border p-2.5 text-left transition-colors cursor-pointer ${repairMode === 'cli'
-                    ? 'border-emerald-400 bg-emerald-50/70 dark:bg-emerald-900/25'
-                    : 'border-border hover:border-emerald-300/70'}`}
                   aria-pressed={repairMode === 'cli'}
+                  className={`group relative rounded-lg border p-3 text-left transition-all cursor-pointer ${repairMode === 'cli'
+                    ? 'border-emerald-400/90 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-300/50 dark:border-emerald-700 dark:bg-emerald-950/30 dark:ring-emerald-800/50'
+                    : 'border-border/80 hover:border-emerald-300/70 hover:bg-emerald-50/30 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'}`}
                 >
-                  <span className={`flex items-center gap-1.5 text-xs font-medium ${repairMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : ''}`}>
+                  {repairMode === 'cli' && (
+                    <CheckCircle2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  )}
+                  <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
                     <Terminal className="h-3.5 w-3.5" />
                     {t('dlg.llm.repairModeCli')}
                   </span>
-                  <span className="mt-1 block text-[11px] leading-snug text-muted-foreground">
+                  <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
                     {t('dlg.llm.repairModeCliDesc', { rounds: 2, minutes: REPAIR_CLI_ROUND_TIMEOUT_MIN })}
                   </span>
                 </button>
               </div>
               {detectNote && (
-                <p className={`text-[11px] ${detectedClis.some((c) => c.found) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                  {detectedClis.some((c) => c.found) ? '✓ ' : ''}{detectNote}
+                <p className={`flex items-start gap-1.5 text-[11px] leading-snug ${detectedClis.some((c) => c.found) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                  {detectedClis.some((c) => c.found) && <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />}
+                  <span>{detectNote}</span>
                 </p>
               )}
               {repairMode === 'cli' && (
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label className="text-xs">{t('dlg.llm.repairCli')}</Label>
                   <Select value={repairCli} onValueChange={(v) => setRepairCli(v)}>
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent className="max-h-60">
                       <SelectItem value="auto" className="text-xs">{t('dlg.llm.repairCliAuto')}</SelectItem>
                       {detectedClis.map((c) => (
                         <SelectItem key={c.id} value={c.id} disabled={!c.found} className="text-xs">
                           <span className="flex items-center gap-2">
-                            {c.label}
+                            <span>{c.label}</span>
                             {c.found
-                              ? <span className="text-[10px] text-emerald-600 dark:text-emerald-400">{c.version || '✓ installed'}</span>
+                              ? <span className="rounded bg-emerald-500/10 px-1 py-px font-mono text-[9px] text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{c.version || '✓ installed'}</span>
                               : <span className="text-[10px] text-muted-foreground">(not installed)</span>}
                           </span>
                         </SelectItem>
@@ -4337,25 +4394,43 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                       <SelectItem value="custom" className="text-xs">{t('dlg.llm.repairCliCustom')}</SelectItem>
                     </SelectContent>
                   </Select>
+                  {repairCli !== 'auto' && repairCli !== 'custom' && (() => {
+                    const sel = detectedClis.find((c) => c.id === repairCli)
+                    // Prefer the localized note; the backend's raw note is a
+                    // zh fallback only (it leaked Chinese into the EN UI).
+                    const noteText = sel?.id === 'claude-desktop'
+                      ? t('dlg.llm.cliNote.claudeDesktop')
+                      : sel?.note
+                    if (!noteText) return null
+                    return (
+                      <p className="flex items-start gap-2 rounded-lg border border-amber-200/80 bg-amber-50/70 p-2.5 text-[11px] leading-snug text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/25 dark:text-amber-300">
+                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>{noteText}</span>
+                      </p>
+                    )
+                  })()}
                   {repairCli === 'custom' && (
                     <Input
                       value={repairCliCustom}
                       onChange={(e) => setRepairCliCustom(e.target.value)}
                       placeholder={t('dlg.llm.repairCliCustomPlaceholder')}
-                      className="font-mono text-[11px]"
+                      className="h-9 font-mono text-[11px]"
                     />
                   )}
                   <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.repairCliHint')}</p>
                 </div>
               )}
-            </div>
+            </section>
           </div>
         )}
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
-          <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-            {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}{t('dlg.common.save')}
-          </Button>
+        <DialogFooter className="mt-1 gap-2 sm:justify-between">
+          <p className="hidden pr-2 text-[11px] leading-snug text-muted-foreground sm:block">{t('dlg.llm.footerHint')}</p>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
+            <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+              {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}{t('dlg.common.save')}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -4382,6 +4457,18 @@ interface RepairJobInfo {
   round: number
   maxRounds: number
   pendingApproval?: RepairPendingApprovalInfo | null
+}
+
+/** Swap a raw backend repair error for a localized sentence when it carries a
+ *  known marker. Today the only marker is the inactivity watchdog's
+ *  [watchdog_timeout:N] (backend writes zh-CN; the dialog renders the user's
+ *  locale). Unknown errors fall through verbatim so real diagnostics are
+ *  never hidden behind a wrong translation. */
+function localizeRepairError(raw: string | null | undefined, t: I18nContextValue['t']): string {
+  if (!raw) return ''
+  const m = raw.match(/^\[watchdog_timeout:(\d+)\]/)
+  if (m) return t('dlg.repair.watchdogTimeout', { minutes: m[1] })
+  return raw
 }
 
 const REPAIR_LOG_STYLES: Record<string, string> = {
@@ -4431,19 +4518,25 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
   const { toast } = useToast()
   const [job, setJob] = React.useState<RepairJobInfo | null>(null)
   const [notFound, setNotFound] = React.useState(false)
+  /** Session/auth lost mid-poll (401/403): the poll would otherwise retry
+   * forever in silence — the dialog stays "LLM 处理中" eternally and the
+   * completion toast never fires (the codex incident). */
+  const [authLost, setAuthLost] = React.useState(false)
   const [responding, setResponding] = React.useState(false)
   const [now, setNow] = React.useState(() => Date.now())
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const finishedRef = React.useRef(false)
   const approvalNotifiedRef = React.useRef(false)
+  const authLostNotifiedRef = React.useRef(false)
   const openRef = React.useRef(open)
   openRef.current = open
 
   React.useEffect(() => {
     if (!jobId) {
-      setJob(null); setNotFound(false)
+      setJob(null); setNotFound(false); setAuthLost(false)
       finishedRef.current = false
       approvalNotifiedRef.current = false
+      authLostNotifiedRef.current = false
       return
     }
     let stop = false
@@ -4472,6 +4565,22 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
         } else if (r.status === 404) {
           setNotFound(true)
           onJobUpdate?.(null)
+          return
+        } else if (r.status === 401 || r.status === 403) {
+          // Session expired / revoked mid-repair. Retrying is futile — every
+          // subsequent poll 401s in silence, onFinished NEVER fires, and the
+          // dialog would show "LLM 处理中" forever with no completion toast.
+          // Stop the poller and tell the user what happened instead.
+          setAuthLost(true)
+          onJobUpdate?.(null)
+          if (!authLostNotifiedRef.current) {
+            authLostNotifiedRef.current = true
+            toast({
+              title: t('dlg.repair.sessionLost'),
+              description: t('dlg.repair.sessionLostDesc'),
+              variant: 'warning',
+            })
+          }
           return
         }
       } catch { /* keep polling */ }
@@ -4614,6 +4723,17 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
 
         {notFound ? (
           <div className="text-center py-8 text-muted-foreground text-sm">{t('dlg.repair.notFound')}</div>
+        ) : authLost ? (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-300/80 bg-amber-50/80 p-4 dark:border-amber-700/60 dark:bg-amber-950/30">
+            <div className="shrink-0 rounded-lg bg-amber-400/20 dark:bg-amber-500/15 p-2">
+              <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">{t('dlg.repair.sessionLost')}</p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/80">{t('dlg.repair.sessionLostDesc')}</p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/80">{t('dlg.repair.sessionLostNote')}</p>
+            </div>
+          </div>
         ) : !job ? (
           <div className="flex items-center justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-amber-500" /></div>
         ) : (
@@ -4714,7 +4834,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
                 <p className="mb-1 flex items-center gap-1.5 font-semibold">
                   <XCircle className="h-3.5 w-3.5 shrink-0" />{t('dlg.repair.failedTitle')}
                 </p>
-                <p className="break-all whitespace-pre-wrap">{job.error}</p>
+                <p className="break-all whitespace-pre-wrap">{localizeRepairError(job.error, t)}</p>
               </div>
             )}
           </div>
@@ -5516,7 +5636,7 @@ function DetailSheet({
                               {sanitizeGitUrl(project.repoUrl).replace(/^https?:\/\/(www\.)?/, '')}
                             </a>
                             <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => copyToClipboard(sanitizeGitUrl(project.repoUrl!), t('dlg.detail.gitRepo'))}><Copy className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => window.open(sanitizeGitUrl(project.repoUrl), '_blank', 'noreferrer')}><ExternalLink className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => window.open(sanitizeGitUrl(project.repoUrl ?? ""), "_blank", "noreferrer")}><ExternalLink className="h-3.5 w-3.5" /></Button>
                           </div>
                           {(version && version.sha) || detailUpdateHint ? (
                             <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
@@ -9353,8 +9473,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } else {
       toast({
         title: t('dlg.toast.repairFailed'),
-        description: summarizeError(job.error) || t('dlg.toast.repairFailedDesc'),
-        detail: job.error,
+        description: localizeRepairError(job.error, t) || t('dlg.toast.repairFailedDesc'),
+        detail: localizeRepairError(job.error, t),
         variant: 'destructive',
       })
     }

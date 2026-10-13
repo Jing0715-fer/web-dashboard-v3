@@ -20,8 +20,35 @@ import { db } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
 import { runAgentRepair, type AgentHelpers } from './repair-agent';
 import { runCliRepair, resolveRepairCli, CLI_ROUNDS, CLI_ROUND_TIMEOUT_MS } from './llm-repair/cli-delegate';
+import { scheduleThumbnailCapture } from './thumbnail';
 
 export type RepairKind = 'start' | 'rebuild';
+
+/** How long a job waits for a human decision before auto-denying. Background
+ *  jobs (dialog closed with "keep running") must never hang forever. Defined
+ *  up here so the watchdog window can reference it — the two stay in sync by
+ *  construction, not by a copy-pasted magic number. */
+const APPROVAL_TIMEOUT_MS = 10 * 60_000;
+
+/** How long a job may make ZERO progress (no new log steps) before the
+ * watchdog declares the engine hung and force-fails the job.
+ *
+ * Why this exists (the codex incident): a delegated CLI round is legitimately
+ * silent for up to CLI_ROUND_TIMEOUT_MS (10 min) while the agent works, and
+ * the legacy loop pauses up to APPROVAL_TIMEOUT_MS on an approval request.
+ * Anything beyond that with no new steps is not "thinking" — it is a hung
+ * spawn/await that would otherwise leave the job 'running' FOREVER: the
+ * dialog keeps showing “修复中 / LLM 处理中”， and no completion toast or
+ * activity event ever fires. The watchdog guarantees every job settles.
+ * Calibrated to: max(CLI round, approval wait) + 2 min margin. */
+const WATCHDOG_INACTIVITY_MS = Math.max(CLI_ROUND_TIMEOUT_MS, APPROVAL_TIMEOUT_MS) + 2 * 60_000;
+const WATCHDOG_TICK_MS = 30_000;
+
+/** Stable marker prefix for watchdog force-finish errors. job.error is a
+ *  backend string, but the polling dialog renders it in the user's locale —
+ *  the frontend matches this marker and swaps in a localized sentence,
+ *  falling back to the raw text. Format: [watchdog_timeout:<minutes>]. */
+export const WATCHDOG_ERROR_MARKER = /^\[watchdog_timeout:(\d+)\]\s*/;
 
 export interface RepairStep {
   ts: number;
@@ -60,6 +87,11 @@ export interface RepairJob {
    *  deny) a command that failed the safe-allowlist check. The dialog polls
    *  this and renders an approve/deny panel. */
   pendingApproval?: PendingApproval | null;
+  /** Monotonic count of log() calls EVER made for this job. steps[] is a
+   *  rolling window trimmed to the last 400 entries, so steps.length FREEZES
+   *  at 400 once the window fills — the watchdog must not use it as its
+   *  progress signal or an actively-logging job gets falsely killed. */
+  stepSeq?: number;
 }
 
 // In-memory job registry. Stored on globalThis because Next.js dev mode
@@ -139,20 +171,77 @@ export function startRepairJob(opts: StartRepairOptions): string {
   jobs.set(id, job);
   activeByEnv.set(opts.envId, id);
   pruneOldJobs();
+  armWatchdog(job);
   void runRepair(job, opts)
     .catch((err) => {
       finishJob(job, 'failed', String(err?.message || err));
     })
     .finally(() => {
       if (activeByEnv.get(opts.envId) === id) activeByEnv.delete(opts.envId);
+      disarmWatchdog(job);
     });
   return id;
 }
 
+// ====================== inactivity watchdog ======================
+//
+// Every job gets one. It does NOT bound how long a job may legitimately take
+// (a real 2-round CLI repair with builds can run ~30 min) — it bounds how
+// long a job may show ZERO progress. On trigger the job is force-failed with
+// a self-explaining error so the polling dialog can settle, fire its
+// completion toast, and never show "LLM 处理中" forever (see header comment).
+
+interface WatchdogState { lastStepSeq: number; lastChangeAt: number; timer: ReturnType<typeof setInterval> }
+// On globalThis for the same reason as the jobs Map: Next.js dev builds one
+// module instance per route bundle — a plain module-level Map would not be
+// shared by the bundle that armed the timer and one that tries to disarm it.
+const globalForWatchdogs = globalThis as unknown as { __llmRepairWatchdogs?: Map<string, WatchdogState> };
+const watchdogs: Map<string, WatchdogState> = globalForWatchdogs.__llmRepairWatchdogs ?? new Map();
+globalForWatchdogs.__llmRepairWatchdogs = watchdogs;
+
+function armWatchdog(job: RepairJob): void {
+  const state: WatchdogState = { lastStepSeq: job.stepSeq ?? 0, lastChangeAt: Date.now(), timer: 0 as unknown as ReturnType<typeof setInterval> };
+  state.timer = setInterval(() => {
+    if (job.status !== 'running') { disarmWatchdog(job); return; }
+    // Progress signal is the MONOTONIC stepSeq, never steps.length (which
+    // freezes at the 400-entry cap while the job keeps logging — that false
+    // "no progress" verdict is what this fix exists to prevent).
+    const seq = job.stepSeq ?? job.steps.length;
+    if (seq !== state.lastStepSeq || job.pendingApproval) {
+      // progress happened (or an approval is deliberately holding the job) —
+      // the approval pause is bounded by APPROVAL_TIMEOUT_MS auto-deny anyway.
+      state.lastStepSeq = seq;
+      state.lastChangeAt = Date.now();
+      return;
+    }
+    if (Date.now() - state.lastChangeAt < WATCHDOG_INACTIVITY_MS) return;
+    const minutes = Math.round(WATCHDOG_INACTIVITY_MS / 60_000);
+    // [watchdog_timeout:N] marker → the dialog swaps in a localized sentence.
+    const error = `[watchdog_timeout:${minutes}] 修复引擎看门狗：连续 ${minutes} 分钟无任何进展，判定引擎挂死（未预见的 spawn/await 卡住）。已强制结束本任务 — 可重新触发启动让修复重试。`;
+    job.stepSeq = (job.stepSeq ?? 0) + 1;
+    job.steps.push({ ts: Date.now(), level: 'error', msg: error, round: job.round });
+    finishJob(job, 'failed', error);
+    disarmWatchdog(job);
+  }, WATCHDOG_TICK_MS);
+  watchdogs.set(job.id, state);
+}
+
+function disarmWatchdog(job: RepairJob): void {
+  const state = watchdogs.get(job.id);
+  if (state) {
+    clearInterval(state.timer);
+    watchdogs.delete(job.id);
+  }
+}
+
 // ====================== activity feed (fire-and-forget) ======================
 
-/** Finalize a job (status/error/finishedAt) and persist the lifecycle event. */
+/** Finalize a job (status/error/finishedAt) and persist the lifecycle event.
+ *  Idempotent: a job that was already settled (typically force-failed by the
+ *  watchdog while the engine was hung, then the engine's late verdict arrives)
+ *  is never flipped or double-logged — a settled job stays settled. */
 function finishJob(job: RepairJob, status: 'success' | 'failed', error?: string): void {
+  if (job.status !== 'running') return;
   job.status = status;
   if (error !== undefined) job.error = error;
   job.finishedAt = Date.now();
@@ -177,6 +266,11 @@ function logRepairCompletion(job: RepairJob): void {
       message: `LLM auto-repair succeeded for '${envLabel}'`,
       detail: job.diagnosis ? String(job.diagnosis).slice(0, 300) : undefined,
     });
+    // v1.23: a successful repair just re-ran the ORIGINAL start command
+    // during its health verification, so the page is warm — refresh the
+    // card's live preview immediately instead of waiting for the next
+    // manual start/restart to trigger a capture (fire-and-forget).
+    void captureAfterRepair(job);
   } else {
     logActivity({
       ...base,
@@ -188,18 +282,35 @@ function logRepairCompletion(job: RepairJob): void {
   }
 }
 
+/** After a SUCCESSFUL repair, schedule a live-preview capture for the env.
+ *  Best-effort by design: a thumbnail issue must never be able to look like
+ *  a repair problem — every failure path here is silent. */
+async function captureAfterRepair(job: RepairJob): Promise<void> {
+  try {
+    const env = await db.environment.findUnique({ where: { id: job.envId } });
+    if (!env) return;
+    scheduleThumbnailCapture({
+      projectId: job.projectId,
+      projectName: job.projectName,
+      envId: job.envId,
+      envName: job.envName || env.name,
+      port: env.port,
+    });
+  } catch {
+    // Cosmetic — see doc comment.
+  }
+}
+
 // ============================= helpers =============================
 
 function log(job: RepairJob, level: RepairStep['level'], msg: string) {
   job.steps.push({ ts: Date.now(), level, msg: String(msg).slice(0, 500), round: job.round });
+  // Monotonic progress counter for the watchdog — see RepairJob.stepSeq.
+  job.stepSeq = (job.stepSeq ?? 0) + 1;
   if (job.steps.length > 400) job.steps.splice(0, job.steps.length - 400);
 }
 
 // ====================== manual approval gate ======================
-
-/** How long a job waits for a human decision before auto-denying. Background
- *  jobs (dialog closed with "keep running") must never hang forever. */
-const APPROVAL_TIMEOUT_MS = 10 * 60_000;
 
 /** Pause the job until resolveRepairApproval() is called (or the timeout
  *  auto-denies). The pending command is exposed on job.pendingApproval for
@@ -311,6 +422,14 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
     outcome = await runAgentRepair(job, opts, helpers);
   }
 
+  // The watchdog may have force-failed this job while the engine was hung;
+  // if the engine belatedly returns anyway, its verdict is discarded — never
+  // flip a settled job (failed → success) and never log a second completion
+  // activity event on top of the watchdog's.
+  if (job.status !== 'running') {
+    log(job, 'warn', '修复引擎在超时后返回了结果 — 任务已被看门狗判定挂死并结束，忽略该迟到结果');
+    return;
+  }
   if (outcome.status === 'success') {
     log(job, 'success', '修复流程结束 — 成功');
     finishJob(job, 'success');

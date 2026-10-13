@@ -18,7 +18,11 @@ export async function GET(req: Request) {
     const clis = await detectRepairClis();
     return NextResponse.json({
       clis,
-      anyInstalled: clis.some((c) => c.found),
+      // Honest signal: an entry counts as an installable engine only when
+      // BOTH its named product is present (found) AND delegation will really
+      // work (cliReady) — a claude-desktop app-only install degrades to the
+      // legacy engine at repair time and must not be counted here.
+      anyInstalled: clis.some((c) => c.found && c.cliReady !== false),
       // Engine facts surfaced to the dialog so the mode description can be
       // accurate without hardcoding the constants twice.
       rounds: CLI_ROUNDS,

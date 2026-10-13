@@ -27,7 +27,7 @@ function isMaskedKey(key: string): boolean {
  *   'claude' | 'codex' | 'gemini' | 'opencode' | 'hermes'
  *   'custom:<template containing {promptFile} or {promptFileAbs}>'
  * Invalid values collapse to '' (auto) — never reject a whole save for it. */
-const KNOWN_CLI_IDS = ['claude', 'codex', 'gemini', 'opencode', 'hermes'];
+const KNOWN_CLI_IDS = ['claude', 'claude-desktop', 'codex', 'gemini', 'opencode', 'hermes'];
 
 function normalizeRepairCli(v: unknown): string {
   if (typeof v !== 'string') return '';

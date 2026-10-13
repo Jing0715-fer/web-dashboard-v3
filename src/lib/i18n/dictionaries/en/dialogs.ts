@@ -177,6 +177,9 @@ export const dialogs = {
 
   // ---- LLM config dialog ----
   'dlg.llm.title': 'LLM Configuration',
+  'dlg.llm.sectionConnection': 'Connection',
+  'dlg.llm.sectionModel': 'Model',
+  'dlg.llm.footerHint': 'Project analysis, auto-repair and the agent layer all use this configuration.',
   'dlg.llm.desc': 'Choose a provider and enter its API Key — project analysis, automatic failure repair and the agent layer all use this configuration.',
   'dlg.llm.provider': 'Provider',
   'dlg.llm.providerPlaceholder': 'Select a provider',
@@ -220,6 +223,7 @@ export const dialogs = {
   'dlg.llm.repairDetecting': 'Detecting…',
   'dlg.llm.repairNoneDetected': 'No agent CLI detected — the mode is saved but repairs will fall back to legacy',
   'dlg.llm.repairDetectedCount': '{count} agent CLI(s) installed',
+  'dlg.llm.cliNote.claudeDesktop': 'The desktop app cannot run unattended — delegated repairs actually go through the claude CLI (falls back to the built-in engine when no CLI is detected)',
 
   // ---- LLM auto-repair dialog ----
   'dlg.repair.title': 'AI Auto-Repair',
@@ -230,9 +234,13 @@ export const dialogs = {
   'dlg.repair.descStart': '{project} · {env} · start failed — the AI diagnoses it with inspect/probe/test tools, fixes it, and retries with health verification',
   'dlg.repair.creating': 'Creating repair job…',
   'dlg.repair.notFound': 'This repair job no longer exists (it may belong to a previous server process). Trigger the action again.',
+  'dlg.repair.sessionLost': 'Session lost',
+  'dlg.repair.sessionLostDesc': 'The repair poll was rejected (401/403) because your session expired or lost approval — polling has stopped instead of silently retrying forever.',
+  'dlg.repair.sessionLostNote': 'The repair may still be running in the background. Sign in again and reload, or check the Activity panel later for the recorded outcome.',
   'dlg.repair.diagnosis': 'LLM diagnosis:',
   'dlg.repair.waiting': 'LLM working, waiting for the next step…',
   'dlg.repair.failedTitle': 'Could not auto-repair:',
+  'dlg.repair.watchdogTimeout': 'Repair engine watchdog: zero progress for {minutes} minutes — the engine is considered hung (an unforeseen spawn/await stall). This job was force-finished; trigger start again to retry the repair.',
   'dlg.repair.background': 'Keep running in background',
   'dlg.repair.logTitle': 'repair.log',
   'dlg.repair.round': 'Step {round} of {max}',
