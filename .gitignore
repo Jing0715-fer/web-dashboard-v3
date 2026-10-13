@@ -57,6 +57,7 @@ server.log
 # Skills directory (local agent skills stay untracked — except the specs we ship)
 /skills/*
 !skills/git-pull-conflict-agent/
+!skills/startup-repair/
 # runtime artifacts
 *.pid
 *.db
