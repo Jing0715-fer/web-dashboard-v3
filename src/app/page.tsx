@@ -23,7 +23,7 @@ import {
   EyeOff, KeyRound, Sparkles, Radio,
   ShieldAlert, ShieldCheck, ShieldX, Minimize2,
   UserPlus, Github, GitPullRequest,
-  Archive, Minus,
+  Archive, Minus, Camera,
 } from 'lucide-react'
 
 import {
@@ -173,6 +173,22 @@ interface Project {
   deviceId?: string | null
   deviceName?: string | null
   deviceStatus?: string | null
+  /** Latest live-preview screenshot (v1.22) — captured automatically when
+   *  an environment starts. null = never captured (local) or remote project. */
+  thumbnail?: {
+    envId: string
+    envName: string
+    port: number
+    file: string
+    capturedAt: string
+    /** Cache-busted URL (/api/thumbnails/<file>?v=<ts>) */
+    url: string
+    bytes: number
+    error?: string | null
+  } | null
+  /** True while a screenshot capture for one of this project's envs is
+   *  running server-side — drives the card's "capturing…" spinner. */
+  thumbCapturing?: boolean
 }
 
 /** Git checkout snapshot (branch/sha/dirty/committedAt) rendered on cards.
@@ -755,6 +771,86 @@ function HealthScoreHoverCard({
   )
 }
 
+// ======================== LIVE PREVIEW THUMBNAIL (v1.22) ========================
+// Real screenshot of a project's running page, captured automatically when
+// an environment starts (headless Chromium server-side — see lib/thumbnail.ts).
+
+/** Full-bleed thumbnail strip for grid cards: latest screenshot, capturing
+ *  spinner, or a placeholder that explains how to get a preview. */
+function ProjectThumbStrip({
+  project, capturing, isRemote, onCapture,
+}: {
+  project: Project
+  capturing: boolean
+  isRemote: boolean
+  onCapture?: (p: Project) => void
+}) {
+  const t = useT()
+  const thumb = project.thumbnail
+
+  // Nothing to preview (remote projects run on their device — only its own
+  // agent could screenshot them; empty projects have no page at all).
+  if (!thumb && (isRemote || (project.environments || []).length === 0)) return null
+
+  const envLabel = (name: string) => name === 'development' ? 'dev' : name === 'production' ? 'prod' : name
+
+  if (thumb) {
+    return (
+      <div className="relative shrink-0 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 group/thumb overflow-hidden">
+        {/* Real screenshot of the running page (object-top: page headers are
+            the most informative part of a 16:10 crop). */}
+        <img
+          src={thumb.url}
+          alt={t('card.thumb.alt', { name: project.name })}
+          loading="lazy"
+          decoding="async"
+          className="w-full aspect-[16/10] object-cover object-top"
+        />
+        {/* Hover overlay — meta line + re-capture button (local projects) */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/0 to-black/0 opacity-0 group-hover/thumb:opacity-100 transition-opacity pointer-events-none" />
+        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-1.5 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+          <span className="min-w-0 truncate text-[10px] text-zinc-100/90 font-medium tabular-nums drop-shadow-sm" title={thumb.error ? t('card.thumb.staleHint', { err: thumb.error.slice(0, 120) }) : undefined}>
+            {t('card.thumb.capturedAt', { time: formatTimeAgo(thumb.capturedAt, t) })} · {envLabel(thumb.envName)} · :{thumb.port}
+          </span>
+          {onCapture && (
+            <button type="button"
+              className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/50 hover:bg-black/70 text-zinc-100 text-[10px] font-medium backdrop-blur-sm transition-colors cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); onCapture(project) }}
+              title={t('card.thumb.refresh')}
+            >
+              <Camera className="h-3 w-3" />
+              {t('card.thumb.refreshShort')}
+            </button>
+          )}
+        </div>
+        {capturing && (
+          <div className="absolute top-2 right-2 inline-flex items-center gap-1.5 h-6 px-2 rounded-full bg-black/55 text-zinc-100 text-[10px] font-medium backdrop-blur-sm">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {t('card.thumb.capturing')}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // No screenshot yet — placeholder (spinner while a capture is in flight).
+  return (
+    <div className={`shrink-0 h-[72px] border-b border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 flex items-center justify-center gap-2 px-3 ${capturing ? '' : 'hover:bg-zinc-100/70 dark:hover:bg-zinc-800/40 transition-colors'}`}>
+      {capturing ? (
+        <>
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-strong dark:text-brand shrink-0" />
+          <span className="text-[11px] text-muted-foreground font-medium">{t('card.thumb.capturing')}</span>
+        </>
+      ) : (
+        <>
+          <Camera className="h-3.5 w-3.5 text-zinc-400 dark:text-zinc-500 shrink-0" />
+          <span className="text-[11px] text-zinc-400 dark:text-zinc-500">{t('card.thumb.placeholder')}</span>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ======================== PROJECT QUICK PREVIEW HOVER CARD ========================
 
 function ProjectQuickPreview({
@@ -810,6 +906,17 @@ function ProjectQuickPreview({
             </div>
           </div>
         </div>
+        {/* Live preview (v1.22) — the same real screenshot the card shows,
+            enlarged inside the hover card. */}
+        {project.thumbnail && (
+          <img
+            src={project.thumbnail.url}
+            alt={t('card.thumb.alt', { name: project.name })}
+            loading="lazy"
+            decoding="async"
+            className="w-full aspect-[16/10] object-cover object-top border-b border-border/60 bg-zinc-100 dark:bg-zinc-900"
+          />
+        )}
         <div className="p-3 space-y-2.5">
           {project.description && (
             <p className="text-xs text-muted-foreground line-clamp-2">{project.description}</p>
@@ -1023,7 +1130,7 @@ function SortableProjectCardImpl({
   starred, onToggleStar, lanIp, currentHost, index = 0,
   batchMode = false, onDuplicate, onMoveToDevice, devices, onHover,
   focused = false, cardDensity = 'comfortable', onCompare, pinOrder, onReanalyze,
-  pendingOps = {}, onPull, pulling = false, version, update, onSwitchBranch,
+  pendingOps = {}, onPull, pulling = false, version, update, onSwitchBranch, onCaptureThumb,
 }: {
   project: Project
   viewMode: ViewMode
@@ -1065,6 +1172,9 @@ function SortableProjectCardImpl({
    *  (behind / diverged / differs) render an "update available" pill. */
   update?: RepoUpdateStatus | null
   pendingOps?: Record<string, string>
+  /** Capture / re-capture the live preview thumbnail (local projects with a
+   *  running env). v1.22. */
+  onCaptureThumb?: (p: Project) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
   const t = useT()
@@ -1171,6 +1281,16 @@ function SortableProjectCardImpl({
           <div className="flex h-7 w-7 items-center justify-center rounded-md border border-brand/25 bg-brand-soft shadow-xs shrink-0">
             <IconComp className="h-3.5 w-3.5 text-brand-strong" />
           </div>
+          {/* Live preview chip (v1.22) — latest real screenshot, compact */}
+          {project.thumbnail && (
+            <img
+              src={project.thumbnail.url}
+              alt={t('card.thumb.alt', { name: project.name })}
+              loading="lazy"
+              decoding="async"
+              className="hidden sm:block h-9 w-14 rounded-md object-cover object-top border border-zinc-200 dark:border-zinc-700 shrink-0"
+            />
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-medium truncate">{highlightText(project.name, searchQuery)}</span>
@@ -1312,6 +1432,10 @@ function SortableProjectCardImpl({
                 {project.repoUrl && onSwitchBranch && (
                   <DropdownMenuItem onClick={() => onSwitchBranch(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md"><GitBranch className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.switchBranch')}</DropdownMenuItem>
                 )}
+                {/* Capture / refresh the live preview thumbnail (v1.22) */}
+                {onCaptureThumb && !isRemote && (project.environments || []).length > 0 && (
+                  <DropdownMenuItem onClick={() => onCaptureThumb(project)} disabled={projectBusy || !(project.environments || []).some((e) => e.status === 'running')} className="px-2.5 py-2 text-sm rounded-md"><Camera className="h-3.5 w-3.5 mr-2.5" />{t('card.thumb.capture')}</DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />{t('surf.duplicate')}</DropdownMenuItem>
                 {!project.deviceId && onMoveToDevice && (
@@ -1344,6 +1468,9 @@ function SortableProjectCardImpl({
             )}
             {project.repoUrl && onSwitchBranch && (
               <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSwitchBranch(project)}><GitBranch className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.switchBranch')}</ContextMenuItem>
+            )}
+            {onCaptureThumb && !isRemote && (project.environments || []).length > 0 && (
+              <ContextMenuItem disabled={projectBusy || !(project.environments || []).some((e) => e.status === 'running')} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCaptureThumb(project)}><Camera className="h-3.5 w-3.5 mr-2.5" />{t('card.thumb.capture')}</ContextMenuItem>
             )}
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.duplicate')}</ContextMenuItem>
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.unpin')}</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pinToTop')}</>}</ContextMenuItem>
@@ -1449,6 +1576,11 @@ function SortableProjectCardImpl({
             </div>
           </div>
         </CardHeader>
+
+        {/* Live preview thumbnail (v1.22) — real screenshot of the running
+            page, auto-captured on env start. Full-bleed strip between the
+            header and the environment list. */}
+        <ProjectThumbStrip project={project} capturing={!!project.thumbCapturing} isRemote={isRemote} onCapture={isRemote ? undefined : onCaptureThumb} />
 
         <CardContent className={`${contentPad} flex-1 min-w-0 relative z-[1]`}>
           {project.description && (
@@ -1653,6 +1785,10 @@ function SortableProjectCardImpl({
                 {project.repoUrl && onSwitchBranch && (
                   <DropdownMenuItem onClick={() => onSwitchBranch(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md"><GitBranch className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.switchBranch')}</DropdownMenuItem>
                 )}
+                {/* Capture / refresh the live preview thumbnail (v1.22) */}
+                {onCaptureThumb && !isRemote && (project.environments || []).length > 0 && (
+                  <DropdownMenuItem onClick={() => onCaptureThumb(project)} disabled={projectBusy || !(project.environments || []).some((e) => e.status === 'running')} className="px-2.5 py-2 text-sm rounded-md"><Camera className="h-3.5 w-3.5 mr-2.5" />{t('card.thumb.capture')}</DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onDuplicate?.(project.id)} className="px-2.5 py-2 text-sm rounded-md"><Copy className="h-3.5 w-3.5 mr-2.5" />{t('surf.duplicate')}</DropdownMenuItem>
                 {!project.deviceId && onMoveToDevice && (
@@ -1687,6 +1823,9 @@ function SortableProjectCardImpl({
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">e</kbd></ContextMenuItem>
           {project.repoUrl && onPull && (
             <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}>{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</ContextMenuItem>
+          )}
+          {onCaptureThumb && !isRemote && (project.environments || []).length > 0 && (
+            <ContextMenuItem disabled={projectBusy || !(project.environments || []).some((e) => e.status === 'running')} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCaptureThumb(project)}><Camera className="h-3.5 w-3.5 mr-2.5" />{t('card.thumb.capture')}</ContextMenuItem>
           )}
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.unpin')}</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pinToTop')}</>}</ContextMenuItem>
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.duplicate')}</ContextMenuItem>
@@ -9019,6 +9158,30 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     input.click()
   }, [toast, fetchProjects])
 
+  // Live preview (v1.22): manual thumbnail capture — screenshots the first
+  // running environment of the project. Auto-capture already fires on env
+  // start/restart/rebuild; this covers "I changed the page, refresh it".
+  const handleCaptureThumbnail = React.useCallback(async (project: Project) => {
+    const env = (project.environments || []).find((e) => e.status === 'running')
+    if (!env) {
+      toast({ title: t('card.thumb.captureFailed'), description: t('card.thumb.notRunning'), variant: 'destructive' })
+      return
+    }
+    toast({ title: t('card.thumb.captureStarted'), description: `${project.name} · :${env.port}`, variant: 'default' })
+    try {
+      const res = await fetch(`/api/projects/${project.id}/environments/${env.id}/thumbnail`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.ok) {
+        toast({ title: t('card.thumb.captured'), variant: 'success' })
+        fetchProjects()
+      } else {
+        toast({ title: t('card.thumb.captureFailed'), description: data.error || `HTTP ${res.status}`, variant: 'destructive' })
+      }
+    } catch (e: any) {
+      toast({ title: t('card.thumb.captureFailed'), description: e?.message || 'network error', variant: 'destructive' })
+    }
+  }, [toast, t, fetchProjects])
+
   const handleEnvAction = React.useCallback(async (projectId: string, envId: string, action: string) => {
     const project = projects.find((p) => p.id === projectId)
     const env = project?.environments.find((e) => e.id === envId)
@@ -10482,7 +10645,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onSelect={handleSelectProject}
                               onEdit={handleEditProject}
                               onDelete={setDeleteProject}
-                              onEnvAction={handleEnvAction}
+                              onEnvAction={handleEnvAction} onCaptureThumb={handleCaptureThumbnail}
                               onRebuildConfirm={setRebuildConfirmProject}
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
@@ -10536,7 +10699,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onSelect={handleSelectProject}
                               onEdit={handleEditProject}
                               onDelete={setDeleteProject}
-                              onEnvAction={handleEnvAction}
+                              onEnvAction={handleEnvAction} onCaptureThumb={handleCaptureThumbnail}
                               onRebuildConfirm={setRebuildConfirmProject}
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
@@ -10589,7 +10752,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onSelect={handleSelectProject}
                               onEdit={handleEditProject}
                               onDelete={setDeleteProject}
-                              onEnvAction={handleEnvAction}
+                              onEnvAction={handleEnvAction} onCaptureThumb={handleCaptureThumbnail}
                               onRebuildConfirm={setRebuildConfirmProject}
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
@@ -10629,7 +10792,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         onSelect={handleSelectProject}
                         onEdit={handleEditProject}
                         onDelete={setDeleteProject}
-                        onEnvAction={handleEnvAction}
+                        onEnvAction={handleEnvAction} onCaptureThumb={handleCaptureThumbnail}
                         onRebuildConfirm={setRebuildConfirmProject}
                         selected={selectedIds.has(project.id)}
                         onToggleSelect={toggleSelect}
@@ -10677,7 +10840,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onSelect={handleSelectProject}
                               onEdit={handleEditProject}
                               onDelete={setDeleteProject}
-                              onEnvAction={handleEnvAction}
+                              onEnvAction={handleEnvAction} onCaptureThumb={handleCaptureThumbnail}
                               onRebuildConfirm={setRebuildConfirmProject}
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
@@ -10729,7 +10892,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onSelect={handleSelectProject}
                               onEdit={handleEditProject}
                               onDelete={setDeleteProject}
-                              onEnvAction={handleEnvAction}
+                              onEnvAction={handleEnvAction} onCaptureThumb={handleCaptureThumbnail}
                               onRebuildConfirm={setRebuildConfirmProject}
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
@@ -10780,7 +10943,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onSelect={handleSelectProject}
                               onEdit={handleEditProject}
                               onDelete={setDeleteProject}
-                              onEnvAction={handleEnvAction}
+                              onEnvAction={handleEnvAction} onCaptureThumb={handleCaptureThumbnail}
                               onRebuildConfirm={setRebuildConfirmProject}
                               selected={selectedIds.has(project.id)}
                               onToggleSelect={toggleSelect}
@@ -10821,7 +10984,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         onSelect={handleSelectProject}
                         onEdit={handleEditProject}
                         onDelete={setDeleteProject}
-                        onEnvAction={handleEnvAction}
+                        onEnvAction={handleEnvAction} onCaptureThumb={handleCaptureThumbnail}
                         onRebuildConfirm={setRebuildConfirmProject}
                         selected={selectedIds.has(project.id)}
                         onToggleSelect={toggleSelect}

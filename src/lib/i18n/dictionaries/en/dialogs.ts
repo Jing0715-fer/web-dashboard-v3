@@ -1168,6 +1168,22 @@ export const dialogs = {
   'card.preview.lastUpdated': 'Last Updated',
   'card.preview.runningFraction': '{running}/{total} running',
   'card.preview.updatedAgo': 'Updated {time}',
+
+  // Live-preview thumbnails (v1.22) — real screenshots of the running page,
+  // captured automatically when an environment starts.
+  'card.thumb.placeholder': 'Start the project to capture a live preview',
+  'card.thumb.capturing': 'Capturing live preview…',
+  'card.thumb.capturedAt': 'Captured {time}',
+  'card.thumb.refresh': 'Re-capture the preview from the running page',
+  'card.thumb.refreshShort': 'Recapture',
+  'card.thumb.capture': 'Capture thumbnail',
+  'card.thumb.captureStarted': 'Capturing live preview…',
+  'card.thumb.captured': 'Live preview captured',
+  'card.thumb.captureFailed': 'Thumbnail capture failed',
+  'card.thumb.notRunning': 'Start an environment first — thumbnails capture the live page',
+  'card.thumb.staleHint': 'Last capture failed: {err} — showing the previous screenshot',
+  'card.thumb.alt': 'Live preview screenshot of {name}',
+
   'card.chipStart': 'Start',
   'card.chipStop': 'Stop',
   'card.chipOpen': 'Open',

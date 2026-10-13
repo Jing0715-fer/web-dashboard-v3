@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { enrichEnvStatuses } from '@/lib/env-status';
 import { getRemoteProjectsCached, healSelfMirroredLocalProjects } from '@/lib/remote-sync';
 import { logActivity } from '@/lib/activity';
+import { getLatestThumbnailsByProject, getInflightEnvIds } from '@/lib/thumbnail';
 import { requireApprovedUser } from '@/lib/auth';
 import { isUnsafeAnalysisPath, analysisGuardRejection } from '@/lib/self-guard';
 
@@ -34,16 +35,27 @@ export async function GET(req: Request) {
     );
     const localEnvsById = new Map(localEnvs.map((e) => [e.id, e]));
 
-    const enrichedLocal = localProjects.map((project) => ({
-      ...project,
-      deviceName: null,
-      deviceId: null,
-      deviceStatus: null,
-      environments: project.environments.map((env) => {
-        const reconciled = localEnvsById.get(env.id);
-        return reconciled ? { ...env, status: reconciled.status } : env;
-      }),
-    }));
+    // Live previews (v1.22): latest captured screenshot per local project +
+    // which projects currently have a capture in flight (drives the
+    // "capturing…" spinner on cards). One batched query, decorative on failure.
+    const latestThumbs = await getLatestThumbnailsByProject(localProjects.map((p) => p.id));
+    const inflightEnvIds = getInflightEnvIds();
+
+    const enrichedLocal = localProjects.map((project) => {
+      const thumb = latestThumbs.get(project.id) || null;
+      return {
+        ...project,
+        deviceName: null,
+        deviceId: null,
+        deviceStatus: null,
+        thumbnail: thumb,
+        thumbCapturing: project.environments.some((e) => inflightEnvIds.has(e.id)),
+        environments: project.environments.map((env) => {
+          const reconciled = localEnvsById.get(env.id);
+          return reconciled ? { ...env, status: reconciled.status } : env;
+        }),
+      };
+    });
 
     // 2. Remote projects: served from the SWR sync cache (see
     //    src/lib/remote-sync.ts). This call never blocks on unreachable

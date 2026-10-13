@@ -38,6 +38,7 @@ model Project {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   environments Environment[]
+  thumbnails  Thumbnail[]
   device      Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
 
   @@unique([deviceId, path])
@@ -56,6 +57,35 @@ model Environment {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+// Live-preview thumbnail for a project environment. One row per environment
+// (latest capture wins — upserted). Rows are ONLY written after a successful
+// headless-browser screenshot, so a row always corresponds to a real JPEG on
+// disk under <repo>/db/thumbnails/. `error` records the last failure for
+// diagnostics (cleared on the next success) without wiping the last good image.
+model Thumbnail {
+  id         String   @id @default(cuid())
+  projectId  String
+  // Environment the screenshot was taken of (denormalized name/port so the
+  // card can label the preview without an extra join).
+  envId      String   @unique
+  envName    String
+  port       Int
+  // File name inside db/thumbnails/ — also the public URL segment
+  // (/api/thumbnails/<file>?v=<capturedAtMs> for cache busting).
+  file       String
+  bytes      Int      @default(0)
+  width      Int      @default(0)
+  height     Int      @default(0)
+  // Last capture failure reason (null = last attempt succeeded). Kept even
+  // when an older image stays on disk so the UI can explain staleness.
+  error      String?
+  capturedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
 }

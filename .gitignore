@@ -76,3 +76,6 @@ upload/
 
 # remote auto-apply watcher runtime queue (server state, not source)
 db/harness-apply-queue.json
+
+# live-preview thumbnails (v1.22 runtime state — real screenshots land here)
+db/thumbnails/

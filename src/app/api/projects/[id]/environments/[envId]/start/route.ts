@@ -6,6 +6,7 @@ import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 import { startRepairJob } from '@/lib/llm-repair';
 import { logActivity } from '@/lib/activity';
+import { scheduleThumbnailCapture } from '@/lib/thumbnail';
 import { requireApprovedUser } from '@/lib/auth';
 
 // Companion projects that should be auto-started when the parent project starts.
@@ -119,6 +120,17 @@ export async function POST(
         detail: result.pid ? `pid: ${result.pid}` : undefined,
       });
 
+      // Live preview (v1.22): once the port answers, screenshot the running
+      // page in the background and refresh the project card thumbnail. Fire-
+      // and-forget by design — the start response must not wait on it.
+      scheduleThumbnailCapture({
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        port: env.port,
+      });
+
       // Auto-start companion project (best-effort, never fails the parent request)
       const companionName = COMPANION_AUTO_START[env.project.name.toLowerCase()];
       let companionStarted: { name: string; ok: boolean; reason?: string } | null = null;
@@ -149,6 +161,14 @@ export async function POST(
                     data: { status: 'running', pid: compResult.pid },
                   });
                   companionStarted = { name: companion.name, ok: true };
+                  // Companion got started → it earns a live preview too.
+                  scheduleThumbnailCapture({
+                    projectId: companion.id,
+                    projectName: companion.name,
+                    envId: targetEnv.id,
+                    envName: targetEnv.name,
+                    port: targetEnv.port,
+                  });
                 } else {
                   companionStarted = { name: companion.name, ok: false, reason: compResult.error };
                 }

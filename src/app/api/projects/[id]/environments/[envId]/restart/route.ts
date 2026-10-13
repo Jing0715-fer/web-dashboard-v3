@@ -6,6 +6,7 @@ import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 import { startRepairJob } from '@/lib/llm-repair';
 import { logActivity } from '@/lib/activity';
+import { scheduleThumbnailCapture } from '@/lib/thumbnail';
 import { requireApprovedUser } from '@/lib/auth';
 
 export async function POST(
@@ -104,6 +105,16 @@ export async function POST(
         envName: env.name,
         detail: result.pid ? `pid: ${result.pid}` : undefined,
         durationMs: Date.now() - restartStartedAt,
+      });
+
+      // Live preview (v1.22): a restart serves a fresh page — re-capture in
+      // the background (fire-and-forget, same as the start route).
+      scheduleThumbnailCapture({
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        port: env.port,
       });
 
       return NextResponse.json({ ok: true, pid: result.pid });

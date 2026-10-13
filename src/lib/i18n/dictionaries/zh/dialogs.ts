@@ -1164,6 +1164,21 @@ export const dialogs = {
   'card.preview.lastUpdated': '最后更新',
   'card.preview.runningFraction': '{running}/{total} 运行中',
   'card.preview.updatedAgo': '更新于 {time}',
+
+  // 实时预览缩略图（v1.22）——环境启动后自动截取真实页面截图。
+  'card.thumb.placeholder': '启动项目后自动截取实时预览',
+  'card.thumb.capturing': '正在截取实时预览…',
+  'card.thumb.capturedAt': '截取于 {time}',
+  'card.thumb.refresh': '从运行中的页面重新截取预览',
+  'card.thumb.refreshShort': '重截',
+  'card.thumb.capture': '截取缩略图',
+  'card.thumb.captureStarted': '正在截取实时预览…',
+  'card.thumb.captured': '已截取实时预览',
+  'card.thumb.captureFailed': '缩略图截取失败',
+  'card.thumb.notRunning': '请先启动环境 — 缩略图来自运行中页面的截图',
+  'card.thumb.staleHint': '上次截取失败：{err} — 显示的是之前的截图',
+  'card.thumb.alt': '{name} 的实时页面截图',
+
   'card.chipStart': '启动',
   'card.chipStop': '停止',
   'card.chipOpen': '打开',

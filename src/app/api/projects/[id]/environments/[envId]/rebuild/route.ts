@@ -5,6 +5,7 @@ import { startRepairJob } from '@/lib/llm-repair'
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision'
 import { invalidateRemoteProjectCache } from '@/lib/remote-sync'
 import { logActivity } from '@/lib/activity'
+import { scheduleThumbnailCapture } from '@/lib/thumbnail'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { requireApprovedUser } from '@/lib/auth';
@@ -160,6 +161,15 @@ export async function POST(
         envName: env.name,
         detail: result.pid ? `pid: ${result.pid}` : undefined,
         durationMs: Date.now() - rebuildStartedAt,
+      })
+
+      // Live preview (v1.22): fresh build → fresh screenshot (background).
+      scheduleThumbnailCapture({
+        projectId: id,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        port: env.port,
       })
 
       return NextResponse.json({ ok: true, pid: result.pid })
