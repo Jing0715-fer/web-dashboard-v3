@@ -115,6 +115,35 @@ async function originUrl(): Promise<string | null> {
   }
 }
 
+/** v1.21 (self-update UI): the dashboard's own origin URL, masked — null when
+ *  absent or non-http(s). Shared by GET /api/self-update (version check) and
+ *  POST /api/self-update/pull (agent self-heals a missing origin from it). */
+export async function dashboardOriginUrl(): Promise<string | null> {
+  return originUrl();
+}
+
+/** v1.21: the dashboard repo's own HEAD sha (full 40 hex) — null when the
+ *  server's cwd is not a git repository. */
+export async function dashboardLocalHead(): Promise<string | null> {
+  return localHead();
+}
+
+/** v1.21: drop the TTL-cached ls-remote probe so the next read (self-update
+ *  status, heartbeat signal) reflects a JUST-COMPLETED manual self-update
+ *  instead of the pre-pull snapshot for up to 5 minutes. */
+export function invalidateSelfProbeCache(): void {
+  cached = null;
+}
+
+/** v1.21: the manual self-update route is about to pull this repo — push the
+ *  background auto-pull's rate-limit floor forward so the supervisor can never
+ *  race a second `git pull` against the agent's backup → sync → restore loop.
+ *  (Both layers are safe individually; serializing them keeps the timeline
+ *  honest and avoids interleaved stash/pull sequences.) */
+export function suppressBackgroundAutoPull(): void {
+  lastPullAttempt = Date.now();
+}
+
 async function localHead(): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], {

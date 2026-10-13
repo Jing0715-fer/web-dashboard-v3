@@ -3690,6 +3690,107 @@ function PullAgentDialog({ run, onClose, onRetry }: {
   )
 }
 
+/**
+ * Self-update dialog (v1.21): GitHub version check + ONE-CLICK update for
+ * the DASHBOARD ITSELF — the same treatment every managed project already
+ * gets. Status card (local/remote sha, branch, background auto-update state)
+ * plus the primary "Update now" action, which hands the pull to the v1.20
+ * agent (backup → sync → restore, full conflict auto-resolve) and continues
+ * in the PullAgentDialog timeline that opens on hand-off.
+ */
+function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate, updating }: {
+  open: boolean
+  onClose: () => void
+  status: RepoUpdateStatus | null
+  meta: { repoUrl: string | null; localSha: string | null; branch: string | null; autoUpdate: boolean } | null
+  busy: boolean
+  onCheck: () => void
+  onUpdate: () => void
+  updating: boolean
+}) {
+  const t = useT()
+  const state = status?.state ?? 'unknown'
+  const canUpdate = state === 'behind' || state === 'diverged'
+
+  const banner = (() => {
+    if (!status) {
+      return { icon: <Loader2 className="h-4 w-4 shrink-0 animate-spin" />, cls: 'border-border bg-muted/40 text-muted-foreground', text: t('dlg.selfUpdate.checking') }
+    }
+    switch (state) {
+      case 'current':
+        return { icon: <CheckCircle2 className="h-4 w-4 shrink-0" />, cls: 'border-emerald-300/60 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300', text: t('dlg.selfUpdate.current') }
+      case 'behind':
+        return { icon: <Download className="h-4 w-4 shrink-0" />, cls: 'border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300', text: t('dlg.selfUpdate.behind', { count: status.behind ?? 1 }) }
+      case 'diverged':
+        return { icon: <GitBranch className="h-4 w-4 shrink-0" />, cls: 'border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300', text: t('dlg.selfUpdate.diverged', { ahead: status.ahead ?? 0, behind: status.behind ?? 0 }) }
+      case 'ahead':
+        return { icon: <ArrowUp className="h-4 w-4 shrink-0" />, cls: 'border-border bg-muted/40 text-muted-foreground', text: t('dlg.selfUpdate.ahead', { count: status.ahead ?? 1 }) }
+      default:
+        return {
+          icon: <AlertCircle className="h-4 w-4 shrink-0" />,
+          cls: 'border-border bg-muted/40 text-muted-foreground',
+          text: meta?.repoUrl === null
+            ? t('dlg.selfUpdate.noOrigin')
+            : `${t('dlg.selfUpdate.unknown')}${status.error ? ` — ${status.error}` : ''}`,
+        }
+    }
+  })()
+
+  const row = (label: string, value: React.ReactNode) => (
+    <div className="flex items-baseline justify-between gap-3 min-w-0">
+      <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+      <span className="text-xs font-mono text-foreground/90 truncate" title={typeof value === 'string' ? value : undefined}>{value}</span>
+    </div>
+  )
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o && !updating) onClose() }}>
+      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Github className="h-5 w-5 shrink-0" />
+            {t('dlg.selfUpdate.title')}
+          </DialogTitle>
+          <DialogDescription>{t('dlg.selfUpdate.desc')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3 min-h-0 overflow-y-auto pr-1">
+          {/* State banner — same palette language as the project update pills */}
+          <div className={`flex items-start gap-2 rounded-md border px-3 py-2.5 ${banner.cls}`} role="status">
+            {banner.icon}
+            <div className="text-sm font-medium leading-5 break-words">{banner.text}</div>
+          </div>
+
+          {/* Version facts */}
+          <div className="rounded-md border px-3 py-2.5 space-y-2">
+            {row(t('dlg.selfUpdate.localVer'), meta?.localSha || '—')}
+            {row(t('dlg.selfUpdate.remoteVer'), status?.remoteSha || '—')}
+            {row(t('dlg.selfUpdate.branch'), meta?.branch || '—')}
+            {row(t('dlg.selfUpdate.autoUpdate'), meta ? (meta.autoUpdate ? t('dlg.selfUpdate.autoOn') : t('dlg.selfUpdate.autoOff')) : '—')}
+            {meta?.repoUrl ? row(t('dlg.selfUpdate.repo'), meta.repoUrl.replace(/^https?:\/\//, '')) : null}
+            {status?.checkedAt ? (
+              <div className="text-[10px] text-muted-foreground/70 pt-0.5">{new Date(status.checkedAt).toLocaleString()}</div>
+            ) : null}
+          </div>
+
+          <div className="text-xs text-muted-foreground leading-5">{t('dlg.selfUpdate.hint')}</div>
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <Button variant="outline" className="flex-1" onClick={onCheck} disabled={busy || updating}>
+            <RefreshCw className={`h-4 w-4 mr-1.5 ${busy ? 'animate-spin' : ''}`} />
+            {busy ? t('dlg.selfUpdate.checking') : t('dlg.selfUpdate.check')}
+          </Button>
+          <Button className="flex-1" onClick={onUpdate} disabled={busy || updating || !canUpdate}>
+            {updating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
+            {t('dlg.selfUpdate.updateNow')}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()
   const [provider, setProvider] = React.useState('zai')
@@ -7230,6 +7331,24 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     error?: string
     detail?: string
   } | null>(null)
+  // Dashboard SELF-update (v1.21): version check for the dashboard's own
+  // repository (GET /api/self-update — same current/behind/ahead/diverged/
+  // unknown states as every project pill) plus the one-click update run
+  // (selfAgentRun drives a second PullAgentDialog instance — same timeline).
+  const [selfStatus, setSelfStatus] = React.useState<RepoUpdateStatus | null>(null)
+  const [selfMeta, setSelfMeta] = React.useState<{ repoUrl: string | null; localSha: string | null; branch: string | null; autoUpdate: boolean } | null>(null)
+  const [selfCheckBusy, setSelfCheckBusy] = React.useState(false)
+  const [selfUpdateOpen, setSelfUpdateOpen] = React.useState(false)
+  const [selfAgentRun, setSelfAgentRun] = React.useState<{
+    projectId: string
+    projectName: string
+    branch?: string
+    steps: PullAgentStepView[]
+    status: 'running' | 'done' | 'failed'
+    result?: PullAgentResultView
+    error?: string
+    detail?: string
+  } | null>(null)
   // Per-env in-flight operations (envId → action). Drives the progress
   // spinners on env rows and blocks duplicate clicks while an operation runs.
   const [pendingEnvOps, setPendingEnvOps] = React.useState<Record<string, string>>({})
@@ -7433,6 +7552,20 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } catch { /* update hints are best-effort */ }
   }, [toast, t])
 
+  // Dashboard self-update freshness (v1.21) — best-effort with the same
+  // degradation rules as the project pills ('unknown' never surfaces as an
+  // error, the header button just stays neutral).
+  const fetchSelfUpdate = React.useCallback(async (opts?: { refresh?: boolean }) => {
+    setSelfCheckBusy(true)
+    try {
+      const res = await fetch(`/api/self-update${opts?.refresh ? '?refresh=1' : ''}`)
+      if (!res.ok) return
+      const data = await res.json()
+      setSelfStatus(data.status ?? null)
+      setSelfMeta(data.meta ?? null)
+    } catch { /* best-effort */ } finally { setSelfCheckBusy(false) }
+  }, [])
+
   const fetchNotifications = React.useCallback(async () => {
     try {
       const res = await fetch('/api/notifications')
@@ -7573,9 +7706,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     // or network round trips to the repositories.
     fetchProjectVersions()
     fetchProjectUpdates()
+    fetchSelfUpdate()
     // fetchGlobalActivity will be triggered by the projects-changed effect below
     setLoading(false)
-  }, [fetchProjects, fetchNotifications, fetchDevices, fetchProjectVersions, fetchProjectUpdates])
+  }, [fetchProjects, fetchNotifications, fetchDevices, fetchProjectVersions, fetchProjectUpdates, fetchSelfUpdate])
 
   // Initial load — the project list was already hydrated from the localStorage
   // cache inside the useState initializers (first render shows data). Here we
@@ -7599,9 +7733,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
       fetchProjectUpdates()
+      fetchSelfUpdate()
     }, 10 * 60 * 1000)
     return () => clearInterval(timer)
-  }, [fetchProjectUpdates])
+  }, [fetchProjectUpdates, fetchSelfUpdate])
 
   // Fetch global activity when projects change. With the cache initializer,
   // a cache hit fires this on the FIRST render — in parallel with the network
@@ -8435,6 +8570,128 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       setAgentRun((prev) => prev ? { ...prev, status: 'failed', error: summarizeError(e?.message) || t('dlg.common.networkError') } : prev)
     }
   }, [toast, t, fetchProjects, fetchProjectVersions, fetchProjectUpdates])
+
+  // Dashboard SELF-update (v1.21): the header button's "Update now".
+  // Identical to runAgentPull except the target is the dashboard's own
+  // repository — the status dialog hands over to the PullAgentDialog
+  // timeline, SSE frames patch selfAgentRun, and the terminal frame
+  // refreshes the version pill.
+  //
+  // Dev-mode caveat handled in the catch: pulling the RUNNING code can make
+  // Turbopack recompile and cut the stream mid-run — the agent still runs to
+  // completion server-side, so a cut stream re-checks the version first and
+  // only reports failure when the checkout really did not advance.
+  const runSelfUpdate = React.useCallback(async () => {
+    if (selfAgentRun?.status === 'running') return
+    setSelfUpdateOpen(false) // the timeline dialog takes over
+    setSelfAgentRun({
+      projectId: '__dashboard_self__',
+      projectName: t('dlg.selfUpdate.selfName'),
+      steps: AGENT_STEP_KEYS.map((key) => ({ key, status: 'pending' as const })),
+      status: 'running',
+    })
+    const patchStep = (step: PullAgentStepView) => {
+      setSelfAgentRun((prev) => prev ? {
+        ...prev,
+        steps: prev.steps.some((s) => s.key === step.key)
+          ? prev.steps.map((s) => (s.key === step.key ? { ...s, ...step } : s))
+          : [...prev.steps, step],
+      } : prev)
+    }
+    try {
+      const res = await fetch('/api/self-update/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+        signal: AbortSignal.timeout(10 * 60_000),
+      })
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(String(data?.error || `self-update failed (${res.status})`))
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        let sep: number
+        while ((sep = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, sep).trim()
+          buf = buf.slice(sep + 2)
+          if (!frame.startsWith('data:')) continue
+          const payload = frame.slice(5).trim()
+          if (!payload || payload === '[DONE]') continue
+          let msg: any
+          try { msg = JSON.parse(payload) } catch { continue }
+          if (msg.type === 'steps' && msg.step?.key) {
+            patchStep(msg.step)
+          } else if (msg.type === 'done') {
+            const r = msg.result || {}
+            setSelfAgentRun((prev) => prev ? {
+              ...prev,
+              status: 'done',
+              result: r,
+              steps: Array.isArray(r.steps) ? r.steps : prev.steps,
+            } : prev)
+            toast({
+              title: r.upToDate ? t('dlg.selfUpdate.toastUpToDate') : t('dlg.selfUpdate.toastDone'),
+              description: `${String(r.summary || '')} ${t('dlg.selfUpdate.refreshPage')}`.trim(),
+              variant: 'success',
+            })
+            fetchSelfUpdate({ refresh: true })
+          } else if (msg.type === 'failed') {
+            setSelfAgentRun((prev) => prev ? {
+              ...prev,
+              status: 'failed',
+              error: String(msg.error || ''),
+              detail: msg.detail ? String(msg.detail) : undefined,
+              steps: msg.result?.steps || prev.steps,
+            } : prev)
+            toast({ title: t('dlg.selfUpdate.toastFailed'), description: String(msg.error || ''), variant: 'destructive' })
+          }
+        }
+      }
+    } catch (e: any) {
+      // Stream died mid-run (classic: the dev server hot-reloads the code the
+      // agent just pulled). Give the server-side agent a moment, re-check the
+      // version, and only declare failure when the checkout did not advance.
+      await new Promise((r) => setTimeout(r, 1500))
+      let landed = false
+      let landedSha = ''
+      try {
+        const res = await fetch('/api/self-update?refresh=1')
+        if (res.ok) {
+          const data = await res.json()
+          setSelfStatus(data.status ?? null)
+          setSelfMeta(data.meta ?? null)
+          landed = data?.status?.state === 'current'
+          landedSha = String(data?.meta?.localSha || '')
+        }
+      } catch { /* offline — fall through to the failure report */ }
+      if (landed) {
+        setSelfAgentRun((prev) => prev ? {
+          ...prev,
+          status: 'done',
+          result: {
+            ok: true,
+            upToDate: false,
+            before: '',
+            after: landedSha,
+            restored: false,
+            autoResolved: [],
+            artifacts: { stash: false, backupFiles: [] },
+            summary: t('dlg.selfUpdate.refreshPage'),
+            output: '',
+          } satisfies PullAgentResultView,
+        } : prev)
+        toast({ title: t('dlg.selfUpdate.toastDone'), description: t('dlg.selfUpdate.refreshPage'), variant: 'success' })
+      } else {
+        setSelfAgentRun((prev) => prev ? { ...prev, status: 'failed', error: summarizeError(e?.message) || t('dlg.common.networkError') } : prev)
+      }
+    }
+  }, [selfAgentRun, fetchSelfUpdate, toast, t])
 
   // AI pull diagnosis (v1.19): a pull just failed on ANY surface (card row,
   // detail sheet, branch picker). Remember the failure, ask the configured
@@ -9572,6 +9829,34 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             </div>
 
             <Separator orientation="vertical" className="h-5 mx-0.5 hidden sm:block" />
+
+            {/* Dashboard self-update (v1.21): GitHub version check + one-click
+                update for the dashboard ITSELF — same hint semantics as the
+                project pills (emerald dot + behind-count badge when behind). */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t('dlg.selfUpdate.tooltip')}
+                    onClick={() => { setSelfUpdateOpen(true); fetchSelfUpdate({ refresh: true }) }}
+                    className={`inline-flex items-center justify-center rounded-md h-8 w-8 cursor-pointer relative transition-all duration-150 active:scale-95 ${
+                      isUpdateHint(selfStatus)
+                        ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                        : 'hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground'
+                    }`}
+                  >
+                    {selfCheckBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Github className="h-4 w-4" />}
+                    {isUpdateHint(selfStatus) && (
+                      <span className="absolute -top-1 -right-1 min-h-[16px] min-w-[16px] rounded-full bg-emerald-500 text-white text-[9px] flex items-center justify-center font-bold px-1 shadow-lg shadow-emerald-500/30">
+                        {selfStatus?.behind ?? '!'}
+                      </span>
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t('dlg.selfUpdate.tooltip')}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
 
             <ThemeToggle />
             {/* Standalone language switcher (task 17) — the only language control */}
@@ -10794,6 +11079,25 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             || ({ id: agentRun.projectId, name: agentRun.projectName, repoUrl: 'agent' } as Project)
           void runAgentPull(project, agentRun.branch)
         } : null}
+      />
+      {/* Dashboard self-update (v1.21): version card + one-click update */}
+      <SelfUpdateDialog
+        open={selfUpdateOpen}
+        onClose={() => setSelfUpdateOpen(false)}
+        status={selfStatus}
+        meta={selfMeta}
+        busy={selfCheckBusy}
+        updating={selfAgentRun?.status === 'running'}
+        onCheck={() => fetchSelfUpdate({ refresh: true })}
+        onUpdate={() => { void runSelfUpdate() }}
+      />
+      {/* Self-update agent timeline — the same dialog as projects, fed by the
+          dashboard-self run (only one of the two instances is non-null at a
+          time in practice, and each renders only when its run is non-null) */}
+      <PullAgentDialog
+        run={selfAgentRun}
+        onClose={() => setSelfAgentRun(null)}
+        onRetry={selfAgentRun ? () => { void runSelfUpdate() } : null}
       />
       <RepairDialog
         jobId={repairJobId}

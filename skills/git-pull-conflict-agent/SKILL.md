@@ -205,6 +205,15 @@ the project is local or remote (`agent` is invalid for remote).
   the legacy stash/force strategy executors (still used by the dialogs).
 - `src/lib/git-retry.ts` — the C8 transient-network retry wrapper.
 - `src/lib/i18n/dictionaries/{zh,en}/dialogs.ts` — `dlg.pullAgent.*` keys.
+- Self-update reuse (v1.21): `src/app/api/self-update/route.ts` (GET — the
+  dashboard checks ITS OWN repository exactly like a project: same
+  `checkLocalRepoUpdate` pipeline, reserved cache key `__dashboard_self__`)
+  and `src/app/api/self-update/pull/route.ts` (POST — the SAME engine,
+  `runPullAgent({ projectPath: process.cwd() })`, SSE frames identical).
+  Two extra guards when the target is the running app itself: a module-level
+  in-flight lock (one self-update per process) and a call that pushes the
+  background auto-pull's rate-limit floor forward so the two layers never
+  interleave. Port both if the host app can update itself.
 
 ## 7. Acceptance matrix (verify ALL before shipping)
 

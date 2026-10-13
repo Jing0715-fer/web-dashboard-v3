@@ -254,6 +254,12 @@ export function invalidateUpdateCache(ids?: string[]): void {
   }
 }
 
+/** v1.21: reserved cache key for the DASHBOARD'S OWN repo — /api/self-update
+ *  checks it exactly like a project row, and /api/self-update/pull invalidates
+ *  it after a one-click update. Real project ids are cuids, so the reserved
+ *  name can never collide. */
+export const SELF_UPDATE_CACHE_KEY = '__dashboard_self__';
+
 /** Cached freshness check for a dashboard-local project. */
 export async function checkLocalRepoUpdate(
   projectId: string,
