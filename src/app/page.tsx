@@ -23,7 +23,7 @@ import {
   EyeOff, KeyRound, Sparkles, Radio,
   ShieldAlert, ShieldCheck, ShieldX, Minimize2,
   UserPlus, Github, GitPullRequest,
-  Archive,
+  Archive, Minus,
 } from 'lucide-react'
 
 import {
@@ -3146,7 +3146,7 @@ function pullTransientNote(data: any, t: (key: string, params?: Record<string, u
  *   - Cancel: resolve by hand
  * The file lists are scrollable; the strategies explain exactly what they do.
  */
-function PullConflictDialog({ conflict, busy, onResolve, onClose }: {
+function PullConflictDialog({ conflict, busy, onResolve, onAgent, allowAgent, onClose }: {
   conflict: {
     projectId: string
     projectName: string
@@ -3157,6 +3157,10 @@ function PullConflictDialog({ conflict, busy, onResolve, onClose }: {
   } | null
   busy: 'stash' | 'force' | null
   onResolve: (strategy: 'stash' | 'force') => void
+  /** v1.20 agent auto-resolve — hands the whole loop to the agent. */
+  onAgent?: () => void
+  /** Hidden for remote (device) projects — git runs on another machine. */
+  allowAgent?: boolean
   onClose: () => void
 }) {
   const t = useT()
@@ -3203,6 +3207,21 @@ function PullConflictDialog({ conflict, busy, onResolve, onClose }: {
         )}
 
         <div className="flex flex-col gap-2 pt-1">
+          {allowAgent && onAgent && (
+            <Button
+              className="w-full justify-start text-left h-auto py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={busyNow}
+              onClick={onAgent}
+            >
+              <div className="flex items-center gap-2">
+                <Bot className="h-4 w-4 shrink-0" />
+                <div className="flex flex-col items-start">
+                  <span className="text-sm font-medium">{t('dlg.pullAgent.runAgent')}</span>
+                  <span className="text-xs font-normal text-white/75">{t('dlg.pullAgent.runAgentDesc')}</span>
+                </div>
+              </div>
+            </Button>
+          )}
           <Button
             className="w-full justify-start text-left h-auto py-2.5"
             disabled={busyNow}
@@ -3246,7 +3265,7 @@ interface PullDiagnosis {
   rootCause: string
   explanation: string
   severity: 'low' | 'medium' | 'high'
-  recommendedAction: 'retry' | 'stash' | 'force' | 'manual'
+  recommendedAction: 'retry' | 'agent' | 'stash' | 'force' | 'manual'
   reason: string
   steps: string[]
 }
@@ -3268,7 +3287,7 @@ interface PullDiagnosis {
  * The USER confirms every action before anything runs. If the diagnosis
  * call itself fails, the caller falls back to the v1.17 conflict dialog
  * (409 class) or the plain error toast. */
-function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfirm, onAction, onClose }: {
+function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfirm, onAction, allowAgent, onClose }: {
   req: {
     projectId: string
     projectName: string
@@ -3280,10 +3299,13 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
     transient?: boolean
   } | null
   diagnosis: PullDiagnosis | null
-  busy: 'retry' | 'stash' | 'force' | null
+  busy: 'retry' | 'agent' | 'stash' | 'force' | null
   forceConfirm: boolean
   onForceConfirm: (v: boolean) => void
-  onAction: (action: 'retry' | 'stash' | 'force' | 'manual') => void
+  onAction: (action: 'retry' | 'agent' | 'stash' | 'force' | 'manual') => void
+  /** v1.20: the agent auto-resolve only runs where the code lives — hide it
+   *  for remote (device) projects. */
+  allowAgent?: boolean
   onClose: () => void
 }) {
   const t = useT()
@@ -3291,12 +3313,13 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
   const loading = !!req && !diagnosis
   const hasConflict = !!req && (req.modified.length > 0 || req.untracked.length > 0)
   // Whitelisted offer set: stash/force only exist when the failure actually
-  // carried blocking file lists; retry/manual are always available.
-  const base: Array<'retry' | 'stash' | 'force' | 'manual'> = hasConflict
-    ? ['stash', 'force', 'retry', 'manual']
-    : ['retry', 'manual']
+  // carried blocking file lists; agent/retry/manual are always available.
+  // The v1.20 agent leads the list for local projects — it finishes the job.
+  const base: Array<'retry' | 'agent' | 'stash' | 'force' | 'manual'> = allowAgent
+    ? (hasConflict ? ['agent', 'stash', 'force', 'retry', 'manual'] : ['agent', 'retry', 'manual'])
+    : (hasConflict ? ['stash', 'force', 'retry', 'manual'] : ['retry', 'manual'])
   const rec = diagnosis?.recommendedAction
-  const actions: Array<'retry' | 'stash' | 'force' | 'manual'> =
+  const actions: Array<'retry' | 'agent' | 'stash' | 'force' | 'manual'> =
     rec && base.includes(rec) ? [rec, ...base.filter((a) => a !== rec)] : base
   const severityClass = diagnosis?.severity === 'high'
     ? 'text-rose-600 dark:text-rose-400'
@@ -3408,11 +3431,13 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
                 {actions.map((a) => {
                   const cfg = a === 'retry'
                     ? { icon: RefreshCw, label: t('dlg.pullDiag.action.retry'), desc: t('dlg.pullDiag.action.retryDesc'), variant: 'default' as const }
-                    : a === 'stash'
-                      ? { icon: Archive, label: t('dlg.pullConflict.stash'), desc: t('dlg.pullConflict.stashDesc'), variant: 'default' as const }
-                      : a === 'force'
-                        ? { icon: Trash2, label: t('dlg.pullConflict.force'), desc: t('dlg.pullConflict.forceDesc'), variant: 'destructive' as const }
-                        : { icon: Terminal, label: t('dlg.pullDiag.action.manual'), desc: t('dlg.pullDiag.action.manualDesc'), variant: 'ghost' as const }
+                    : a === 'agent'
+                      ? { icon: Bot, label: t('dlg.pullAgent.runAgent'), desc: t('dlg.pullAgent.runAgentDesc'), variant: 'default' as const }
+                      : a === 'stash'
+                        ? { icon: Archive, label: t('dlg.pullConflict.stash'), desc: t('dlg.pullConflict.stashDesc'), variant: 'default' as const }
+                        : a === 'force'
+                          ? { icon: Trash2, label: t('dlg.pullConflict.force'), desc: t('dlg.pullConflict.forceDesc'), variant: 'destructive' as const }
+                          : { icon: Terminal, label: t('dlg.pullDiag.action.manual'), desc: t('dlg.pullDiag.action.manualDesc'), variant: 'ghost' as const }
                   const RecIcon = cfg.icon
                   return (
                     <Button
@@ -3447,6 +3472,219 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
             )}
           </div>
         )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** The v1.20 agent's fixed step sequence — drives the timeline's order and
+ *  the initial pending placeholders while the SSE stream arrives. */
+const AGENT_STEP_KEYS = ['preflight', 'backup', 'fetch', 'analyze', 'switch', 'sync', 'restore', 'verify'] as const
+
+/** One live agent step — mirrors src/lib/pull-agent.ts's AgentStep (kept
+ *  local for the same server-only-import reason as PullDiagnosis). */
+interface PullAgentStepView {
+  key: string
+  status: 'pending' | 'running' | 'ok' | 'warn' | 'fail' | 'skipped'
+  note?: { key: string; params?: Record<string, string | number> }
+  info?: string
+}
+
+/** The terminal agent result — mirrors src/lib/pull-agent.ts's PullAgentResult
+ *  (subset the dialog renders). */
+interface PullAgentResultView {
+  ok: boolean
+  upToDate: boolean
+  before: string
+  after: string
+  switchedTo?: string
+  restored: boolean
+  autoResolved: string[]
+  artifacts: { stash: boolean; stashLabel?: string; branch?: string; backupFiles: string[] }
+  summary: string
+  output: string
+}
+
+/**
+ * Pull-agent dialog (v1.20): the user handed the WHOLE pull + conflict
+ * resolution loop to the deterministic agent (backup → fetch → analyze →
+ * switch → sync → restore → verify). The route streams its progress as SSE;
+ * this dialog renders the live timeline, and on completion the final report:
+ * what was done, where the backups live (stash entry / backup branch /
+ * *.local.bak copies), and the raw transcript in a collapsible detail log.
+ *
+ * Closing the dialog mid-run does NOT cancel the agent — the server-side run
+ * continues to completion (it is backup-first and safe by construction); the
+ * reader loop simply stops updating once the state is cleared.
+ */
+function PullAgentDialog({ run, onClose, onRetry }: {
+  run: {
+    projectId: string
+    projectName: string
+    branch?: string
+    steps: PullAgentStepView[]
+    status: 'running' | 'done' | 'failed'
+    result?: PullAgentResultView
+    error?: string
+    detail?: string
+  } | null
+  onClose: () => void
+  onRetry: (() => void) | null
+}) {
+  const t = useT()
+  const [showLog, setShowLog] = React.useState(false)
+  const running = run?.status === 'running'
+  const result = run?.result
+  const busyNow = running
+
+  const stepIcon = (status: PullAgentStepView['status']) => {
+    switch (status) {
+      case 'running': return <Loader2 className="h-4 w-4 animate-spin shrink-0 text-emerald-600" />
+      case 'ok': return <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      case 'warn': return <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+      case 'fail': return <XCircle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
+      case 'skipped': return <Minus className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+      default: return <span className="h-2 w-2 rounded-full border border-muted-foreground/40 shrink-0 ml-1 mr-[3px]" />
+    }
+  }
+
+  const steps = AGENT_STEP_KEYS.map((key) => {
+    const live = run?.steps.find((s) => s.key === key)
+    return live || { key, status: 'pending' as const }
+  })
+
+  const artifactRows: Array<{ icon: React.ReactNode; text: string }> = []
+  if (result) {
+    if (result.artifacts.stash && result.artifacts.stashLabel) {
+      artifactRows.push({ icon: <Archive className="h-3.5 w-3.5 shrink-0" />, text: t('dlg.pullAgent.artifactStash', { label: result.artifacts.stashLabel }) })
+    }
+    if (result.artifacts.branch) {
+      artifactRows.push({ icon: <GitBranch className="h-3.5 w-3.5 shrink-0" />, text: t('dlg.pullAgent.artifactBranch', { branch: result.artifacts.branch }) })
+    }
+    if (result.artifacts.backupFiles.length > 0) {
+      artifactRows.push({ icon: <Copy className="h-3.5 w-3.5 shrink-0" />, text: t('dlg.pullAgent.artifactBak', { count: result.artifacts.backupFiles.length, files: result.artifacts.backupFiles.slice(0, 5).join(', ') + (result.artifacts.backupFiles.length > 5 ? ' …' : '') }) })
+    }
+  }
+
+  return (
+    <Dialog open={!!run} onOpenChange={(o) => { if (!o && !busyNow) onClose() }}>
+      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Bot className={`h-5 w-5 shrink-0 ${running ? 'animate-pulse text-emerald-600' : run?.status === 'done' ? 'text-emerald-600' : 'text-amber-500'}`} />
+            {running ? t('dlg.pullAgent.title') : run?.status === 'done' ? t('dlg.pullAgent.doneTitle') : t('dlg.pullAgent.failedTitle')}
+            {run ? <span className="text-sm font-normal text-muted-foreground truncate">· {run.projectName}</span> : null}
+          </DialogTitle>
+          <DialogDescription>
+            {run?.status === 'failed'
+              ? t('dlg.pullAgent.failedTitle')
+              : running
+                ? t('dlg.pullAgent.desc')
+                : result?.summary || t('dlg.pullAgent.desc')}
+          </DialogDescription>
+        </DialogHeader>
+
+        {run && (
+          <div className="space-y-3 min-h-0 overflow-y-auto pr-1">
+            {/* Live step timeline */}
+            <ol className="rounded-lg border divide-y" aria-label={t('dlg.pullAgent.title')}>
+              {steps.map((s) => (
+                <li key={s.key} className="flex items-start gap-2.5 px-3 py-2">
+                  <span className="mt-0.5 flex h-4 w-4 items-center justify-center">{stepIcon(s.status)}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className={`text-sm leading-5 ${s.status === 'pending' ? 'text-muted-foreground/70' : ''}`}>
+                      {t(`dlg.pullAgent.step.${s.key}`)}
+                      {s.status === 'running' ? <span className="ml-1.5 text-xs text-muted-foreground animate-pulse">{t('dlg.pullAgent.running')}</span> : null}
+                    </div>
+                    {s.note ? (
+                      <div className={`text-xs leading-4 break-words mt-0.5 ${
+                        s.status === 'fail' ? 'text-rose-600 dark:text-rose-400'
+                        : s.status === 'warn' ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-muted-foreground'
+                      }`}>
+                        {t(s.note.key, s.note.params)}
+                      </div>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ol>
+
+            {/* Failure report */}
+            {run.status === 'failed' && (
+              <div className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2.5 space-y-1">
+                <div className="text-sm font-medium text-rose-700 dark:text-rose-300 break-words">{run.error || 'Agent pull failed'}</div>
+                {run.detail ? <div className="text-xs text-muted-foreground break-all">{run.detail.slice(0, 300)}</div> : null}
+                <div className="text-xs text-muted-foreground">{t('dlg.pullConflict.stashConflictDesc')}</div>
+              </div>
+            )}
+
+            {/* Success report + artifacts */}
+            {run.status === 'done' && result && (
+              <div className="space-y-2">
+                <div className="rounded-md border border-emerald-300/60 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-3 py-2.5">
+                  <div className="text-sm font-medium text-emerald-800 dark:text-emerald-300 break-words">
+                    {result.upToDate
+                      ? t('dlg.detail.pullUpToDate')
+                      : result.before && result.after && result.before !== result.after
+                        ? `${result.before} → ${result.after}`
+                        : t('dlg.pullAgent.doneTitle')}
+                    {result.switchedTo ? ` @ ${result.switchedTo}` : ''}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5 break-words">{result.summary}</div>
+                </div>
+                <div className="rounded-md border px-3 py-2">
+                  <div className="text-xs font-medium text-muted-foreground mb-1.5">{t('dlg.pullAgent.artifacts')}</div>
+                  {artifactRows.length > 0 ? (
+                    <ul className="space-y-1">
+                      {artifactRows.map((a, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground break-all">
+                          <span className="mt-0.5 text-emerald-600 dark:text-emerald-400">{a.icon}</span>
+                          <span>{a.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">{t('dlg.pullAgent.artifactNone')}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Collapsible raw transcript */}
+            {result?.output ? (
+              <div>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  onClick={() => setShowLog((v) => !v)}
+                >
+                  {showLog ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {t('dlg.pullAgent.detailLog')}
+                </button>
+                {showLog && (
+                  <pre className="mt-1.5 rounded-md border bg-muted/40 px-3 py-2 max-h-40 overflow-y-auto text-[10px] leading-4 whitespace-pre-wrap break-all font-mono">
+                    {result.output}
+                  </pre>
+                )}
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          {run?.status === 'failed' && onRetry ? (
+            <>
+              <Button variant="outline" className="flex-1" onClick={onRetry}>
+                <RefreshCw className="h-4 w-4 mr-1.5" />
+                {t('dlg.pullAgent.retry')}
+              </Button>
+              <Button className="flex-1" onClick={onClose}>{t('dlg.pullAgent.close')}</Button>
+            </>
+          ) : (
+            <Button className="w-full" disabled={busyNow} onClick={onClose}>{t('dlg.pullAgent.close')}</Button>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   )
@@ -6976,8 +7214,22 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     transient?: boolean
   } | null>(null)
   const [pullDiagnosis, setPullDiagnosis] = React.useState<PullDiagnosis | null>(null)
-  const [pullDiagBusy, setPullDiagBusy] = React.useState<'retry' | 'stash' | 'force' | null>(null)
+  const [pullDiagBusy, setPullDiagBusy] = React.useState<'retry' | 'agent' | 'stash' | 'force' | null>(null)
   const [pullDiagForceConfirm, setPullDiagForceConfirm] = React.useState(false)
+  // Pull-conflict agent run (v1.20): the user handed the whole pull loop to
+  // the deterministic agent (POST /api/projects/:id/pull-agent, SSE stream).
+  // `agentRun` mirrors the live timeline — steps update as SSE frames arrive;
+  // `status` flips to done/failed on the terminal frame.
+  const [agentRun, setAgentRun] = React.useState<{
+    projectId: string
+    projectName: string
+    branch?: string
+    steps: PullAgentStepView[]
+    status: 'running' | 'done' | 'failed'
+    result?: PullAgentResultView
+    error?: string
+    detail?: string
+  } | null>(null)
   // Per-env in-flight operations (envId → action). Drives the progress
   // spinners on env rows and blocks duplicate clicks while an operation runs.
   const [pendingEnvOps, setPendingEnvOps] = React.useState<Record<string, string>>({})
@@ -8093,6 +8345,97 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     }
   }, [pullConflict, pullConflictBusy, runPullWithStrategy, openPullConflict, toast, t])
 
+  // v1.20 agent auto-resolve: hand the WHOLE pull + conflict-resolution loop
+  // to the deterministic backend agent and mirror its progress live. The
+  // route answers with an SSE stream (data: {type:'steps'|'done'|'failed'})
+  // consumed here frame by frame — each steps frame patches one timeline
+  // entry, the terminal frame settles the dialog and refreshes the project
+  // lists. Closing the dialog mid-run does not cancel anything: the agent is
+  // backup-first and runs to completion server-side; the patch helpers are
+  // null-safe so a cleared state simply stops updating.
+  const runAgentPull = React.useCallback(async (project: Project, branch?: string) => {
+    if (!project?.id) return
+    // The agent takes over from here — close every other pull dialog.
+    setPullConflict(null)
+    setPullDiag(null)
+    setPullDiagnosis(null)
+    setAgentRun({
+      projectId: project.id,
+      projectName: project.name,
+      branch,
+      steps: AGENT_STEP_KEYS.map((key) => ({ key, status: 'pending' as const })),
+      status: 'running',
+    })
+    const patchStep = (step: PullAgentStepView) => {
+      setAgentRun((prev) => prev ? {
+        ...prev,
+        steps: prev.steps.some((s) => s.key === step.key)
+          ? prev.steps.map((s) => (s.key === step.key ? { ...s, ...step } : s))
+          : [...prev.steps, step],
+      } : prev)
+    }
+    try {
+      const res = await fetch(`/api/projects/${project.id}/pull-agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(branch ? { branch } : {}),
+        signal: AbortSignal.timeout(10 * 60_000),
+      })
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(String(data?.error || `agent pull failed (${res.status})`))
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        let sep: number
+        while ((sep = buf.indexOf('\n\n')) !== -1) {
+          const frame = buf.slice(0, sep).trim()
+          buf = buf.slice(sep + 2)
+          if (!frame.startsWith('data:')) continue
+          const payload = frame.slice(5).trim()
+          if (!payload || payload === '[DONE]') continue
+          let msg: any
+          try { msg = JSON.parse(payload) } catch { continue }
+          if (msg.type === 'steps' && msg.step?.key) {
+            patchStep(msg.step)
+          } else if (msg.type === 'done') {
+            const r = msg.result || {}
+            setAgentRun((prev) => prev ? {
+              ...prev,
+              status: 'done',
+              result: r,
+              steps: Array.isArray(r.steps) ? r.steps : prev.steps,
+            } : prev)
+            const nAuto = Array.isArray(r.autoResolved) ? r.autoResolved.length : 0
+            toast({
+              title: nAuto > 0 ? t('dlg.pullAgent.toastAutoResolved', { count: nAuto }) : t('dlg.pullAgent.toastDone'),
+              description: String(r.summary || ''),
+              variant: 'success',
+            })
+            fetchProjects()
+            fetchProjectVersions()
+            fetchProjectUpdates({ refresh: true })
+          } else if (msg.type === 'failed') {
+            setAgentRun((prev) => prev ? {
+              ...prev,
+              status: 'failed',
+              error: String(msg.error || ''),
+              detail: msg.detail ? String(msg.detail) : undefined,
+              steps: msg.result?.steps || prev.steps,
+            } : prev)
+          }
+        }
+      }
+    } catch (e: any) {
+      setAgentRun((prev) => prev ? { ...prev, status: 'failed', error: summarizeError(e?.message) || t('dlg.common.networkError') } : prev)
+    }
+  }, [toast, t, fetchProjects, fetchProjectVersions, fetchProjectUpdates])
+
   // AI pull diagnosis (v1.19): a pull just failed on ANY surface (card row,
   // detail sheet, branch picker). Remember the failure, ask the configured
   // LLM for the root cause + a whitelisted fix, and open the diagnosis
@@ -8136,7 +8479,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           rootCause: String(diag.diagnosis.rootCause || '').slice(0, 300),
           explanation: String(diag.diagnosis.explanation || '').slice(0, 900),
           severity: sev === 'low' || sev === 'high' ? sev : 'medium',
-          recommendedAction: a === 'retry' || a === 'stash' || a === 'force' || a === 'manual' ? a : 'manual',
+          recommendedAction: a === 'retry' || a === 'agent' || a === 'stash' || a === 'force' || a === 'manual' ? a : 'manual',
           reason: String(diag.diagnosis.reason || '').slice(0, 500),
           steps: Array.isArray(diag.diagnosis.steps)
             ? diag.diagnosis.steps.map((s: unknown) => String(s).slice(0, 400)).filter(Boolean).slice(0, 8)
@@ -8237,18 +8580,26 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // The AI diagnosis dialog's chosen action (user-confirmed in the dialog;
   // 'force' only arrives here AFTER the in-dialog second confirmation).
   //   retry → re-run the plain pull (a fresh failure re-opens the diagnosis)
+  //   agent → hand the whole loop to the v1.20 pull agent (local projects)
   //   stash/force → the shared strategy executor
   //   manual → nothing to execute; the suggested steps were shown in-dialog
-  const handleDiagAction = React.useCallback(async (action: 'retry' | 'stash' | 'force' | 'manual') => {
+  const handleDiagAction = React.useCallback(async (action: 'retry' | 'agent' | 'stash' | 'force' | 'manual') => {
     if (!pullDiag || pullDiagBusy) return
     if (action === 'manual') {
       setPullDiag(null)
       setPullDiagnosis(null)
       return
     }
-    const { projectId, projectName, branch, modified, untracked } = pullDiag
+    const { projectId, projectName, branch } = pullDiag
     setPullDiagBusy(action)
     try {
+      if (action === 'agent') {
+        // The agent dialog takes over (runAgentPull closes this one).
+        const project = projects.find((p) => p.id === projectId)
+          || ({ id: projectId, name: projectName, repoUrl: 'agent' } as Project)
+        await runAgentPull(project, branch)
+        return
+      }
       if (action === 'retry') {
         // Close first: a failing retry re-opens the diagnosis on its own
         // failure (handlePullProject routes any failure back here).
@@ -8261,7 +8612,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         return
       }
       // stash / force — the shared v1.17 strategy executor.
-      const r = await runPullWithStrategy({ projectId, projectName, branch, modified, untracked }, action)
+      const r = await runPullWithStrategy({ projectId, projectName, branch, modified: pullDiag.modified, untracked: pullDiag.untracked }, action)
       if (r.outcome === 'ok') {
         setPullDiag(null)
         setPullDiagnosis(null)
@@ -8278,7 +8629,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       setPullDiagBusy(null)
       setPullDiagForceConfirm(false)
     }
-  }, [pullDiag, pullDiagBusy, projects, handlePullProject, runPullWithStrategy, openPullDiagnosis, toast, t])
+  }, [pullDiag, pullDiagBusy, projects, handlePullProject, runAgentPull, runPullWithStrategy, openPullDiagnosis, toast, t])
 
   const handleMoveProject = React.useCallback(async (projectId: string, targetDeviceId: string | null) => {
     try {
@@ -10403,11 +10754,18 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         }}
         onPullFailure={openPullDiagnosis}
       />
-      {/* Pull blocked by local changes — ask stash / discard / cancel (v1.17) */}
+      {/* Pull blocked by local changes — agent auto-resolve first (v1.20),
+          then ask stash / discard / cancel (v1.17) */}
       <PullConflictDialog
         conflict={pullConflict}
         busy={pullConflictBusy}
         onResolve={handleResolvePullConflict}
+        onAgent={pullConflict ? () => {
+          const project = projects.find((p) => p.id === pullConflict.projectId)
+            || ({ id: pullConflict.projectId, name: pullConflict.projectName, repoUrl: 'agent' } as Project)
+          void runAgentPull(project, pullConflict.branch)
+        } : undefined}
+        allowAgent={!!pullConflict && !projects.find((p) => p.id === pullConflict.projectId)?.deviceId}
         onClose={() => setPullConflict(null)}
       />
       {/* AI pull diagnosis (v1.19): any pull failure is auto-diagnosed by the
@@ -10419,11 +10777,23 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         forceConfirm={pullDiagForceConfirm}
         onForceConfirm={setPullDiagForceConfirm}
         onAction={handleDiagAction}
+        allowAgent={!!pullDiag && !projects.find((p) => p.id === pullDiag.projectId)?.deviceId}
         onClose={() => {
           setPullDiag(null)
           setPullDiagnosis(null)
           setPullDiagForceConfirm(false)
         }}
+      />
+      {/* Pull-conflict agent (v1.20): live timeline of the deterministic
+          backup → sync → restore loop, streamed over SSE */}
+      <PullAgentDialog
+        run={agentRun}
+        onClose={() => setAgentRun(null)}
+        onRetry={agentRun ? () => {
+          const project = projects.find((p) => p.id === agentRun.projectId)
+            || ({ id: agentRun.projectId, name: agentRun.projectName, repoUrl: 'agent' } as Project)
+          void runAgentPull(project, agentRun.branch)
+        } : null}
       />
       <RepairDialog
         jobId={repairJobId}

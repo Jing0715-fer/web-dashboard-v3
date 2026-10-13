@@ -32,8 +32,8 @@ const execFileAsync = (file: string, args: string[], opts: any = {}): Promise<{ 
  *     (it discards the listed files irreversibly).
  */
 
-export type PullDiagAction = 'retry' | 'stash' | 'force' | 'manual';
-const VALID_ACTIONS: readonly PullDiagAction[] = ['retry', 'stash', 'force', 'manual'];
+export type PullDiagAction = 'retry' | 'agent' | 'stash' | 'force' | 'manual';
+const VALID_ACTIONS: readonly PullDiagAction[] = ['retry', 'agent', 'stash', 'force', 'manual'];
 
 export interface PullDiagnosis {
   /** One short sentence naming the failure class. */
@@ -69,6 +69,9 @@ export interface PullDiagnoseInput {
   repoUrl?: string;
   /** Pre-collected git context for LOCAL projects (see collectGitContext). */
   gitContext?: string;
+  /** True when the pull runs on THIS machine (v1.20 agent auto-resolve is
+   *  available); false for remote device-agent projects. */
+  local?: boolean;
 }
 
 /** Strip credentials (PAT / basic-auth) from any URL before it reaches the
@@ -105,13 +108,14 @@ export async function collectGitContext(projectPath: string): Promise<string> {
 const DIAGNOSE_SYSTEM_PROMPT = `You are a senior git expert embedded in a web dashboard. A "git pull" just failed on the user's machine. Diagnose the failure and recommend exactly ONE action.
 
 Respond with ONLY a valid JSON object — no markdown fences, no prose outside the JSON — with exactly these keys:
-{"rootCause": string, "explanation": string, "severity": "low"|"medium"|"high", "recommendedAction": "retry"|"stash"|"force"|"manual", "reason": string, "steps": string[]}
+{"rootCause": string, "explanation": string, "severity": "low"|"medium"|"high", "recommendedAction": "retry"|"agent"|"stash"|"force"|"manual", "reason": string, "steps": string[]}
 
 Action semantics (these strategies are ALREADY implemented by the dashboard — you only pick which one fits):
 - "retry": the failure was transient (network flake, SSL/connection error, timeout) and another pull attempt is likely to succeed. NEVER choose this for conflicts, auth failures, or missing repos.
-- "stash": local changes block the pull (blocking file lists are provided) — the dashboard will stash them, pull, then re-apply them automatically. Nothing is lost. Choose this when the listed local changes might matter.
-- "force": local changes block the pull AND look disposable (build artifacts like package-lock.json, lock files, generated output) — the dashboard discards ONLY the listed files and takes the remote version. Destructive and irreversible for those files. When unsure between stash and force, prefer "stash".
-- "manual": cannot be resolved safely by the dashboard (authentication/token failure, repository deleted or renamed, not a git repository, diverged history needing a human merge/rebase decision, disk or environment problems). Explain the concrete fix in "steps".
+- "agent": the fully-automatic flow — backup local changes to a stash, sync to the remote, restore the changes, auto-resolving restore conflicts (local copies preserved as *.local.bak files and in the stash). Handles EVERY local-change conflict class end-to-end with nothing lost. The BEST default whenever local changes block the pull and the user just wants it to work. Only valid when the failure is on the LOCAL machine; never for auth failures or missing repositories.
+- "stash": local changes block the pull (blocking file lists are provided) — the dashboard will stash them, pull, then re-apply them automatically. Nothing is lost. Choose this when the user should watch the stash restore closely.
+- "force": local changes block the pull AND look disposable (build artifacts like package-lock.json, lock files, generated output) — the dashboard discards ONLY the listed files and takes the remote version. Destructive and irreversible for those files. When unsure between agent/stash/force, prefer "agent" (or "stash").
+- "manual": cannot be resolved safely by the dashboard (authentication/token failure, repository deleted or renamed, not a git repository, disk or environment problems). Explain the concrete fix in "steps". Diverged history needing a human merge DECISION should prefer "agent" (it backs up local commits to a branch automatically) unless the user clearly needs to rebase by hand.
 
 Rules:
 - Write rootCause, explanation, reason and steps in the user's language (a "locale" hint is provided; default to concise English).
@@ -204,6 +208,9 @@ export function buildDiagnosisPrompt(input: PullDiagnoseInput): string {
   lines.push('Current repository state (read-only probes):');
   lines.push(input.gitContext || '(not available — the pull ran on a remote device agent, or the local repo could not be probed)');
   lines.push('');
+  lines.push(input.local === false
+    ? 'The project runs on a PAIRED DEVICE (git executes on that machine, not here) — the "agent" action is NOT available for this failure.'
+    : 'The project is LOCAL (git runs on this machine) — the "agent" action is available.');
   lines.push(`locale: ${input.locale === 'zh' ? 'zh (中文)' : 'en'}`);
   return lines.join('\n').slice(0, 8000);
 }

@@ -105,6 +105,7 @@ async function handleDiagnose(
       projectName: project.name,
       repoUrl: project.repoUrl || undefined,
       gitContext,
+      local: !project.deviceId,
     });
     return NextResponse.json({ ok: true, diagnosis, provider, model });
   } catch (e: any) {
