@@ -50,7 +50,7 @@ export async function POST(
     } catch {
       logActivity({
         type: 'pair',
-        level: 'warning',
+        level: 'warn',
         message: `Agent restart failed — '${device.name}' unreachable`,
         deviceId: device.id,
         deviceName: device.name,

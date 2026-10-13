@@ -630,7 +630,10 @@ export async function ensureLocalAgent(): Promise<
   // --webpack then dies instantly ("Multiple bundler flags set: TURBOPACK=1,
   // --webpack", exit 0). Agents sanitize their own children too; this is
   // the belt-and-braces fix at the source.
-  const agentEnv: Record<string, string | undefined> = {
+  // NodeJS.ProcessEnv (not a plain Record): the spawn typings require an env
+  // object whose NODE_ENV: string is guaranteed — spreading process.env
+  // always carries NODE_ENV, satisfying the overload so `child` is typed.
+  const agentEnv: NodeJS.ProcessEnv = {
     ...process.env,
     DATABASE_URL: `file:${path.join(base, 'db', 'agent.db')}`,
     // Tell the agent WHICH dashboard spawned it, so its own self-guard can

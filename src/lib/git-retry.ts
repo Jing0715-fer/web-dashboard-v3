@@ -78,7 +78,7 @@ export async function execGitNetwork(
     maxRetries?: number;
   } = {},
 ): Promise<GitNetworkResult> {
-  const { maxRetries = 3, ...execOpts } = opts as Record<string, unknown>;
+  const { maxRetries = 3, ...execOpts } = opts;
   let retried = 0;
   for (;;) {
     try {

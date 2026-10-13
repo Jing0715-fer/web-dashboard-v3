@@ -141,7 +141,19 @@ function dashboardPortFromHost(host: string): number {
  * (user report: Win advertised its VMware VMnet 192.168.253.x, so the Mac's
  * peer row pointed at a dead address and mutual visibility never worked).
  */
-async function localPeerInfo(detected?: LocalAgentInfo | null, observedIp?: string) {
+/** THIS machine's peer record for mesh register/join responses. Optional
+ *  `projects` is attached by callers when the local servable list is known —
+ *  declared here so callers may assign it without a cast (TS2339). */
+interface PeerInfo {
+  name: string;
+  ip: string;
+  port: number;
+  apiKey: string;
+  running: boolean;
+  projects?: unknown[];
+}
+
+async function localPeerInfo(detected?: LocalAgentInfo | null, observedIp?: string): Promise<PeerInfo | null> {
   const d = detected ?? await detectLocalAgent();
   if (!d) return null;
   const prefer = /^\d{1,3}(\.\d{1,3}){3}$/.test(String(observedIp || ''))
