@@ -119,11 +119,32 @@ type LaunchFn = (opts: Record<string, unknown>) => Promise<any>;
 let cachedLaunch: LaunchFn | null | undefined;
 let launchResolutionError: string | null = null;
 
+/** Launch args used for BOTH the capability probes and the real captures.
+ * `--no-sandbox` is required in containers/root-less environments (the
+ * default namespace sandbox crashes Chrome there) — a probe WITHOUT it
+ * fails for sandbox reasons, not browser-availability reasons, and would
+ * wrongly cache "no browser" on a machine that has a perfectly good
+ * Chromium (the v1.22 bug: previews silently never appeared in Docker). */
+const CHROMIUM_LAUNCH_ARGS = [
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--font-render-hinting=none',
+] as const;
+
 /**
  * Resolve a `chromium.launch` function. Bundlers (Turbopack/webpack) must not
  * inline playwright — it is declared in next.config `serverExternalPackages`
  * and required lazily here. Returns null when the module or a usable Chromium
  * executable cannot be found (feature degrades to "no thumbnails").
+ *
+ * Two-tier strategy:
+ *  1. plain launch with the playwright package's own pinned browser revision
+ *     (honors PLAYWRIGHT_BROWSERS_PATH);
+ *  2. fallback: ANY installed chromium-* revision in the cache, used via
+ *     `executablePath` — makes the feature robust against playwright/
+ *     Chromium version drift (a newer playwright than the browsers on the
+ *     machine, or vice versa).
  */
 async function resolveChromiumLaunch(): Promise<LaunchFn | null> {
   if (cachedLaunch !== undefined) return cachedLaunch;
@@ -131,12 +152,11 @@ async function resolveChromiumLaunch(): Promise<LaunchFn | null> {
     const pw = (await import('playwright')) as any;
     const chromium = pw.chromium;
     if (!chromium?.launch) throw new Error('playwright chromium.launch missing');
-    // Try a plain launch first (honors the pinned playwright's own browser
-    // revision, PLAYWRIGHT_BROWSERS_PATH, …).
+    // Try a plain launch first (the pinned revision).
     try {
-      const probe = await chromium.launch({ headless: true });
+      const probe = await chromium.launch({ headless: true, args: [...CHROMIUM_LAUNCH_ARGS] });
       await probe.close();
-      cachedLaunch = (opts) => chromium.launch({ headless: true, ...opts });
+      cachedLaunch = (opts) => chromium.launch({ headless: true, args: [...CHROMIUM_LAUNCH_ARGS], ...opts });
       return cachedLaunch;
     } catch (e: any) {
       const exe = discoverChromiumExecutable();
@@ -147,10 +167,16 @@ async function resolveChromiumLaunch(): Promise<LaunchFn | null> {
       }
       // Fallback: any chromium-* revision present in the browsers cache —
       // makes the feature robust against playwright/chromium version drift.
-      const probe = await chromium.launch({ headless: true, executablePath: exe });
-      await probe.close();
-      cachedLaunch = (opts) => chromium.launch({ headless: true, executablePath: exe, ...opts });
-      return cachedLaunch;
+      try {
+        const probe = await chromium.launch({ headless: true, executablePath: exe, args: [...CHROMIUM_LAUNCH_ARGS] });
+        await probe.close();
+        cachedLaunch = (opts) => chromium.launch({ headless: true, executablePath: exe, args: [...CHROMIUM_LAUNCH_ARGS], ...opts });
+        return cachedLaunch;
+      } catch (e2: any) {
+        launchResolutionError = String(e2?.message || e2).slice(0, 300);
+        cachedLaunch = null;
+        return null;
+      }
     }
   } catch (e: any) {
     launchResolutionError = String(e?.message || e).slice(0, 300);
@@ -166,7 +192,16 @@ export function lastBrowserResolutionError(): string | null {
 
 /**
  * Scan the Playwright browsers cache for any installed Chromium executable.
- * Handles linux / darwin / win32 layouts of ms-playwright >= 1.4x.
+ * Handles the directory layouts of ms-playwright >= 1.4x across platforms,
+ * including the NEWER layouts (v1.22 shipped only the oldest ones, so a
+ * machine with a current browsers cache silently lost live previews):
+ *
+ *   linux x64 old:  chromium-<rev>/chrome-linux/chrome
+ *   linux x64 new:  chromium-<rev>/chrome-linux64/chrome          (pw >= ~1.5x)
+ *   headless old:   chromium_headless_shell-<rev>/chrome-linux/headless_shell
+ *   headless new:   chromium_headless_shell-<rev>/chrome-headless-shell-linux64/chrome-headless-shell
+ *   macOS:          chromium-<rev>/chrome-mac/Chromium.app/Contents/MacOS/Chromium
+ *   windows:        chromium-<rev>/chrome-win/chrome.exe (+ chrome-win64/chrome.exe)
  */
 function discoverChromiumExecutable(): string | null {
   const roots = [
@@ -174,14 +209,27 @@ function discoverChromiumExecutable(): string | null {
     path.join(process.env.HOME || process.env.USERPROFILE || '', '.cache', 'ms-playwright'),
   ].filter(Boolean) as string[];
 
+  /** Ordered candidate RELATIVE paths, tried inside each matched browser dir. */
   const candidates: Array<(root: string) => string> = [
-    // chromium-<rev>/chrome-linux/chrome  (also matches headless_shell dirs
-    // only if explicitly listed below — prefer full chromium).
-    (r) => path.join(r, 'chrome-linux', 'chrome'),
-    (r) => path.join(r, 'chrome-linux', 'headless_shell'),
+    // ---- full chromium (preferred: real chrome renders fonts/JS best) ----
+    (r) => path.join(r, 'chrome-linux64', 'chrome'),        // new linux x64 layout
+    (r) => path.join(r, 'chrome-linux', 'chrome'),           // old linux layout
+    (r) => path.join(r, 'chrome-win64', 'chrome.exe'),       // new win x64
+    (r) => path.join(r, 'chrome-win', 'chrome.exe'),         // old win
     (r) => path.join(r, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'Chromium'),
-    (r) => path.join(r, 'chrome-win', 'chrome.exe'),
+    (r) => path.join(r, 'chrome-mac', 'Chromium.app', 'Contents', 'MacOS', 'chrome'),
+    // ---- headless shell (only if no full chromium found in this dir) ----
+    (r) => path.join(r, 'chrome-headless-shell-linux64', 'chrome-headless-shell'), // new
+    (r) => path.join(r, 'chrome-linux', 'headless_shell'),   // old
+    (r) => path.join(r, 'chrome-headless-shell-win64', 'chrome-headless-shell.exe'),
+    (r) => path.join(r, 'chrome-headless-shell-mac', 'chrome-headless-shell'),
   ];
+
+  /** Dir names in the cache, newest revision first. Matches both
+   * `chromium-<rev>`/`chromium_headless_shell-<rev>` (underscore variants are
+   * the headless-shell dirs, which the v1.22 regex missed entirely). */
+  const dirMatch = /^chromium(_headless_shell)?(-\d+)?$/;
+  const revOf = (d: string) => parseInt(d.split('-').pop() || '0', 10) || 0;
 
   for (const root of roots) {
     let entries: string[];
@@ -191,8 +239,14 @@ function discoverChromiumExecutable(): string | null {
       continue;
     }
     const chromiumDirs = entries
-      .filter((d) => /^chromium(-\d+)?$/.test(d))
-      .sort((a, b) => (parseInt(b.split('-')[1] || '0', 10)) - (parseInt(a.split('-')[1] || '0', 10)));
+      .filter((d) => dirMatch.test(d))
+      .sort((a, b) => {
+        // Full chromium dirs outrank headless-shell dirs at the SAME revision.
+        const shellA = a.includes('_headless_shell') ? 1 : 0;
+        const shellB = b.includes('_headless_shell') ? 1 : 0;
+        if (shellA !== shellB) return shellA - shellB;
+        return revOf(b) - revOf(a);
+      });
     for (const dir of chromiumDirs) {
       for (const cand of candidates) {
         const p = cand(path.join(root, dir));
@@ -299,8 +353,9 @@ async function runCapture(input: CaptureInput): Promise<CaptureResult> {
   const startedAt = Date.now();
   let browser: any = null;
   try {
+    // launch() injects CHROMIUM_LAUNCH_ARGS (--no-sandbox et al.) from
+    // resolveChromiumLaunch() — no per-call args are needed or passed here.
     browser = await launch({
-      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--font-render-hinting=none'],
       timeout: 20_000,
     });
     const page = await browser.newPage({ viewport: VIEWPORT });
