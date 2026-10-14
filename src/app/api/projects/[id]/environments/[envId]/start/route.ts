@@ -6,7 +6,7 @@ import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 import { startRepairJob } from '@/lib/llm-repair';
 import { logActivity } from '@/lib/activity';
-import { scheduleThumbnailCapture } from '@/lib/thumbnail';
+import { scheduleThumbnailCapture, scheduleRemoteThumbnailCapture } from '@/lib/thumbnail';
 import { requireApprovedUser } from '@/lib/auth';
 
 // Companion projects that should be auto-started when the parent project starts.
@@ -46,6 +46,12 @@ export async function POST(
       // The process state changed on the agent — drop the sync cache so the
       // next list GET re-syncs instead of serving the pre-start snapshot.
       invalidateRemoteProjectCache();
+      // v1.24: remote live preview — the process boots on the device; once
+      // its port answers (through the agent proxy), screenshot it here and
+      // store it as this project's thumbnail. Fire-and-forget.
+      if (result.ok) {
+        void scheduleRemoteThumbnailCapture(id, envId);
+      }
       return NextResponse.json(result.data, { status: result.status });
     }
 

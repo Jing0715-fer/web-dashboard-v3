@@ -5,7 +5,7 @@ import { startRepairJob } from '@/lib/llm-repair'
 import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision'
 import { invalidateRemoteProjectCache } from '@/lib/remote-sync'
 import { logActivity } from '@/lib/activity'
-import { scheduleThumbnailCapture } from '@/lib/thumbnail'
+import { scheduleThumbnailCapture, scheduleRemoteThumbnailCapture } from '@/lib/thumbnail'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { requireApprovedUser } from '@/lib/auth';
@@ -58,6 +58,11 @@ export async function POST(
         'POST'
       )
       invalidateRemoteProjectCache()
+      // v1.24: remote live preview — the rebuild rebuilt + restarted the
+      // service on the device; capture the fresh page once it answers.
+      if (result.ok) {
+        void scheduleRemoteThumbnailCapture(id, envId)
+      }
       return NextResponse.json(result.data, { status: result.status })
     }
 

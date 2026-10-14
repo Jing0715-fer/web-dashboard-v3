@@ -35,10 +35,14 @@ export async function GET(req: Request) {
     );
     const localEnvsById = new Map(localEnvs.map((e) => [e.id, e]));
 
-    // Live previews (v1.22): latest captured screenshot per local project +
+    // Live previews (v1.22): latest captured screenshot per LOCAL project +
     // which projects currently have a capture in flight (drives the
     // "capturing…" spinner on cards). One batched query, decorative on failure.
-    const latestThumbs = await getLatestThumbnailsByProject(localProjects.map((p) => p.id));
+    // (v1.24: REMOTE projects are looked up separately below — same table,
+    // keyed by their remote ids — so remote cards get previews too.)
+    const latestThumbs = await getLatestThumbnailsByProject(
+      localProjects.map((p) => p.id),
+    );
     const inflightEnvIds = getInflightEnvIds();
 
     const enrichedLocal = localProjects.map((project) => {
@@ -64,6 +68,21 @@ export async function GET(req: Request) {
     //    button) bypasses the cache and forces a real agent sync.
     const forceSync = new URL(req.url).searchParams.get('fresh') === '1';
     const dedupedRemote = await getRemoteProjectsCached(forceSync);
+
+    // v1.24: attach captured live previews to the remote listings — same
+    // table, keyed by the remote project ids (which are persisted as cached
+    // rows). One extra batched query; decorative on failure.
+    const remoteThumbs = await getLatestThumbnailsByProject(
+      dedupedRemote.map((p: any) => String(p.id)).filter(Boolean),
+    );
+    const enrichedRemoteList = dedupedRemote.map((p: any) => ({
+      ...p,
+      thumbnail: remoteThumbs.get(String(p.id)) || null,
+      thumbCapturing: (p.environments || []).some((e: any) => inflightEnvIds.has(String(e.id))),
+    }));
+    // Cached offline-device rows are remote project ids too — they may have
+    // a preview captured earlier; look it up in the same remote batch.
+    const allThumbs = new Map([...latestThumbs, ...remoteThumbs]);
 
     // 3. Include projects in local DB that have a deviceId (cached remote
     //    projects for devices that were offline / unreachable on this
@@ -97,6 +116,9 @@ export async function GET(req: Request) {
       deviceName: project.device?.name || 'Unknown Device',
       deviceIp: project.device?.ip || 'localhost',
       deviceStatus: project.device?.status || 'offline',
+      // v1.24: keep the last captured preview visible for offline devices —
+      // the card labels it with its capture time.
+      thumbnail: allThumbs.get(project.id) || null,
       environments: project.environments.map((env) => ({
         ...env,
         status: env.status || 'stopped',
@@ -104,7 +126,7 @@ export async function GET(req: Request) {
     }));
 
     // 5. Combine and return
-    return NextResponse.json({ projects: [...enrichedLocal, ...dedupedRemote, ...cachedRemotes] });
+    return NextResponse.json({ projects: [...enrichedLocal, ...enrichedRemoteList, ...cachedRemotes] });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

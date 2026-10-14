@@ -76,10 +76,26 @@ type CaptureInput = {
   port: number
   /** Skip the readiness wait (port known to be warm, e.g. manual re-capture). */
   skipReadinessWait?: boolean
+  /** Candidate BASE URLs to screenshot, tried in order until one answers
+   *  (v1.24 remote captures). Default: [`http://127.0.0.1:<port>/`].
+   *  For remote projects the list is typically
+   *  [agent-proxy URL, direct device URL] — the agent proxy covers
+   *  localhost-bound dev servers, the direct URL covers old agents. */
+  targetUrls?: string[]
 }
 
 /** envId → running capture promise (dedupe + introspection for the UI). */
 const inflight = new Map<string, Promise<CaptureResult>>();
+
+// ---- remote-capture scheduling (v1.24) ----
+// envId → last sweep attempt ts (success OR failure). The periodic sweep
+// must not hammer an unreachable device every 8s poll — one attempt per env
+// per SWEEP_RETRY_MS, regardless of outcome. globalThis-shared like the
+// other registries (per-route-bundle module instances).
+const SWEEP_STALE_MS = 30 * 60_000       // recapture running remote envs at most every 30 min
+const SWEEP_RETRY_MS = 10 * 60_000       // failed remote capture: retry at most every 10 min
+const gSweep = globalThis as typeof globalThis & { __thumbSweepAttempts?: Map<string, number> }
+const sweepAttempts: Map<string, number> = (gSweep.__thumbSweepAttempts ??= new Map());
 
 /** Whether a capture is currently running for this env (drives the card's
  *  "Capturing preview…" spinner via the projects GET payload). */
@@ -278,27 +294,41 @@ export function scheduleThumbnailCapture(input: CaptureInput): void {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Probe ONE URL once — any HTTP response proves the target is reachable,
+ *  EXCEPT responses tagged by the device agent's proxy as its own error
+ *  (bad key / unregistered port / upstream down): those mean the candidate
+ *  is dead, not ready — screenshotting them would capture a JSON error page. */
+async function probeUrlOnce(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(2_500),
+    });
+    if (res.headers.get('x-agent-proxy-error')) return false;
+    return true; // any response — server is up
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Poll http://127.0.0.1:<port>/ until it answers with ANY HTTP status
+ * Poll candidate URLs until ONE answers with ANY HTTP status
  * (404/500 still prove a server is listening and rendering). TCP-listen
  * checks are not enough for dev servers that lazily compile on first hit —
  * these fetches double as warm-up so the screenshot renders the real page.
+ * Returns the FIRST url that answered, or null on timeout. Candidates are
+ * probed in parallel each round (remote captures have two: agent proxy +
+ * direct) so the winner is known as soon as either path works.
  */
-async function waitForHttpReady(port: number, timeoutMs: number): Promise<boolean> {
+async function waitForHttpReady(urls: string[], timeoutMs: number): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try {
-      await fetch(`http://127.0.0.1:${port}/`, {
-        redirect: 'follow',
-        signal: AbortSignal.timeout(2_500),
-      });
-      return true; // any response — server is up
-    } catch {
-      // not answering yet — retry
-    }
+    const answers = await Promise.all(urls.map((u) => probeUrlOnce(u)));
+    const hit = answers.findIndex((ok) => ok);
+    if (hit >= 0) return urls[hit];
     await sleep(1_500);
   }
-  return false;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -330,16 +360,26 @@ export function captureThumbnail(input: CaptureInput): Promise<CaptureResult> {
 
 async function runCapture(input: CaptureInput): Promise<CaptureResult> {
   const { projectId, projectName, envId, envName, port } = input;
-  const url = `http://127.0.0.1:${port}/`;
+  const candidates = (input.targetUrls && input.targetUrls.length > 0
+    ? input.targetUrls
+    : [`http://127.0.0.1:${port}/`]
+  ).map((u) => (u.endsWith('/') ? u : `${u}/`));
 
-  // 1. Wait for the server to actually answer (skip when caller knows better).
+  // 1. Wait for SOME target to actually answer (skip when caller knows better).
+  let targetUrl = candidates[0];
   if (!input.skipReadinessWait) {
-    const ready = await waitForHttpReady(port, READINESS_TIMEOUT_MS);
-    if (!ready) {
-      const error = `Port ${port} never answered within ${Math.round(READINESS_TIMEOUT_MS / 1000)}s`;
+    const answered = await waitForHttpReady(candidates, READINESS_TIMEOUT_MS);
+    if (!answered) {
+      // NEVER echo the raw candidate URLs here — the proxy form embeds the
+      // device agent's apiKey in its path, and this message is persisted
+      // (thumbnail.error) and rendered (dialog/toast). Describe the targets
+      // without credentials instead.
+      const describe = (u: string) => u.replace(/\/proxy\/[^/]+\//, '/proxy/***/');
+      const error = `No capture target answered within ${Math.round(READINESS_TIMEOUT_MS / 1000)}s (tried: ${candidates.map(describe).join(', ')})`;
       await recordFailure(projectId, projectName, envId, envName, port, error);
       return { ok: false, error, reason: 'port-not-ready' };
     }
+    targetUrl = answered;
   }
 
   // 2. Headless browser screenshot.
@@ -359,7 +399,7 @@ async function runCapture(input: CaptureInput): Promise<CaptureResult> {
       timeout: 20_000,
     });
     const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(url, { waitUntil: 'load', timeout: GOTO_TIMEOUT_MS });
+    await page.goto(targetUrl, { waitUntil: 'load', timeout: GOTO_TIMEOUT_MS });
     // networkidle is best-effort — SPAs with websockets never reach it.
     await page.waitForLoadState('networkidle', { timeout: 4_000 }).catch(() => {});
     await sleep(SETTLE_MS);
@@ -506,4 +546,115 @@ export function isValidThumbnailFile(file: string): boolean {
 /** Absolute path for a thumbnail file (callers must validate first). */
 export function thumbnailFilePath(file: string): string {
   return path.join(THUMB_DIR, file);
+}
+
+// ---------------------------------------------------------------------------
+// REMOTE project captures (v1.24)
+// ---------------------------------------------------------------------------
+
+/**
+ * Candidate capture URLs for a project environment that runs on a REMOTE
+ * device. Ordered by reliability:
+ *
+ *  1. The device agent's HTTP proxy — works even when the project server
+ *     binds 127.0.0.1 only (the agent fetches its own localhost). The
+ *     agent's apiKey rides in the PATH segment so every relative
+ *     sub-resource the page loads (_next/static, CSS, images…) inherits it
+ *     — a query param would be lost on sub-requests, a cookie would need a
+ *     warm-up dance. Agents set Referrer-Policy: no-referrer so the key
+ *     never leaks to third-party origins.
+ *  2. The direct device address — works when the project binds 0.0.0.0 AND
+ *     the firewall allows it; covers devices running pre-v1.24 agents
+ *     without the proxy endpoint.
+ */
+export function remoteCaptureTargetUrls(
+  deviceIp: string,
+  agentPort: number,
+  apiKey: string,
+  projectPort: number,
+): string[] {
+  const urls: string[] = [];
+  const ip = String(deviceIp || '').trim();
+  if (ip && agentPort > 0 && apiKey) {
+    urls.push(`http://${ip}:${agentPort}/api/agent/proxy/${encodeURIComponent(apiKey)}/${projectPort}/`);
+  }
+  if (ip) urls.push(`http://${ip}:${projectPort}/`);
+  return urls;
+}
+
+/**
+ * Fire-and-forget capture for a REMOTE project environment (the process
+ * runs on its device; the dashboard's headless Chromium loads it through
+ * the device agent's proxy, with a direct-URL fallback). Resolves false
+ * when the project/env/device cannot be resolved — callers treat that as
+ * "no thumbnail this time", never as an error.
+ */
+export async function scheduleRemoteThumbnailCapture(projectId: string, envId: string): Promise<boolean> {
+  try {
+    const project = await db.project.findUnique({ where: { id: projectId }, include: { device: true } });
+    if (!project || !project.device) return false;
+    const env = await db.environment.findUnique({ where: { id: envId } });
+    if (!env) return false;
+    const targetUrls = remoteCaptureTargetUrls(
+      project.device.ip,
+      project.device.port,
+      project.device.apiKey,
+      env.port,
+    );
+    if (targetUrls.length === 0) return false;
+    scheduleThumbnailCapture({
+      projectId,
+      projectName: project.name,
+      envId,
+      envName: env.name,
+      port: env.port,
+      targetUrls,
+    });
+    sweepAttempts.set(envId, Date.now());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Periodic sweep: make sure RUNNING remote environments eventually carry a
+ * live preview even when they were started outside this dashboard session
+ * (device reboot, agent-started, already running when the dashboard booted).
+ * Called from the remote-sync cycle with the fresh listing; per-env attempts
+ * are deduped (in-flight), throttled (SWEEP_RETRY_MS after a failure) and
+ * refreshed on a slow cadence (SWEEP_STALE_MS after a success). Fire-and-
+ * forget, never throws, cheap when there is nothing to do.
+ */
+export async function sweepRemoteThumbnails(
+  remoteProjects: Array<{
+    id: string
+    deviceStatus?: string | null
+    environments?: Array<{ id: string; status?: string }>
+  }>,
+): Promise<void> {
+  try {
+    const now = Date.now();
+    for (const project of remoteProjects) {
+      // Push-only devices (agent port unreachable) can't be captured —
+      // deviceStatus 'offline' rows are served from the push cache.
+      if (project.deviceStatus !== 'online') continue;
+      const runningEnvs = (project.environments || []).filter((e) => e.status === 'running');
+      if (runningEnvs.length === 0) continue;
+      for (const env of runningEnvs) {
+        if (inflight.has(env.id)) continue; // already capturing
+        const lastAttempt = sweepAttempts.get(env.id) || 0;
+        if (now - lastAttempt < SWEEP_RETRY_MS) continue; // throttled
+        // Fresh-enough thumbnail? Nothing to do until it goes stale.
+        try {
+          const thumb = await db.thumbnail.findUnique({ where: { envId: env.id } });
+          if (thumb && !thumb.error && now - thumb.capturedAt.getTime() < SWEEP_STALE_MS) continue;
+        } catch { /* DB hiccup — attempt anyway */ }
+        // Schedule; scheduleRemoteThumbnailCapture records the attempt ts.
+        void scheduleRemoteThumbnailCapture(project.id, env.id);
+      }
+    }
+  } catch {
+    // The sweep is decorative — never propagate.
+  }
 }

@@ -11,6 +11,7 @@ import { invalidateUpdateCache } from '@/lib/git-update-check';
 import { probeRemoteAgentHealth } from '@/lib/agent-health';
 import { isValidBranchName, switchGitBranch } from '@/lib/git-branches';
 import { execGitNetwork, isTransientGitNetworkError } from '@/lib/git-retry';
+import { syncDepsAfterPull } from '@/lib/pull-deps-sync';
 import {
   parsePullConflict, sanitizeConflictFiles, discardTrackedChanges, removeUntrackedBlockers,
   stashLocalChanges, popStash, isValidPullStrategy,
@@ -584,6 +585,19 @@ async function handlePull(
           ? `Pulled; local changes re-applied (${stashDetail.slice(0, 200)})`
           : upToDate ? 'Already up to date' : output.split('\n').slice(-3).join(' · ').slice(0, 300),
     });
+
+    // v1.24: dependency files moved in this pull range → background install
+    // so the next start doesn't die with module-not-found (see
+    // lib/pull-deps-sync.ts). No-op when nothing relevant changed.
+    if (!upToDate) {
+      syncDepsAfterPull({
+        projectPath: project.path,
+        projectId: project.id,
+        projectName: project.name,
+        before,
+        after,
+      });
+    }
 
     return NextResponse.json({
       ok: true,

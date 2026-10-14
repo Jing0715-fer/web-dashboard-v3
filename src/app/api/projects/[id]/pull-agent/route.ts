@@ -5,6 +5,7 @@ import { requireApprovedUser } from '@/lib/auth';
 import { invalidateUpdateCache } from '@/lib/git-update-check';
 import { isValidBranchName } from '@/lib/git-branches';
 import { runPullAgent } from '@/lib/pull-agent';
+import { syncDepsAfterPull } from '@/lib/pull-deps-sync';
 
 /**
  * POST /api/projects/:id/pull-agent — the v1.20 pull-conflict AGENT.
@@ -131,6 +132,19 @@ async function handleAgentPull(
             projectName: project.name,
             detail: result.summary.slice(0, 300),
           });
+          // v1.24: a pull that touched package.json / lockfiles leaves
+          // node_modules stale — the classic "pull succeeded, start now
+          // fails with module-not-found" chain. Sync deps in the background
+          // (no-op when the range touched no dependency files).
+          if (!result.upToDate) {
+            syncDepsAfterPull({
+              projectPath: project.path,
+              projectId: project.id,
+              projectName: project.name,
+              before: result.before,
+              after: result.after,
+            });
+          }
           send({ type: 'done', result });
         } else {
           await logActivity({

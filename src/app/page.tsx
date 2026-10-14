@@ -776,21 +776,23 @@ function HealthScoreHoverCard({
 // an environment starts (headless Chromium server-side — see lib/thumbnail.ts).
 
 /** Full-bleed thumbnail strip for grid cards: latest screenshot, capturing
- *  spinner, or a placeholder that explains how to get a preview. */
+ *  spinner, or a placeholder that explains how to get a preview. Local and
+ *  remote projects render identically (v1.24 — remote captures go through
+ *  the device agent's proxy). */
 function ProjectThumbStrip({
-  project, capturing, isRemote, onCapture,
+  project, capturing, onCapture,
 }: {
   project: Project
   capturing: boolean
-  isRemote: boolean
   onCapture?: (p: Project) => void
 }) {
   const t = useT()
   const thumb = project.thumbnail
 
-  // Nothing to preview (remote projects run on their device — only its own
-  // agent could screenshot them; empty projects have no page at all).
-  if (!thumb && (isRemote || (project.environments || []).length === 0)) return null
+  // Nothing to preview yet: empty projects have no page at all. Remote
+  // projects (v1.24) DO get a strip — their thumbnail is captured through
+  // the device agent's proxy, so the same placeholder/spinner states apply.
+  if (!thumb && (project.environments || []).length === 0) return null
 
   const envLabel = (name: string) => name === 'development' ? 'dev' : name === 'production' ? 'prod' : name
 
@@ -1433,7 +1435,7 @@ function SortableProjectCardImpl({
                   <DropdownMenuItem onClick={() => onSwitchBranch(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md"><GitBranch className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.switchBranch')}</DropdownMenuItem>
                 )}
                 {/* Capture / refresh the live preview thumbnail (v1.22) */}
-                {onCaptureThumb && !isRemote && (project.environments || []).length > 0 && (
+                {onCaptureThumb && (project.environments || []).length > 0 && (
                   <DropdownMenuItem onClick={() => onCaptureThumb(project)} disabled={projectBusy || !(project.environments || []).some((e) => e.status === 'running')} className="px-2.5 py-2 text-sm rounded-md"><Camera className="h-3.5 w-3.5 mr-2.5" />{t('card.thumb.capture')}</DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
@@ -1469,7 +1471,7 @@ function SortableProjectCardImpl({
             {project.repoUrl && onSwitchBranch && (
               <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSwitchBranch(project)}><GitBranch className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.switchBranch')}</ContextMenuItem>
             )}
-            {onCaptureThumb && !isRemote && (project.environments || []).length > 0 && (
+            {onCaptureThumb && (project.environments || []).length > 0 && (
               <ContextMenuItem disabled={projectBusy || !(project.environments || []).some((e) => e.status === 'running')} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCaptureThumb(project)}><Camera className="h-3.5 w-3.5 mr-2.5" />{t('card.thumb.capture')}</ContextMenuItem>
             )}
             <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onDuplicate?.(project.id)}><Copy className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.duplicate')}</ContextMenuItem>
@@ -1579,8 +1581,9 @@ function SortableProjectCardImpl({
 
         {/* Live preview thumbnail (v1.22) — real screenshot of the running
             page, auto-captured on env start. Full-bleed strip between the
-            header and the environment list. */}
-        <ProjectThumbStrip project={project} capturing={!!project.thumbCapturing} isRemote={isRemote} onCapture={isRemote ? undefined : onCaptureThumb} />
+            header and the environment list. v1.24: remote projects too —
+            captured through their device agent's proxy. */}
+        <ProjectThumbStrip project={project} capturing={!!project.thumbCapturing} onCapture={onCaptureThumb} />
 
         <CardContent className={`${contentPad} flex-1 min-w-0 relative z-[1]`}>
           {project.description && (
@@ -1786,7 +1789,7 @@ function SortableProjectCardImpl({
                   <DropdownMenuItem onClick={() => onSwitchBranch(project)} disabled={pulling} className="px-2.5 py-2 text-sm rounded-md"><GitBranch className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.switchBranch')}</DropdownMenuItem>
                 )}
                 {/* Capture / refresh the live preview thumbnail (v1.22) */}
-                {onCaptureThumb && !isRemote && (project.environments || []).length > 0 && (
+                {onCaptureThumb && (project.environments || []).length > 0 && (
                   <DropdownMenuItem onClick={() => onCaptureThumb(project)} disabled={projectBusy || !(project.environments || []).some((e) => e.status === 'running')} className="px-2.5 py-2 text-sm rounded-md"><Camera className="h-3.5 w-3.5 mr-2.5" />{t('card.thumb.capture')}</DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={() => onSelect(project)} className="px-2.5 py-2 text-sm rounded-md"><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')}</DropdownMenuItem>
@@ -1824,7 +1827,7 @@ function SortableProjectCardImpl({
           {project.repoUrl && onPull && (
             <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}>{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</ContextMenuItem>
           )}
-          {onCaptureThumb && !isRemote && (project.environments || []).length > 0 && (
+          {onCaptureThumb && (project.environments || []).length > 0 && (
             <ContextMenuItem disabled={projectBusy || !(project.environments || []).some((e) => e.status === 'running')} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCaptureThumb(project)}><Camera className="h-3.5 w-3.5 mr-2.5" />{t('card.thumb.capture')}</ContextMenuItem>
           )}
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onToggleStar(project.id)}>{starred ? <><PinOff className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.unpin')}</> : <><Pin className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.pinToTop')}</>}</ContextMenuItem>
@@ -4457,6 +4460,9 @@ interface RepairJobInfo {
   round: number
   maxRounds: number
   pendingApproval?: RepairPendingApprovalInfo | null
+  /** v1.24: how the job was resolved — 'pattern' / 'lesson' resolved it
+   *  WITHOUT an LLM; 'legacy' / 'cli' ran an engine. */
+  resolvedBy?: 'pattern' | 'lesson' | 'legacy' | 'cli'
 }
 
 /** Swap a raw backend repair error for a localized sentence when it carries a
@@ -4826,7 +4832,11 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
             {job.status === 'success' && (
               <div className="flex shrink-0 items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
-                {t('dlg.repair.successNote')}
+                {/* v1.24: no-LLM resolutions say so — pattern fix / replayed
+                    lesson instead of an AI repair. */}
+                {job.resolvedBy === 'pattern' || job.resolvedBy === 'lesson'
+                  ? t('dlg.repair.successNoteNoLlm', { how: t(job.resolvedBy === 'pattern' ? 'dlg.repair.resolvedByPattern' : 'dlg.repair.resolvedByLesson') })
+                  : t('dlg.repair.successNote')}
               </div>
             )}
             {job.status === 'failed' && job.error && (
@@ -9459,15 +9469,22 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const handleRepairFinished = React.useCallback((job: RepairJobInfo) => {
     const envLabel = job.envName === 'development' ? 'dev' : job.envName === 'production' ? 'prod' : job.envName
     if (job.status === 'success') {
+      // v1.24: pattern/lesson resolutions never invoked an LLM — the toast
+      // and notification say so (and mention the fix was remembered).
+      const noLlm = job.resolvedBy === 'pattern' || job.resolvedBy === 'lesson'
       toast({
-        title: t('dlg.toast.repairSuccess'),
-        description: t('dlg.toast.repairSuccessDesc', { project: job.projectName, env: envLabel }),
+        title: noLlm ? t('dlg.toast.repairSuccessNoLlm') : t('dlg.toast.repairSuccess'),
+        description: noLlm
+          ? t('dlg.toast.repairSuccessNoLlmDesc', { project: job.projectName, env: envLabel })
+          : t('dlg.toast.repairSuccessDesc', { project: job.projectName, env: envLabel }),
         variant: 'success',
       })
       addAutoNotification(
         'success',
-        t('dlg.notif.repairSuccessTitle'),
-        t('dlg.notif.repairSuccessDesc', { project: job.projectName, env: envLabel }),
+        noLlm ? t('dlg.notif.repairSuccessNoLlmTitle') : t('dlg.notif.repairSuccessTitle'),
+        noLlm
+          ? t('dlg.notif.repairSuccessNoLlmDesc', { project: job.projectName, env: envLabel })
+          : t('dlg.notif.repairSuccessDesc', { project: job.projectName, env: envLabel }),
         job.projectName,
       )
     } else {

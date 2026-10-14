@@ -6,7 +6,7 @@ import { isRemoteProject, proxyProjectAction } from '@/lib/route-decision';
 import { invalidateRemoteProjectCache } from '@/lib/remote-sync';
 import { startRepairJob } from '@/lib/llm-repair';
 import { logActivity } from '@/lib/activity';
-import { scheduleThumbnailCapture } from '@/lib/thumbnail';
+import { scheduleThumbnailCapture, scheduleRemoteThumbnailCapture } from '@/lib/thumbnail';
 import { requireApprovedUser } from '@/lib/auth';
 
 export async function POST(
@@ -39,6 +39,11 @@ export async function POST(
         'POST'
       );
       invalidateRemoteProjectCache();
+      // v1.24: remote live preview — refresh the card screenshot after the
+      // device-side restart settles (fire-and-forget, readiness-aware).
+      if (result.ok) {
+        void scheduleRemoteThumbnailCapture(id, envId);
+      }
       return NextResponse.json(result.data, { status: result.status });
     }
 

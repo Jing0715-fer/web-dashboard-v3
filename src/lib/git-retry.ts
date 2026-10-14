@@ -25,14 +25,21 @@ const TRANSIENT_GIT_NET_RE = new RegExp(
     'SSL_connect', 'SSL_read', 'SSL_write',
     'schannel:',                // Windows native TLS stack errors
     'GnuTLS',                   // Linux git TLS stack errors
-    'connection reset', 'was reset by peer',
+    'connection reset', 'was reset by peer', 'Connection was closed',
     'remote end hung up',
     'timed out', 'timeout', 'Timeout was reached', 'ETIMEDOUT',
     'Failed to connect', "couldn't connect", 'Could not resolve host', 'EAI_AGAIN',
     'ECONNRESET', 'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH',
     'Empty reply from server', 'RPC failed',
+    // v1.24 additions — mid-transfer truncations observed on flaky links:
+    // git dies part-way through the pack with a short read and the very
+    // next attempt repacks fine.
+    'early EOF',                // pack stream cut short (curl 18 territory)
+    'premature EOF',            // fetch got fewer bytes than advertised
+    'fetch-pack: invalid index-pack output', // corrupted pack from a torn stream
+    'expected list for objects',            // shallow/partial state after truncation
     'HTTP 5\\d\\d',             // GitHub transient 5xx answers
-    'curl \\((?:28|35|55|56)\\)', // curl: timeout / TLS connect / send / recv
+    'curl \\((?:18|28|35|55|56)\\)', // curl: partial file / timeout / TLS / send / recv
   ].join('|'),
   'i',
 );

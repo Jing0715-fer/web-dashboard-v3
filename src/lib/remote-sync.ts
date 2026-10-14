@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { proxyToAgent } from '@/lib/remote-agent'
 import { detectLocalAgent } from '@/lib/agent-lifecycle'
 import { logActivity } from '@/lib/activity'
+import { sweepRemoteThumbnails } from '@/lib/thumbnail'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -948,6 +949,15 @@ async function syncRemoteProjects(): Promise<RemoteSyncResult> {
   console.log(
     `[remote-sync] completed in ${Date.now() - startedAt}ms: ${devices.length} device(s), ${dedupedRemote.length} remote project(s)`
   )
+
+  // v1.24: remote live-preview sweep — RUNNING remote environments without a
+  // fresh thumbnail get a background capture scheduled (through the device
+  // agent's proxy, direct-URL fallback). Deduped + throttled inside; a no-op
+  // when everything already has a preview. Fire-and-forget by design.
+  if (dedupedRemote.length > 0) {
+    void sweepRemoteThumbnails(dedupedRemote as any[]).catch(() => {})
+  }
+
   return { at: Date.now(), projects: dedupedRemote, gen: startedGen }
 }
 

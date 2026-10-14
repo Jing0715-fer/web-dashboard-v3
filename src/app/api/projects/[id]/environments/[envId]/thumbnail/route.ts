@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { captureThumbnail } from '@/lib/thumbnail';
+import { captureThumbnail, remoteCaptureTargetUrls } from '@/lib/thumbnail';
 import { isRemoteProject } from '@/lib/route-decision';
 import { requireApprovedUser } from '@/lib/auth';
 
@@ -10,6 +10,11 @@ import { requireApprovedUser } from '@/lib/auth';
 // This is the manual counterpart of the automatic capture that fires after
 // env start/restart/rebuild. Awaits the capture so the caller can toast the
 // outcome (the port is normally already warm, so the wait is one probe).
+//
+// v1.24: remote projects are captured too — the dashboard's headless
+// Chromium loads the page through the device agent's HTTP proxy (which can
+// reach even 127.0.0.1-bound dev servers on that machine), falling back to
+// the direct device URL when the agent predates the proxy endpoint.
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; envId: string }> }
@@ -21,7 +26,7 @@ export async function POST(
 
     const env = await db.environment.findUnique({
       where: { id: envId },
-      include: { project: true },
+      include: { project: { include: { device: true } } },
     });
     if (!env) {
       return NextResponse.json({ error: 'Environment not found' }, { status: 404 });
@@ -30,14 +35,37 @@ export async function POST(
       return NextResponse.json({ error: 'Environment does not belong to this project' }, { status: 403 });
     }
 
-    // The process runs on the remote device — only its own agent could
-    // screenshot it. The card UI hides the capture action for remote projects;
-    // this guard keeps hand-crafted requests honest too.
+    // ---- Remote project: capture through the device agent's proxy ----
     if (isRemoteProject(env.project)) {
-      return NextResponse.json(
-        { error: 'Thumbnails are captured on the device where the project runs' },
-        { status: 400 },
-      );
+      const device = env.project.device;
+      if (!device) {
+        return NextResponse.json(
+          { error: 'The device this project runs on is unknown — re-pair it in the devices panel' },
+          { status: 400 },
+        );
+      }
+      if (device.status !== 'online') {
+        return NextResponse.json(
+          { error: 'The device is offline — thumbnails need its agent to reach the running page' },
+          { status: 409 },
+        );
+      }
+      // Remote env status comes from the agent's listing; a stale row can say
+      // "stopped" while the process actually runs — trust the caller's card
+      // (it renders live status) and let the readiness wait arbitrate.
+      const targetUrls = remoteCaptureTargetUrls(device.ip, device.port, device.apiKey, env.port);
+      const result = await captureThumbnail({
+        projectId: env.projectId,
+        projectName: env.project.name,
+        envId,
+        envName: env.name,
+        port: env.port,
+        targetUrls,
+      });
+      if (result.ok) {
+        return NextResponse.json({ ok: true, thumbnail: { file: result.file, capturedAt: result.capturedAt, bytes: result.bytes } });
+      }
+      return NextResponse.json({ ok: false, error: result.error, reason: result.reason }, { status: 400 });
     }
 
     if (env.status !== 'running') {
