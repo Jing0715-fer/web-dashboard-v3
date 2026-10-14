@@ -21,6 +21,13 @@ export interface GitBranchInfo {
   /** True when this branch only exists on the remote (origin/name), i.e. it
    *  would be created locally by `git checkout -b name origin/name`. */
   remote: boolean;
+  /** v1.26: commits origin/<name> is AHEAD of the local ref — the update a
+   *  switch+pull would bring. Undefined when the remote has no such branch
+   *  or the count couldn't be computed (picker renders no chip). */
+  behind?: number;
+  /** v1.26: commits the local ref is ahead of origin/<name> (unpushed work —
+   *  informational chip only). */
+  ahead?: number;
 }
 
 /** Result of listGitBranches — `current` is duplicated per-entry for easy
@@ -134,6 +141,44 @@ export async function listGitBranches(path: string, fetch = false): Promise<GitB
     if (current && !byName.has(current) && isValidBranchName(current)) {
       byName.set(current, { name: current, current: true, remote: false });
     }
+
+    // v1.26: per-branch freshness RELATIVE TO THE CURRENT CHECKOUT — the same
+    // counts the update pill computes for the default branch, now for EVERY
+    // branch so the picker can show which branch actually carries the update
+    // (the "update detected but we're on another branch" case: the stale side
+    // branch shows nothing to pull, the default branch shows "105 behind").
+    // NOTE the base: `HEAD...origin/<name>`, NOT `<name>...origin/<name>` —
+    // comparing a branch against its OWN twin shows 0/0 once that branch was
+    // synced at any point in the past (local main sits at the tip even while
+    // the CHECKOUT is parked 105 commits back on v3-base). The user's real
+    // question is "what would switching bring ME" — measured from HEAD.
+    // Purely local rev-list calls against already-fetched refs — cheap and
+    // offline. Guarded per-branch; any failure just leaves the chip off.
+    const names = [...byName.keys()];
+    const counts = await Promise.all(
+      names.map((n) =>
+        execFileAsync(
+          'git',
+          ['rev-list', '--left-right', '--count', `HEAD...origin/${n}`],
+          { cwd: path, timeout: GIT_TIMEOUT, maxBuffer: 16 * 1024 },
+        ).then(({ stdout }) => {
+          const m = stdout.trim().match(/^(\d+)\s+(\d+)$/);
+          if (!m) return null;
+          // `HEAD...origin/<n>` → left = commits only on the CURRENT checkout
+          // (you'd leave them behind), right = commits only on origin/<n>
+          // (switching + pulling would bring them).
+          return { ahead: parseInt(m[1], 10) || 0, behind: parseInt(m[2], 10) || 0 };
+        }).catch(() => null),
+      ),
+    );
+    names.forEach((n, i) => {
+      const c = counts[i];
+      const entry = byName.get(n);
+      if (c && entry && (c.behind > 0 || c.ahead > 0)) {
+        entry.behind = c.behind;
+        entry.ahead = c.ahead;
+      }
+    });
 
     // Current first, then alphabetical.
     const branches = [...byName.values()].sort((a, b) =>

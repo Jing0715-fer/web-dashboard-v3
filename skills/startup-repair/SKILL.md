@@ -231,6 +231,15 @@ Classification rules:
   (e.g. `v3-base`) while the default branch moved on. Pulls now return
   `newerOnDefault`/`remoteDiffers` with the branch + behind count; the fix is
   `git checkout <default>` (the UI offers the switch), not another pull.
+- **Transient git errors (v1.26)**: curl inserts words between "connection"
+  and "reset" (`Recv failure: Connection was reset`) — the retry matcher in
+  `src/lib/git-retry.ts` must match the MESSAGE FRAGMENTS git/curl actually
+  emit, not the idealized phrase. When a fetch/ls-remote fails and the error
+  is not retried, check the matcher first: adding the fragment there fixes
+  pulls AND update checks (which silently degrade to `unknown` and hide the
+  pill) in one line. The pull agent's result also carries `rolledBack`:
+  `restored` (stash popped back, nothing lost) vs `kept` (changes stay in
+  the stash) — report the real outcome, never a canned sentence.
 - **Remote thumbnails (v1.24)**: devices expose
   `GET /api/agent/proxy/<apiKey>/<port>/<path>` (key-in-path so relative
   sub-resources inherit auth; registered env ports only; GET/HEAD only;

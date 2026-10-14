@@ -80,6 +80,15 @@ export interface PullAgentResult {
    *  whenever the checkout sits on a non-default branch that is strictly
    *  behind the default branch (mirror of the plain pull route's field). */
   newerOnDefault?: { branch: string; behind: number; remoteSha: string };
+  /** v1.26: a FAILED run aborted after the backup stash was created but
+   *  before the restore phase ever ran, and the safety rollback tried to
+   *  pop the stash back into the working tree:
+   *    'restored' — pop succeeded; the tree is exactly as it was pre-run
+   *                (nothing lost, nothing left in the stash).
+   *    'kept'     — pop failed (conflict); the changes remain SAFE inside
+   *                the labelled stash entry for a manual `git stash pop`.
+   *  Absent when no rollback was needed (failure after restore, or ok). */
+  rolledBack?: 'restored' | 'kept';
   /** Local changes re-applied cleanly on top of the pulled code. */
   restored: boolean;
   /** Files whose stash-pop conflict was auto-resolved (pulled version in the
@@ -259,6 +268,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
     // contract — the user should never have to know a stash exists). When
     // even that pop fails, the changes stay safe IN the stash and the report
     // says so explicitly.
+    let rolledBack: PullAgentResult['rolledBack'];
     if (!ok && stashCreated && !restoreStarted) {
       restoreStarted = true; // prevent double-pop on later finish() calls
       try {
@@ -268,8 +278,10 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
         stashCreated = false;
         artifacts.stash = false;
         restored = true;
+        rolledBack = 'restored';
         transcript.push('[rollback] aborted before sync — local changes restored to the working tree');
       } catch {
+        rolledBack = 'kept';
         transcript.push('[rollback] aborted before sync — local changes remain in the git stash entry (git stash list)');
       }
     }
@@ -280,6 +292,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
     after: afterSha,
     ...(switchedTo ? { switchedTo } : {}),
     ...(newerOnDefault ? { newerOnDefault } : {}),
+    ...(rolledBack ? { rolledBack } : {}),
     restored,
     autoResolved,
     artifacts,

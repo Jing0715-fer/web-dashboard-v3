@@ -300,6 +300,9 @@ export const dialogs = {
   'dlg.branch.switchFailed': '切换分支失败',
   'dlg.branch.switchedToast': '已切换到 {branch}',
   'dlg.branch.switchedToastDesc': '{before} → {after} · 已拉取最新代码',
+  // v1.26：分支选择器每行的领先/落后角标。
+  'dlg.branch.behindTip': '切换到 {branch} 并拉取会带来 {count} 个你还没有的提交（以当前检出为基准）',
+  'dlg.branch.aheadTip': '当前检出有 {count} 个 {branch} 没有的提交——切换后将留在原分支',
   // ---- 拉取冲突对话框（本地修改阻塞了 git pull）----
   'dlg.pullConflict.title': '本地修改与拉取冲突',
   'dlg.pullConflict.desc': '拉取被以下本地修改阻止，git 拒绝覆盖它们。选择一种方式继续，或取消后手动处理：',
@@ -315,7 +318,7 @@ export const dialogs = {
   'dlg.pullConflict.stashRestored': '已拉取，本地修改已自动恢复',
   'dlg.pullConflict.stashPartialDesc': '本地修改已恢复；原未跟踪文件现已由远程跟踪，其本地副本保留在 git stash 中（git stash list 可查看）',
   'dlg.pullConflict.stashConflictTitle': '已拉取，但恢复本地修改时有冲突',
-  'dlg.pullConflict.stashConflictDesc': '代码已更新到最新。本地修改仍安全保存在 git stash 中 — 在项目目录执行 git stash pop 手动合并（git stash list 可查看）',
+  'dlg.pullConflict.stashConflictDesc': '拉取已完成，但把本地修改重新套用到新代码时发生冲突——它们仍安全保存在 git stash 中。请在项目目录执行 git stash pop 手动合并（git stash list 可查看）',
   'dlg.pullConflict.updated': '冲突文件列表已更新',
   // ---- AI 拉取诊断（LLM 分析失败的 pull，用户确认修复方案） ----
   'dlg.pullDiag.title': 'AI 拉取诊断',
@@ -343,6 +346,11 @@ export const dialogs = {
   'dlg.pullDiag.retrying': '正在重试拉取…',
   'dlg.pullDiag.unavailable': 'AI 诊断暂不可用',
   'dlg.pullDiag.unavailableDesc': '无法连接 LLM——已改用标准处理选项。',
+  // v1.26 重设计：收纳式原始错误块 + 瞬时网络错误角标。
+  'dlg.pullDiag.rawError': '原始错误输出',
+  'dlg.pullDiag.copyRaw': '复制',
+  'dlg.pullDiag.copied': '已复制',
+  'dlg.pullDiag.transientChip': '瞬时网络错误',
   // ---- 拉取冲突智能体（v1.20：全自动备份 + 同步 + 恢复，实时进度） ----
   'dlg.pullAgent.title': '智能体自动处理拉取',
   'dlg.pullAgent.desc': '智能体会先备份你的本地改动，再同步远程代码，最后自动恢复——全程可回溯，本地改动不会丢失。',
@@ -404,6 +412,10 @@ export const dialogs = {
   'dlg.pullAgent.localOnly': '仅本地项目支持智能体自动处理',
   'dlg.pullAgent.toastDone': '智能体已处理完成',
   'dlg.pullAgent.toastAutoResolved': '拉取完成，{count} 个冲突已自动解决',
+  // v1.26：失败时本地修改的真实去向——由引擎的回滚结果驱动，
+  // 取代首尾不符的“代码已更新到最新…”提示。
+  'dlg.pullAgent.rollbackRestored': '本次运行在同步前中止——本地修改已自动恢复到工作区，未丢失任何内容。',
+  'dlg.pullAgent.rollbackKept': '本地修改仍安全保存在 git stash 中——请在项目目录执行 git stash pop 手动合并（git stash list 可查看）。',
 
   // ---- 仪表盘自更新（v1.21：检查 GitHub 版本 + 一键更新自身）----
   'dlg.selfUpdate.title': '仪表盘更新',
@@ -1164,6 +1176,11 @@ export const dialogs = {
   'card.repo.divergedTip': '本地与远程已分叉（领先 {ahead} / 落后 {behind}）',
   'card.repo.differsTip': '设备上的版本与远程不一致（远程 HEAD {remote}）',
   'card.repo.upToDateTip': '与远程保持同步',
+  // v1.26：跨分支更新入口 + 检查失败重试。
+  'card.repo.updateOnBranch': '位于 {branch}',
+  'card.repo.updateOnBranchTip': '更新在 {branch} 分支上，而当前检出位于 {current}——直接拉取永远拿不到。打开分支选择器，切换并拉取 {branch}。',
+  'card.repo.checkUnavailable': '更新检查不可用',
+  'card.repo.retryCheck': '重试更新检查',
   'card.updateToast.title': '检测到远程仓库更新',
   'card.updateToast.body': '{count} 个项目可更新：{names}。点击卡片上的 GitHub 行即可拉取。',
   'card.ctx.unpin': '取消置顶',
@@ -1200,6 +1217,9 @@ export const dialogs = {
   'card.thumb.notRunning': '请先启动环境 — 缩略图来自运行中页面的截图',
   'card.thumb.staleHint': '上次截取失败：{err} — 显示的是之前的截图',
   'card.thumb.alt': '{name} 的实时页面截图',
+  // v1.26：两类具名捕获失败的可执行提示。
+  'card.thumb.hintBrowserMissing': '仪表盘所在机器没有无头浏览器——在那台机器上执行一次 `bunx playwright install chromium`',
+  'card.thumb.hintPortNotReady': '页面在 90 秒内未应答——请确认环境确实在提供服务后重试',
 
   'card.chipStart': '启动',
   'card.chipStop': '停止',

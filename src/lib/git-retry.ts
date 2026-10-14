@@ -26,6 +26,14 @@ const TRANSIENT_GIT_NET_RE = new RegExp(
     'schannel:',                // Windows native TLS stack errors
     'GnuTLS',                   // Linux git TLS stack errors
     'connection reset', 'was reset by peer', 'Connection was closed',
+    // v1.26: curl's actual wording inserts words between "connection" and
+    // "reset" — `Recv failure: Connection was reset` / `Send failure:
+    // Connection was reset` (real report: a foundry-lab fetch died exactly
+    // like this and was NOT retried, because 'connection reset' expects the
+    // two words adjacent). Match the message fragments git/curl emit.
+    'connection was reset', 'reset by peer', 'Recv failure', 'Send failure',
+    'Failure when receiving data', 'Failure when sending data',
+    'closed by the remote host', 'proxy CONNECT',
     'remote end hung up',
     'timed out', 'timeout', 'Timeout was reached', 'ETIMEDOUT',
     'Failed to connect', "couldn't connect", 'Could not resolve host', 'EAI_AGAIN',

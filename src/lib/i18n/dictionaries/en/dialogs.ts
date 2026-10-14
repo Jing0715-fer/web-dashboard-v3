@@ -304,6 +304,9 @@ export const dialogs = {
   'dlg.branch.switchFailed': 'Branch switch failed',
   'dlg.branch.switchedToast': 'Switched to {branch}',
   'dlg.branch.switchedToastDesc': '{before} → {after} · pulled latest code',
+  // v1.26: per-branch freshness chips in the picker rows.
+  'dlg.branch.behindTip': 'Switching to {branch} & pulling brings {count} commit(s) you don\u2019t have yet (measured from the current checkout)',
+  'dlg.branch.aheadTip': 'The current checkout has {count} commit(s) that {branch} does not — switching leaves them behind',
   // ---- Pull-conflict dialog (local changes block git pull) ----
   'dlg.pullConflict.title': 'Local changes conflict with the pull',
   'dlg.pullConflict.desc': 'The pull is blocked by the local changes below — git refuses to overwrite them. Pick how to continue, or cancel and resolve it by hand:',
@@ -319,7 +322,7 @@ export const dialogs = {
   'dlg.pullConflict.stashRestored': 'Pulled; local changes restored automatically',
   'dlg.pullConflict.stashPartialDesc': 'Local changes restored; the former untracked files are now tracked remotely — their local copies remain in the git stash (git stash list to inspect)',
   'dlg.pullConflict.stashConflictTitle': 'Pulled, but restoring local changes hit conflicts',
-  'dlg.pullConflict.stashConflictDesc': 'Code is up to date. Your local changes are safe in the git stash — run git stash pop in the project directory to merge them by hand (git stash list to inspect)',
+  'dlg.pullConflict.stashConflictDesc': 'The pull finished, but re-applying your local changes on top hit conflicts — they are safe in the git stash. Run git stash pop in the project directory to merge them by hand (git stash list to inspect)',
   'dlg.pullConflict.updated': 'Conflict file list updated',
   // ---- AI pull diagnosis (LLM analyzes a failed pull, user confirms the fix) ----
   'dlg.pullDiag.title': 'AI Pull Diagnosis',
@@ -347,6 +350,11 @@ export const dialogs = {
   'dlg.pullDiag.retrying': 'Retrying the pull…',
   'dlg.pullDiag.unavailable': 'AI diagnosis unavailable',
   'dlg.pullDiag.unavailableDesc': 'The LLM could not be reached — showing the standard options instead.',
+  // v1.26 redesign: contained raw-error block + transient chip.
+  'dlg.pullDiag.rawError': 'Raw error output',
+  'dlg.pullDiag.copyRaw': 'Copy',
+  'dlg.pullDiag.copied': 'Copied',
+  'dlg.pullDiag.transientChip': 'transient network error',
   // ---- Pull-conflict agent (v1.20: fully automatic backup → sync → restore, live progress) ----
   'dlg.pullAgent.title': 'Agent Auto-Resolve Pull',
   'dlg.pullAgent.desc': 'The agent backs up your local changes first, syncs the remote code, then restores them automatically — every step is reported and nothing is lost.',
@@ -408,6 +416,11 @@ export const dialogs = {
   'dlg.pullAgent.localOnly': 'Agent auto-resolve is available for local projects only',
   'dlg.pullAgent.toastDone': 'Agent finished the pull',
   'dlg.pullAgent.toastAutoResolved': 'Pull completed — {count} conflict(s) auto-resolved',
+  // v1.26: what actually happened to the user's local changes on a failed
+  // run — driven by the engine's rollback outcome, replaces the misleading
+  // one-size-fits-all "Code is up to date …" note.
+  'dlg.pullAgent.rollbackRestored': 'The run aborted before syncing — your local changes were restored to the working tree automatically (nothing was lost).',
+  'dlg.pullAgent.rollbackKept': 'Your local changes are safe in the git stash — run git stash pop in the project directory to merge them by hand (git stash list to inspect).',
 
   // ---- Dashboard self-update (v1.21: GitHub version check + one-click self-update) ----
   'dlg.selfUpdate.title': 'Dashboard Update',
@@ -1168,6 +1181,11 @@ export const dialogs = {
   'card.repo.divergedTip': 'Diverged from remote ({ahead} ahead / {behind} behind)',
   'card.repo.differsTip': 'Deployed checkout differs from remote (remote HEAD {remote})',
   'card.repo.upToDateTip': 'Up to date with remote',
+  // v1.26: cross-branch update affordance + failed-check retry in the detail sheet.
+  'card.repo.updateOnBranch': 'on {branch}',
+  'card.repo.updateOnBranchTip': 'The update lives on {branch}, but this checkout is on {current} — a plain pull can never deliver it. Open the branch picker and switch & pull {branch}.',
+  'card.repo.checkUnavailable': 'Update check unavailable',
+  'card.repo.retryCheck': 'Retry the update check',
   'card.updateToast.title': 'Remote updates detected',
   'card.updateToast.body': '{count} project(s) have remote updates: {names}. Click the GitHub row on a card to pull.',
   'card.ctx.unpin': 'Unpin',
@@ -1205,6 +1223,9 @@ export const dialogs = {
   'card.thumb.notRunning': 'Start an environment first — thumbnails capture the live page',
   'card.thumb.staleHint': 'Last capture failed: {err} — showing the previous screenshot',
   'card.thumb.alt': 'Live preview screenshot of {name}',
+  // v1.26: actionable hints for the two named capture-failure classes.
+  'card.thumb.hintBrowserMissing': 'No headless browser on the dashboard machine — run `bunx playwright install chromium` there once',
+  'card.thumb.hintPortNotReady': 'The page did not answer within 90 s — make sure the environment is really serving, then retry',
 
   'card.chipStart': 'Start',
   'card.chipStop': 'Stop',

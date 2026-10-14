@@ -1769,6 +1769,32 @@ async function listGitBranches(path: string, fetch = false): Promise<any> {
     if (current && !byName.has(current) && isValidBranchName(current)) {
       byName.set(current, { name: current, current: true, remote: false });
     }
+    // v1.26 mirror: per-branch freshness RELATIVE TO HEAD (behind = commits
+    // switching to that branch would bring) — same shape as git-branches.ts.
+    // Local calls against fetched refs; any failure
+    // just leaves the chip off (HEAD...origin/<n>, not <n>...origin/<n>).
+    const names = [...byName.keys()];
+    const counts = await Promise.all(
+      names.map((n: string) =>
+        execFileAsync(
+          'git',
+          ['rev-list', '--left-right', '--count', `HEAD...origin/${n}`],
+          { cwd: path, timeout: 15_000, maxBuffer: 16 * 1024 },
+        ).then(({ stdout }: { stdout: string }) => {
+          const m = stdout.trim().match(/^(\d+)\s+(\d+)$/);
+          if (!m) return null;
+          return { ahead: parseInt(m[1], 10) || 0, behind: parseInt(m[2], 10) || 0 };
+        }).catch(() => null),
+      ),
+    );
+    names.forEach((n: string, i: number) => {
+      const c: any = counts[i];
+      const entry: any = byName.get(n);
+      if (c && entry && (c.behind > 0 || c.ahead > 0)) {
+        entry.behind = c.behind;
+        entry.ahead = c.ahead;
+      }
+    });
     const branches = [...byName.values()].sort((a: any, b: any) =>
       Number(b.current) - Number(a.current) || a.name.localeCompare(b.name));
     return { current, branches };

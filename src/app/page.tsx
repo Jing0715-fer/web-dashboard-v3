@@ -3067,6 +3067,11 @@ interface BranchInfo {
   name: string
   current: boolean
   remote: boolean
+  /** v1.26: commits origin/<name> is ahead — the update a switch+pull
+   *  would bring. Optional: legacy agents don't report it (no chip). */
+  behind?: number
+  /** v1.26: commits the local ref is ahead of origin (unpushed work). */
+  ahead?: number
 }
 
 /** Switch-branch picker: lists the checkout's branches (local + origin/*,
@@ -3229,7 +3234,16 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
                     {selected === b.name && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
                   </span>
                   <GitBranch className={`h-3.5 w-3.5 shrink-0 ${b.current ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
-                  <span className={`font-mono truncate flex-1 ${b.current ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}>{b.name}</span>
+                  <span className={`font-mono truncate flex-1 min-w-0 ${b.current ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}>{b.name}</span>
+                  {/* v1.26: per-branch freshness — the "which branch actually
+                      carries the update" answer. A stale side branch shows
+                      nothing to pull; the default branch shows ↓N behind. */}
+                  {typeof b.behind === 'number' && b.behind > 0 && (
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border border-amber-300/70 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 font-medium tabular-nums" title={t('dlg.branch.behindTip', { count: b.behind, branch: b.name })}>↓{b.behind}</span>
+                  )}
+                  {typeof b.ahead === 'number' && b.ahead > 0 && (
+                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border text-muted-foreground tabular-nums" title={t('dlg.branch.aheadTip', { count: b.ahead, branch: b.name })}>↑{b.ahead}</span>
+                  )}
                   {b.current && (
                     <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium">{t('dlg.branch.current')}</span>
                   )}
@@ -3490,6 +3504,20 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
   const t = useT()
   const busyNow = busy !== null
   const loading = !!req && !diagnosis
+  // v1.26 redesign: the raw error/detail expander + its copy button state.
+  // Raw git stderr is the #1 overflow culprit in this dialog (long URLs,
+  // unbreakable SHA strings) — it now lives in its own contained, scrolled,
+  // wrap-everything block instead of pushing the dialog open.
+  const [showRaw, setShowRaw] = React.useState(false)
+  const [copiedRaw, setCopiedRaw] = React.useState(false)
+  const copyRaw = () => {
+    const text = [req?.error, req?.detail].filter(Boolean).join('\n')
+    if (!text) return
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedRaw(true)
+      setTimeout(() => setCopiedRaw(false), 1600)
+    }).catch(() => {})
+  }
   const hasConflict = !!req && (req.modified.length > 0 || req.untracked.length > 0)
   // Whitelisted offer set: stash/force only exist when the failure actually
   // carried blocking file lists; agent/retry/manual are always available.
@@ -3513,20 +3541,20 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
   )
   return (
     <Dialog open={!!req} onOpenChange={(o) => { if (!o && !busyNow) onClose() }}>
-      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
+        <DialogHeader className="min-w-0">
+          <DialogTitle className="flex items-center gap-2 min-w-0">
             <Sparkles className="h-5 w-5 text-amber-500 shrink-0" />
-            {t('dlg.pullDiag.title')}
-            {req ? <span className="text-sm font-normal text-muted-foreground truncate">· {req.projectName}</span> : null}
+            <span className="truncate">{t('dlg.pullDiag.title')}</span>
+            {req ? <span className="text-sm font-normal text-muted-foreground truncate min-w-0">· {req.projectName}</span> : null}
           </DialogTitle>
-          <DialogDescription>
-            {loading ? t('dlg.pullDiag.loadingDesc') : (diagnosis?.rootCause || req?.error || '')}
+          <DialogDescription className="break-words min-w-0">
+            {loading ? t('dlg.pullDiag.loadingDesc') : (diagnosis?.rootCause || '')}
           </DialogDescription>
         </DialogHeader>
 
         {req && (
-          <div className="space-y-3 min-h-0 overflow-y-auto pr-1">
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
             {loading ? (
               <div className="flex flex-col items-center gap-3 py-8">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -3534,38 +3562,52 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
               </div>
             ) : diagnosis ? (
               <>
-                <div className="rounded-md border px-3 py-2">
-                  <div className="flex items-baseline gap-2 mb-1">
+                {/* Severity + root cause — colored container by severity so
+                    the eye lands on the verdict first. Everything inside is
+                    wrap-safe: min-w-0 on flex children, break-words on prose. */}
+                <div className={`rounded-md border px-3 py-2.5 min-w-0 ${
+                  diagnosis.severity === 'high'
+                    ? 'border-rose-300/70 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20'
+                    : diagnosis.severity === 'medium'
+                      ? 'border-amber-300/70 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/20'
+                      : 'border-emerald-300/70 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20'
+                }`}>
+                  <div className="flex items-center gap-1.5 mb-1.5 min-w-0">
                     <span className={`text-xs font-semibold uppercase tracking-wide ${severityClass}`}>{t(`dlg.pullDiag.severity.${diagnosis.severity}`)}</span>
                     <span className="text-[11px] text-muted-foreground">{t('dlg.pullDiag.severityLabel')}</span>
+                    {req.transient ? (
+                      <span className="ml-auto shrink-0 inline-flex items-center gap-1 h-5 px-1.5 rounded-full border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 text-[10px] font-medium text-amber-700 dark:text-amber-400" title={t('dlg.pullDiag.action.retryDesc')}>
+                        {t('dlg.pullDiag.transientChip')}
+                      </span>
+                    ) : null}
                   </div>
-                  <div className="text-sm font-medium break-words">{diagnosis.rootCause}</div>
-                  {diagnosis.explanation ? <div className="text-xs text-muted-foreground mt-1 break-words">{diagnosis.explanation}</div> : null}
+                  <div className="text-sm font-medium break-words min-w-0">{diagnosis.rootCause}</div>
+                  {diagnosis.explanation ? <div className="text-xs text-muted-foreground mt-1.5 break-words min-w-0">{diagnosis.explanation}</div> : null}
                 </div>
                 {diagnosis.steps.length > 0 && (
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullDiag.steps')}</div>
-                    <ol className="rounded-md border bg-muted/40 px-4 py-2 space-y-1 max-h-40 overflow-y-auto list-decimal">
+                    <ol className="rounded-md border bg-muted/40 px-4 py-2 space-y-1.5 max-h-44 overflow-y-auto list-decimal min-w-0 custom-scrollbar">
                       {diagnosis.steps.map((s, i) => (
-                        <li key={i} className="text-xs leading-4 break-words">{s}</li>
+                        <li key={i} className="text-xs leading-4 break-words min-w-0">{s}</li>
                       ))}
                     </ol>
                   </div>
                 )}
                 {hasConflict && (
-                  <div className="space-y-2">
+                  <div className="space-y-2 min-w-0">
                     {req.modified.length > 0 && (
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.modified')} · {req.modified.length}</div>
-                        <ul className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 max-h-32 overflow-y-auto">
+                        <ul className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 max-h-32 overflow-y-auto min-w-0 custom-scrollbar">
                           {req.modified.map((f, i) => fileRow(f, i, 'modified'))}
                         </ul>
                       </div>
                     )}
                     {req.untracked.length > 0 && (
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.untracked')} · {req.untracked.length}</div>
-                        <ul className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 max-h-32 overflow-y-auto">
+                        <ul className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 max-h-32 overflow-y-auto min-w-0 custom-scrollbar">
                           {req.untracked.map((f, i) => fileRow(f, i, 'untracked'))}
                         </ul>
                       </div>
@@ -3574,18 +3616,51 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
                 )}
               </>
             ) : null}
+
+            {/* Raw error detail (v1.26): the technical git output, contained
+                in its own collapsed, scrolled, wrap-everything block. Shown
+                while the LLM thinks AND after it answers — the user asked for
+                the raw stderr to stop overflowing the dialog frame. */}
+            {(req?.error || req?.detail) && (
+              <div className="rounded-md border bg-muted/30 min-w-0">
+                <div className="flex items-stretch min-w-0">
+                  <button
+                    type="button"
+                    className="flex flex-1 min-w-0 items-center gap-1.5 px-2.5 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    onClick={() => setShowRaw((v) => !v)}
+                  >
+                    {showRaw ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+                    <span className="truncate">{t('dlg.pullDiag.rawError')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex shrink-0 items-center gap-1 px-2.5 py-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer border-l border-border/60"
+                    onClick={copyRaw}
+                    title={t('dlg.pullDiag.copyRaw')}
+                  >
+                    {copiedRaw ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                    {copiedRaw ? t('dlg.pullDiag.copied') : t('dlg.pullDiag.copyRaw')}
+                  </button>
+                </div>
+                {showRaw && (
+                  <pre className="border-t border-border/60 px-3 py-2 max-h-36 overflow-y-auto text-[11px] leading-4 whitespace-pre-wrap break-all font-mono text-muted-foreground min-w-0 custom-scrollbar">
+                    {[req?.error, req?.detail].filter(Boolean).join('\n')}
+                  </pre>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {!loading && diagnosis && (
-          <div className="flex flex-col gap-2 pt-1">
+          <div className="flex flex-col gap-2 pt-1 shrink-0">
             {diagnosis.reason && (
-              <div className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2">
+              <div className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 min-w-0">
                 <div className="text-[11px] font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                  <Sparkles className="h-3 w-3" />
+                  <Sparkles className="h-3 w-3 shrink-0" />
                   {t('dlg.pullDiag.whyLabel')}
                 </div>
-                <div className="text-xs text-amber-900/80 dark:text-amber-200/80 break-words">{diagnosis.reason}</div>
+                <div className="text-xs text-amber-900/80 dark:text-amber-200/80 break-words min-w-0">{diagnosis.reason}</div>
               </div>
             )}
             {forceConfirm ? (
@@ -3622,23 +3697,23 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
                     <Button
                       key={a}
                       variant={cfg.variant}
-                      className="w-full justify-start text-left h-auto py-2.5"
+                      className="w-full justify-start text-left h-auto py-2.5 min-w-0"
                       disabled={busyNow}
                       onClick={() => (a === 'force' ? onForceConfirm(true) : onAction(a))}
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         {busy === a ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <RecIcon className="h-4 w-4 shrink-0" />}
-                        <div className="flex flex-col items-start">
-                          <span className="text-sm font-medium flex items-center gap-1.5 flex-wrap">
+                        <div className="flex flex-col items-start min-w-0">
+                          <span className="text-sm font-medium flex items-center gap-1.5 flex-wrap min-w-0">
                             {busy === a ? t('dlg.pullDiag.busy') : cfg.label}
                             {a === rec ? (
-                              <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-1.5 py-px text-[10px] font-semibold">
+                              <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-1.5 py-px text-[10px] font-semibold shrink-0">
                                 <Sparkles className="h-2.5 w-2.5" />
                                 {t('dlg.pullDiag.aiRecommended')}
                               </span>
                             ) : null}
                           </span>
-                          <span className={`text-xs font-normal ${a === 'force' ? 'text-destructive/80' : 'text-muted-foreground'}`}>{cfg.desc}</span>
+                          <span className={`text-xs font-normal break-words min-w-0 ${a === 'force' ? 'text-destructive/80' : 'text-muted-foreground'}`}>{cfg.desc}</span>
                         </div>
                       </div>
                     </Button>
@@ -3678,6 +3753,10 @@ interface PullAgentResultView {
   after: string
   switchedTo?: string
   newerOnDefault?: { branch: string; behind: number; remoteSha: string }
+  /** v1.26: failure-before-restore rollback outcome — 'restored' = the safety
+   *  stash was popped back into the working tree (nothing lost), 'kept' = the
+   *  pop conflicted and the changes remain in the stash entry. */
+  rolledBack?: 'restored' | 'kept'
   restored: boolean
   autoResolved: string[]
   artifacts: { stash: boolean; stashLabel?: string; branch?: string; backupFiles: string[] }
@@ -3792,10 +3871,28 @@ function PullAgentDialog({ run, onClose, onRetry }: {
 
             {/* Failure report */}
             {run.status === 'failed' && (
-              <div className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2.5 space-y-1">
-                <div className="text-sm font-medium text-rose-700 dark:text-rose-300 break-words">{run.error || 'Agent pull failed'}</div>
-                {run.detail ? <div className="text-xs text-muted-foreground break-all">{run.detail.slice(0, 300)}</div> : null}
-                <div className="text-xs text-muted-foreground">{t('dlg.pullConflict.stashConflictDesc')}</div>
+              <div className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2.5 space-y-1.5">
+                <div className="text-sm font-medium text-rose-700 dark:text-rose-300 break-words min-w-0">{run.error || 'Agent pull failed'}</div>
+                {run.detail ? <div className="text-xs text-muted-foreground break-all min-w-0">{run.detail.slice(0, 300)}</div> : null}
+                {/* v1.26: say what ACTUALLY happened to the user's local
+                    changes. The old text hard-coded "Code is up to date. Your
+                    changes are safe in the git stash…" for EVERY failure —
+                    wrong for fetch/network failures (the run never synced, and
+                    the rollback had usually already restored the tree) and
+                    contradicting the failure above it. Now driven by the
+                    engine's rollback outcome. */}
+                {result?.rolledBack === 'restored' && (
+                  <div className="flex items-start gap-1.5 text-xs text-muted-foreground break-words min-w-0">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-px" />
+                    {t('dlg.pullAgent.rollbackRestored')}
+                  </div>
+                )}
+                {result?.rolledBack === 'kept' && (
+                  <div className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400 break-words min-w-0">
+                    <Archive className="h-3.5 w-3.5 shrink-0 mt-px" />
+                    {t('dlg.pullAgent.rollbackKept')}
+                  </div>
+                )}
               </div>
             )}
 
@@ -5068,7 +5165,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch, onPullFailure
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch, onPullFailure, onRetryUpdateCheck
 }: {
   project: Project | null
   open: boolean
@@ -5087,6 +5184,10 @@ function DetailSheet({
    * flow — data carries { error, detail, transient } for any class, or
    * { modified, untracked } for the 409 conflict class. */
   onPullFailure?: (p: Project, branch: string | undefined, data: any) => void
+  /** v1.26: re-run the batch update check (?refresh=1) — offered when the
+   *  last check failed so "sometimes updates are not detected" becomes a
+   *  visible, retryable state instead of silent nothing. */
+  onRetryUpdateCheck?: () => void
   /** Git snapshot — same source as the card's version chip. */
   version?: ProjectVersion | null
   /** Remote-repo freshness — hint states render an "update available" pill. */
@@ -5102,6 +5203,11 @@ function DetailSheet({
         ? t('card.repo.divergedTip', { ahead: detailUpdateHint.ahead ?? 0, behind: detailUpdateHint.behind ?? 0 })
         : t('card.repo.differsTip', { remote: detailUpdateHint.remoteSha ?? '?' })
     : null
+  // v1.26: the update lives on the remote's DEFAULT branch while this
+  // checkout sits on a different one — a plain pull can never deliver it.
+  // The pill becomes a button that opens the branch picker (whose rows now
+  // carry per-branch behind chips). */
+  const crossBranch = !!(detailUpdateHint?.branch && version?.branch && detailUpdateHint.branch !== version.branch)
   const [activeTab, setActiveTab] = React.useState('overview')
   const [activity, setActivity] = React.useState<ActivityEvent[]>([])
   const [logs, setLogs] = React.useState<LogEntry[]>([])
@@ -5740,13 +5846,44 @@ function DetailSheet({
                                 <VersionBadge version={version} size="md" deviceName={project.deviceId ? (project.deviceName || null) : null} />
                                 {version.committedAt && <span className="tabular-nums">· {new Date(version.committedAt).toLocaleString()}</span>}
                               </>) : null}
-                              {detailUpdateHint && (
-                                <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium" title={detailUpdateTooltip ?? undefined}>
-                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                                  {t('card.repo.updateAvailable')}
-                                  {detailUpdateHint.state !== 'differs' && typeof detailUpdateHint.behind === 'number' && detailUpdateHint.behind > 0 && <span className="tabular-nums">· {t('card.repo.behindCount', { count: detailUpdateHint.behind })}</span>}
+                              {detailUpdateHint ? (
+                                crossBranch ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onSwitchBranch?.(project)}
+                                    className="inline-flex items-center gap-1 h-5 px-2 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-500/25 transition-colors min-w-0"
+                                    title={t('card.repo.updateOnBranchTip', { branch: String(detailUpdateHint.branch), current: String(version?.branch) })}
+                                  >
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                    <span className="truncate">{t('card.repo.updateAvailable')}</span>
+                                    {detailUpdateHint.state !== 'differs' && typeof detailUpdateHint.behind === 'number' && detailUpdateHint.behind > 0 && <span className="tabular-nums shrink-0">· {t('card.repo.behindCount', { count: detailUpdateHint.behind })}</span>}
+                                    <span className="shrink-0 font-mono">· {t('card.repo.updateOnBranch', { branch: String(detailUpdateHint.branch) })}</span>
+                                  </button>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium min-w-0" title={detailUpdateTooltip ?? undefined}>
+                                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                    <span className="truncate">{t('card.repo.updateAvailable')}</span>
+                                    {detailUpdateHint.state !== 'differs' && typeof detailUpdateHint.behind === 'number' && detailUpdateHint.behind > 0 && <span className="tabular-nums shrink-0">· {t('card.repo.behindCount', { count: detailUpdateHint.behind })}</span>}
+                                  </span>
+                                )
+                              ) : update?.state === 'unknown' ? (
+                                /* v1.26: a FAILED check is now visible + retryable
+                                   — “sometimes updates are not detected” used to
+                                   just silently hide the pill. */
+                                <span className="inline-flex items-center gap-1.5 h-5 px-2 rounded-full border border-dashed text-muted-foreground text-[11px] min-w-0" title={String(update.error || '').slice(0, 200) || undefined}>
+                                  <span className="truncate">{t('card.repo.checkUnavailable')}</span>
+                                  {onRetryUpdateCheck && (
+                                    <button
+                                      type="button"
+                                      onClick={onRetryUpdateCheck}
+                                      className="inline-flex items-center justify-center h-4 w-4 rounded hover:bg-accent hover:text-foreground transition-colors cursor-pointer shrink-0"
+                                      title={t('card.repo.retryCheck')}
+                                    >
+                                      <RefreshCw className="h-3 w-3" />
+                                    </button>
+                                  )}
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           ) : null}
                           <div className="flex items-center gap-2">
@@ -8938,6 +9075,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               status: 'failed',
               error: String(msg.error || ''),
               detail: msg.detail ? String(msg.detail) : undefined,
+              // v1.26: keep the full result on failure too — it carries the
+              // rollback outcome (rolledBack) the failure box renders; without
+              // it the dialog can't tell "stash auto-restored" from "kept".
+              result: msg.result || undefined,
               steps: msg.result?.steps || prev.steps,
             } : prev)
           }
@@ -9416,7 +9557,19 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         toast({ title: t('card.thumb.captured'), variant: 'success' })
         fetchProjects()
       } else {
-        toast({ title: t('card.thumb.captureFailed'), description: data.error || `HTTP ${res.status}`, variant: 'destructive' })
+        // v1.26: pair the raw error with an actionable hint for the two
+        // failure classes the engine names — "capture failed" alone gave the
+        // user nothing to act on.
+        const reasonHint = data?.reason === 'browser-missing'
+          ? t('card.thumb.hintBrowserMissing')
+          : data?.reason === 'port-not-ready'
+            ? t('card.thumb.hintPortNotReady')
+            : ''
+        toast({
+          title: t('card.thumb.captureFailed'),
+          description: [data.error || `HTTP ${res.status}`, reasonHint].filter(Boolean).join(' — '),
+          variant: 'destructive',
+        })
       }
     } catch (e: any) {
       toast({ title: t('card.thumb.captureFailed'), description: e?.message || 'network error', variant: 'destructive' })
@@ -11429,6 +11582,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         onOpenDeviceManagement={() => setDeviceManagementOpen(true)}
         onReanalyze={handleReanalyzeProject}
         onPullFailure={openPullDiagnosis}
+        onRetryUpdateCheck={() => { void fetchProjectUpdates({ refresh: true }) }}
       />
 
       {/* Gateway monitor */}
