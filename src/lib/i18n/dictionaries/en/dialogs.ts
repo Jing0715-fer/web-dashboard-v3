@@ -283,7 +283,7 @@ export const dialogs = {
   'dlg.detail.pullFailed': 'Pull failed',
   'dlg.detail.pullRetried': 'Network hiccup — auto-retried {n}× and succeeded',
   'dlg.detail.pullTransientFailed': 'The link to the remote flaked after automatic retries — pull again in a moment',
-  'dlg.detail.pullNoDetail': 'The dashboard returned an error with no details (the running server code may be stale) — try: git pull, then restart bun run dev',
+  'dlg.detail.pullNoDetail': 'The dashboard returned an error with no details for {path} (HTTP {status} — the response was not the expected JSON). The running server code may be stale or the route crashed — try: git pull, then restart bun run dev. For remote projects it can also be the device agent being old: git pull + restart the agent on that machine.',
   'dlg.detail.pullRemoteOnly': 'Pull runs on the device that owns this project — use that device\u2019s dashboard',
   // ---- Switch-branch dialog ----
   'dlg.branch.title': 'Switch Branch',
@@ -1326,7 +1326,7 @@ export const dialogs = {
   // ---- shared error fallbacks ----
   'dlg.toast.serverReturnedError': 'Server returned an error',
   'dlg.toast.serverErrorStatus': 'Server error: {status} {text}',
-  'dlg.toast.actionRouteMissing': 'The server returned 404 for this API route — the dashboard server is running older code than the interface (or a proxy intercepted the request). Pull the latest code and restart the server (bun run dev), then try again.',
+  'dlg.toast.actionRouteMissing': 'The server returned 404 for {path} — this API route does not exist on the running server: either the dashboard server is running older code than the interface, a proxy intercepted the request, or the route is genuinely absent from the current code. Pull the latest code and restart the server (bun run dev), then try again; for remote projects, restart the device agent on that machine.',
   'dlg.toast.serverDown': 'Cannot reach the dashboard server — it crashed or was stopped. Restart it (bun run dev) and try again.',
 
   // ---- mesh join extras ----

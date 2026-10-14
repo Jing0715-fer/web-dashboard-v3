@@ -5238,10 +5238,13 @@ function DetailSheet({
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
         // No `error` in the body = non-JSON response (crashed route) — hint
-        // at stale server code instead of a dead-end "Pull failed".
+        // at stale server code instead of a dead-end "Pull failed". The
+        // hint names the exact route + HTTP status so the report is
+        // actionable (which route, what the server actually said).
         const transient = pullTransientNote(data, t)
-        setPullResult({ ok: false, upToDate: false, summary: String(data?.error || t('dlg.detail.pullNoDetail')), output: detail + (transient ? `\n${transient}` : '') })
-        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(String(data?.error || t('dlg.detail.pullNoDetail'))) + detail + (transient ? ` — ${transient}` : ''), variant: 'destructive' })
+        const noDetail = t('dlg.detail.pullNoDetail', { path: `/api/projects/${project.id}/pull`, status: res.status })
+        setPullResult({ ok: false, upToDate: false, summary: String(data?.error || noDetail), output: detail + (transient ? `\n${transient}` : '') })
+        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(String(data?.error || noDetail)) + detail + (transient ? ` — ${transient}` : ''), variant: 'destructive' })
         // v1.19: non-conflict failures go through the AI diagnosis too —
         // the LLM names the root cause and offers the whitelisted fixes.
         if (project) onPullFailure?.(project, undefined, { error: String(data?.error || ''), detail: String(data?.detail || ''), transient: !!data?.transient })
@@ -9087,7 +9090,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         // (stale server code) instead of a bare "Server error".
         const errMsg = String(data?.error || '')
         const transient = pullTransientNote(data, t)
-        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(upgrade || errMsg || t('dlg.detail.pullNoDetail')) + (upgrade ? '' : detail) + (transient ? `\n${transient}` : ''), detail: (upgrade || errMsg) + (data.detail ? `\n${data.detail}` : '') || t('dlg.detail.pullNoDetail'), variant: 'destructive' })
+        // Name the exact route + HTTP status in the no-detail fallback so a
+        // report of this toast is immediately actionable.
+        const noDetail = t('dlg.detail.pullNoDetail', { path: `/api/projects/${project.id}/pull`, status: res.status })
+        toast({ title: t('dlg.detail.pullFailed'), description: summarizeError(upgrade || errMsg || noDetail) + (upgrade ? '' : detail) + (transient ? `\n${transient}` : ''), detail: (upgrade || errMsg) + (data.detail ? `\n${data.detail}` : '') || noDetail, variant: 'destructive' })
         // v1.19: route non-conflict failures through the AI diagnosis too —
         // EXCEPT when the upgrade hint already told the user exactly what to
         // do (diagnosing "your agent is old" through the LLM adds nothing).
@@ -9412,9 +9418,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         } catch {
           // 响应不是 JSON：路由本身不存在（Next.js 的 HTML 404 页面）。
           // 这意味着服务器上运行的代码比界面旧（拉了新代码但没重启）
-          // 或请求被代理层接管。给出可操作的修复指引而不是裸 404。
+          // 或请求被代理层接管。给出可操作的修复指引而不是裸 404 ——
+          // 带上具体路由路径，报告时能直接定位。
           errorDetail = res.status === 404
-            ? t('dlg.toast.actionRouteMissing')
+            ? t('dlg.toast.actionRouteMissing', { path: `/api/projects/${projectId}/environments/${envId}/${action}` })
             : t('dlg.toast.serverErrorStatus', { status: res.status, text: res.statusText })
         }
         if (repairJobIdFromResponse) {

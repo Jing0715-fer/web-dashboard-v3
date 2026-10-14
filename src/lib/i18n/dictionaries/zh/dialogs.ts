@@ -279,7 +279,7 @@ export const dialogs = {
   'dlg.detail.pullFailed': '拉取失败',
   'dlg.detail.pullRetried': '网络抖动，已自动重试 {n} 次后成功',
   'dlg.detail.pullTransientFailed': '网络不稳定，自动重试后仍失败 — 稍后再点一次拉取即可',
-  'dlg.detail.pullNoDetail': '仪表盘返回了无详情的错误（本地服务可能运行旧代码）— 请尝试 git pull 后重启 bun run dev',
+  'dlg.detail.pullNoDetail': '仪表盘对 {path} 返回了无详情的错误（HTTP {status}，响应不是预期的 JSON）—— 运行中的服务器代码可能过旧或该路由已崩溃：请尝试 git pull 后重启 bun run dev。若是远程项目，也可能是那台设备上的 agent 过旧 —— 请在那台机器上 git pull 并重启 agent。',
   'dlg.detail.pullRemoteOnly': '拉取在项目所属设备上执行 — 请在该设备的控制台操作',
   // ---- 切换分支对话框 ----
   'dlg.branch.title': '切换分支',
@@ -1321,7 +1321,7 @@ export const dialogs = {
   // ---- 共享错误回退文案 ----
   'dlg.toast.serverReturnedError': '服务器返回了错误',
   'dlg.toast.serverErrorStatus': '服务器错误：{status} {text}',
-  'dlg.toast.actionRouteMissing': '服务器对此接口返回了 404——仪表盘服务器运行的代码比界面旧（或请求被代理层拦截）。请拉取最新代码并重启服务器（bun run dev）后重试。',
+  'dlg.toast.actionRouteMissing': '服务器对 {path} 返回了 404 —— 运行中的服务器上没有这个 API 路由：可能是仪表盘服务器运行的代码比界面旧、请求被代理层拦截、或该路由确实不存在于当前代码。请拉取最新代码并重启服务器（bun run dev）后重试；远程项目则需在那台设备上重启 agent。',
   'dlg.toast.serverDown': '无法连接仪表盘服务器——服务器可能已崩溃或被停止。请重启服务器（bun run dev）后重试。',
 
   // ---- mesh join 补充 ----
