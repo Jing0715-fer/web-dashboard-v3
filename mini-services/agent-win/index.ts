@@ -1663,6 +1663,28 @@ async function performSelfUpdate(signal?: {
     await gitNet(['pull', '--ff-only'], { cwd: root, timeout: 5 * 60 * 1000, maxBuffer: 1024 * 1024 });
     const after = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: root, timeout: 15_000 })).stdout.trim();
     if (after === before) {
+      // v1.19.1: "up to date" on the CHECKED-OUT branch can still mean the
+      // repository moved on — `git pull --ff-only` synced this branch's
+      // upstream, not the remote's DEFAULT branch. A checkout parked on a
+      // stale side branch (classic: 'v3-base', 100+ commits behind 'main')
+      // silently loops here forever while the dashboard keeps advertising a
+      // newer sha. Name the contradiction instead of pretending 'current'.
+      try {
+        const branch = (await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, timeout: 15_000 })).stdout.trim();
+        let defBranch = '';
+        try {
+          defBranch = (await execFileAsync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { cwd: root, timeout: 15_000 }))
+            .stdout.trim().replace(/^origin\//, '');
+        } catch { /* origin/HEAD unset (copied checkout) — ask the remote */ }
+        if (!defBranch) {
+          const sym = (await gitNet(['ls-remote', '--symref', 'origin', 'HEAD'], { cwd: root, timeout: 60_000, maxBuffer: 64 * 1024 })).stdout || '';
+          const m = sym.match(/ref: refs\/heads\/(\S+)\s+HEAD/);
+          if (m) defBranch = m[1];
+        }
+        if (defBranch && branch && branch !== defBranch) {
+          return { ok: false, action: 'stale-branch', detail: `checkout is on branch '${branch}' but the repository default is '${defBranch}' — pulling cannot advance it; switch branches on this machine to receive updates` };
+        }
+      } catch { /* best-effort detection — fall through to 'current' */ }
       return { ok: true, action: 'current', detail: 'already up to date' };
     }
     lastSelfUpdateAt = Date.now();
@@ -2503,7 +2525,7 @@ const server = createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.19.0',
+        version: '1.19.1',
         platform: platform(),
         arch: arch(),
         // Whether this agent serves a co-located dashboard's projects

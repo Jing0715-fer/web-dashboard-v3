@@ -1,6 +1,6 @@
 {
   "name": "nextjs_tailwind_shadcn_ts",
-  "version": "1.24.1",
+  "version": "1.25.0",
   "private": true,
   "scripts": {
     "predev": "bun install || echo '[predev] bun install skipped (offline or bun unavailable) — run it manually if you see module-not-found errors' && prisma generate && prisma db push",

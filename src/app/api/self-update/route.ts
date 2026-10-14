@@ -57,6 +57,7 @@ export async function GET(req: NextRequest) {
           behind: null,
           ahead: null,
           remoteSha: null,
+          branch: null,
           checkedAt: new Date().toISOString(),
           error: 'no http(s) origin remote on this checkout',
         } satisfies RepoUpdateStatus,

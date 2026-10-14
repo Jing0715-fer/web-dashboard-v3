@@ -74,6 +74,12 @@ export interface PullAgentResult {
   before: string;
   after: string;
   switchedTo?: string;
+  /** v1.25: the run synced the CHECKED-OUT branch's upstream and found nothing
+   *  to do — but the repository's DEFAULT branch is ahead of HEAD. Pulling
+   *  again will never help (same branch); switching branches will. Present
+   *  whenever the checkout sits on a non-default branch that is strictly
+   *  behind the default branch (mirror of the plain pull route's field). */
+  newerOnDefault?: { branch: string; behind: number; remoteSha: string };
   /** Local changes re-applied cleanly on top of the pulled code. */
   restored: boolean;
   /** Files whose stash-pop conflict was auto-resolved (pulled version in the
@@ -231,6 +237,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
   let restoreStarted = false;
   let switchedTo = '';
   let upToDate = false;
+  let newerOnDefault: PullAgentResult['newerOnDefault'];
 
   const setStep = (key: AgentStep['key'], patch: Partial<AgentStep>) => {
     const s = steps.find((x) => x.key === key);
@@ -272,6 +279,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
     before: beforeSha,
     after: afterSha,
     ...(switchedTo ? { switchedTo } : {}),
+    ...(newerOnDefault ? { newerOnDefault } : {}),
     restored,
     autoResolved,
     artifacts,
@@ -640,6 +648,48 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
       },
       info: syncNote,
     });
+
+    // v1.25: "up to date" on the CHECKED-OUT branch can still mean the
+    // repository moved on — the sync step targeted this branch's upstream,
+    // not the remote's default branch. A checkout parked on a stale side
+    // branch (classic: 'v3-base', 100+ commits behind 'main') reports
+    // "already up to date" on every run while the default branch runs away.
+    // Detect the contradiction so the result/dialog can offer the switch.
+    try {
+      if (finalBranch) {
+        let defaultBranch = '';
+        try {
+          // Cheapest source: the local remote-tracking HEAD symref (set at
+          // clone time; often unset on copied/zipped checkouts).
+          defaultBranch = (await git(projectPath, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], 15_000))
+            .replace(/^origin\//, '');
+        } catch { /* origin/HEAD unset — ask the remote directly */ }
+        if (!defaultBranch) {
+          try {
+            const sym = await git(projectPath, ['ls-remote', '--symref', 'origin', 'HEAD'], 30_000);
+            const m = sym.match(/ref: refs\/heads\/(\S+)\s+HEAD/);
+            if (m) defaultBranch = m[1];
+          } catch { /* offline — skip the check entirely */ }
+        }
+        if (defaultBranch && defaultBranch !== finalBranch) {
+          const behind =
+            parseInt(await git(projectPath, ['rev-list', '--count', `HEAD..origin/${defaultBranch}`], 15_000), 10) || 0;
+          if (behind > 0) {
+            const remoteSha = shortSha(
+              await git(projectPath, ['rev-parse', '--short', `origin/${defaultBranch}`], 15_000).catch(() => ''),
+            );
+            newerOnDefault = { branch: defaultBranch, behind, remoteSha };
+            setStep('verify', {
+              status: 'warn',
+              note: {
+                key: 'dlg.pullAgent.note.newerOnDefault',
+                params: { current: finalBranch, branch: defaultBranch, behind },
+              },
+            });
+          }
+        }
+      }
+    } catch { /* best-effort — the verify step already succeeded above */ }
   } catch (e) {
     setStep('verify', { status: 'warn', note: { key: 'dlg.pullAgent.note.verifyWarn' }, info: gitErrorText(e) });
   }

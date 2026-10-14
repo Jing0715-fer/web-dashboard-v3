@@ -209,6 +209,10 @@ interface RepoUpdateStatus {
   behind: number | null
   ahead: number | null
   remoteSha: string | null
+  /** v1.25: the remote's default branch name — the branch the check compares
+   *  against; lets the pull UI name the branch to switch to when the checkout
+   *  sits on a stale side branch. */
+  branch?: string | null
   checkedAt: string
   error?: string
 }
@@ -3148,7 +3152,7 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
       if (res.ok) {
         toast({
           title: t('dlg.branch.switchedToast', { branch: selected }),
-          description: [data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`, pullRetriedNote(data, t)].filter(Boolean).join(' · ') || undefined,
+          description: [data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`, pullRetriedNote(data, t), pullNewerOnDefaultNote(data, t)].filter(Boolean).join(' · ') || undefined,
           variant: 'success',
         })
         onSwitched?.()
@@ -3287,6 +3291,29 @@ function pullRetriedNote(data: any, t: I18nContextValue['t']): string {
 
 function pullTransientNote(data: any, t: I18nContextValue['t']): string {
   return data?.transient ? t('dlg.detail.pullTransientFailed') : ''
+}
+
+/**
+ * v1.25 "stale branch" notes. A pull that answers "Already up to date" on the
+ * CHECKED-OUT branch can still be missing the latest code — every pull syncs
+ * the current branch's upstream, while the update pill compares against the
+ * remote's DEFAULT branch (real user report: checkout on 'v3-base', 105
+ * commits behind 'main', pull said up-to-date forever). The pull routes now
+ * attach the contradiction to the response:
+ *   newerOnDefault { branch, behind, remoteSha } — local projects
+ *   remoteDiffers  { branch, remoteSha, sha }     — device-hosted projects
+ * This helper turns either into a localized sentence for the toasts/dialogs.
+ */
+function pullNewerOnDefaultNote(data: any, t: I18nContextValue['t']): string {
+  const n = data?.newerOnDefault
+  if (n && typeof n.branch === 'string' && typeof n.behind === 'number') {
+    return t('dlg.detail.pullNewerOnDefault', { branch: n.branch, behind: n.behind, remoteSha: String(n.remoteSha || '') })
+  }
+  const d = data?.remoteDiffers
+  if (d && typeof d.branch === 'string') {
+    return t('dlg.detail.pullRemoteDiffers', { sha: String(d.sha || ''), branch: d.branch, remoteSha: String(d.remoteSha || '') })
+  }
+  return ''
 }
 
 /**
@@ -3650,6 +3677,7 @@ interface PullAgentResultView {
   before: string
   after: string
   switchedTo?: string
+  newerOnDefault?: { branch: string; behind: number; remoteSha: string }
   restored: boolean
   autoResolved: string[]
   artifacts: { stash: boolean; stashLabel?: string; branch?: string; backupFiles: string[] }
@@ -3785,6 +3813,17 @@ function PullAgentDialog({ run, onClose, onRetry }: {
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5 break-words">{result.summary}</div>
                 </div>
+                {/* v1.25: "up to date" on a stale side branch while the default
+                    branch moved on — pulling again brings nothing; name the
+                    branch to switch to. */}
+                {result.newerOnDefault && (
+                  <div className="rounded-md border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-2.5">
+                    <div className="text-sm font-medium text-amber-800 dark:text-amber-300 break-words">
+                      {t('dlg.detail.pullNewerOnDefault', { branch: result.newerOnDefault.branch, behind: result.newerOnDefault.behind, remoteSha: String(result.newerOnDefault.remoteSha || '') })}
+                    </div>
+                    <div className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-0.5">{t('dlg.detail.pullNewerOnDefaultHint')}</div>
+                  </div>
+                )}
                 <div className="rounded-md border px-3 py-2">
                   <div className="text-xs font-medium text-muted-foreground mb-1.5">{t('dlg.pullAgent.artifacts')}</div>
                   {artifactRows.length > 0 ? (
@@ -3850,7 +3889,7 @@ function PullAgentDialog({ run, onClose, onRetry }: {
  * agent (backup → sync → restore, full conflict auto-resolve) and continues
  * in the PullAgentDialog timeline that opens on hand-off.
  */
-function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate, updating }: {
+function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate, onSwitchUpdate, updating }: {
   open: boolean
   onClose: () => void
   status: RepoUpdateStatus | null
@@ -3858,11 +3897,21 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
   busy: boolean
   onCheck: () => void
   onUpdate: () => void
+  onSwitchUpdate: (branch: string) => void
   updating: boolean
 }) {
   const t = useT()
   const state = status?.state ?? 'unknown'
   const canUpdate = state === 'behind' || state === 'diverged'
+
+  // v1.25: the checkout sits on a NON-DEFAULT branch while the default branch
+  // is ahead — a plain update would pull the current branch (a guaranteed
+  // no-op "already up to date") and the dashboard would stay stale forever
+  // (real user report: checkout parked on 'v3-base', 105 commits behind
+  // 'main'). Offer the one-click switch instead.
+  const staleBranch = status?.state === 'behind' && status.branch && meta?.branch && meta.branch !== status.branch
+    ? { current: meta.branch, branch: status.branch, behind: status.behind ?? 0 }
+    : null
 
   const banner = (() => {
     if (!status) {
@@ -3913,6 +3962,16 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
             <div className="text-sm font-medium leading-5 break-words">{banner.text}</div>
           </div>
 
+          {/* v1.25: stale-branch contradiction — the plain update cannot help */}
+          {staleBranch && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-2.5" role="status">
+              <GitBranch className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+              <div className="text-xs leading-5 break-words text-amber-800 dark:text-amber-300">
+                {t('dlg.selfUpdate.staleBranch', { current: staleBranch.current, branch: staleBranch.branch, behind: staleBranch.behind })}
+              </div>
+            </div>
+          )}
+
           {/* Version facts */}
           <div className="rounded-md border px-3 py-2.5 space-y-2">
             {row(t('dlg.selfUpdate.localVer'), meta?.localSha || '—')}
@@ -3933,10 +3992,16 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
             <RefreshCw className={`h-4 w-4 mr-1.5 ${busy ? 'animate-spin' : ''}`} />
             {busy ? t('dlg.selfUpdate.checking') : t('dlg.selfUpdate.check')}
           </Button>
-          <Button className="flex-1" onClick={onUpdate} disabled={busy || updating || !canUpdate}>
+          <Button className="flex-1" onClick={onUpdate} disabled={busy || updating || !canUpdate} hidden={!!staleBranch}>
             {updating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
             {t('dlg.selfUpdate.updateNow')}
           </Button>
+          {staleBranch && (
+            <Button className="flex-1" onClick={() => onSwitchUpdate(staleBranch.branch)} disabled={busy || updating}>
+              {updating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <GitBranch className="h-4 w-4 mr-1.5" />}
+              {t('dlg.selfUpdate.switchUpdate', { branch: staleBranch.branch })}
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -5209,7 +5274,14 @@ function DetailSheet({
 
   // ---- Git repository: one-click pull (local projects only) ----
   const [pulling, setPulling] = React.useState(false)
-  const [pullResult, setPullResult] = React.useState<{ ok: boolean; upToDate: boolean; summary: string; output: string } | null>(null)
+  const [pullResult, setPullResult] = React.useState<{
+    ok: boolean
+    upToDate: boolean
+    summary: string
+    output: string
+    newerOnDefault?: { branch: string; behind: number; remoteSha: string }
+    remoteDiffers?: { branch: string; remoteSha: string; sha: string }
+  } | null>(null)
   // Reset pull feedback when switching projects.
   React.useEffect(() => { setPullResult(null); setPulling(false) }, [project?.id])
 
@@ -5223,10 +5295,21 @@ function DetailSheet({
       // else-branch below has a dedicated actionable fallback for them.
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
-        setPullResult({ ok: true, upToDate: !!data.upToDate, summary: String(data.summary || ''), output: String(data.output || '') })
+        setPullResult({
+          ok: true,
+          upToDate: !!data.upToDate,
+          summary: String(data.summary || ''),
+          output: String(data.output || ''),
+          ...(data.newerOnDefault ? { newerOnDefault: data.newerOnDefault } : {}),
+          ...(data.remoteDiffers ? { remoteDiffers: data.remoteDiffers } : {}),
+        })
         toast({
           title: data.upToDate ? t('dlg.detail.pullUpToDate') : t('dlg.detail.pullSuccess'),
-          description: [data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`, pullRetriedNote(data, t)].filter(Boolean).join(' · ') || undefined,
+          description: [
+            data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`,
+            pullRetriedNote(data, t),
+            pullNewerOnDefaultNote(data, t),
+          ].filter(Boolean).join(' · ') || undefined,
           variant: 'success',
         })
         onRefresh?.()
@@ -5702,6 +5785,28 @@ function DetailSheet({
                               </span>
                             )}
                           </div>
+                          {pullResult?.ok && pullResult.upToDate && (pullResult.newerOnDefault || pullResult.remoteDiffers) && (
+                            /* v1.25: "already up to date" on a stale side branch
+                               while the default branch moved on — the pull can
+                               never bring the latest code; offer the switch. */
+                            <div className="flex items-center gap-3 flex-wrap rounded-lg border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-3.5 py-3">
+                              <GitBranch className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                              <span className="text-xs text-amber-800 dark:text-amber-300 flex-1 min-w-[200px]">
+                                {pullNewerOnDefaultNote(pullResult, t)}
+                                <span className="block text-amber-700/80 dark:text-amber-400/80 mt-0.5">{t('dlg.detail.pullNewerOnDefaultHint')}</span>
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs shrink-0"
+                                onClick={() => onSwitchBranch?.(project)}
+                                disabled={pulling}
+                              >
+                                <GitBranch className="h-3.5 w-3.5 mr-1.5" />
+                                {t('dlg.detail.switchToBranchAction', { branch: String(pullResult.newerOnDefault?.branch || pullResult.remoteDiffers?.branch || '') })}
+                              </Button>
+                            </div>
+                          )}
                           {pullResult?.ok && !pullResult.upToDate && pullResult.output && (
                             <pre className="text-[10px] font-mono text-muted-foreground whitespace-pre-wrap max-h-24 overflow-y-auto rounded-md bg-background/60 border px-2 py-1.5">{pullResult.output.slice(0, 1500)}</pre>
                           )}
@@ -8697,7 +8802,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           // are now tracked — their local copies stay in the stash entry.
           toast({
             title: data.upToDate ? t('dlg.detail.pullUpToDate') : t('dlg.detail.pullSuccess'),
-            description: t('dlg.pullConflict.stashPartialDesc'),
+            description: [t('dlg.pullConflict.stashPartialDesc'), pullNewerOnDefaultNote(data, t)].filter(Boolean).join(' · '),
             detail: String(data.stashDetail || ''),
             variant: 'default',
             duration: 12000,
@@ -8707,7 +8812,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             title: data.upToDate ? t('dlg.detail.pullUpToDate') : t('dlg.detail.pullSuccess'),
             description: [strategy === 'stash'
               ? t('dlg.pullConflict.stashRestored')
-              : data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`, pullRetriedNote(data, t)].filter(Boolean).join(' · ') || undefined,
+              : data.upToDate ? undefined : `${data.before ?? ''} → ${data.after ?? ''}`, pullRetriedNote(data, t), pullNewerOnDefaultNote(data, t)].filter(Boolean).join(' · ') || undefined,
             variant: 'success',
           })
         }
@@ -8821,7 +8926,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             const nAuto = Array.isArray(r.autoResolved) ? r.autoResolved.length : 0
             toast({
               title: nAuto > 0 ? t('dlg.pullAgent.toastAutoResolved', { count: nAuto }) : t('dlg.pullAgent.toastDone'),
-              description: String(r.summary || ''),
+              description: [String(r.summary || ''), pullNewerOnDefaultNote(r, t)].filter(Boolean).join(' · '),
               variant: 'success',
             })
             fetchProjects()
@@ -8853,7 +8958,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // Turbopack recompile and cut the stream mid-run — the agent still runs to
   // completion server-side, so a cut stream re-checks the version first and
   // only reports failure when the checkout really did not advance.
-  const runSelfUpdate = React.useCallback(async () => {
+  const runSelfUpdate = React.useCallback(async (branch?: string) => {
     if (selfAgentRun?.status === 'running') return
     setSelfUpdateOpen(false) // the timeline dialog takes over
     setSelfAgentRun({
@@ -8874,7 +8979,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       const res = await fetch('/api/self-update/pull', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: '{}',
+        body: branch ? JSON.stringify({ branch }) : '{}',
         signal: AbortSignal.timeout(10 * 60_000),
       })
       if (!res.ok || !res.body) {
@@ -8909,7 +9014,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             } : prev)
             toast({
               title: r.upToDate ? t('dlg.selfUpdate.toastUpToDate') : t('dlg.selfUpdate.toastDone'),
-              description: `${String(r.summary || '')} ${t('dlg.selfUpdate.refreshPage')}`.trim(),
+              description: [String(r.summary || ''), pullNewerOnDefaultNote(r, t), t('dlg.selfUpdate.refreshPage')].filter(Boolean).join(' '),
               variant: 'success',
             })
             fetchSelfUpdate({ refresh: true })
@@ -9062,7 +9167,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
         if (data.upToDate) {
-          toast({ title: t('dlg.detail.pullUpToDate'), description: [data.switchedTo ? t('dlg.branch.switchedToast', { branch: data.switchedTo }) : undefined, pullRetriedNote(data, t)].filter(Boolean).join(' · ') || undefined, variant: 'success' })
+          toast({ title: t('dlg.detail.pullUpToDate'), description: [data.switchedTo ? t('dlg.branch.switchedToast', { branch: data.switchedTo }) : undefined, pullRetriedNote(data, t), pullNewerOnDefaultNote(data, t)].filter(Boolean).join(' · ') || undefined, variant: 'success' })
         } else {
           toast({
             title: data.switchedTo ? t('dlg.branch.switchedToast', { branch: data.switchedTo }) : t('dlg.detail.pullSuccess'),
@@ -11397,6 +11502,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         updating={selfAgentRun?.status === 'running'}
         onCheck={() => fetchSelfUpdate({ refresh: true })}
         onUpdate={() => { void runSelfUpdate() }}
+        onSwitchUpdate={(branch) => { void runSelfUpdate(branch) }}
       />
       {/* Self-update agent timeline — the same dialog as projects, fed by the
           dashboard-self run (only one of the two instances is non-null at a

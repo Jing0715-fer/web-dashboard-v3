@@ -7,7 +7,7 @@ import { db } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
 import { requireApprovedUser } from '@/lib/auth';
 import { proxyProjectAction } from '@/lib/route-decision';
-import { invalidateUpdateCache } from '@/lib/git-update-check';
+import { invalidateUpdateCache, checkLocalRepoUpdate, checkRemoteRepoUpdate } from '@/lib/git-update-check';
 import { probeRemoteAgentHealth } from '@/lib/agent-health';
 import { isValidBranchName, switchGitBranch } from '@/lib/git-branches';
 import { execGitNetwork, isTransientGitNetworkError } from '@/lib/git-retry';
@@ -175,6 +175,26 @@ async function handlePull(
       Object.keys(proxyBody).length > 0 ? proxyBody : undefined,
     );
     if (result.ok) {
+      // v1.25: the agent pulled ITS checked-out branch. When the device HEAD
+      // still differs from the repository's default-branch tip, the checkout
+      // over there is parked on a stale side branch — the pull will answer
+      // "Already up to date" forever while the default branch moves on
+      // (mirror of the local-project newerOnDefault below). Compare the
+      // agent-reported sha against a fresh ls-remote and attach the numbers
+      // so the UI can suggest the branch switch.
+      let remoteDiffers: { branch: string; remoteSha: string; sha: string } | undefined;
+      const deviceSha = String(result.data?.after || '').trim();
+      if (isValidRepoUrl(project.repoUrl || '') && deviceSha.length >= 7) {
+        const status = await checkRemoteRepoUpdate(
+          project.id,
+          String(project.repoUrl).trim(),
+          deviceSha,
+          true,
+        ).catch(() => null);
+        if (status && status.state === 'differs' && status.branch && status.remoteSha) {
+          remoteDiffers = { branch: status.branch, remoteSha: status.remoteSha, sha: deviceSha.slice(0, 7) };
+        }
+      }
       // The checkout moved on the device — drop the cached freshness hint
       // (the UI also re-checks with ?refresh=1; this is belt-and-braces).
       invalidateUpdateCache([project.id]);
@@ -184,8 +204,17 @@ async function handlePull(
         message: `Pulled ${project.name}${result.data?.switchedTo ? ` → ${result.data.switchedTo}` : ''}${result.data?.summary ? ` (${result.data.summary})` : ''}`,
         projectId: project.id,
         projectName: project.name,
-        detail: String(result.data?.output || '').split('\n').slice(-3).join(' · ').slice(0, 300),
+        detail: [
+          String(result.data?.output || '').split('\n').slice(-3).join(' · ').slice(0, 300),
+          remoteDiffers
+            ? `device checkout ${remoteDiffers.sha} is NOT the default-branch tip ${remoteDiffers.remoteSha} @ ${remoteDiffers.branch} — likely a stale branch; switch branches to get the latest`
+            : '',
+        ].filter(Boolean).join(' — ').slice(0, 500),
       });
+      return NextResponse.json(
+        { ...result.data, ...(remoteDiffers ? { remoteDiffers } : {}) },
+        { status: 200 },
+      );
     } else if (result.data?.error === 'Device not found') {
       // The Device ROW is gone (removed on the devices page) — pointing the
       // user at an agent update would send them to fix the wrong thing.
@@ -266,6 +295,7 @@ async function handlePull(
         { status: result.status },
       );
     }
+    // Unreachable in practice — every branch above returns; kept defensive.
     return NextResponse.json(result.data, { status: 200 });
   }
   if (!project.repoUrl) {
@@ -548,6 +578,34 @@ async function handlePull(
     const upToDate = /Already up to date/i.test(output) || (before !== '' && before === after);
     const range = before && after && before !== after ? ` (${before} → ${after})` : '';
 
+    // v1.25: "Already up to date" on the CHECKED-OUT branch can still mean the
+    // user is missing the latest code — this pull synced the current branch's
+    // upstream, while the update pill compares against the remote's DEFAULT
+    // branch. A checkout parked on a stale side branch (classic: 'v3-base',
+    // 100+ commits behind 'main') answers "Already up to date" forever.
+    // Detect the contradiction and hand the UI the numbers so it can offer a
+    // one-click branch switch (real user report: pull said up-to-date while
+    // the repo had moved on). Best-effort — offline/private repos simply skip
+    // the hint.
+    let newerOnDefault: { branch: string; behind: number; remoteSha: string } | undefined;
+    if (upToDate) {
+      const status = await checkLocalRepoUpdate(
+        project.id,
+        project.path,
+        project.repoUrl,
+        true,
+      ).catch(() => null);
+      if (
+        status &&
+        status.state === 'behind' &&
+        status.branch &&
+        typeof status.behind === 'number' &&
+        status.behind > 0
+      ) {
+        newerOnDefault = { branch: status.branch, behind: status.behind, remoteSha: status.remoteSha || '' };
+      }
+    }
+
     // Fresh HEAD now matches the remote — drop the stale "behind" hint.
     invalidateUpdateCache([project.id]);
 
@@ -583,7 +641,11 @@ async function handlePull(
         ? `Pulled, but restoring the stashed local changes hit conflicts — they are kept in the git stash (${stashDetail.slice(0, 200)})`
         : stashPartial
           ? `Pulled; local changes re-applied (${stashDetail.slice(0, 200)})`
-          : upToDate ? 'Already up to date' : output.split('\n').slice(-3).join(' · ').slice(0, 300),
+          : upToDate
+            ? newerOnDefault
+              ? `Already up to date on this branch, but the default branch ${newerOnDefault.branch} is ${newerOnDefault.behind} commits ahead (${newerOnDefault.remoteSha}) — switch branches to get the latest`
+              : 'Already up to date'
+            : output.split('\n').slice(-3).join(' · ').slice(0, 300),
     });
 
     // v1.24: dependency files moved in this pull range → background install
@@ -604,6 +666,7 @@ async function handlePull(
       upToDate,
       before,
       after,
+      ...(newerOnDefault ? { newerOnDefault } : {}),
       ...(pullRetries > 0 ? { retried: pullRetries } : {}),
       ...(switchedTo ? { switchedTo } : {}),
       ...(stashedForPull ? { stashRestored: !stashConflict } : {}),

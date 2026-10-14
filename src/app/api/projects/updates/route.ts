@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
           const onDevice = remote.filter((x) => x.deviceId === deviceId);
           if (!device) {
             for (const p of onDevice) {
-              updates[p.id] = { state: 'unknown', behind: null, ahead: null, remoteSha: null, checkedAt: new Date().toISOString(), error: 'device not found' };
+              updates[p.id] = { state: 'unknown', behind: null, ahead: null, remoteSha: null, branch: null, checkedAt: new Date().toISOString(), error: 'device not found' };
             }
             return;
           }
@@ -85,13 +85,13 @@ export async function GET(req: NextRequest) {
                 updates[p.id] =
                   typeof sha === 'string' && sha.trim()
                     ? await checkRemoteRepoUpdate(p.id, p.repoUrl!, sha, refresh)
-                    : { state: 'unknown', behind: null, ahead: null, remoteSha: null, checkedAt: new Date().toISOString(), error: 'agent reported no version' };
+                    : { state: 'unknown', behind: null, ahead: null, remoteSha: null, branch: null, checkedAt: new Date().toISOString(), error: 'agent reported no version' };
               }),
             );
           } else {
             // Agent offline or predates /versions — no hint, no error.
             for (const p of onDevice) {
-              updates[p.id] = { state: 'unknown', behind: null, ahead: null, remoteSha: null, checkedAt: new Date().toISOString(), error: 'agent unreachable' };
+              updates[p.id] = { state: 'unknown', behind: null, ahead: null, remoteSha: null, branch: null, checkedAt: new Date().toISOString(), error: 'agent unreachable' };
             }
           }
         }),

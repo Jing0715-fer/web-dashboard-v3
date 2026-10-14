@@ -40,6 +40,13 @@ export interface RepoUpdateStatus {
   ahead: number | null;
   /** Short remote HEAD sha (7 chars) for tooltips. */
   remoteSha: string | null;
+  /** v1.25: the remote's DEFAULT branch name (from ls-remote --symref) — the
+   *  branch this check compares against. Every pull syncs the CHECKED-OUT
+   *  branch's upstream instead, so a checkout parked on a stale side branch
+   *  (classic: 'v3-base', 100+ commits behind 'main') reports "Already up to
+   *  date" while this check says 'behind'. Carrying the name lets the pull
+   *  routes/UI name the branch to switch to. Null when the server didn't say. */
+  branch: string | null;
   /** ISO timestamp of this check. */
   checkedAt: string;
   /** Why the check failed — tooltip/debug only, never an error toast. */
@@ -69,12 +76,13 @@ function isHttpRepoUrl(raw: string): boolean {
   }
 }
 
-function unknown(error: string, remoteSha: string | null = null): RepoUpdateStatus {
+function unknown(error: string, remoteSha: string | null = null, branch: string | null = null): RepoUpdateStatus {
   return {
     state: 'unknown',
     behind: null,
     ahead: null,
     remoteSha,
+    branch,
     checkedAt: new Date().toISOString(),
     error,
   };
@@ -132,7 +140,7 @@ async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUp
   const remoteSha = head.sha.slice(0, 7);
 
   if (!path || !existsSync(path) || !existsSync(join(path, '.git'))) {
-    return unknown('not a git repository', remoteSha);
+    return unknown('not a git repository', remoteSha, head.branch);
   }
 
   // The branch name is fed back into `git fetch <url> <branch>` as a single
@@ -167,10 +175,10 @@ async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUp
     const ahead = parseInt(aheadOut.stdout.trim(), 10) || 0;
     const state: RepoUpdateStatus['state'] =
       behind > 0 && ahead > 0 ? 'diverged' : behind > 0 ? 'behind' : ahead > 0 ? 'ahead' : 'current';
-    return { state, behind, ahead, remoteSha, checkedAt: new Date().toISOString() };
+    return { state, behind, ahead, remoteSha, branch: head.branch, checkedAt: new Date().toISOString() };
   } catch (e: any) {
     // Unborn local HEAD (fresh repo without commits) or rev-list failure.
-    return unknown(maskCreds(`rev-list failed: ${e?.message || e}`), remoteSha);
+    return unknown(maskCreds(`rev-list failed: ${e?.message || e}`), remoteSha, head.branch);
   }
 }
 
@@ -183,7 +191,7 @@ async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUp
 async function computeRemoteStatus(repoUrl: string, deviceSha: string): Promise<RepoUpdateStatus> {
   if (!isHttpRepoUrl(repoUrl)) return unknown('repository URL is not http(s) — refused');
   try {
-    const { sha } = await lsRemoteHead(repoUrl);
+    const { sha, branch } = await lsRemoteHead(repoUrl);
     const needle = deviceSha.trim().toLowerCase();
     const inSync = needle.length >= 7 && sha.toLowerCase().startsWith(needle.slice(0, sha.length));
     return {
@@ -191,6 +199,7 @@ async function computeRemoteStatus(repoUrl: string, deviceSha: string): Promise<
       behind: null,
       ahead: null,
       remoteSha: sha.slice(0, 7),
+      branch,
       checkedAt: new Date().toISOString(),
     };
   } catch (e: any) {

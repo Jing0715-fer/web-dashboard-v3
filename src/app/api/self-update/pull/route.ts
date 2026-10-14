@@ -8,6 +8,7 @@ import {
   suppressBackgroundAutoPull,
 } from '@/lib/dashboard-self-update';
 import { runPullAgent } from '@/lib/pull-agent';
+import { isValidBranchName } from '@/lib/git-branches';
 
 /**
  * POST /api/self-update/pull — ONE-CLICK UPDATE FOR THE DASHBOARD ITSELF (v1.21).
@@ -82,6 +83,23 @@ async function handleSelfUpdatePull(req: NextRequest) {
     );
   }
 
+  // v1.25: optional { branch } body — the self-update dialog offers a
+  // one-click "switch to the default branch & update" when it detects the
+  // checkout parked on a stale side branch (the pull agent runs the
+  // checkout as part of its switch step). Missing/empty body = legacy
+  // same-branch behaviour.
+  let branch = '';
+  try {
+    const body = await req.json();
+    if (body && typeof body.branch === 'string') branch = body.branch.trim();
+  } catch { /* no body / not JSON — plain self-update */ }
+  if (branch && !isValidBranchName(branch)) {
+    return NextResponse.json(
+      { error: `Invalid branch name: ${branch.slice(0, 80)}` },
+      { status: 400 },
+    );
+  }
+
   // The engine needs a repo it can pull; the origin remote of THIS checkout is
   // the source of truth (repoUrl is only used to self-heal a missing origin).
   const repoUrl = (await dashboardOriginUrl()) || '';
@@ -112,6 +130,7 @@ async function handleSelfUpdatePull(req: NextRequest) {
         const result = await runPullAgent({
           projectPath: process.cwd(),
           repoUrl,
+          ...(branch ? { branch } : {}),
           onProgress: (step) => send({ type: 'steps', step }),
         });
 

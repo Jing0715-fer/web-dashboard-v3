@@ -226,6 +226,11 @@ Classification rules:
   triggers a background dependency sync (`src/lib/pull-deps-sync.ts`) right
   after the pull lands — the S3-after-pull class should now never reach a
   start failure at all.
+- **Stale-branch pulls (v1.25)**: "pull says up-to-date but the code is old"
+  is usually NOT a network problem — the checkout sits on a side branch
+  (e.g. `v3-base`) while the default branch moved on. Pulls now return
+  `newerOnDefault`/`remoteDiffers` with the branch + behind count; the fix is
+  `git checkout <default>` (the UI offers the switch), not another pull.
 - **Remote thumbnails (v1.24)**: devices expose
   `GET /api/agent/proxy/<apiKey>/<port>/<path>` (key-in-path so relative
   sub-resources inherit auth; registered env ports only; GET/HEAD only;
