@@ -1674,10 +1674,98 @@ function verifyAuth(req) {
   return token === API_KEY;
 }
 
+// ======================== HTTP PROXY (v1.24) ========================
+//
+// Lets a REMOTE dashboard capture live-preview thumbnails of projects that
+// run on THIS machine — including dev servers bound to 127.0.0.1 only,
+// which the dashboard could never reach directly. The dashboard's headless
+// Chromium loads `http://<this-agent>/api/agent/proxy/<apiKey>/<port>/…`:
+//
+//   * The apiKey rides in the PATH segment — page loads and every RELATIVE
+//     sub-resource (_next/static, CSS, images) inherit it automatically; a
+//     query param would be lost on sub-requests and a header cannot be sent
+//     by a browser navigation at all.
+//   * GET/HEAD only (screenshots never need writes).
+//   * The port must be a REGISTERED environment port in one of this agent's
+//     DBs — the proxy can never be aimed at arbitrary localhost services
+//     (SSRF guard), and the dashboard/mesh reserved ports are refused.
+//   * Responses carry `Referrer-Policy: no-referrer` so the key in the URL
+//     never leaks to third-party origins via the Referer header.
+
+const PROXY_PATH_RE = /^\/api\/agent\/proxy\/([^/]+)\/(\d{1,5})(?:\/(.*))?$/;
+
+/** True when `port` belongs to a registered environment in this agent's own
+ *  DB or the co-located dashboard's DB. */
+async function isRegisteredEnvPort(port) {
+  try {
+    const own = await db.environment.findFirst({ where: { port }, select: { id: true } });
+    if (own) return true;
+  } catch (e) { /* own DB unavailable */ }
+  if (dashDb) {
+    try {
+      const rows = await dashDb.$queryRawUnsafe(
+        'SELECT "id" FROM "Environment" WHERE "port" = ? LIMIT 1',
+        port,
+      );
+      if (rows && rows.length > 0) return true;
+    } catch (e) { /* dashboard DB lacks the table — fine */ }
+  }
+  return false;
+}
+
+async function handleProxyRequest(req, res, url) {
+  const m = url.pathname.match(PROXY_PATH_RE);
+  if (!m) {
+    sendJSON(res, 400, { error: 'Bad proxy path — expected /api/agent/proxy/<key>/<port>/<path>' }, { 'X-Agent-Proxy-Error': '1' });
+    return;
+  }
+  let key = '';
+  try { key = decodeURIComponent(m[1]); } catch { key = m[1]; }
+  const port = parseInt(m[2], 10);
+  const rest = m[3] == null ? '/' : `/${m[3]}`;
+
+  if (key !== API_KEY) {
+    sendJSON(res, 401, { error: 'Unauthorized' }, { 'X-Agent-Proxy-Error': '1' });
+    return;
+  }
+  // Reserved ports: the co-located dashboard itself + the mesh agent range.
+  if (port === 3000 || (port >= 3100 && port <= 3105)) {
+    sendJSON(res, 403, { error: `Port ${port} is reserved` }, { 'X-Agent-Proxy-Error': '1' });
+    return;
+  }
+  if (!(await isRegisteredEnvPort(port))) {
+    sendJSON(res, 404, { error: `No registered environment on port ${port}` }, { 'X-Agent-Proxy-Error': '1' });
+    return;
+  }
+
+  const target = `http://127.0.0.1:${port}${rest}${url.search}`;
+  try {
+    const upstream = await fetch(target, {
+      method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+      redirect: 'follow',
+      signal: AbortSignal.timeout(10_000),
+    });
+    const headers = {
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+    };
+    const ct = upstream.headers.get('content-type');
+    if (ct) headers['Content-Type'] = ct;
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    headers['Content-Length'] = String(buf.byteLength);
+    res.writeHead(upstream.status, headers);
+    res.end(req.method === 'HEAD' ? undefined : buf);
+  } catch (e) {
+    const code = String(e?.name || e?.message || e);
+    sendJSON(res, 502, { error: `Upstream port ${port} not reachable (${code.slice(0, 80)})` }, { 'X-Agent-Proxy-Error': '1' });
+  }
+}
+
 // ======================== ROUTE HELPERS ========================
 
-function sendJSON(res, status, data) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+function sendJSON(res, status, data, extraHeaders) {
+  res.writeHead(status, { 'Content-Type': 'application/json', ...(extraHeaders || {}) });
   res.end(JSON.stringify(data));
 }
 
@@ -2201,7 +2289,7 @@ const server = http.createServer(async (req, res) => {
         status: 'ok',
         name: AGENT_NAME,
         uptime: Math.floor((Date.now() - startTime) / 1000),
-        version: '1.18.0',
+        version: '1.19.0',
         platform: os.platform(),
         arch: os.arch(),
         pid: process.pid,
@@ -2222,7 +2310,16 @@ const server = http.createServer(async (req, res) => {
         silentSpawns: true, // v1.16: all background probes/spawns are silent (windowsHide + direct argv) — no console-window flashes on Windows
         pullConflict: true, // v1.17: 409 { conflict, modified, untracked } pull answers + { strategy: stash|force } resolutions (conflict dialog instead of a dead-end error)
         gitRetry: true, // v1.18: transient git network failures (SSL_ERROR_SYSCALL…) auto-retried with backoff instead of surfacing "click again"
+        httpProxy: true, // v1.24: GET /api/agent/proxy/<key>/<port>/* — key-in-path HTTP proxy for remote live-preview thumbnails (registered env ports only)
       });
+      return;
+    }
+
+    // HTTP proxy for remote live-preview captures (v1.24). Handles its OWN
+    // auth (key in path — see handleProxyRequest) so browser navigations,
+    // which cannot carry an Authorization header, still authenticate.
+    if (PROXY_PATH_RE.test(pathname) && (req.method === 'GET' || req.method === 'HEAD')) {
+      await handleProxyRequest(req, res, url);
       return;
     }
 
