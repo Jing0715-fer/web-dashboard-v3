@@ -61,8 +61,12 @@ const execFileAsync = promisify(execFile);
 
 /** How many CLI rounds (delegate → verify) before giving up. Each failed
  * round appends the verifier's failure output to the task file so the CLI
- * starts round N+1 grounded in what actually went wrong. */
-export const CLI_ROUNDS = 2;
+ * starts round N+1 grounded in what actually went wrong. Raised 2 → 3 in
+ * v1.24: with deterministic fast paths handling the easy classes first, the
+ * cases that reach the CLI are the hard ones — a third grounded round
+ * (inactivity-bounded by the job watchdog, never wall-clock unbounded)
+ * measurably lifts the fix rate. */
+export const CLI_ROUNDS = 3;
 
 /** Hard wall-clock budget per CLI invocation. A real repair (diagnose +
  * patch + build) legitimately takes minutes; 10 min matches the legacy
@@ -457,7 +461,7 @@ ${readTopLevelFiles(snap.projectPath)}
 
 ### Pre-flight facts (gathered by the dashboard just now)
 ${pre}
-
+${opts.priorFixNote ? `\n## Repair history — read this FIRST\n${opts.priorFixNote}\nDo NOT repeat steps listed as already tried; they failed. The fastest path is a DIFFERENT root cause.\n` : ''}
 ## Constraints (NON-NEGOTIABLE — the orchestrator checks these)
 1. NEVER enable \`typescript.ignoreBuildErrors\`, remove type-checks, or otherwise silence errors to make a build pass. Fix the real error. (The dashboard detects this flip and fails the round.)
 2. NEVER run git commit / git push / git checkout — leave every change in the working tree for human review. Read-only git (status/diff/log) is fine.

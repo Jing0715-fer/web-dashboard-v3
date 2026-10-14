@@ -468,7 +468,7 @@ ${readTopLevelFiles(snap.projectPath)}
 
 === PRE-FLIGHT FACTS (gathered by the system just now) ===
 ${pre}
-
+${opts.priorFixNote ? `\n=== REPAIR HISTORY (what already worked / already tried on this environment) ===\n${opts.priorFixNote}\n` : ''}
 You have ${job.maxRounds} tool steps in total. Begin with your first action.`;
 }
 
@@ -827,6 +827,7 @@ function isAutoCleanTarget(root: string, abs: string): boolean {
   const norm = rel.split(sep).join('/');
   return CLEAN_WHITELIST.some((w) => norm === w || norm.startsWith(w + '/'));
 }
+export { isAutoCleanTarget };
 
 /** Count files + total bytes under a path (bounded walk — never hangs on
  *  huge node_modules, reports capped=true when the walk was cut short). */
@@ -1211,12 +1212,35 @@ export async function runAgentRepair(job: RepairJob, opts: StartRepairOptions, h
         log('tool', `clean ${String(args.path || '')}`);
         const r = await toolClean(args, snap, helpers);
         log(r.startsWith('ERROR') || r.startsWith('DENIED') ? 'error' : 'success', headTail(r, 300));
+        // Lesson tracking (v1.24): a successful whitelisted clean is a
+        // replayable fix step — remember it for the RepairLesson row. Only
+        // ACTUAL cleans (not "nothing to do" no-ops) are recorded, and the
+        // target is normalized to a PROJECT-RELATIVE path so the replay's
+        // join(projectPath, target) resolves to the same directory.
+        if (job.fixActions && /^cleaned /.test(r)) {
+          let cleaned = String(args.path || '').trim();
+          if (isAbsolute(cleaned)) {
+            const rel = relative(snap.projectPath, cleaned);
+            cleaned = rel && !rel.startsWith('..') ? rel.split(sep).join('/') : '';
+          }
+          if (cleaned && !job.fixActions.cleanTargets.includes(cleaned)) {
+            job.fixActions.cleanTargets.push(cleaned);
+          }
+        }
         messages.push({ role: 'user', content: `TOOL_RESULT (clean):\n${headTail(r, 900)}` });
         break;
       }
       case 'test': {
         // toolTest logs the command / approval / output itself.
         const r = await toolTest(args, snap, helpers);
+        // Lesson tracking (v1.24): a successful dependency install is the
+        // single most replayable fix — remember it for the RepairLesson row.
+        if (job.fixActions && /^exit code: 0\b/.test(r)) {
+          const cmd = String(args.cmd || '').trim();
+          if (/^(?:bun|npm|yarn|pnpm)\s+(?:install|i|ci|add)\b/.test(cmd) && !job.fixActions.fixCmds.includes(cmd)) {
+            job.fixActions.fixCmds.push(cmd);
+          }
+        }
         messages.push({ role: 'user', content: `TOOL_RESULT (test):\n${headTail(r, 1800)}` });
         break;
       }

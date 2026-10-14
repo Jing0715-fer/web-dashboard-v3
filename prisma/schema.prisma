@@ -90,6 +90,39 @@ model Thumbnail {
   @@index([projectId])
 }
 
+// Learned repair lesson (v1.24) — "how this environment was last brought back
+// to life". Written after EVERY successful repair (deterministic pattern fix,
+// lesson replay, legacy LLM loop or delegated CLI round), replayed BEFORE any
+// LLM is consulted on the next failure: same error → same fix, instantly,
+// without burning a model call. One row per environment (latest wins).
+model RepairLesson {
+  id          String    @id @default(cuid())
+  envId       String    @unique
+  projectId   String
+  // Canonical signature of the failure this lesson solves (module-missing,
+  // cache-corruption, port-mismatch, raw-tail fallback …).
+  errorSig    String    @default("")
+  diagnosis   String    @default("")
+  // JSON array of safe shell commands that were part of the successful fix
+  // (e.g. ["bun install"]) — replayed verbatim through the safety gate.
+  fixCmds     String    @default("[]")
+  // JSON array of build-artifact dirs that were cleaned (e.g. [".next"]).
+  cleanTargets String   @default("[]")
+  // Working start configuration at success time (null fields = unchanged).
+  cmd         String?
+  port        Int?
+  envVars     String?
+  // What produced the fix: 'pattern' | 'lesson' | 'legacy' | 'cli'.
+  source      String    @default("legacy")
+  useCount    Int       @default(0)
+  succeededAt DateTime  @default(now())
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([projectId])
+}
+
 model LlmConfig {
   id        String   @id @default("default")
   provider  String   @default("")

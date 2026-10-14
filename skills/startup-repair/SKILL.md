@@ -58,6 +58,28 @@ Classification rules:
 
 ## 2. Diagnosis procedure (ordered — never skip ahead)
 
+> **v1.24 pipeline order (deterministic-first).** Before any LLM is consulted,
+> the repair job itself runs two zero-cost fast paths, in this order:
+>
+> 1. **Pattern fix** — the failure text is matched against the deterministic
+>    taxonomy (module-missing → install per lockfile `installCmdFor`; cache
+>    corruption → clean `.next`/`.vite`/… if present; env-missing → copy
+>    `.env.example` → `.env` when absent). Applied + verified with the same
+>    runRetry health check the engines trust. Success ⇒ job settles with
+>    `resolvedBy: 'pattern'`, no model call.
+> 2. **Lesson replay** — the environment's stored `RepairLesson` row
+>    (cmd/port/envVars that worked + fix commands + cleans from the LAST
+>    successful repair) is replayed and health-verified. Success ⇒
+>    `resolvedBy: 'lesson'`, no model call.
+> 3. Only then do the engines run — with the failed fast-path attempts
+>    injected into their context ("already tried, don't repeat") so they
+>    never rediscover a known fix.
+>
+> On ANY success (fast path or engine) the lesson row is (re)written — so the
+> NEXT identical failure resolves at step 1/2 in seconds. An operator
+> following this manual should mimic the same order: cheapest deterministic
+> fix first, model call last.
+
 1. **Read the envelope.** exit code + the last ~30 log lines. Classify per §1.
 2. **Probe the port.** Is anything listening? Who (`getPidOnPort`)? A listener
    that is NOT our process means S2/S9; no listener at all means the process
@@ -148,7 +170,9 @@ Classification rules:
   - **delegated agent CLI** (recommended when installed): Claude Code, Claude
     Desktop (via the claude CLI), Codex, Gemini, OpenCode, Hermes — the CLI
     brings its own hardened harness; the dashboard still verifies
-    independently (2 rounds × 10 min, whole process group killed on expiry).
+    independently (3 rounds × 10 min, whole process group killed on expiry;
+    raised from 2 rounds in v1.24 — the deterministic fast paths handle the
+    easy classes first, so the cases that reach the CLI are the hard ones).
   - No CLI installed → automatic fallback to legacy (logged, never a dead end).
 - Every job is watchdogged: 12 min with zero progress ⇒ force-failed with an
   actionable message; session loss mid-poll (401/403) stops the poller with a
@@ -191,3 +215,20 @@ Classification rules:
   orphans grandchildren holding locks (that exact bug created class S9).
 - All repair activity lands in the Activity feed (`type: 'repair'`), so an
   operator can audit every automated decision afterwards.
+- **Lesson memory (v1.24)**: every successful repair upserts a `RepairLesson`
+  row per environment (`src/lib/repair-lesson.ts`) — error signature,
+  working cmd/port/envVars, replayable fix commands (installs) and cleans.
+  Replays are bounded: one lesson per env, applied BEFORE engines, verified
+  with the standard health check, and discarded (escalated) when they stop
+  working. The engines also receive the lesson as context so they never
+  re-derive a known fix.
+- **Pull→start chain (v1.24)**: a pull that touched `package.json`/lockfiles
+  triggers a background dependency sync (`src/lib/pull-deps-sync.ts`) right
+  after the pull lands — the S3-after-pull class should now never reach a
+  start failure at all.
+- **Remote thumbnails (v1.24)**: devices expose
+  `GET /api/agent/proxy/<apiKey>/<port>/<path>` (key-in-path so relative
+  sub-resources inherit auth; registered env ports only; GET/HEAD only;
+  `Referrer-Policy: no-referrer`). Agent error responses carry
+  `X-Agent-Proxy-Error: 1` so the dashboard's readiness probe can tell an
+  agent error from an app response and never screenshots a JSON error page.

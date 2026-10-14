@@ -18,9 +18,20 @@
 
 import { db } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
-import { runAgentRepair, type AgentHelpers } from './repair-agent';
+import { runAgentRepair, toolRunRetry, loadEnvSnapshot, type AgentHelpers } from './repair-agent';
 import { runCliRepair, resolveRepairCli, CLI_ROUNDS, CLI_ROUND_TIMEOUT_MS } from './llm-repair/cli-delegate';
 import { scheduleThumbnailCapture } from './thumbnail';
+import {
+  errorSignature,
+  matchPatternFix,
+  applyFixRecipe,
+  loadLesson,
+  recordLesson,
+  bumpLessonUse,
+  parseLessonArray,
+  lessonSummary,
+  currentEnvConfig,
+} from './repair-lesson';
 
 export type RepairKind = 'start' | 'rebuild';
 
@@ -40,7 +51,9 @@ const APPROVAL_TIMEOUT_MS = 10 * 60_000;
  * spawn/await that would otherwise leave the job 'running' FOREVER: the
  * dialog keeps showing “修复中 / LLM 处理中”， and no completion toast or
  * activity event ever fires. The watchdog guarantees every job settles.
- * Calibrated to: max(CLI round, approval wait) + 2 min margin. */
+ * Calibrated to: max(CLI round, approval wait) + 2 min margin. A full
+ * 3-round CLI repair can legitimately run ~45 min END TO END — the watchdog
+ * bounds INACTIVITY, never total duration. */
 const WATCHDOG_INACTIVITY_MS = Math.max(CLI_ROUND_TIMEOUT_MS, APPROVAL_TIMEOUT_MS) + 2 * 60_000;
 const WATCHDOG_TICK_MS = 30_000;
 
@@ -92,6 +105,15 @@ export interface RepairJob {
    *  at 400 once the window fills — the watchdog must not use it as its
    *  progress signal or an actively-logging job gets falsely killed. */
   stepSeq?: number;
+  /** Replayable fix steps observed while the engines worked (successful
+   *  dependency installs, whitelisted cleans) — persisted into the
+   *  RepairLesson row when the job succeeds. v1.24. */
+  fixActions?: { fixCmds: string[]; cleanTargets: string[] };
+  /** How this job was ultimately resolved — 'pattern' (deterministic
+   *  taxonomy fix), 'lesson' (replay of a stored lesson), 'legacy' / 'cli'
+   *  (an engine ran). Surfaced to the dialog so a no-LLM resolution can
+   * say so instead of claiming an AI fix. v1.24. */
+  resolvedBy?: 'pattern' | 'lesson' | 'legacy' | 'cli';
 }
 
 // In-memory job registry. Stored on globalThis because Next.js dev mode
@@ -134,6 +156,10 @@ export interface StartRepairOptions {
   initialError: string;
   buildStderr?: string;
   buildStdout?: string;
+  /** Repair history context (v1.24): what previously worked on this env and
+   *   what the fast paths already tried — embedded into both engines' prompts
+   *   so they never rediscover a known fix. Filled in by runRepair itself. */
+  priorFixNote?: string;
 }
 
 /** Create a repair job and run it in the background. Returns the job id. */
@@ -160,6 +186,8 @@ export function startRepairJob(opts: StartRepairOptions): string {
     steps: [],
     startedAt: Date.now(),
     round: 0,
+    // Lesson tracking (v1.24): collect replayable fix steps as engines work.
+    fixActions: { fixCmds: [], cleanTargets: [] },
     // Agent step budget: each step = one LLM turn + one tool call. 15 steps
     // cover inspect → probe → patch → update_env → run_retry plus a corrective
     // iteration or two. Raised from 12 after the SciWrite prod incident, where
@@ -259,11 +287,17 @@ function logRepairCompletion(job: RepairJob): void {
     durationMs,
   };
   if (job.status === 'success') {
+    // v1.24: fast-path resolutions get their own message — a deterministic
+    // pattern fix or a replayed lesson never invoked a model, and the feed
+    // should say so (that's the whole point of the feature).
+    const fastPath = job.resolvedBy === 'pattern' || job.resolvedBy === 'lesson';
     logActivity({
       ...base,
       type: 'repair',
       level: 'success',
-      message: `LLM auto-repair succeeded for '${envLabel}'`,
+      message: fastPath
+        ? `Startup failure auto-resolved for '${envLabel}' WITHOUT an LLM (${job.resolvedBy === 'pattern' ? 'known failure pattern' : 'replayed learned fix'})`
+        : `LLM auto-repair succeeded for '${envLabel}'`,
       detail: job.diagnosis ? String(job.diagnosis).slice(0, 300) : undefined,
     });
     // v1.23: a successful repair just re-ran the ORIGINAL start command
@@ -376,6 +410,133 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
     requestApproval: (cmd) => requestApproval(job, cmd),
   };
 
+  // ===================== deterministic fast paths (v1.24) =====================
+  //
+  // Before ANY engine (and its LLM calls / 10-minute CLI rounds) is spun up,
+  // try the two cheapest resolutions first, inside the job so the dialog
+  // shows exactly what happened:
+  //
+  //   A. PATTERN FIX — the failure text matches a known taxonomy entry
+  //      (missing deps → install per lockfile, corrupted build cache →
+  //      clean, missing .env → copy template). Deterministic, instant.
+  //   B. LESSON REPLAY — this environment failed before and a RepairLesson
+  //      row remembers what ACTUALLY fixed it. Replay those steps.
+  //
+  // Both verify with the same runRetry health check the engines trust; on
+  // success the job settles without a single model call. On failure they
+  // just fall through to the engines — never worse than before.
+  let pattern: ReturnType<typeof matchPatternFix> = null;
+  let lesson: Awaited<ReturnType<typeof loadLesson>> = null;
+  let patternApplied = false;
+  let lessonApplied = false;
+
+  try {
+    const snap = await loadEnvSnapshot(job);
+    if (snap) {
+      const failureText = `${opts.initialError || ''}\n${opts.buildStderr || ''}`;
+      pattern = matchPatternFix(failureText, snap.projectPath);
+
+      // ---- A. known failure pattern → canonical deterministic fix ----
+      if (pattern) {
+        log(job, 'info', `匹配到已知故障模式 — ${pattern.label}（不调用 LLM，直接修复）`);
+        const appliedOk = await applyFixRecipe(pattern, snap.projectPath, helpers);
+        patternApplied = true;
+        if (appliedOk) {
+          log(job, 'info', '确定性修复已执行 — 独立健康验证…');
+          const v = await toolRunRetry(job, helpers.log, snap);
+          if (v.outcome === 'success') {
+            job.resolvedBy = 'pattern';
+            job.diagnosis = pattern.label.slice(0, 300);
+            log(job, 'success', '已知故障模式修复成功 — 未调用任何 LLM');
+            await recordLesson({
+              envId: job.envId,
+              projectId: job.projectId,
+              errorSig: pattern.sig,
+              diagnosis: pattern.label,
+              fixCmds: pattern.fixCmds,
+              cleanTargets: pattern.cleanTargets,
+              cmd: snap.cmd,
+              port: snap.port,
+              envVars: JSON.stringify(snap.envVars),
+              source: 'pattern',
+            });
+            finishJob(job, 'success');
+            return;
+          }
+          log(job, 'warn', `模式修复后健康验证未通过: ${String(v.error || v.message).slice(0, 160)} — 继续尝试其他途径`);
+        }
+      }
+
+      // ---- B. replay the learned fix for this environment ----
+      lesson = await loadLesson(job.envId);
+      if (lesson) {
+        const lessonFixCmds = parseLessonArray(lesson.fixCmds);
+        const lessonCleans = parseLessonArray(lesson.cleanTargets);
+        const hasReplayables = lessonFixCmds.length > 0 || lessonCleans.length > 0;
+        // A lesson with no replayable steps (e.g. a pure source-code patch by
+        // a CLI, or an env-missing fix — which the pattern matcher rediscovers
+        // by itself) has nothing to offer here — skip straight to the engines.
+        if (hasReplayables) {
+          log(job, 'info', `复用学到的修复方案（${lessonSummary(lesson)}）— 先于 LLM 尝试`);
+          // Config drift: if the env row moved away from the lesson's working
+          // config (someone edited it), restore the working values first.
+          try {
+            const envNow = await db.environment.findUnique({ where: { id: job.envId } });
+            if (envNow && lesson.cmd && lesson.cmd !== envNow.cmd) {
+              await db.environment.update({ where: { id: job.envId }, data: { cmd: lesson.cmd } });
+              log(job, 'info', `已恢复学到的启动命令: ${lesson.cmd}`);
+            }
+            if (envNow && lesson.port && lesson.port !== envNow.port) {
+              await db.environment.update({ where: { id: job.envId }, data: { port: lesson.port } });
+              log(job, 'info', `已恢复学到的端口: ${lesson.port}`);
+            }
+          } catch { /* config restore is best-effort */ }
+          const appliedOk = await applyFixRecipe(
+            { fixCmds: lessonFixCmds, cleanTargets: lessonCleans },
+            snap.projectPath,
+            helpers,
+          );
+          lessonApplied = true;
+          if (appliedOk) {
+            const snapFresh = await loadEnvSnapshot(job);
+            if (snapFresh) {
+              log(job, 'info', '经验重放已执行 — 独立健康验证…');
+              const v = await toolRunRetry(job, helpers.log, snapFresh);
+              if (v.outcome === 'success') {
+                job.resolvedBy = 'lesson';
+                job.diagnosis = lesson.diagnosis || '重放学到的修复方案';
+                log(job, 'success', '学到的修复方案再次生效 — 未调用任何 LLM');
+                await bumpLessonUse(job.envId);
+                finishJob(job, 'success');
+                return;
+              }
+              log(job, 'warn', `经验重放后健康验证未通过: ${String(v.error || v.message).slice(0, 160)} — 升级到 LLM 修复引擎`);
+            }
+          } else {
+            log(job, 'warn', '经验重放执行失败 — 升级到 LLM 修复引擎');
+          }
+        }
+      }
+
+      // ---- context for the engines: never rediscover a known fix ----
+      const notes: string[] = [];
+      if (lesson) {
+        notes.push(`Previous successful repair of this environment: ${lessonSummary(lesson)}`);
+      }
+      if (patternApplied) {
+        notes.push(`The deterministic pattern fix (${pattern?.label || ''}) was ALREADY TRIED and the environment still fails — do not repeat it, look for a different root cause.`);
+      }
+      if (lessonApplied) {
+        notes.push('The stored lesson for this environment was ALREADY REPLAYED without success — its steps are exhausted, a different approach is needed.');
+      }
+      if (notes.length > 0) opts.priorFixNote = notes.join('\n');
+    }
+  } catch (e: unknown) {
+    // Fast paths are strictly additive — any error here falls through to the
+    // engines exactly as v1.23 behaved.
+    log(job, 'warn', `快速修复通道异常（已忽略，继续走引擎）: ${String((e as Error)?.message || e).slice(0, 160)}`);
+  }
+
   // ---- engine selection (switchable in the LLM settings dialog) ----
   // 'legacy' = the built-in LLM tool loop (default, kept forever);
   // 'cli'    = delegate the diagnose+fix phase to an installed agent CLI
@@ -431,8 +592,50 @@ async function runRepair(job: RepairJob, opts: StartRepairOptions) {
     return;
   }
   if (outcome.status === 'success') {
+    job.resolvedBy = engine;
     log(job, 'success', '修复流程结束 — 成功');
     finishJob(job, 'success');
+    // ---- record the lesson (v1.24) ----
+    // Whatever the engine did to bring this env back becomes the replayable
+    // lesson: tracked fix commands (installs) + whitelisted cleans from the
+    // legacy loop, or — for the opaque CLI engine — the pattern-matched
+    // commands of the original error as a best-effort guess (a CLI that
+    // fixed "Cannot find module" almost certainly installed the deps).
+    try {
+      const tracked = job.fixActions || { fixCmds: [], cleanTargets: [] };
+      // CLI-engine heuristic: the CLI is opaque, so when the ORIGINAL error
+      // matched a deterministic pattern, credit the pattern's commands to the
+      // lesson (a CLI that fixed "Cannot find module" almost certainly ran
+      // the install). EXCEPTION: when the pattern fix was ALREADY tried and
+      // failed before the engine ran, recording those commands would poison
+      // every future replay with known-futile steps — record nothing then.
+      const cliHeuristic = engine === 'cli' && pattern && !patternApplied;
+      const fixCmds = tracked.fixCmds.length > 0
+        ? tracked.fixCmds
+        : cliHeuristic && pattern
+          ? pattern.fixCmds
+          : [];
+      const cleanTargets = tracked.cleanTargets.length > 0
+        ? tracked.cleanTargets
+        : cliHeuristic && pattern
+          ? pattern.cleanTargets
+          : [];
+      const cfgNow = await currentEnvConfig(job.envId);
+      await recordLesson({
+        envId: job.envId,
+        projectId: job.projectId,
+        errorSig: pattern?.sig || errorSignature(opts.initialError || ''),
+        diagnosis: job.diagnosis || (engine === 'cli' ? 'Agent CLI 修复' : 'LLM 工具循环修复'),
+        fixCmds,
+        cleanTargets,
+        cmd: cfgNow?.cmd,
+        port: cfgNow?.port,
+        envVars: cfgNow?.envVars,
+        source: engine,
+      });
+    } catch {
+      // Lesson persistence is an optimization — never taint a success.
+    }
   } else {
     finishJob(job, 'failed', outcome.error);
     log(job, 'error', `自动修复未成功: ${String(outcome.error || '').slice(0, 200)}`);
