@@ -1,6 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { callLLM } from '@/lib/llm-providers';
+import { getGitNetConfig } from '@/lib/git-net-config';
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
 // are console-subsystem programs — from a console-less dashboard server
@@ -72,6 +73,9 @@ export interface PullDiagnoseInput {
   /** True when the pull runs on THIS machine (v1.20 agent auto-resolve is
    *  available); false for remote device-agent projects. */
   local?: boolean;
+  /** v1.27: the failure came from the AGENT run (not the plain pull route) —
+   *  the strategy ladder (HTTP/1.1 → proxy) already ran and failed too. */
+  agentRun?: boolean;
 }
 
 /** Strip credentials (PAT / basic-auth) from any URL before it reaches the
@@ -102,6 +106,12 @@ export async function collectGitContext(projectPath: string): Promise<string> {
   parts.push(`$ git status --porcelain -b (first 40 lines)\n${await run(['status', '--porcelain', '-b'], 40)}`);
   parts.push(`$ git log --oneline -5\n${await run(['log', '--oneline', '-5'], 5)}`);
   parts.push(`$ git stash list (first 5)\n${await run(['stash', 'list'], 5)}`);
+  // v1.27: the proxy status tells the LLM whether "route git through a
+  // proxy" is a fresh recommendation or already-tried-and-failed.
+  try {
+    const net = await getGitNetConfig();
+    parts.push(`git network proxy: ${net.proxy ? `configured (${net.proxySource})` : 'not configured (direct connections)'}`);
+  } catch { /* settings table unavailable — omit the line */ }
   return parts.join('\n\n').slice(0, 4000);
 }
 
@@ -112,6 +122,7 @@ Respond with ONLY a valid JSON object — no markdown fences, no prose outside t
 
 Action semantics (these strategies are ALREADY implemented by the dashboard — you only pick which one fits):
 - "retry": the failure was transient (network flake, SSL/connection error, timeout) and another pull attempt is likely to succeed. NEVER choose this for conflicts, auth failures, or missing repos.
+  EXCEPTION: when the detail says the dashboard ALREADY escalated through the v1.27 strategy ladder (auto-retries + HTTP/1.1 fallback + proxy fetch all failed), "retry" is a dead end — recommend configuring a proxy (manual, with the exact settings path) instead.
 - "agent": the fully-automatic flow — backup local changes to a stash, sync to the remote, restore the changes, auto-resolving restore conflicts (local copies preserved as *.local.bak files and in the stash). Handles EVERY local-change conflict class end-to-end with nothing lost. The BEST default whenever local changes block the pull and the user just wants it to work. Only valid when the failure is on the LOCAL machine; never for auth failures or missing repositories.
 - "stash": local changes block the pull (blocking file lists are provided) — the dashboard will stash them, pull, then re-apply them automatically. Nothing is lost. Choose this when the user should watch the stash restore closely.
 - "force": local changes block the pull AND look disposable (build artifacts like package-lock.json, lock files, generated output) — the dashboard discards ONLY the listed files and takes the remote version. Destructive and irreversible for those files. When unsure between agent/stash/force, prefer "agent" (or "stash").
@@ -186,7 +197,12 @@ export function buildDiagnosisPrompt(input: PullDiagnoseInput): string {
   lines.push(`Failed git pull${input.projectName ? ` on project "${input.projectName}"` : ''}${input.branch ? ` (switching to branch "${input.branch}")` : ''}.`);
   if (input.repoUrl) lines.push(`Repository: ${sanitizeUrlToken(input.repoUrl)}`);
   if (input.transient) {
-    lines.push('NOTE: this was a transient network failure class and the dashboard ALREADY auto-retried it 3 times with backoff — the problem persisted through all retries.');
+    if (input.agentRun) {
+      lines.push('NOTE: this was a transient network failure and the dashboard ALREADY exhausted the full v1.27 strategy ladder: transient auto-retries with backoff, an HTTP/1.1 fallback fetch' + (input.gitContext?.includes('git network proxy') ? ', and a fetch through the configured proxy' : '') + ' — the network path to the remote is persistently broken.');
+      lines.push('For this class the ONLY effective fixes are OUTSIDE git: configure/repair a proxy (Settings → User Management → Git Network, e.g. http://127.0.0.1:7890 for a local clash/v2ray instance), or wait for the network to recover. In your steps, give the exact settings path and a typical proxy URL example.');
+    } else {
+      lines.push('NOTE: this was a transient network failure class and the dashboard ALREADY auto-retried it 3 times with backoff — the problem persisted through all retries. The v1.27 agent flow additionally falls back to HTTP/1.1 and a configured proxy (Settings → User Management → Git Network) — recommending "agent" (or mentioning the proxy setting in manual steps) is appropriate.');
+    }
   }
   lines.push('');
   lines.push('Error returned to the user:');

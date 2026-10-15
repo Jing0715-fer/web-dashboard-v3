@@ -23,7 +23,7 @@ import {
   EyeOff, KeyRound, Sparkles, Radio,
   ShieldAlert, ShieldCheck, ShieldX, Minimize2,
   UserPlus, Github, GitPullRequest,
-  Archive, Minus, Camera,
+  Archive, Minus, Camera, WifiOff,
 } from 'lucide-react'
 
 import {
@@ -38,8 +38,8 @@ import { CSS } from '@dnd-kit/utilities'
 
 import { Button } from '@/components/ui/button'
 import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
-import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel, AlertDialogTrigger } from '@/components/ui/alert-dialog'
+import { AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog'
+import { AppDialog, AppAlertDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody, AppDialogFooter } from '@/components/app-dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -1941,20 +1941,24 @@ function CommandPalette({
   const categories = Array.from(new Set(filtered.map((i) => i.category)))
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-lg p-0 gap-0 overflow-hidden">
-        <div className="flex items-center border-b px-3">
-          <Search className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('dlg.cmd.placeholder')}
-            className="flex-1 py-3 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          />
-          <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">ESC</kbd>
-        </div>
-        <div className="max-h-72 overflow-y-auto p-1">
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="lg">
+      {/* Screen-reader title + description — the palette shows no visible
+          title row (command-palette idiom), but radix a11y requires both. */}
+      <AppDialogTitle className="sr-only">{t('dlg.cmd.placeholder')}</AppDialogTitle>
+      <AppDialogDescription className="sr-only">{t('dlg.cmd.noResults')}</AppDialogDescription>
+      {/* Custom search header — flush, no title row (command palette idiom) */}
+      <div className="flex items-center border-b px-3">
+        <Search className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('dlg.cmd.placeholder')}
+          className="flex-1 py-3 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+        />
+        <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">ESC</kbd>
+      </div>
+      <AppDialogBody flush className="p-1">
           {filtered.length === 0 && (
             <div className="py-6 text-center text-sm text-muted-foreground">{t('dlg.cmd.noResults')}</div>
           )}
@@ -1976,9 +1980,8 @@ function CommandPalette({
               ))}
             </div>
           ))}
-        </div>
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+    </AppDialog>
   )
 }
 
@@ -2006,12 +2009,9 @@ function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: ()
     { keys: '?', description: t('dlg.shortcuts.showShortcuts') },
   ]
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{t('dlg.shortcuts.title')}</DialogTitle>
-          <DialogDescription>{t('dlg.shortcuts.desc')}</DialogDescription>
-        </DialogHeader>
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="lg">
+      <AppDialogHeader title={t('dlg.shortcuts.title')} description={t('dlg.shortcuts.desc')} />
+      <AppDialogBody>
         <div className="space-y-2">
           {shortcuts.map((s) => (
             <div key={s.keys} className="flex items-center justify-between py-1">
@@ -2020,8 +2020,8 @@ function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: ()
             </div>
           ))}
         </div>
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+    </AppDialog>
   )
 }
 
@@ -2045,15 +2045,15 @@ function NotificationDetailDialog({
   }
   const Icon = iconMap[notification.type]
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Icon className={`h-5 w-5 ${colorMap[notification.type]}`} />
-            {notification.title}
-          </DialogTitle>
-          <DialogDescription>{notification.message}</DialogDescription>
-        </DialogHeader>
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="lg">
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-2">
+          <Icon className={`h-5 w-5 ${colorMap[notification.type]}`} />
+          {notification.title}
+        </AppDialogTitle>
+        <AppDialogDescription>{notification.message}</AppDialogDescription>
+      </AppDialogHeader>
+      <AppDialogBody>
         <div className="space-y-2 text-sm">
           <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.type')}</span><Badge variant="outline" className="capitalize">{t(`dlg.notifDetail.type.${notification.type}` as Parameters<typeof t>[0])}</Badge></div>
           <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.time')}</span><span>{new Date(notification.timestamp).toLocaleString()}</span></div>
@@ -2062,8 +2062,8 @@ function NotificationDetailDialog({
           )}
           <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.status')}</span><Badge variant={notification.read ? 'secondary' : 'default'}>{notification.read ? t('dlg.notifDetail.read') : t('dlg.notifDetail.unread')}</Badge></div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+    </AppDialog>
   )
 }
 
@@ -2103,13 +2103,10 @@ function ProjectFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md flex flex-col p-0 max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
-          <DialogTitle>{mode === 'add' ? t('dlg.projectForm.addTitle') : t('dlg.projectForm.editTitle')}</DialogTitle>
-          <DialogDescription>{mode === 'add' ? t('dlg.projectForm.addDesc') : t('dlg.projectForm.editDesc')}</DialogDescription>
-        </DialogHeader>
-        <form id="project-form" onSubmit={handleSubmit} className="space-y-3 px-6 pb-6 overflow-y-auto flex-1 min-h-0">
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="md">
+      <AppDialogHeader title={mode === 'add' ? t('dlg.projectForm.addTitle') : t('dlg.projectForm.editTitle')} description={mode === 'add' ? t('dlg.projectForm.addDesc') : t('dlg.projectForm.editDesc')} />
+      <AppDialogBody>
+        <form id="project-form" onSubmit={handleSubmit} className="space-y-3">
           {/* Templates - only shown when adding a new project */}
           {mode === 'add' && (
             <div className="space-y-1.5">
@@ -2253,14 +2250,14 @@ function ProjectFormDialog({
             )}
           </div>
         </form>
-        <DialogFooter className="px-6 pt-4 pb-6 border-t shrink-0 bg-background">
-          <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
-          <Button type="submit" form="project-form" disabled={!name.trim() || !path.trim() || !repoUrlValid} className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleSubmit}>
-            {mode === 'add' ? t('dlg.common.create') : t('dlg.common.update')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+      <AppDialogFooter>
+        <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
+        <Button type="submit" form="project-form" disabled={!name.trim() || !path.trim() || !repoUrlValid} className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={handleSubmit}>
+          {mode === 'add' ? t('dlg.common.create') : t('dlg.common.update')}
+        </Button>
+      </AppDialogFooter>
+    </AppDialog>
   )
 }
 
@@ -2308,13 +2305,10 @@ function EnvFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{mode === 'add' ? t('dlg.envForm.addTitle') : t('dlg.envForm.editTitle')}</DialogTitle>
-          <DialogDescription>{mode === 'add' ? t('dlg.envForm.addDesc') : t('dlg.envForm.editDesc')}</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="md">
+      <AppDialogHeader title={mode === 'add' ? t('dlg.envForm.addTitle') : t('dlg.envForm.editTitle')} description={mode === 'add' ? t('dlg.envForm.addDesc') : t('dlg.envForm.editDesc')} />
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <AppDialogBody className="space-y-3">
           <div className="space-y-1">
             <Label htmlFor="env-name">{t('dlg.envForm.name')}</Label>
             <Input id="env-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="development" />
@@ -2344,15 +2338,15 @@ function EnvFormDialog({
               <Button type="button" variant="outline" size="icon" className="h-7 w-7 shrink-0" onClick={addEnvVar}><Plus className="h-3 w-3" /></Button>
             </div>
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
-            <Button type="submit" disabled={!name.trim() || !cmd.trim() || !port} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              {mode === 'add' ? t('dlg.common.create') : t('dlg.common.update')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </AppDialogBody>
+        <AppDialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
+          <Button type="submit" disabled={!name.trim() || !cmd.trim() || !port} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+            {mode === 'add' ? t('dlg.common.create') : t('dlg.common.update')}
+          </Button>
+        </AppDialogFooter>
+      </form>
+    </AppDialog>
   )
 }
 
@@ -2449,15 +2443,15 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
   const memColor = (v: number) => v >= 80 ? '#ef4444' : v >= 50 ? '#f59e0b' : '#10b981'
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-xl max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Monitor className="h-5 w-5 text-emerald-600" />
-            {t('dlg.systemMonitor.title')}
-          </DialogTitle>
-          <DialogDescription>{t('dlg.systemMonitor.desc')}</DialogDescription>
-        </DialogHeader>
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="xl">
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-2">
+          <Monitor className="h-5 w-5 text-emerald-600" />
+          {t('dlg.systemMonitor.title')}
+        </AppDialogTitle>
+        <AppDialogDescription>{t('dlg.systemMonitor.desc')}</AppDialogDescription>
+      </AppDialogHeader>
+      <AppDialogBody>
         {loading && !status ? (
           <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
         ) : status ? (
@@ -2575,8 +2569,8 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
         ) : (
           <div className="text-center py-8 text-muted-foreground">{t('dlg.systemMonitor.loadFailed')}</div>
         )}
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+    </AppDialog>
   )
 }
 
@@ -2709,17 +2703,17 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
   }, [rows, filter])
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-3xl max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Network className="h-5 w-5 text-teal-600" />
-            {t('ports.title')}
-            {rows && <Badge variant="secondary" className="text-[10px] ml-1">{t('ports.count', { count: rows.length })}</Badge>}
-          </DialogTitle>
-          <DialogDescription>{t('ports.desc')}</DialogDescription>
-        </DialogHeader>
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="3xl">
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-2">
+          <Network className="h-5 w-5 text-teal-600" />
+          {t('ports.title')}
+          {rows && <Badge variant="secondary" className="text-[10px] ml-1">{t('ports.count', { count: rows.length })}</Badge>}
+        </AppDialogTitle>
+        <AppDialogDescription>{t('ports.desc')}</AppDialogDescription>
+      </AppDialogHeader>
 
+      <AppDialogBody className="space-y-3">
         {/* Toolbar: search + manual refresh + live indicator */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
@@ -2755,7 +2749,7 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
         </div>
 
         {/* Port table */}
-        <div className="min-h-[200px] flex-1 overflow-y-auto rounded-lg border">
+        <div className="min-h-[200px] rounded-lg border">
           {rows == null ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-teal-600" /></div>
           ) : filtered.length === 0 ? (
@@ -2825,32 +2819,30 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
           )}
         </div>
 
-        <DialogFooter className="text-[10px] text-muted-foreground sm:justify-between">
-          <span>{t('ports.footerNote')}</span>
-          <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.common.close')}</Button>
-        </DialogFooter>
-      </DialogContent>
+      </AppDialogBody>
+      <AppDialogFooter className="text-[10px] text-muted-foreground sm:justify-between">
+        <span>{t('ports.footerNote')}</span>
+        <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.common.close')}</Button>
+      </AppDialogFooter>
 
       {/* Kill confirmation */}
-      <AlertDialog open={confirmPid != null} onOpenChange={(v) => !v && setConfirmPid(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-500" />{t('ports.killConfirmTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmPid && t('ports.killConfirmDesc', { port: confirmPid.port, pid: confirmPid.pid ?? '?', name: confirmPid.processName || confirmPid.command.slice(0, 40) || '?' })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setConfirmPid(null)}>{t('dlg.common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700 text-white"
-              onClick={(e) => { e.preventDefault(); if (confirmPid) doKill(confirmPid) }}
-            >
-              {t('ports.kill')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AppAlertDialog open={confirmPid != null} onOpenChange={(v) => !v && setConfirmPid(null)} size="lg">
+        <AppDialogHeader>
+          <AppDialogTitle className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-amber-500" />{t('ports.killConfirmTitle')}</AppDialogTitle>
+          <AppDialogDescription>
+            {confirmPid && t('ports.killConfirmDesc', { port: confirmPid.port, pid: confirmPid.pid ?? '?', name: confirmPid.processName || confirmPid.command.slice(0, 40) || '?' })}
+          </AppDialogDescription>
+        </AppDialogHeader>
+        <AppDialogFooter>
+          <AlertDialogCancel onClick={() => setConfirmPid(null)}>{t('dlg.common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-red-600 hover:bg-red-700 text-white"
+            onClick={(e) => { e.preventDefault(); if (confirmPid) doKill(confirmPid) }}
+          >
+            {t('ports.kill')}
+          </AlertDialogAction>
+        </AppDialogFooter>
+      </AppAlertDialog>
 
       {/* One-click port organization: preview → apply */}
       <OrganizePortsDialog
@@ -2859,7 +2851,7 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
         plan={organizePlan}
         onApplied={() => { fetchPorts(); onKilled?.() }}
       />
-    </Dialog>
+    </AppDialog>
   )
 }
 
@@ -2917,18 +2909,17 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
   if (!plan) return null
 
   return (
-    <AlertDialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <AlertDialogContent className="sm:max-w-2xl max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex flex-col">
-        <AlertDialogHeader className="shrink-0">
-          <AlertDialogTitle className="flex items-center gap-2">
-            <ArrowRightLeft className="h-4 w-4 text-teal-600" />
-            {t('ports.orgTitle')}
-            {totalChanges > 0 && <Badge variant="secondary" className="text-[10px] ml-1">{t('ports.orgChanges', { count: totalChanges })}</Badge>}
-          </AlertDialogTitle>
-          <AlertDialogDescription>{t('ports.orgDesc')}</AlertDialogDescription>
-        </AlertDialogHeader>
+    <AppAlertDialog open={open} onOpenChange={(v) => !v && onClose()} size="2xl">
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-2">
+          <ArrowRightLeft className="h-4 w-4 text-teal-600" />
+          {t('ports.orgTitle')}
+          {totalChanges > 0 && <Badge variant="secondary" className="text-[10px] ml-1">{t('ports.orgChanges', { count: totalChanges })}</Badge>}
+        </AppDialogTitle>
+        <AppDialogDescription>{t('ports.orgDesc')}</AppDialogDescription>
+      </AppDialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border space-y-4 p-3">
+      <AppDialogBody className="space-y-4">
           {totalChanges === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
               <CheckCircle2 className="h-8 w-8 text-emerald-500" />
@@ -2999,28 +2990,26 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
               </div>
             ))
           )}
-        </div>
+          {runningAffected > 0 && (
+            <p className="text-[10px] text-muted-foreground flex items-start gap-1.5">
+              <Info className="h-3 w-3 mt-px shrink-0" />
+              {t('ports.orgRunning', { count: runningAffected })}
+            </p>
+          )}
+        </AppDialogBody>
 
-        {runningAffected > 0 && (
-          <p className="shrink-0 text-[10px] text-muted-foreground flex items-start gap-1.5">
-            <Info className="h-3 w-3 mt-px shrink-0" />
-            {t('ports.orgRunning', { count: runningAffected })}
-          </p>
-        )}
-
-        <AlertDialogFooter className="shrink-0">
-          <AlertDialogCancel disabled={applying}>{t('dlg.common.cancel')}</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-teal-600 hover:bg-teal-700 text-white"
-            disabled={totalChanges === 0 || applying}
-            onClick={(e) => { e.preventDefault(); apply() }}
-          >
-            {applying && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
-            {t('ports.orgApply')}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+      <AppDialogFooter>
+        <AlertDialogCancel disabled={applying}>{t('dlg.common.cancel')}</AlertDialogCancel>
+        <AlertDialogAction
+          className="bg-teal-600 hover:bg-teal-700 text-white"
+          disabled={totalChanges === 0 || applying}
+          onClick={(e) => { e.preventDefault(); apply() }}
+        >
+          {applying && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />}
+          {t('ports.orgApply')}
+        </AlertDialogAction>
+      </AppDialogFooter>
+    </AppAlertDialog>
   )
 }
 
@@ -3187,17 +3176,17 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o && !switching) onClose() }}>
-      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <GitBranch className="h-5 w-5 text-emerald-600" />
-            {t('dlg.branch.title')}
-            {project && <span className="text-sm font-normal text-muted-foreground truncate">· {project.name}</span>}
-          </DialogTitle>
-          <DialogDescription>{t('dlg.branch.desc')}</DialogDescription>
-        </DialogHeader>
+    <AppDialog open={open} onOpenChange={(o) => { if (!o && !switching) onClose() }} size="md">
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-2">
+          <GitBranch className="h-5 w-5 text-emerald-600" />
+          {t('dlg.branch.title')}
+          {project && <span className="text-sm font-normal text-muted-foreground truncate">· {project.name}</span>}
+        </AppDialogTitle>
+        <AppDialogDescription>{t('dlg.branch.desc')}</AppDialogDescription>
+      </AppDialogHeader>
 
+      <AppDialogBody className="space-y-4">
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin text-emerald-600" />
@@ -3216,7 +3205,7 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
           </div>
         ) : (
           <>
-            <div className="max-h-72 overflow-y-auto rounded-lg border divide-y" role="listbox" aria-label={t('dlg.branch.title')}>
+            <div className="rounded-lg border divide-y" role="listbox" aria-label={t('dlg.branch.title')}>
               {branches.map((b) => (
                 <button
                   key={b.name}
@@ -3285,8 +3274,8 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
             </div>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+    </AppDialog>
   )
 }
 
@@ -3365,21 +3354,21 @@ function PullConflictDialog({ conflict, busy, onResolve, onAgent, allowAgent, on
     </li>
   )
   return (
-    <Dialog open={!!conflict} onOpenChange={(o) => { if (!o && !busyNow) onClose() }}>
-      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
-            {t('dlg.pullConflict.title')}
-          </DialogTitle>
-          <DialogDescription>
-            {t('dlg.pullConflict.desc')}
-            {conflict?.branch ? <span className="ml-1 font-mono text-xs">({conflict.projectName} → {conflict.branch})</span> : null}
-          </DialogDescription>
-        </DialogHeader>
+    <AppDialog open={!!conflict} onOpenChange={(o) => { if (!o && !busyNow) onClose() }} size="md">
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
+          {t('dlg.pullConflict.title')}
+        </AppDialogTitle>
+        <AppDialogDescription>
+          {t('dlg.pullConflict.desc')}
+          {conflict?.branch ? <span className="ml-1 font-mono text-xs">({conflict.projectName} → {conflict.branch})</span> : null}
+        </AppDialogDescription>
+      </AppDialogHeader>
 
+      <AppDialogBody>
         {conflict && (
-          <div className="space-y-3 min-h-0 overflow-y-auto pr-1">
+          <div className="space-y-3">
             {conflict.modified.length > 0 && (
               <div>
                 <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.modified')} · {conflict.modified.length}</div>
@@ -3398,8 +3387,10 @@ function PullConflictDialog({ conflict, busy, onResolve, onAgent, allowAgent, on
             )}
           </div>
         )}
+      </AppDialogBody>
 
-        <div className="flex flex-col gap-2 pt-1">
+      <AppDialogFooter className="flex-col items-stretch sm:flex-col sm:items-stretch">
+        <div className="flex flex-col gap-2">
           {allowAgent && onAgent && (
             <Button
               className="w-full justify-start text-left h-auto py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -3446,8 +3437,8 @@ function PullConflictDialog({ conflict, busy, onResolve, onAgent, allowAgent, on
             {t('dlg.pullConflict.cancel')}
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </AppDialogFooter>
+    </AppDialog>
   )
 }
 
@@ -3540,21 +3531,21 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
     </li>
   )
   return (
-    <Dialog open={!!req} onOpenChange={(o) => { if (!o && !busyNow) onClose() }}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
-        <DialogHeader className="min-w-0">
-          <DialogTitle className="flex items-center gap-2 min-w-0">
-            <Sparkles className="h-5 w-5 text-amber-500 shrink-0" />
-            <span className="truncate">{t('dlg.pullDiag.title')}</span>
-            {req ? <span className="text-sm font-normal text-muted-foreground truncate min-w-0">· {req.projectName}</span> : null}
-          </DialogTitle>
-          <DialogDescription className="break-words min-w-0">
-            {loading ? t('dlg.pullDiag.loadingDesc') : (diagnosis?.rootCause || '')}
-          </DialogDescription>
-        </DialogHeader>
+    <AppDialog open={!!req} onOpenChange={(o) => { if (!o && !busyNow) onClose() }} size="lg">
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-2 min-w-0">
+          <Sparkles className="h-5 w-5 text-amber-500 shrink-0" />
+          <span className="truncate">{t('dlg.pullDiag.title')}</span>
+          {req ? <span className="text-sm font-normal text-muted-foreground truncate min-w-0">· {req.projectName}</span> : null}
+        </AppDialogTitle>
+        <AppDialogDescription className="break-words min-w-0">
+          {loading ? t('dlg.pullDiag.loadingDesc') : (diagnosis?.rootCause || '')}
+        </AppDialogDescription>
+      </AppDialogHeader>
 
+      <AppDialogBody>
         {req && (
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
+          <div className="space-y-3">
             {loading ? (
               <div className="flex flex-col items-center gap-3 py-8">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -3651,9 +3642,11 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
             )}
           </div>
         )}
+      </AppDialogBody>
 
+      <AppDialogFooter className="flex-col items-stretch sm:flex-col sm:items-stretch">
         {!loading && diagnosis && (
-          <div className="flex flex-col gap-2 pt-1 shrink-0">
+          <div className="flex flex-col gap-2">
             {diagnosis.reason && (
               <div className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 min-w-0">
                 <div className="text-[11px] font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1">
@@ -3726,8 +3719,8 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
             )}
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+      </AppDialogFooter>
+    </AppDialog>
   )
 }
 
@@ -3757,6 +3750,9 @@ interface PullAgentResultView {
    *  stash was popped back into the working tree (nothing lost), 'kept' = the
    *  pop conflicted and the changes remain in the stash entry. */
   rolledBack?: 'restored' | 'kept'
+  /** v1.27: every fetch strategy failed but cached remote refs existed —
+   *  the run synced against the LAST KNOWN remote state instead. */
+  fetchDegraded?: { ref: string; error: string }
   restored: boolean
   autoResolved: string[]
   artifacts: { stash: boolean; stashLabel?: string; branch?: string; backupFiles: string[] }
@@ -3776,7 +3772,7 @@ interface PullAgentResultView {
  * continues to completion (it is backup-first and safe by construction); the
  * reader loop simply stops updating once the state is cleared.
  */
-function PullAgentDialog({ run, onClose, onRetry }: {
+function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
   run: {
     projectId: string
     projectName: string
@@ -3789,12 +3785,19 @@ function PullAgentDialog({ run, onClose, onRetry }: {
   } | null
   onClose: () => void
   onRetry: (() => void) | null
+  /** v1.27: ask the configured LLM to diagnose this failure (the strategy
+   *  ladder already ran — the diagnosis prompt carries that context so the
+   *  recommendation points at proxy / network fixes, not another retry). */
+  onDiagnose?: (() => void) | null
 }) {
   const t = useT()
   const [showLog, setShowLog] = React.useState(false)
   const running = run?.status === 'running'
   const result = run?.result
   const busyNow = running
+  // v1.27: the fetch step ended hard-failed → the strategy ladder could not
+  // reach the remote at all; the failure box adds the proxy hint.
+  const fetchNetworkFailed = run?.status === 'failed' && run.steps.some((s) => s.key === 'fetch' && s.status === 'fail')
 
   const stepIcon = (status: PullAgentStepView['status']) => {
     switch (status) {
@@ -3826,25 +3829,25 @@ function PullAgentDialog({ run, onClose, onRetry }: {
   }
 
   return (
-    <Dialog open={!!run} onOpenChange={(o) => { if (!o && !busyNow) onClose() }}>
-      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Bot className={`h-5 w-5 shrink-0 ${running ? 'animate-pulse text-emerald-600' : run?.status === 'done' ? 'text-emerald-600' : 'text-amber-500'}`} />
-            {running ? t('dlg.pullAgent.title') : run?.status === 'done' ? t('dlg.pullAgent.doneTitle') : t('dlg.pullAgent.failedTitle')}
-            {run ? <span className="text-sm font-normal text-muted-foreground truncate">· {run.projectName}</span> : null}
-          </DialogTitle>
-          <DialogDescription>
-            {run?.status === 'failed'
-              ? t('dlg.pullAgent.failedTitle')
-              : running
-                ? t('dlg.pullAgent.desc')
-                : result?.summary || t('dlg.pullAgent.desc')}
-          </DialogDescription>
-        </DialogHeader>
+    <AppDialog open={!!run} onOpenChange={(o) => { if (!o && !busyNow) onClose() }} size="md">
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-2">
+          <Bot className={`h-5 w-5 shrink-0 ${running ? 'animate-pulse text-emerald-600' : run?.status === 'done' ? 'text-emerald-600' : 'text-amber-500'}`} />
+          {running ? t('dlg.pullAgent.title') : run?.status === 'done' ? t('dlg.pullAgent.doneTitle') : t('dlg.pullAgent.failedTitle')}
+          {run ? <span className="text-sm font-normal text-muted-foreground truncate">· {run.projectName}</span> : null}
+        </AppDialogTitle>
+        <AppDialogDescription>
+          {run?.status === 'failed'
+            ? t('dlg.pullAgent.failedTitle')
+            : running
+              ? t('dlg.pullAgent.desc')
+              : result?.summary || t('dlg.pullAgent.desc')}
+        </AppDialogDescription>
+      </AppDialogHeader>
 
+      <AppDialogBody>
         {run && (
-          <div className="space-y-3 min-h-0 overflow-y-auto pr-1">
+          <div className="space-y-3">
             {/* Live step timeline */}
             <ol className="rounded-lg border divide-y" aria-label={t('dlg.pullAgent.title')}>
               {steps.map((s) => (
@@ -3893,12 +3896,32 @@ function PullAgentDialog({ run, onClose, onRetry }: {
                     {t('dlg.pullAgent.rollbackKept')}
                   </div>
                 )}
+                {/* v1.27: network failures outlasted the whole strategy ladder
+                    (retries + HTTP/1.1 + proxy). Point at the proxy setting —
+                    the ONE fix that actually addresses this class. */}
+                {fetchNetworkFailed && (
+                  <div className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400 break-words min-w-0">
+                    <WifiOff className="h-3.5 w-3.5 shrink-0 mt-px" />
+                    {t('dlg.pullAgent.networkHint')}
+                  </div>
+                )}
               </div>
             )}
 
             {/* Success report + artifacts */}
             {run.status === 'done' && result && (
               <div className="space-y-2">
+                {/* v1.27: degraded run — every fetch strategy failed and the
+                    sync used the CACHED remote refs. It worked, but it is NOT
+                    a claim of freshness; say so. */}
+                {result.fetchDegraded && (
+                  <div className="rounded-md border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-2.5">
+                    <div className="text-sm font-medium text-amber-800 dark:text-amber-300 break-words">
+                      {t('dlg.pullAgent.fetchDegradedTitle', { ref: result.fetchDegraded.ref })}
+                    </div>
+                    <div className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-0.5">{t('dlg.pullAgent.fetchDegradedHint')}</div>
+                  </div>
+                )}
                 <div className="rounded-md border border-emerald-300/60 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-3 py-2.5">
                   <div className="text-sm font-medium text-emerald-800 dark:text-emerald-300 break-words">
                     {result.upToDate
@@ -3959,22 +3982,30 @@ function PullAgentDialog({ run, onClose, onRetry }: {
             ) : null}
           </div>
         )}
+      </AppDialogBody>
 
-        <div className="flex gap-2 pt-1">
-          {run?.status === 'failed' && onRetry ? (
-            <>
+      <AppDialogFooter className="flex-row">
+        {run?.status === 'failed' && (onRetry || onDiagnose) ? (
+          <>
+            {onRetry ? (
               <Button variant="outline" className="flex-1" onClick={onRetry}>
                 <RefreshCw className="h-4 w-4 mr-1.5" />
                 {t('dlg.pullAgent.retry')}
               </Button>
-              <Button className="flex-1" onClick={onClose}>{t('dlg.pullAgent.close')}</Button>
-            </>
-          ) : (
-            <Button className="w-full" disabled={busyNow} onClick={onClose}>{t('dlg.pullAgent.close')}</Button>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+            ) : null}
+            {onDiagnose ? (
+              <Button variant="outline" className="flex-1" onClick={onDiagnose}>
+                <Sparkles className="h-4 w-4 mr-1.5" />
+                {t('dlg.pullAgent.diagnose')}
+              </Button>
+            ) : null}
+            <Button className={onRetry || onDiagnose ? 'flex-1' : 'w-full'} onClick={onClose}>{t('dlg.pullAgent.close')}</Button>
+          </>
+        ) : (
+          <Button className="w-full" disabled={busyNow} onClick={onClose}>{t('dlg.pullAgent.close')}</Button>
+        )}
+      </AppDialogFooter>
+    </AppDialog>
   )
 }
 
@@ -4042,17 +4073,11 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
   )
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o && !updating) onClose() }}>
-      <DialogContent className="max-w-md max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Github className="h-5 w-5 shrink-0" />
-            {t('dlg.selfUpdate.title')}
-          </DialogTitle>
-          <DialogDescription>{t('dlg.selfUpdate.desc')}</DialogDescription>
-        </DialogHeader>
+    <AppDialog open={open} onOpenChange={(o) => { if (!o && !updating) onClose() }} size="md">
+      <AppDialogHeader icon={Github} title={t('dlg.selfUpdate.title')} description={t('dlg.selfUpdate.desc')} />
 
-        <div className="space-y-3 min-h-0 overflow-y-auto pr-1">
+      <AppDialogBody>
+        <div className="space-y-3">
           {/* State banner — same palette language as the project update pills */}
           <div className={`flex items-start gap-2 rounded-md border px-3 py-2.5 ${banner.cls}`} role="status">
             {banner.icon}
@@ -4083,25 +4108,25 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
 
           <div className="text-xs text-muted-foreground leading-5">{t('dlg.selfUpdate.hint')}</div>
         </div>
+      </AppDialogBody>
 
-        <div className="flex gap-2 pt-1">
-          <Button variant="outline" className="flex-1" onClick={onCheck} disabled={busy || updating}>
-            <RefreshCw className={`h-4 w-4 mr-1.5 ${busy ? 'animate-spin' : ''}`} />
-            {busy ? t('dlg.selfUpdate.checking') : t('dlg.selfUpdate.check')}
+      <AppDialogFooter className="flex-row">
+        <Button variant="outline" className="flex-1" onClick={onCheck} disabled={busy || updating}>
+          <RefreshCw className={`h-4 w-4 mr-1.5 ${busy ? 'animate-spin' : ''}`} />
+          {busy ? t('dlg.selfUpdate.checking') : t('dlg.selfUpdate.check')}
+        </Button>
+        <Button className="flex-1" onClick={onUpdate} disabled={busy || updating || !canUpdate} hidden={!!staleBranch}>
+          {updating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
+          {t('dlg.selfUpdate.updateNow')}
+        </Button>
+        {staleBranch && (
+          <Button className="flex-1" onClick={() => onSwitchUpdate(staleBranch.branch)} disabled={busy || updating}>
+            {updating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <GitBranch className="h-4 w-4 mr-1.5" />}
+            {t('dlg.selfUpdate.switchUpdate', { branch: staleBranch.branch })}
           </Button>
-          <Button className="flex-1" onClick={onUpdate} disabled={busy || updating || !canUpdate} hidden={!!staleBranch}>
-            {updating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
-            {t('dlg.selfUpdate.updateNow')}
-          </Button>
-          {staleBranch && (
-            <Button className="flex-1" onClick={() => onSwitchUpdate(staleBranch.branch)} disabled={busy || updating}>
-              {updating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <GitBranch className="h-4 w-4 mr-1.5" />}
-              {t('dlg.selfUpdate.switchUpdate', { branch: staleBranch.branch })}
-            </Button>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+        )}
+      </AppDialogFooter>
+    </AppDialog>
   )
 }
 
@@ -4316,19 +4341,19 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
   const isZai = provider === 'zai'
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-xl max-h-[90dvh] overflow-y-auto [&>*:not(:last-child)]:mb-0">
-        <DialogHeader className="pb-1">
-          <DialogTitle className="flex items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/15 to-teal-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20">
-              <Bot className="h-5 w-5" />
-            </span>
-            <span className="flex flex-col items-start leading-tight">
-              <span>{t('dlg.llm.title')}</span>
-              <span className="text-[11px] font-normal text-muted-foreground">{t('dlg.llm.desc')}</span>
-            </span>
-          </DialogTitle>
-        </DialogHeader>
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="xl">
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/15 to-teal-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20">
+            <Bot className="h-5 w-5" />
+          </span>
+          <span className="flex flex-col items-start leading-tight">
+            <span>{t('dlg.llm.title')}</span>
+            <span className="text-[11px] font-normal text-muted-foreground">{t('dlg.llm.desc')}</span>
+          </span>
+        </AppDialogTitle>
+      </AppDialogHeader>
+      <AppDialogBody>
         {loading ? (
           <div className="flex items-center justify-center py-10"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div>
         ) : (
@@ -4588,17 +4613,17 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
             </section>
           </div>
         )}
-        <DialogFooter className="mt-1 gap-2 sm:justify-between">
-          <p className="hidden pr-2 text-[11px] leading-snug text-muted-foreground sm:block">{t('dlg.llm.footerHint')}</p>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
-            <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}{t('dlg.common.save')}
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+      <AppDialogFooter className="sm:justify-between">
+        <p className="hidden pr-2 text-[11px] leading-snug text-muted-foreground sm:block">{t('dlg.llm.footerHint')}</p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
+          <Button onClick={handleSave} disabled={saving} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+            {saving && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}{t('dlg.common.save')}
+          </Button>
+        </div>
+      </AppDialogFooter>
+    </AppDialog>
   )
 }
 
@@ -4846,49 +4871,49 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* flex column capped to the viewport (base DialogContent provides the
+    <AppDialog open={open} onOpenChange={onOpenChange} size="2xl">
+      {/* flex column capped to the viewport (the AppDialog shell provides the
        * max-h safety net): header / progress / footer stay pinned, the body
        * below flexes and scrolls, the terminal log shrinks first (own scroll)
        * before the body ever scrolls — nothing overflows small screens. */}
-      <DialogContent className="flex flex-col gap-3 sm:max-w-2xl sm:gap-4">
-        <DialogHeader className="shrink-0">
-          <DialogTitle className="flex items-center gap-2.5">
-            <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
-              <Wrench className="h-5 w-5" />
-              {isRunning && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
-                </span>
+      <AppDialogHeader>
+        <AppDialogTitle className="flex items-center gap-2.5">
+          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
+            <Wrench className="h-5 w-5" />
+            {isRunning && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+              </span>
+            )}
+          </span>
+          <span className="flex flex-col items-start leading-tight">
+            <span className="flex items-center gap-2">
+              {t('dlg.repair.title')}
+              {job && (
+                <Badge variant={job.status === 'running' ? 'secondary' : job.status === 'success' ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
+                  {job.status === 'running' ? t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds }) : job.status === 'success' ? t('dlg.repair.statusSuccess') : t('dlg.repair.statusFailed')}
+                </Badge>
               )}
             </span>
-            <span className="flex flex-col items-start leading-tight">
-              <span className="flex items-center gap-2">
-                {t('dlg.repair.title')}
-                {job && (
-                  <Badge variant={job.status === 'running' ? 'secondary' : job.status === 'success' ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
-                    {job.status === 'running' ? t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds }) : job.status === 'success' ? t('dlg.repair.statusSuccess') : t('dlg.repair.statusFailed')}
-                  </Badge>
-                )}
-              </span>
-              <span className="text-xs font-normal text-muted-foreground">
-                {job ? `${job.projectName} · ${envLabel(job.envName)} · ${job.kind === 'rebuild' ? 'rebuild' : 'start'}` : t('dlg.repair.creating')}
-              </span>
+            <span className="text-xs font-normal text-muted-foreground">
+              {job ? `${job.projectName} · ${envLabel(job.envName)} · ${job.kind === 'rebuild' ? 'rebuild' : 'start'}` : t('dlg.repair.creating')}
             </span>
-          </DialogTitle>
-          <DialogDescription>
-            {job
-              ? t(job.kind === 'rebuild' ? 'dlg.repair.descRebuild' : 'dlg.repair.descStart', { project: job.projectName, env: envLabel(job.envName) })
-              : t('dlg.repair.creating')}
-          </DialogDescription>
-        </DialogHeader>
+          </span>
+        </AppDialogTitle>
+        <AppDialogDescription>
+          {job
+            ? t(job.kind === 'rebuild' ? 'dlg.repair.descRebuild' : 'dlg.repair.descStart', { project: job.projectName, env: envLabel(job.envName) })
+            : t('dlg.repair.creating')}
+        </AppDialogDescription>
+      </AppDialogHeader>
 
-        {/* round progress bar */}
-        <div className="h-1 shrink-0 overflow-hidden rounded-full bg-muted">
-          <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${progressPct}%` }} />
-        </div>
+      {/* round progress bar */}
+      <div className="h-1 shrink-0 overflow-hidden rounded-full bg-muted">
+        <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${progressPct}%` }} />
+      </div>
 
+      <AppDialogBody>
         {notFound ? (
           <div className="text-center py-8 text-muted-foreground text-sm">{t('dlg.repair.notFound')}</div>
         ) : authLost ? (
@@ -4905,7 +4930,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
         ) : !job ? (
           <div className="flex items-center justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-amber-500" /></div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+          <div className="flex flex-col gap-3">
             {job.diagnosis && (
               <div className="flex shrink-0 gap-3 rounded-xl border border-violet-200/80 bg-violet-50/60 p-3.5 dark:border-violet-900/50 dark:bg-violet-950/20">
                 <div className="h-fit shrink-0 rounded-lg bg-violet-500/15 p-1.5">
@@ -5011,25 +5036,25 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
             )}
           </div>
         )}
-        <DialogFooter className="shrink-0 items-center gap-2 sm:justify-between">
-          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-            {job ? `${t('dlg.repair.elapsed')} ${formatRepairDuration(elapsed)}` : ''}
-          </span>
-          <div className="flex gap-2">
-            {(!job || isRunning) ? (
-              <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-                <Minimize2 className="h-3.5 w-3.5" />
-                {t('dlg.repair.background')}
-              </Button>
-            ) : (
-              <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-                {t('dlg.common.close')}
-              </Button>
-            )}
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+      <AppDialogFooter className="items-center gap-2 sm:justify-between">
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+          {job ? `${t('dlg.repair.elapsed')} ${formatRepairDuration(elapsed)}` : ''}
+        </span>
+        <div className="flex gap-2">
+          {(!job || isRunning) ? (
+            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+              <Minimize2 className="h-3.5 w-3.5" />
+              {t('dlg.repair.background')}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+              {t('dlg.common.close')}
+            </Button>
+          )}
+        </div>
+      </AppDialogFooter>
+    </AppDialog>
   )
 }
 
@@ -7161,6 +7186,9 @@ function DeviceManagementPanel({
   const [restartingIds, setRestartingIds] = React.useState<Set<string>>(new Set())
   const [testingIds, setTestingIds] = React.useState<Set<string>>(new Set())
   const [testResults, setTestResults] = React.useState<Record<string, { latency: number; success: boolean } | null>>({})
+  /** Delete confirm — AppAlertDialog requires controlled open state, so the
+    * trash button opens this mirrored state (was an AlertDialogTrigger before). */
+  const [deleteConfirmDevice, setDeleteConfirmDevice] = React.useState<Device | null>(null)
 
   const onlineCount = devices.filter((d) => d.status === 'online').length
   const offlineCount = devices.filter((d) => d.status !== 'online').length
@@ -7413,23 +7441,19 @@ function DeviceManagementPanel({
                     {restartingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RotateCw className="h-3 w-3 mr-1" />}
                     {t('dlg.devicePanel.restart')}
                   </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-7 text-xs text-destructive hover:bg-red-50 dark:hover:bg-red-900/20 px-2">
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>{t('dlg.devicePanel.deleteTitle', { name: device.name })}</AlertDialogTitle>
-                        <AlertDialogDescription>{t('dlg.devicePanel.deleteDesc')}</AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => onDelete(device.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('dlg.common.delete')}</AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  {/* Delete confirm: AppAlertDialog is controlled — the trash button
+                    * flips the mirrored state; the dialog below only opens for the
+                    * matching device row (same per-row rendering as the old trigger). */}
+                  <Button variant="outline" size="sm" className="h-7 text-xs text-destructive hover:bg-red-50 dark:hover:bg-red-900/20 px-2" onClick={() => setDeleteConfirmDevice(device)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                  <AppAlertDialog open={deleteConfirmDevice?.id === device.id} onOpenChange={(v) => !v && setDeleteConfirmDevice(null)} size="lg">
+                    <AppDialogHeader title={t('dlg.devicePanel.deleteTitle', { name: device.name })} description={t('dlg.devicePanel.deleteDesc')} />
+                    <AppDialogFooter>
+                      <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => onDelete(device.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('dlg.common.delete')}</AlertDialogAction>
+                    </AppDialogFooter>
+                  </AppAlertDialog>
                 </div>
               </motion.div>
             ))
@@ -7493,13 +7517,10 @@ function DeviceFormDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{mode === 'add' ? t('dlg.deviceForm.addTitle') : t('dlg.deviceForm.editTitle')}</DialogTitle>
-          <DialogDescription>{mode === 'add' ? t('dlg.deviceForm.addDesc') : t('dlg.deviceForm.editDesc')}</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-3">
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="md">
+      <AppDialogHeader title={mode === 'add' ? t('dlg.deviceForm.addTitle') : t('dlg.deviceForm.editTitle')} description={mode === 'add' ? t('dlg.deviceForm.addDesc') : t('dlg.deviceForm.editDesc')} />
+      <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+        <AppDialogBody className="space-y-3">
           <div className="space-y-1">
             <Label>{t('dlg.deviceForm.icon')}</Label>
             <div className="flex flex-wrap gap-1.5">
@@ -7569,15 +7590,15 @@ function DeviceFormDialog({
               </button>
             </div>
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
-            <Button type="submit" disabled={!name.trim() || !ip.trim()} className="bg-teal-600 hover:bg-teal-700 text-white">
-              {mode === 'add' ? t('dlg.deviceForm.addBtn') : t('dlg.deviceForm.updateBtn')}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </AppDialogBody>
+        <AppDialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
+          <Button type="submit" disabled={!name.trim() || !ip.trim()} className="bg-teal-600 hover:bg-teal-700 text-white">
+            {mode === 'add' ? t('dlg.deviceForm.addBtn') : t('dlg.deviceForm.updateBtn')}
+          </Button>
+        </AppDialogFooter>
+      </form>
+    </AppDialog>
   )
 }
 
@@ -7898,6 +7919,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [batchTagMode, setBatchTagMode] = React.useState<'add' | 'replace'>('add')
   const [batchTagDraft, setBatchTagDraft] = React.useState<string[]>([])
   const [batchTagApplying, setBatchTagApplying] = React.useState(false)
+  // Batch delete confirm (bottom bar + sticky toolbar share one dialog) —
+  // AppAlertDialog requires controlled open state, so the two trash buttons
+  // open this mirrored state (were AlertDialogTriggers before).
+  const [batchDeleteConfirmOpen, setBatchDeleteConfirmOpen] = React.useState(false)
   const [scrollTopVisible, setScrollTopVisible] = React.useState(false)
   // Session 12 states
   const [healthAlertThreshold, setHealthAlertThreshold] = React.useState<number>(() => {
@@ -9223,6 +9248,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     const error = String(data?.error || 'git pull failed').slice(0, 400)
     const detail = data?.detail ? String(data.detail).slice(0, 1200) : undefined
     const transient = !!data?.transient
+    // v1.27: agent-run failures carry agentRun so the LLM knows the strategy
+    // ladder (retries + HTTP/1.1 + proxy) already failed — no more retries.
+    const agentRun = !!data?.agentRun
     // Degenerate callers (no error text at all) — nothing to diagnose.
     if (!error && !detail && modified.length === 0 && untracked.length === 0) return
     setPullDiag({
@@ -9241,7 +9269,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       const res = await fetch(`/api/projects/${project.id}/pull-diagnose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error, detail, transient, branch, locale: lang, modified, untracked }),
+        body: JSON.stringify({ error, detail, transient, branch, locale: lang, modified, untracked, agentRun }),
         signal: AbortSignal.timeout(90_000),
       })
       const diag = await res.json().catch(() => ({}))
@@ -10712,23 +10740,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('start')}><Play className="h-3 w-3 mr-1 text-emerald-500" />{t('dlg.detail.run')}</Button>
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => handleBatchAction('stop')}><Square className="h-3 w-3 mr-1 text-red-500" />{t('dlg.detail.stop')}</Button>
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={openBatchTagEditor}><Tags className="h-3 w-3 mr-1 text-amber-500" />{t('dlg.batchTag.add')}</Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="outline" className="h-7 text-xs text-destructive">
-                      <Trash2 className="h-3 w-3 mr-1" />{t('dlg.deleteConfirm.deleteAll')}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{t('dlg.deleteConfirm.batchTitle', { count: selectedIds.size })}</AlertDialogTitle>
-                      <AlertDialogDescription>{t('dlg.deleteConfirm.batchDesc')}</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleBatchAction('delete')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('dlg.common.delete')}</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                {/* Batch delete confirm — AppAlertDialog is controlled; the
+                    trash button opens the mirrored state (was an AlertDialogTrigger). */}
+                <Button size="sm" variant="outline" className="h-7 text-xs text-destructive" onClick={() => setBatchDeleteConfirmOpen(true)}>
+                  <Trash2 className="h-3 w-3 mr-1" />{t('dlg.deleteConfirm.deleteAll')}
+                </Button>
               </div>
             </div>
           </motion.div>
@@ -10764,23 +10780,12 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   const firstSelected = projects.find(p => selectedIds.has(p.id))
                   if (firstSelected) setMoveProjectDialog(firstSelected)
                 }}><ArrowRightLeft className="h-3 w-3 mr-1" />{t('dlg.batch.moveToDevice')}</Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button size="sm" variant="outline" className="h-7 text-xs border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20">
-                      <Trash2 className="h-3 w-3 mr-1" />{t('dlg.deleteConfirm.deleteSelected')}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{t('dlg.deleteConfirm.batchTitle', { count: selectedIds.size })}</AlertDialogTitle>
-                      <AlertDialogDescription>{t('dlg.deleteConfirm.batchDesc')}</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleBatchAction('delete')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('dlg.common.delete')}</AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                {/* Batch delete confirm — same shared dialog as the bottom bar;
+                    AppAlertDialog is controlled, the trash button opens the
+                    mirrored state (was an AlertDialogTrigger). */}
+                <Button size="sm" variant="outline" className="h-7 text-xs border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20" onClick={() => setBatchDeleteConfirmOpen(true)}>
+                  <Trash2 className="h-3 w-3 mr-1" />{t('dlg.deleteConfirm.deleteSelected')}
+                </Button>
               </div>
             </div>
           </motion.div>
@@ -11432,48 +11437,49 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       {/* ======================== DIALOGS ======================== */}
 
       {/* Delete confirmation */}
-      <AlertDialog open={!!deleteProject} onOpenChange={(v) => !v && setDeleteProject(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('dlg.deleteConfirm.title', { name: deleteProject?.name ?? '' })}</AlertDialogTitle>
-            <AlertDialogDescription>{t('dlg.deleteConfirm.desc')}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteProject && handleDeleteProject(deleteProject.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              {t('dlg.common.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AppAlertDialog open={!!deleteProject} onOpenChange={(v) => !v && setDeleteProject(null)} size="lg">
+        <AppDialogHeader title={t('dlg.deleteConfirm.title', { name: deleteProject?.name ?? '' })} description={t('dlg.deleteConfirm.desc')} />
+        <AppDialogFooter>
+          <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => deleteProject && handleDeleteProject(deleteProject.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            {t('dlg.common.delete')}
+          </AlertDialogAction>
+        </AppDialogFooter>
+      </AppAlertDialog>
 
       {/* Rebuild confirmation */}
-      <AlertDialog open={!!rebuildConfirmProject} onOpenChange={(v) => !v && setRebuildConfirmProject(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('dlg.rebuildConfirm.title', { name: rebuildConfirmProject?.name ?? '' })}</AlertDialogTitle>
-            <AlertDialogDescription>{t('dlg.rebuildConfirm.desc', { count: rebuildConfirmProject?.environments?.filter((e) => e.name !== 'development').length ?? 0 })}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (rebuildConfirmProject) { handleRebuildProject(rebuildConfirmProject.id); setRebuildConfirmProject(null) } }} className="bg-teal-600 text-white hover:bg-teal-700">
-              {t('dlg.rebuildConfirm.action')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AppAlertDialog open={!!rebuildConfirmProject} onOpenChange={(v) => !v && setRebuildConfirmProject(null)} size="lg">
+        <AppDialogHeader title={t('dlg.rebuildConfirm.title', { name: rebuildConfirmProject?.name ?? '' })} description={t('dlg.rebuildConfirm.desc', { count: rebuildConfirmProject?.environments?.filter((e) => e.name !== 'development').length ?? 0 })} />
+        <AppDialogFooter>
+          <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => { if (rebuildConfirmProject) { handleRebuildProject(rebuildConfirmProject.id); setRebuildConfirmProject(null) } }} className="bg-teal-600 text-white hover:bg-teal-700">
+            {t('dlg.rebuildConfirm.action')}
+          </AlertDialogAction>
+        </AppDialogFooter>
+      </AppAlertDialog>
+
+      {/* Batch delete confirmation — shared by the bottom batch bar and the
+          sticky batch toolbar (both trash buttons open the mirrored state;
+          previously each bar had its own trigger-based AlertDialog). */}
+      <AppAlertDialog open={batchDeleteConfirmOpen} onOpenChange={setBatchDeleteConfirmOpen} size="lg">
+        <AppDialogHeader title={t('dlg.deleteConfirm.batchTitle', { count: selectedIds.size })} description={t('dlg.deleteConfirm.batchDesc')} />
+        <AppDialogFooter>
+          <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => handleBatchAction('delete')} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{t('dlg.common.delete')}</AlertDialogAction>
+        </AppDialogFooter>
+      </AppAlertDialog>
 
       {/* Move to Device dialog */}
-      <Dialog open={!!moveProjectDialog} onOpenChange={(v) => !v && setMoveProjectDialog(null)}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ArrowRightLeft className="h-4 w-4 text-emerald-600" />
-              {t('dlg.move.title', { name: moveProjectDialog?.name ?? '' })}
-            </DialogTitle>
-            <DialogDescription>{t('dlg.move.desc')}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+      <AppDialog open={!!moveProjectDialog} onOpenChange={(v) => !v && setMoveProjectDialog(null)} size="sm">
+        <AppDialogHeader>
+          <AppDialogTitle className="flex items-center gap-2">
+            <ArrowRightLeft className="h-4 w-4 text-emerald-600" />
+            {t('dlg.move.title', { name: moveProjectDialog?.name ?? '' })}
+          </AppDialogTitle>
+          <AppDialogDescription>{t('dlg.move.desc')}</AppDialogDescription>
+        </AppDialogHeader>
+        <AppDialogBody>
+          <div className="space-y-1.5">
             <button
               type="button"
               className="w-full flex items-center gap-2.5 p-3 rounded-lg border hover:bg-brand-soft hover:border-brand/40 transition-colors text-left"
@@ -11501,32 +11507,32 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               </button>
             ))}
           </div>
-        </DialogContent>
-      </Dialog>
+        </AppDialogBody>
+      </AppDialog>
 
       {/* Error detail dialog - polished error presentation (summary +
           collapsible terminal-styled details + one-click copy) */}
-      <Dialog open={!!errorDialog} onOpenChange={(v) => !v && setErrorDialog(null)}>
-        <DialogContent className="max-w-2xl max-h-[80dvh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-destructive" />
-              {errorDialog?.title ?? t('dlg.error.title')}
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground">
-              {t('dlg.error.desc')}
-            </DialogDescription>
-          </DialogHeader>
+      <AppDialog open={!!errorDialog} onOpenChange={(v) => !v && setErrorDialog(null)} size="2xl">
+        <AppDialogHeader>
+          <AppDialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-destructive" />
+            {errorDialog?.title ?? t('dlg.error.title')}
+          </AppDialogTitle>
+          <AppDialogDescription className="text-xs text-muted-foreground">
+            {t('dlg.error.desc')}
+          </AppDialogDescription>
+        </AppDialogHeader>
+        <AppDialogBody>
           {errorDialog?.detail && (
-            <div className="min-h-0 flex-1 overflow-y-auto mt-1">
+            <div>
               <ErrorDetailsBlock message={errorDialog.detail} />
             </div>
           )}
-          <DialogFooter>
-            <Button size="sm" onClick={() => setErrorDialog(null)}>{t('dlg.common.close')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </AppDialogBody>
+        <AppDialogFooter>
+          <Button size="sm" onClick={() => setErrorDialog(null)}>{t('dlg.common.close')}</Button>
+        </AppDialogFooter>
+      </AppDialog>
 
       {/* Project form - key resets state when dialog opens */}
       <ProjectFormDialog
@@ -11644,6 +11650,18 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           const project = projects.find((p) => p.id === agentRun.projectId)
             || ({ id: agentRun.projectId, name: agentRun.projectName, repoUrl: 'agent' } as Project)
           void runAgentPull(project, agentRun.branch)
+        } : null}
+        onDiagnose={agentRun?.status === 'failed' ? () => {
+          const project = projects.find((p) => p.id === agentRun.projectId)
+            || ({ id: agentRun.projectId, name: agentRun.projectName, repoUrl: 'agent' } as Project)
+          const failedFetch = agentRun.steps.find((s) => s.key === 'fetch' && s.status === 'fail')
+          setAgentRun(null)
+          void openPullDiagnosis(project, agentRun.branch, {
+            error: agentRun.error || 'agent pull failed',
+            detail: agentRun.detail || undefined,
+            transient: !!failedFetch || /reset|timed? ?out|SSL|connect|Recv failure|proxy|network/i.test(String(agentRun.error || '') + String(agentRun.detail || '')),
+            agentRun: true,
+          })
         } : null}
       />
       {/* Dashboard self-update (v1.21): version card + one-click update */}
@@ -11784,16 +11802,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       </AnimatePresence>
 
       {/* ======================== DEPENDENCY GRAPH DIALOG (Session 11) ======================== */}
-      <Dialog open={depGraphOpen} onOpenChange={setDepGraphOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[80dvh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <GitFork className="h-5 w-5 text-emerald-600" />
-              {t('dlg.depGraph.title')}
-            </DialogTitle>
-            <DialogDescription>{t('dlg.depGraph.desc')}</DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 min-h-0 overflow-auto">
+      <AppDialog open={depGraphOpen} onOpenChange={setDepGraphOpen} size="2xl">
+        <AppDialogHeader>
+          <AppDialogTitle className="flex items-center gap-2">
+            <GitFork className="h-5 w-5 text-emerald-600" />
+            {t('dlg.depGraph.title')}
+          </AppDialogTitle>
+          <AppDialogDescription>{t('dlg.depGraph.desc')}</AppDialogDescription>
+        </AppDialogHeader>
+        <AppDialogBody>
             {projects.length < 2 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <GitFork className="h-12 w-12 text-muted-foreground/30 mb-3" />
@@ -11865,20 +11882,19 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 </div>
               )
             })()}
-          </div>
-        </DialogContent>
-      </Dialog>
+        </AppDialogBody>
+      </AppDialog>
 
       {/* ======================== BATCH TAG EDITOR DIALOG (Session 11) ======================== */}
-      <Dialog open={batchTagEditorOpen} onOpenChange={setBatchTagEditorOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Tags className="h-5 w-5 text-amber-500" />
-              {t('dlg.batchTag.title')}
-            </DialogTitle>
-            <DialogDescription>{t('dlg.batchTag.desc', { count: selectedIds.size })}</DialogDescription>
-          </DialogHeader>
+      <AppDialog open={batchTagEditorOpen} onOpenChange={setBatchTagEditorOpen} size="md">
+        <AppDialogHeader>
+          <AppDialogTitle className="flex items-center gap-2">
+            <Tags className="h-5 w-5 text-amber-500" />
+            {t('dlg.batchTag.title')}
+          </AppDialogTitle>
+          <AppDialogDescription>{t('dlg.batchTag.desc', { count: selectedIds.size })}</AppDialogDescription>
+        </AppDialogHeader>
+        <AppDialogBody>
           <div className="space-y-4">
             {/* Selected projects */}
             <div>
@@ -11925,29 +11941,29 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setBatchTagEditorOpen(false)} disabled={batchTagApplying}>{t('dlg.common.cancel')}</Button>
-            <Button onClick={handleBatchTagApply} disabled={batchTagApplying || (batchTagMode === 'replace' && batchTagDraft.length === 0)} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              {batchTagApplying && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-              {t('dlg.batchTag.apply')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </AppDialogBody>
+        <AppDialogFooter>
+          <Button variant="outline" onClick={() => setBatchTagEditorOpen(false)} disabled={batchTagApplying}>{t('dlg.common.cancel')}</Button>
+          <Button onClick={handleBatchTagApply} disabled={batchTagApplying || (batchTagMode === 'replace' && batchTagDraft.length === 0)} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+            {batchTagApplying && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+            {t('dlg.batchTag.apply')}
+          </Button>
+        </AppDialogFooter>
+      </AppDialog>
 
       {/* ======================== HEALTH ALERTS CONFIG (Session 12) ======================== */}
-      <Dialog open={healthAlertsOpen} onOpenChange={setHealthAlertsOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/15 ring-1 ring-amber-200/50 dark:ring-amber-800/30">
-                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-              <DialogTitle>{t('dlg.health.title')}</DialogTitle>
+      <AppDialog open={healthAlertsOpen} onOpenChange={setHealthAlertsOpen} size="md">
+        <AppDialogHeader>
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/15 ring-1 ring-amber-200/50 dark:ring-amber-800/30">
+              <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
             </div>
-            <DialogDescription>{t('dlg.health.desc')}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-5 py-2">
+            <AppDialogTitle>{t('dlg.health.title')}</AppDialogTitle>
+          </div>
+          <AppDialogDescription>{t('dlg.health.desc')}</AppDialogDescription>
+        </AppDialogHeader>
+        <AppDialogBody>
+          <div className="space-y-5">
             {/* Enable toggle */}
             <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
               <div className="space-y-0.5">
@@ -12031,32 +12047,32 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <div className="flex items-center gap-2">
-              {!alertsAcknowledged && healthAlertEnabled && projects.some((p) => calculateHealthScore(p) <= healthAlertThreshold) && (
-                <Button variant="outline" size="sm" className="text-xs h-8 btn-micro-click" onClick={() => { setAlertsAcknowledged(true); localStorage.setItem('dashboard-alerts-acknowledged', 'true') }}>
-                  <AlertTriangle className="h-3 w-3 mr-1" />{t('dlg.health.acknowledge')}
-                </Button>
-              )}
-            </div>
-            <Button variant="outline" onClick={() => setHealthAlertsOpen(false)}>{t('dlg.common.close')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </AppDialogBody>
+        <AppDialogFooter>
+          <div className="flex items-center gap-2">
+            {!alertsAcknowledged && healthAlertEnabled && projects.some((p) => calculateHealthScore(p) <= healthAlertThreshold) && (
+              <Button variant="outline" size="sm" className="text-xs h-8 btn-micro-click" onClick={() => { setAlertsAcknowledged(true); localStorage.setItem('dashboard-alerts-acknowledged', 'true') }}>
+                <AlertTriangle className="h-3 w-3 mr-1" />{t('dlg.health.acknowledge')}
+              </Button>
+            )}
+          </div>
+          <Button variant="outline" onClick={() => setHealthAlertsOpen(false)}>{t('dlg.common.close')}</Button>
+        </AppDialogFooter>
+      </AppDialog>
 
       {/* ======================== DASHBOARD CUSTOMIZE (Session 12) ======================== */}
-      <Dialog open={dashboardCustomizeOpen} onOpenChange={setDashboardCustomizeOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-gradient-to-br from-cyan-50 to-sky-50 dark:from-cyan-900/20 dark:to-sky-900/15 ring-1 ring-cyan-200/50 dark:ring-cyan-800/30">
-                <LayoutGrid className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
-              </div>
-              <DialogTitle>{t('dlg.customize.title')}</DialogTitle>
+      <AppDialog open={dashboardCustomizeOpen} onOpenChange={setDashboardCustomizeOpen} size="md">
+        <AppDialogHeader>
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-cyan-50 to-sky-50 dark:from-cyan-900/20 dark:to-sky-900/15 ring-1 ring-cyan-200/50 dark:ring-cyan-800/30">
+              <LayoutGrid className="h-5 w-5 text-cyan-600 dark:text-cyan-400" />
             </div>
-            <DialogDescription>{t('dlg.customize.desc')}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-5 py-2">
+            <AppDialogTitle>{t('dlg.customize.title')}</AppDialogTitle>
+          </div>
+          <AppDialogDescription>{t('dlg.customize.desc')}</AppDialogDescription>
+        </AppDialogHeader>
+        <AppDialogBody>
+          <div className="space-y-5">
             {/* Card Density */}
             <div className="space-y-3">
               <Label className="text-sm font-medium">{t('dlg.customize.density')}</Label>
@@ -12121,24 +12137,24 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => setDashboardCustomizeOpen(false)}>{t('dlg.customize.done')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </AppDialogBody>
+        <AppDialogFooter>
+          <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" onClick={() => setDashboardCustomizeOpen(false)}>{t('dlg.customize.done')}</Button>
+        </AppDialogFooter>
+      </AppDialog>
 
       {/* ======================== PROJECT COMPARE (Session 12) ======================== */}
-      <Dialog open={compareOpen} onOpenChange={(v) => { setCompareOpen(v); if (!v) { setCompareProjectA(null); setCompareProjectB(null) } }}>
-        <DialogContent className="sm:max-w-2xl max-h-[80dvh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/15 ring-1 ring-violet-200/50 dark:ring-violet-800/30">
-                <ArrowRightLeft className="h-5 w-5 text-violet-600 dark:text-violet-400" />
-              </div>
-              <DialogTitle>{t('dlg.compare.title')}</DialogTitle>
+      <AppDialog open={compareOpen} onOpenChange={(v) => { setCompareOpen(v); if (!v) { setCompareProjectA(null); setCompareProjectB(null) } }} size="2xl">
+        <AppDialogHeader>
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-violet-50 to-purple-50 dark:from-violet-900/20 dark:to-purple-900/15 ring-1 ring-violet-200/50 dark:ring-violet-800/30">
+              <ArrowRightLeft className="h-5 w-5 text-violet-600 dark:text-violet-400" />
             </div>
-            <DialogDescription>{t('dlg.compare.desc')}</DialogDescription>
-          </DialogHeader>
+            <AppDialogTitle>{t('dlg.compare.title')}</AppDialogTitle>
+          </div>
+          <AppDialogDescription>{t('dlg.compare.desc')}</AppDialogDescription>
+        </AppDialogHeader>
+        <AppDialogBody>
           {!compareProjectA ? (
             <div className="py-6 text-center space-y-4">
               <p className="text-sm text-muted-foreground">{t('dlg.compare.selectTwo')}</p>
@@ -12218,26 +12234,25 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               )}
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setCompareOpen(false); setCompareProjectA(null); setCompareProjectB(null) }}>{t('dlg.compare.close')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </AppDialogBody>
+        <AppDialogFooter>
+          <Button variant="outline" onClick={() => { setCompareOpen(false); setCompareProjectA(null); setCompareProjectB(null) }}>{t('dlg.compare.close')}</Button>
+        </AppDialogFooter>
+      </AppDialog>
 
       {/* ======================== AGENT DEPLOY GUIDE DIALOG ======================== */}
-      <Dialog open={agentDeployGuideOpen} onOpenChange={setAgentDeployGuideOpen}>
-        <DialogContent className="sm:max-w-3xl max-h-[85dvh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30">
-                <Download className="h-5 w-5 text-teal-600 dark:text-teal-400" />
-              </div>
-              {t('dlg.agentDeploy.title')}
-            </DialogTitle>
-            <DialogDescription>{t('dlg.agentDeploy.desc')}</DialogDescription>
-          </DialogHeader>
+      <AppDialog open={agentDeployGuideOpen} onOpenChange={setAgentDeployGuideOpen} size="3xl">
+        <AppDialogHeader>
+          <AppDialogTitle className="flex items-center gap-2">
+            <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30">
+              <Download className="h-5 w-5 text-teal-600 dark:text-teal-400" />
+            </div>
+            {t('dlg.agentDeploy.title')}
+          </AppDialogTitle>
+          <AppDialogDescription>{t('dlg.agentDeploy.desc')}</AppDialogDescription>
+        </AppDialogHeader>
 
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1">
+        <AppDialogBody className="space-y-5">
             {/* Platform Selection */}
             <div className="space-y-3">
               <h4 className="text-sm font-semibold flex items-center gap-2">
@@ -12493,16 +12508,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               </div>
               <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('dlg.agentDeploy.buildExeWarn')}</p>
             </div>
-          </div>
+        </AppDialogBody>
 
-          <DialogFooter className="shrink-0 border-t pt-3">
-            <div className="flex items-center justify-between w-full">
-              <span className="text-[10px] text-muted-foreground">{t('dlg.agentDeploy.packageLocationBefore')} <code className="font-mono">mini-services/agent-windows/</code></span>
-              <Button variant="outline" onClick={() => setAgentDeployGuideOpen(false)}>{t('dlg.common.close')}</Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <AppDialogFooter>
+          <div className="flex items-center justify-between w-full">
+            <span className="text-[10px] text-muted-foreground">{t('dlg.agentDeploy.packageLocationBefore')} <code className="font-mono">mini-services/agent-windows/</code></span>
+            <Button variant="outline" onClick={() => setAgentDeployGuideOpen(false)}>{t('dlg.common.close')}</Button>
+          </div>
+        </AppDialogFooter>
+      </AppDialog>
 
       {/* Auth dialogs: user management (admin) + change password */}
       <UserManagementDialog

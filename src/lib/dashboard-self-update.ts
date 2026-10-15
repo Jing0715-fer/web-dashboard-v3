@@ -3,6 +3,17 @@ import { promisify } from 'util';
 import { db } from '@/lib/db';
 import { logActivity } from '@/lib/activity';
 import { execGitNetwork } from '@/lib/git-retry';
+import { getGitNetConfig, gitProxyArgs } from '@/lib/git-net-config';
+
+/** v1.27: per-invocation proxy args (Settings → Git Network) — applied via
+ *  `git -c http.proxy=…` so nothing is written into this repo's config. */
+async function netProxyArgs(): Promise<string[]> {
+  try {
+    return gitProxyArgs((await getGitNetConfig()).proxy);
+  } catch {
+    return []; // settings table unavailable → direct connection
+  }
+}
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
 // are console-subsystem programs — from a console-less dashboard server
@@ -207,7 +218,7 @@ export async function probeSelfUpdate(force = false): Promise<SelfUpdateStatus> 
         // rev-list gives an exact behind count. Transient network flakes
         // are auto-retried inside (v1.18).
         await execGitNetwork(
-          ['fetch', '--quiet', 'origin', remote.branch || 'HEAD'],
+          [...await netProxyArgs(), 'fetch', '--quiet', 'origin', remote.branch || 'HEAD'],
           { timeout: GIT_TIMEOUT, maxBuffer: 1024 * 512 },
         );
         const { stdout } = await execFileAsync(
@@ -307,7 +318,7 @@ export async function autoPullIfSafe(): Promise<AutoPullResult> {
     // Transient network flakes (SSL_ERROR_SYSCALL…) auto-retry inside.
     const fromSha = status.localSha || undefined;
     try {
-      await execGitNetwork(['pull', '--ff-only'], {
+      await execGitNetwork([...await netProxyArgs(), 'pull', '--ff-only'], {
         timeout: 3 * 60 * 1000, maxBuffer: 1024 * 1024,
       });
     } catch (e: any) {

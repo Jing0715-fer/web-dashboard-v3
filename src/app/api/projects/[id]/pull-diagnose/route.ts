@@ -66,6 +66,7 @@ async function handleDiagnose(
   let locale = 'en';
   let modified: string[] = [];
   let untracked: string[] = [];
+  let agentRun = false;
   try {
     const body = await req.json();
     error = String(body?.error || '').slice(0, 400);
@@ -75,6 +76,7 @@ async function handleDiagnose(
     locale = body?.locale === 'zh' ? 'zh' : 'en';
     modified = sanitizeConflictFiles(body?.modified);
     untracked = sanitizeConflictFiles(body?.untracked);
+    agentRun = !!body?.agentRun;
   } catch { /* no body — the bare error below is the diagnosis input */ }
   if (!error && !detail) {
     return NextResponse.json(
@@ -106,6 +108,7 @@ async function handleDiagnose(
       repoUrl: project.repoUrl || undefined,
       gitContext,
       local: !project.deviceId,
+      agentRun,
     });
     return NextResponse.json({ ok: true, diagnosis, provider, model });
   } catch (e: any) {

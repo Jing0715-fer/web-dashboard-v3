@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import {
   PlugZap, Loader2, Copy, Check, RefreshCw, Terminal, QrCode, ChevronDown, MonitorSmartphone, CheckCircle2,
 } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { AppDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody } from '@/components/app-dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { addToast } from '@/hooks/use-toast'
@@ -137,23 +137,20 @@ export function MeshPairingDialog({
   const alternates = candidates.filter((c) => c.address !== effectiveIp)
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-orange-500 to-rose-500 text-white shrink-0">
-              <PlugZap className="h-4 w-4" />
-            </span>
-            {t('dlg.meshPairing.title')}
-            <Badge variant={expired ? 'destructive' : 'secondary'} className="text-[11px] h-5 ml-1">
-              {expired ? t('dlg.meshPairing.expired') : `${Math.floor(countdown / 60)}:${String(countdown % 60).padStart(2, '0')}`}
-            </Badge>
-          </DialogTitle>
-          <DialogDescription className="text-xs">
-            {t('dlg.meshPairing.desc')}
-          </DialogDescription>
-        </DialogHeader>
+    <AppDialog open onOpenChange={(o) => { if (!o) onClose() }} size="lg">
+      <AppDialogHeader icon={PlugZap}>
+        <AppDialogTitle className="flex items-center gap-2">
+          {t('dlg.meshPairing.title')}
+          <Badge variant={expired ? 'destructive' : 'secondary'} className="text-[11px] h-5 ml-1">
+            {expired ? t('dlg.meshPairing.expired') : `${Math.floor(countdown / 60)}:${String(countdown % 60).padStart(2, '0')}`}
+          </Badge>
+        </AppDialogTitle>
+        <AppDialogDescription>
+          {t('dlg.meshPairing.desc')}
+        </AppDialogDescription>
+      </AppDialogHeader>
 
+      <AppDialogBody>
         {loading && !pair && (
           <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
             <Loader2 className="h-4 w-4 animate-spin mr-2" /> {t('dlg.meshPairing.generating')}
@@ -283,7 +280,7 @@ export function MeshPairingDialog({
             </div>
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+    </AppDialog>
   )
 }

@@ -58,8 +58,35 @@ export function gitErrorText(e: unknown): string {
   return String(err?.stderr || err?.stdout || err?.message || '');
 }
 
+/** v1.27: the process was killed by execFile (timeout / maxBuffer) rather
+ *  than exiting with a git error — the signature case is a fetch that stalls
+ *  on a throttled link until the timeout reaps it: NO stderr is produced, the
+ *  error message is a bare "Command failed: git fetch origin --prune", and
+ *  the old pattern matcher (stderr-only) classified it as non-transient —
+ *  so the ONE failure class that most deserves a retry never got one
+ *  (real report: Foundry Lab fetch died exactly like this, zero retries). */
+export function isGitKilledError(e: unknown): boolean {
+  const err = e as any;
+  return !!(err && (err.killed || err.signal));
+}
+
+/** Human-readable text for a network git failure — a killed process gets an
+ *  explanation INSTEAD of the useless bare "Command failed: …" message, so
+ *  both the AI diagnosis prompt and the user-facing detail describe what
+ *  actually happened (a stalled transfer reaped at the timeout). */
+export function gitNetworkErrorText(e: unknown, timeoutMs?: number): string {
+  const raw = gitErrorText(e);
+  if (isGitKilledError(e) && !raw.trim()) {
+    const secs = timeoutMs ? Math.round(timeoutMs / 1000) : 0;
+    return `git was killed after ${secs > 0 ? `${secs}s` : 'the timeout'} (transfer stalled — no error output was produced)`;
+  }
+  return raw;
+}
+
 /** True when the failure looks like a network flake that a retry can fix. */
 export function isTransientGitNetworkError(e: unknown): boolean {
+  // Killed-by-timeout is retryable by definition (v1.27) — see above.
+  if (isGitKilledError(e)) return true;
   return TRANSIENT_GIT_NET_RE.test(gitErrorText(e));
 }
 

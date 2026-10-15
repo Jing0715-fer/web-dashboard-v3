@@ -3,14 +3,14 @@
 import * as React from 'react'
 import {
   Users, Loader2, Trash2, CheckCircle2, XCircle, Clock, Copy,
-  AlertCircle, LogOut,
+  AlertCircle, LogOut, WifiOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { AppDialog, AppDialogHeader, AppDialogBody, AppAlertDialog, AppDialogFooter } from '@/components/app-dialog'
+import { AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -96,7 +96,7 @@ function ProviderBadge({ provider }: { provider: PublicUser['provider'] }) {
 export function UserManagementDialog({ open, onClose, onPendingChange }: UserManagementDialogProps) {
   const { user: currentUser } = useAuth()
   const t = useT()
-  const [tab, setTab] = React.useState<'users' | 'google'>('users')
+  const [tab, setTab] = React.useState<'users' | 'google' | 'network'>('users')
 
   // Users tab state
   const [users, setUsers] = React.useState<PublicUser[] | null>(null)
@@ -116,6 +116,17 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
   const [googleError, setGoogleError] = React.useState<string | null>(null)
   const [removeConfirm, setRemoveConfirm] = React.useState(false)
   const [removeBusy, setRemoveBusy] = React.useState(false)
+
+  // Git network tab state (v1.27): admin-owned proxy for every network git
+  // call (fetch / ls-remote / update checks) — the fix for links where
+  // github.com:443 resets or stalls.
+  const [gitProxy, setGitProxy] = React.useState('')
+  const [gitProxyConfigured, setGitProxyConfigured] = React.useState(false)
+  const [gitProxyMasked, setGitProxyMasked] = React.useState<string | null>(null)
+  const [gitProxySource, setGitProxySource] = React.useState<'setting' | 'env' | null>(null)
+  const [savingProxy, setSavingProxy] = React.useState(false)
+  const [proxyError, setProxyError] = React.useState<string | null>(null)
+  const [proxySavedAt, setProxySavedAt] = React.useState(0)
 
   const fetchUsers = React.useCallback(async () => {
     try {
@@ -139,13 +150,17 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
     ])
     // /api/auth/google/status → { configured, redirectUri, clientIdMasked }
     const fromStatus = statusRes ?? {}
-    // /api/admin/settings → { google: { configured, clientIdMasked, redirectUri } }
+    // /api/admin/settings → { google: {…}, git: { proxyConfigured, proxyMasked, proxySource } }
     const fromSettings = (settingsRes && settingsRes.google) ? settingsRes.google : {}
     setGoogleStatus({
       configured: !!(fromSettings.configured ?? fromStatus.configured),
       redirectUri: fromSettings.redirectUri || fromStatus.redirectUri || '',
       clientIdMasked: fromSettings.clientIdMasked ?? fromStatus.clientIdMasked ?? null,
     })
+    const git = settingsRes?.git
+    setGitProxyConfigured(!!git?.proxyConfigured)
+    setGitProxyMasked(git?.proxyMasked ?? null)
+    setGitProxySource(git?.proxySource ?? null)
   }, [])
 
   React.useEffect(() => {
@@ -158,9 +173,41 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
     setGoogleError(null)
     setClientId('')
     setClientSecret('')
+    setProxyError(null)
+    setProxySavedAt(0)
     void fetchUsers()
     void refreshGoogle()
   }, [open, fetchUsers, refreshGoogle])
+
+  /** v1.27: persist the git proxy (or clear it when the input is empty). */
+  const handleSaveProxy = async () => {
+    setSavingProxy(true)
+    setProxyError(null)
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gitProxy: gitProxy.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setProxyError(String(data?.error || `HTTP ${res.status}`))
+        return
+      }
+      setGitProxy('')
+      setProxySavedAt(Date.now())
+      addToast({
+        title: t('dlg.userMgmt.gitProxySaved'),
+        description: data?.git?.proxyConfigured ? t('dlg.userMgmt.gitProxySavedDesc') : t('dlg.userMgmt.gitProxyClearedDesc'),
+        variant: 'success',
+      })
+      await refreshGoogle()
+    } catch {
+      setProxyError(t('dlg.userMgmt.gitProxyNetError'))
+    } finally {
+      setSavingProxy(false)
+    }
+  }
 
   // ---------- user mutations ----------
 
@@ -341,17 +388,11 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
   ]
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto custom-scrollbar p-5 sm:p-6">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-brand-strong" />
-            {t('dlg.userMgmt.title')}
-          </DialogTitle>
-          <DialogDescription>{t('dlg.userMgmt.desc')}</DialogDescription>
-        </DialogHeader>
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="3xl">
+      <AppDialogHeader icon={Users} title={t('dlg.userMgmt.title')} description={t('dlg.userMgmt.desc')} />
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as 'users' | 'google')}>
+      <AppDialogBody>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as 'users' | 'google' | 'network')}>
           <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-2 mb-4">
             <TabsTrigger value="users" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">
               {t('dlg.userMgmt.users')}
@@ -360,6 +401,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
               )}
             </TabsTrigger>
             <TabsTrigger value="google" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('dlg.userMgmt.google')}</TabsTrigger>
+            <TabsTrigger value="network" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('dlg.userMgmt.gitNetwork')}</TabsTrigger>
           </TabsList>
 
           {/* ==================== USERS TAB ==================== */}
@@ -625,91 +667,162 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
               </div>
             </div>
           )}
+
+          {/* ==================== GIT NETWORK TAB (v1.27) ==================== */}
+          {tab === 'network' && (
+            <div className="space-y-4">
+              {/* Status card */}
+              <div className={`flex items-start gap-3 rounded-lg border p-3.5 ${gitProxyConfigured
+                ? 'border-emerald-200/80 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20'
+                : 'border-amber-200/80 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20'}`}>
+                {gitProxyConfigured
+                  ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                  : <WifiOff className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium leading-snug">
+                    {gitProxyConfigured ? t('dlg.userMgmt.gitProxyOn') : t('dlg.userMgmt.gitProxyOff')}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1 break-all">
+                    {gitProxyConfigured
+                      ? t('dlg.userMgmt.gitProxyCurrent', {
+                          proxy: gitProxyMasked || '',
+                          source: gitProxySource === 'env' ? t('dlg.userMgmt.gitProxySourceEnv') : t('dlg.userMgmt.gitProxySourceSetting'),
+                        })
+                      : t('dlg.userMgmt.gitProxyOffDesc')}
+                  </p>
+                </div>
+              </div>
+
+              {/* Form */}
+              <div className="space-y-3.5 rounded-lg border border-border/60 bg-card p-3.5">
+                <div className="space-y-1.5">
+                  <Label htmlFor="git-proxy-url" className="text-xs">{t('dlg.userMgmt.gitProxyUrl')}</Label>
+                  <Input
+                    id="git-proxy-url"
+                    type="text"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="http://127.0.0.1:7890"
+                    value={gitProxy}
+                    onChange={(e) => { setGitProxy(e.target.value); setProxyError(null); setProxySavedAt(0) }}
+                    disabled={savingProxy}
+                    className="h-10 font-mono text-xs"
+                  />
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">{t('dlg.userMgmt.gitProxyHint')}</p>
+                </div>
+                {proxyError && (
+                  <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-destructive/40 bg-card px-3.5 py-2.5 text-sm text-destructive dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-400">
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <p className="font-medium leading-snug">{proxyError}</p>
+                  </div>
+                )}
+                {proxySavedAt > 0 && !proxyError && (
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">{t('dlg.userMgmt.gitProxySavedDesc')}</p>
+                )}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    type="button"
+                    onClick={() => void handleSaveProxy()}
+                    disabled={savingProxy || gitProxy.trim() === ''}
+                    className="h-10 px-5 text-sm"
+                  >
+                    {savingProxy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    {t('dlg.userMgmt.save')}
+                  </Button>
+                  {gitProxyConfigured && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => { setGitProxy(''); void handleSaveProxy() }}
+                      disabled={savingProxy}
+                      className="h-10 px-5 text-sm border-red-300/70 text-red-600 dark:border-red-900/60 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
+                    >
+                      <LogOut className="h-4 w-4 mr-2 rotate-180" />{t('dlg.userMgmt.gitProxyRemove')}
+                    </Button>
+                  )}
+                </div>
+                {gitProxy.trim() === '' && gitProxyConfigured && !savingProxy && (
+                  <p className="text-[11px] text-muted-foreground">{t('dlg.userMgmt.gitProxyClearHint')}</p>
+                )}
+              </div>
+
+              {/* What this affects */}
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-3.5">
+                <p className="text-xs font-medium mb-1.5">{t('dlg.userMgmt.gitProxyAffects')}</p>
+                <ul className="space-y-1 text-xs text-muted-foreground leading-relaxed">
+                  <li>· {t('dlg.userMgmt.gitProxyAffect1')}</li>
+                  <li>· {t('dlg.userMgmt.gitProxyAffect2')}</li>
+                  <li>· {t('dlg.userMgmt.gitProxyAffect3')}</li>
+                </ul>
+              </div>
+            </div>
+          )}
         </Tabs>
+      </AppDialogBody>
 
-        {/* ---------- Reject reason dialog ---------- */}
-        <Dialog open={!!rejectTarget} onOpenChange={(v) => { if (!v) { setRejectTarget(null); setRejectReason('') } }}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <XCircle className="h-5 w-5 text-red-500 dark:text-red-400" />
-                {t('dlg.userMgmt.rejectTitle')}
-              </DialogTitle>
-              <DialogDescription>
-                {rejectTarget ? t('dlg.userMgmt.rejectDesc', { name: rejectTarget.name, email: rejectTarget.email }) : ''}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-1.5">
-              <Label htmlFor="reject-reason">{t('dlg.userMgmt.reason')}</Label>
-              <Textarea
-                id="reject-reason"
-                placeholder={t('dlg.userMgmt.reasonPlaceholder')}
-                value={rejectReason}
-                maxLength={200}
-                onChange={(e) => setRejectReason(e.target.value)}
-                disabled={rejectBusy}
-                className="min-h-[72px] text-sm"
-              />
-              <p className="text-[11px] text-muted-foreground text-right tabular-nums">{rejectReason.length}/200</p>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => { setRejectTarget(null); setRejectReason('') }} disabled={rejectBusy} className="h-10">{t('dlg.common.cancel')}</Button>
-              <Button type="button" onClick={() => void handleRejectConfirm()} disabled={rejectBusy} className="h-10 bg-red-600 hover:bg-red-700 text-white">
-                {rejectBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                {t('dlg.userMgmt.reject')}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+      {/* ---------- Reject reason dialog ---------- */}
+      <AppDialog open={!!rejectTarget} onOpenChange={(v) => { if (!v) { setRejectTarget(null); setRejectReason('') } }} size="md">
+        <AppDialogHeader icon={XCircle} title={t('dlg.userMgmt.rejectTitle')} description={rejectTarget ? t('dlg.userMgmt.rejectDesc', { name: rejectTarget.name, email: rejectTarget.email }) : ''} />
+        <AppDialogBody className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="reject-reason">{t('dlg.userMgmt.reason')}</Label>
+            <Textarea
+              id="reject-reason"
+              placeholder={t('dlg.userMgmt.reasonPlaceholder')}
+              value={rejectReason}
+              maxLength={200}
+              onChange={(e) => setRejectReason(e.target.value)}
+              disabled={rejectBusy}
+              className="min-h-[72px] text-sm"
+            />
+            <p className="text-[11px] text-muted-foreground text-right tabular-nums">{rejectReason.length}/200</p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => { setRejectTarget(null); setRejectReason('') }} disabled={rejectBusy} className="h-10">{t('dlg.common.cancel')}</Button>
+            <Button type="button" onClick={() => void handleRejectConfirm()} disabled={rejectBusy} className="h-10 bg-red-600 hover:bg-red-700 text-white">
+              {rejectBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {t('dlg.userMgmt.reject')}
+            </Button>
+          </div>
+        </AppDialogBody>
+      </AppDialog>
 
-        {/* ---------- Delete confirm ---------- */}
-        <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null) }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('dlg.userMgmt.deleteTitle')}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {deleteTarget
-                  ? t('dlg.userMgmt.deleteDesc', { name: deleteTarget.name, email: deleteTarget.email })
-                  : ''}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={deleteBusy}>{t('dlg.common.cancel')}</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => { e.preventDefault(); void handleDeleteConfirm() }}
-                disabled={deleteBusy}
-                className="bg-red-600 hover:bg-red-700 text-white focus:ring-red-600"
-              >
-                {deleteBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                {t('dlg.common.delete')}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+      {/* ---------- Delete confirm ---------- */}
+      <AppAlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null) }} size="lg">
+        <AppDialogHeader
+          title={t('dlg.userMgmt.deleteTitle')}
+          description={deleteTarget
+            ? t('dlg.userMgmt.deleteDesc', { name: deleteTarget.name, email: deleteTarget.email })
+            : ''}
+        />
+        <AppDialogFooter>
+          <AlertDialogCancel disabled={deleteBusy}>{t('dlg.common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => { e.preventDefault(); void handleDeleteConfirm() }}
+            disabled={deleteBusy}
+            className="bg-red-600 hover:bg-red-700 text-white focus:ring-red-600"
+          >
+            {deleteBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {t('dlg.common.delete')}
+          </AlertDialogAction>
+        </AppDialogFooter>
+      </AppAlertDialog>
 
-        {/* ---------- Remove Google configuration confirm ---------- */}
-        <AlertDialog open={removeConfirm} onOpenChange={setRemoveConfirm}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('dlg.userMgmt.removeGoogleTitle')}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {t('dlg.userMgmt.removeGoogleDesc')}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={removeBusy}>{t('dlg.common.cancel')}</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => { e.preventDefault(); void handleRemoveGoogle() }}
-                disabled={removeBusy}
-                className="bg-red-600 hover:bg-red-700 text-white focus:ring-red-600"
-              >
-                {removeBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                {t('dlg.userMgmt.remove')}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </DialogContent>
-    </Dialog>
+      {/* ---------- Remove Google configuration confirm ---------- */}
+      <AppAlertDialog open={removeConfirm} onOpenChange={setRemoveConfirm} size="lg">
+        <AppDialogHeader title={t('dlg.userMgmt.removeGoogleTitle')} description={t('dlg.userMgmt.removeGoogleDesc')} />
+        <AppDialogFooter>
+          <AlertDialogCancel disabled={removeBusy}>{t('dlg.common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => { e.preventDefault(); void handleRemoveGoogle() }}
+            disabled={removeBusy}
+            className="bg-red-600 hover:bg-red-700 text-white focus:ring-red-600"
+          >
+            {removeBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {t('dlg.userMgmt.remove')}
+          </AlertDialogAction>
+        </AppDialogFooter>
+      </AppAlertDialog>
+    </AppDialog>
   )
 }

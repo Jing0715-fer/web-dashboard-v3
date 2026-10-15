@@ -6,7 +6,7 @@ import {
   MonitorSmartphone, Loader2, CheckCircle2, XCircle, Terminal, FileText,
   Search, Play, CircleDot, Gauge, Server, Zap, Save,
 } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { AppDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody } from '@/components/app-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -264,22 +264,19 @@ export function RemoteProjectDialog({
   const progressItems: ProgressItem[] = job?.progress ?? []
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-emerald-500 text-white shrink-0">
-              <MonitorSmartphone className="h-4 w-4" />
-            </span>
-            {t('dlg.remoteProject.title')}
-            {running && <Loader2 className="h-4 w-4 animate-spin text-teal-500" />}
-          </DialogTitle>
-          <DialogDescription className="text-xs">
-            {t('dlg.remoteProject.desc')}
-          </DialogDescription>
-        </DialogHeader>
+    <AppDialog open onOpenChange={(o) => { if (!o) onClose() }} size="2xl">
+      <AppDialogHeader icon={MonitorSmartphone}>
+        <AppDialogTitle className="flex items-center gap-2">
+          {t('dlg.remoteProject.title')}
+          {running && <Loader2 className="h-4 w-4 animate-spin text-teal-500" />}
+        </AppDialogTitle>
+        <AppDialogDescription>
+          {t('dlg.remoteProject.desc')}
+        </AppDialogDescription>
+      </AppDialogHeader>
 
-        {!jobId && (
+      {!jobId && (
+        <AppDialogBody>
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label className="text-xs">{t('dlg.remoteProject.device')}</Label>
@@ -314,113 +311,115 @@ export function RemoteProjectDialog({
               </Button>
             </div>
           </div>
-        )}
+        </AppDialogBody>
+      )}
 
-        {jobId && (
-          <>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <Badge variant={running ? 'secondary' : done ? 'default' : 'destructive'} className="text-[11px] h-5">
-                {running ? t('dlg.remoteProject.status.running') : done ? t('dlg.remoteProject.status.completed') : t('dlg.remoteProject.status.failed')}
-              </Badge>
-              <span className="flex items-center gap-1"><Server className="h-3 w-3" />{devices.find(d => d.id === deviceId)?.name}</span>
-              <span className="font-mono">{path}</span>
-              <span className="ml-auto flex items-center gap-1"><Gauge className="h-3 w-3" />{t('dlg.analyze.elapsed', { count: elapsed })}</span>
+      {jobId && (
+        <AppDialogBody className="space-y-4">
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <Badge variant={running ? 'secondary' : done ? 'default' : 'destructive'} className="text-[11px] h-5">
+              {running ? t('dlg.remoteProject.status.running') : done ? t('dlg.remoteProject.status.completed') : t('dlg.remoteProject.status.failed')}
+            </Badge>
+            <span className="flex items-center gap-1"><Server className="h-3 w-3" />{devices.find(d => d.id === deviceId)?.name}</span>
+            <span className="font-mono">{path}</span>
+            <span className="ml-auto flex items-center gap-1"><Gauge className="h-3 w-3" />{t('dlg.analyze.elapsed', { count: elapsed })}</span>
+          </div>
+          <Progress value={pct} className="h-1.5" />
+          {/* live progress terminal — keeps its own bounded scroll so the
+              scrollRef autoscroll keeps working inside the body */}
+          <div ref={scrollRef} className="max-h-64 overflow-y-auto rounded-lg border bg-muted/30 p-3 space-y-1.5">
+            {progressItems.length === 0 && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 justify-center">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('dlg.remoteProject.connecting')}
+              </div>
+            )}
+            {progressItems.map((p, i) => (
+              <motion.div key={`${p.ts}-${i}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+                className="flex items-start gap-2 text-xs leading-5">
+                <span className="mt-0.5 shrink-0">{kindIcon[p.kind] ?? kindIcon.note}</span>
+                <span className={p.kind === 'command' ? 'font-mono text-emerald-700 dark:text-emerald-300'
+                  : p.kind === 'error' ? 'text-red-500'
+                  : p.kind === 'result' ? 'text-emerald-600 dark:text-emerald-400 font-medium'
+                  : 'text-muted-foreground'}>{p.text}</span>
+              </motion.div>
+            ))}
+          </div>
+
+          {(error || job?.error) && (
+            <div className="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-xs text-red-600 dark:text-red-400">
+              {error || job?.error}
             </div>
-            <Progress value={pct} className="h-1.5" />
-            <div ref={scrollRef} className="flex-1 min-h-0 max-h-64 overflow-y-auto rounded-lg border bg-muted/30 p-3 space-y-1.5">
-              {progressItems.length === 0 && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 justify-center">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('dlg.remoteProject.connecting')}
+          )}
+
+          {done && job?.result && (
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-2">
+              <div className="text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>{job.result.summary || t('dlg.remoteProject.verifiedFallback')}</span>
+              </div>
+              {(job.result.environments ?? []).map((e: any, i: number) => (
+                <div key={i} className="flex items-center gap-2 text-xs font-mono bg-background/60 rounded-md px-2 py-1.5">
+                  <Badge variant="outline" className="h-5 text-[10px] px-1.5">{e.name}</Badge>
+                  <span className="truncate flex-1">{e.cmd}</span>
+                  <span className="text-muted-foreground">:{e.port}</span>
                 </div>
-              )}
-              {progressItems.map((p, i) => (
-                <motion.div key={`${p.ts}-${i}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
-                  className="flex items-start gap-2 text-xs leading-5">
-                  <span className="mt-0.5 shrink-0">{kindIcon[p.kind] ?? kindIcon.note}</span>
-                  <span className={p.kind === 'command' ? 'font-mono text-emerald-700 dark:text-emerald-300'
-                    : p.kind === 'error' ? 'text-red-500'
-                    : p.kind === 'result' ? 'text-emerald-600 dark:text-emerald-400 font-medium'
-                    : 'text-muted-foreground'}>{p.text}</span>
-                </motion.div>
               ))}
-            </div>
-
-            {(error || job?.error) && (
-              <div className="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-xs text-red-600 dark:text-red-400">
-                {error || job?.error}
-              </div>
-            )}
-
-            {done && job?.result && (
-              <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-2">
-                <div className="text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-1.5">
-                  <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                  <span>{job.result.summary || t('dlg.remoteProject.verifiedFallback')}</span>
-                </div>
-                {(job.result.environments ?? []).map((e: any, i: number) => (
-                  <div key={i} className="flex items-center gap-2 text-xs font-mono bg-background/60 rounded-md px-2 py-1.5">
-                    <Badge variant="outline" className="h-5 text-[10px] px-1.5">{e.name}</Badge>
-                    <span className="truncate flex-1">{e.cmd}</span>
-                    <span className="text-muted-foreground">:{e.port}</span>
-                  </div>
-                ))}
-                {/* server-side auto-save status */}
-                {autoPending && (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    {t('dlg.analyze.autoSaving')}
-                  </div>
-                )}
-                {autoSavedOk && (
-                  <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300 pt-1">
-                    <Save className="h-3.5 w-3.5 shrink-0" />
-                    {t('dlg.remoteProject.autoSavedLine', { count: autoOutcome?.applied ?? 0 })}
-                  </div>
-                )}
-                {autoOutcome && !autoOutcome.ok && (
-                  <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
-                    <XCircle className="h-3.5 w-3.5 shrink-0" />
-                    {t('dlg.analyze.autoSaveFailed')}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="flex items-center gap-2 justify-end">
-              {running && <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.remoteProject.background')}</Button>}
-              {/* server already applied — offer start + done, no add button needed */}
-              {done && autoSavedOk && (
-                <>
-                  <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.remoteProject.done')}</Button>
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => apply(true)} disabled={starting}>
-                    {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
-                    {t('dlg.remoteProject.startRemote')}
-                  </Button>
-                </>
-              )}
-              {/* auto-apply still working — nothing to click yet (bounded wait) */}
-              {done && autoPending && !manualFallback && (
-                <span className="text-[11px] text-muted-foreground mr-auto flex items-center gap-1.5">
-                  <Loader2 className="h-3 w-3 animate-spin" />
+              {/* server-side auto-save status */}
+              {autoPending && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   {t('dlg.analyze.autoSaving')}
-                </span>
+                </div>
               )}
-              {/* manual fallback: auto-apply unavailable/failed/expired */}
-              {manualFallback && !applied && (
-                <>
-                  <Button variant="outline" size="sm" onClick={() => apply(false)} disabled={starting}>{t('dlg.remoteProject.addOnly')}</Button>
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => apply(true)} disabled={starting}>
-                    {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
-                    {t('dlg.remoteProject.startRemote')}
-                  </Button>
-                </>
+              {autoSavedOk && (
+                <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300 pt-1">
+                  <Save className="h-3.5 w-3.5 shrink-0" />
+                  {t('dlg.remoteProject.autoSavedLine', { count: autoOutcome?.applied ?? 0 })}
+                </div>
               )}
-              {applied && !autoSavedOk && <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.remoteProject.done')}</Button>}
-              {failed && <Button size="sm" variant="outline" onClick={() => { setJobId(null); setJob(null); clearRemoteSession() }}>{t('dlg.remoteProject.retry')}</Button>}
+              {autoOutcome && !autoOutcome.ok && (
+                <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
+                  <XCircle className="h-3.5 w-3.5 shrink-0" />
+                  {t('dlg.analyze.autoSaveFailed')}
+                </div>
+              )}
             </div>
-          </>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
+
+          <div className="flex items-center gap-2 justify-end">
+            {running && <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.remoteProject.background')}</Button>}
+            {/* server already applied — offer start + done, no add button needed */}
+            {done && autoSavedOk && (
+              <>
+                <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.remoteProject.done')}</Button>
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => apply(true)} disabled={starting}>
+                  {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
+                  {t('dlg.remoteProject.startRemote')}
+                </Button>
+              </>
+            )}
+            {/* auto-apply still working — nothing to click yet (bounded wait) */}
+            {done && autoPending && !manualFallback && (
+              <span className="text-[11px] text-muted-foreground mr-auto flex items-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t('dlg.analyze.autoSaving')}
+              </span>
+            )}
+            {/* manual fallback: auto-apply unavailable/failed/expired */}
+            {manualFallback && !applied && (
+              <>
+                <Button variant="outline" size="sm" onClick={() => apply(false)} disabled={starting}>{t('dlg.remoteProject.addOnly')}</Button>
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => apply(true)} disabled={starting}>
+                  {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
+                  {t('dlg.remoteProject.startRemote')}
+                </Button>
+              </>
+            )}
+            {applied && !autoSavedOk && <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.remoteProject.done')}</Button>}
+            {failed && <Button size="sm" variant="outline" onClick={() => { setJobId(null); setJob(null); clearRemoteSession() }}>{t('dlg.remoteProject.retry')}</Button>}
+          </div>
+        </AppDialogBody>
+      )}
+    </AppDialog>
   )
 }

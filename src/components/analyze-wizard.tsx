@@ -6,7 +6,7 @@ import {
   Bot, Terminal, FileText, Search, CheckCircle2, XCircle, Loader2,
   Play, Zap, RefreshCw, Sparkles, Gauge, CircleDot, Save,
 } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { AppDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody } from '@/components/app-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -303,23 +303,20 @@ export function AnalyzeWizard({
   const hasAutoEnvs = (autoOutcome?.envs?.length ?? 0) > 0
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o && status !== 'running') onClose() }}>
-      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-violet-500 text-white shrink-0">
-              <Bot className="h-4 w-4" />
-            </span>
-            {t('dlg.analyze.title', { name: session.name })}
-            {status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-sky-500" />}
-            {done && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
-            {failed && <XCircle className="h-4 w-4 text-red-500" />}
-          </DialogTitle>
-          <DialogDescription className="text-xs font-mono truncate">
-            {session.path}
-          </DialogDescription>
-        </DialogHeader>
+    <AppDialog open onOpenChange={(o) => { if (!o && status !== 'running') onClose() }} size="2xl">
+      <AppDialogHeader icon={Bot}>
+        <AppDialogTitle className="flex items-center gap-2">
+          {t('dlg.analyze.title', { name: session.name })}
+          {status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-sky-500" />}
+          {done && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
+          {failed && <XCircle className="h-4 w-4 text-red-500" />}
+        </AppDialogTitle>
+        <AppDialogDescription className="font-mono truncate">
+          {session.path}
+        </AppDialogDescription>
+      </AppDialogHeader>
 
+      <AppDialogBody className="space-y-4">
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <Badge variant={status === 'running' ? 'secondary' : done ? 'default' : 'destructive'} className="text-[11px] h-5">
             {status === 'running' ? t('dlg.analyze.status.running') : done ? t('dlg.analyze.status.completed') : status === 'cancelled' ? t('dlg.analyze.status.cancelled') : t('dlg.analyze.status.failed')}
@@ -341,8 +338,9 @@ export function AnalyzeWizard({
           )}
         </div>
 
-        {/* live progress feed */}
-        <div ref={scrollRef} className="flex-1 min-h-0 max-h-72 overflow-y-auto rounded-lg border bg-muted/30 p-3 space-y-1.5">
+        {/* live progress feed — keeps its own bounded scroll so the
+            scrollRef autoscroll keeps working inside the body */}
+        <div ref={scrollRef} className="max-h-72 overflow-y-auto rounded-lg border bg-muted/30 p-3 space-y-1.5">
           {progressItems.length === 0 && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 justify-center">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -482,7 +480,7 @@ export function AnalyzeWizard({
             </>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+    </AppDialog>
   )
 }

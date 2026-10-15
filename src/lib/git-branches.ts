@@ -3,6 +3,7 @@ import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { execGitNetwork } from '@/lib/git-retry';
+import { getGitNetConfig, gitProxyArgs } from '@/lib/git-net-config';
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
 // are console-subsystem programs — from a console-less dashboard server
@@ -47,7 +48,10 @@ export interface GitSwitchResult {
 }
 
 const GIT_TIMEOUT = 15000;
-const FETCH_TIMEOUT = 60_000;
+// v1.27: 90s — a stalled github.com fetch used to be reaped at 60s with a
+// bare "Command failed" and no stderr; the extra headroom plus the
+// killed-is-transient retry inside execGitNetwork lets slow links land.
+const FETCH_TIMEOUT = 90_000;
 
 /**
  * Branch-name guard for user-supplied values (API body → git argv). Git
@@ -83,9 +87,16 @@ export async function listGitBranches(path: string, fetch = false): Promise<GitB
     if (fetch) {
       // Transient network flakes (SSL_ERROR_SYSCALL to github.com:443…)
       // are auto-retried inside (v1.18) — the picker keeps its "offline →
-      // cached refs" fallback for genuinely down links.
-      await execGitNetwork(['fetch', 'origin', '--prune'], {
-        cwd: path, timeout: FETCH_TIMEOUT, maxBuffer: 512 * 1024,
+      // cached refs" fallback for genuinely down links. v1.27: routes
+      // through the configured proxy (Settings → Git Network) when one is
+      // set, and caps retries at 1 so a dead link can't stall the picker
+      // for minutes (2 attempts ≈ worst case ~3min with backoff).
+      let proxyArgs: string[] = [];
+      try {
+        proxyArgs = gitProxyArgs((await getGitNetConfig()).proxy);
+      } catch { /* settings unavailable → direct */ }
+      await execGitNetwork([...proxyArgs, 'fetch', 'origin', '--prune'], {
+        cwd: path, timeout: FETCH_TIMEOUT, maxBuffer: 512 * 1024, maxRetries: 1,
       }).catch(() => { /* offline / no origin — list cached refs below */ });
     }
 

@@ -2,7 +2,8 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
-import { execGitNetwork, gitErrorText } from '@/lib/git-retry';
+import { execGitNetwork, gitErrorText, gitNetworkErrorText, isTransientGitNetworkError } from '@/lib/git-retry';
+import { getGitNetConfig, gitProxyArgs } from '@/lib/git-net-config';
 import { parsePullConflict } from '@/lib/pull-conflict';
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
@@ -89,6 +90,13 @@ export interface PullAgentResult {
    *                the labelled stash entry for a manual `git stash pop`.
    *  Absent when no rollback was needed (failure after restore, or ok). */
   rolledBack?: 'restored' | 'kept';
+  /** v1.27: every fetch strategy failed (network path to the remote is
+   *  down) but the repo had CACHED remote-tracking refs for the target —
+   *  the run continued and synced against that last known state instead
+   *  of aborting. `ref` is the cached ref used, `error` the final fetch
+   *  error (for the report). The UI must surface this: "synced against
+   *  the last known remote state" — never a silent claim of freshness. */
+  fetchDegraded?: { ref: string; error: string };
   /** Local changes re-applied cleanly on top of the pulled code. */
   restored: boolean;
   /** Files whose stash-pop conflict was auto-resolved (pulled version in the
@@ -247,6 +255,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
   let switchedTo = '';
   let upToDate = false;
   let newerOnDefault: PullAgentResult['newerOnDefault'];
+  let fetchDegraded: PullAgentResult['fetchDegraded'];
 
   const setStep = (key: AgentStep['key'], patch: Partial<AgentStep>) => {
     const s = steps.find((x) => x.key === key);
@@ -293,6 +302,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
     ...(switchedTo ? { switchedTo } : {}),
     ...(newerOnDefault ? { newerOnDefault } : {}),
     ...(rolledBack ? { rolledBack } : {}),
+    ...(fetchDegraded ? { fetchDegraded } : {}),
     restored,
     autoResolved,
     artifacts,
@@ -365,7 +375,20 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
     return finish(false, 'backup failed', 'Backing up the local changes failed', gitErrorText(e));
   }
 
-  // ---------------- fetch ----------------
+  // ---------------- fetch (v1.27 strategy ladder) ----------------
+  // Direct HTTP/2 fetches to github.com die on throttled links in two ways:
+  // mid-TLS resets ("Recv failure: Connection was reset") and stalled
+  // transfers reaped at the timeout (NO stderr at all — the bare "Command
+  // failed" the user saw). Both are network pathologies, not repository
+  // problems, so the fetch escalates through strategies before giving up:
+  //   1. plain fetch (HTTP/2, transient-retried inside)
+  //   2. HTTP/1.1 — the classic workaround for resets through flaky boxes
+  //   3. configured proxy (Settings → Git Network), if any
+  // When every strategy fails but the repo has CACHED remote-tracking refs
+  // for the target, the run DEGRADES to syncing against the last known
+  // remote state instead of aborting — a branch switch + sync still
+  // completes offline, and the result carries fetchDegraded so the report
+  // names the stale data honestly (never a silent "up to date").
   setStep('fetch', { status: 'running' });
   try {
     // Self-heal a missing 'origin' from the configured repo URL (v1.9 logic).
@@ -382,13 +405,69 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
       await git(projectPath, ['remote', 'add', 'origin', want], 15_000);
       setStep('fetch', { note: { key: 'dlg.pullAgent.note.originWired' }, info: `git remote add origin <configured-url>` });
     }
-    const fr = await execGitNetwork(['fetch', 'origin', '--prune'], {
-      cwd: projectPath, timeout: 3 * 60_000, maxBuffer: 1024 * 1024,
-    });
-    if (fr.retried > 0) {
-      setStep('fetch', { note: { key: 'dlg.pullAgent.note.fetchRetried', params: { n: fr.retried } } });
+
+    const netCfg = await getGitNetConfig();
+    const strategies: { id: 'plain' | 'http11' | 'proxy'; timeoutMs: number; args: string[] }[] = [
+      { id: 'plain', timeoutMs: 3 * 60_000, args: ['fetch', 'origin', '--prune'] },
+      { id: 'http11', timeoutMs: 5 * 60_000, args: ['-c', 'http.version=HTTP/1.1', 'fetch', 'origin', '--prune'] },
+    ];
+    if (netCfg.proxy) {
+      strategies.push({
+        id: 'proxy', timeoutMs: 5 * 60_000,
+        args: [...gitProxyArgs(netCfg.proxy), '-c', 'http.version=HTTP/1.1', 'fetch', 'origin', '--prune'],
+      });
     }
-    setStep('fetch', { status: 'ok', note: { key: 'dlg.pullAgent.note.fetched' } });
+    let fetchErr: unknown = null;
+    let fetchErrTimeout = 0;
+    let totalRetried = 0;
+    let fetched = false;
+    for (let i = 0; i < strategies.length; i++) {
+      const st = strategies[i];
+      if (i > 0) {
+        setStep('fetch', { note: { key: st.id === 'http11' ? 'dlg.pullAgent.note.fetchHttp11' : 'dlg.pullAgent.note.fetchViaProxy' } });
+      }
+      try {
+        const fr = await execGitNetwork(st.args, {
+          cwd: projectPath, timeout: st.timeoutMs, maxBuffer: 4 * 1024 * 1024,
+        });
+        totalRetried += fr.retried;
+        fetched = true;
+        break;
+      } catch (e) {
+        fetchErr = e;
+        fetchErrTimeout = st.timeoutMs;
+        // Hard failures (auth, repo missing, bad refspec…) gain nothing from
+        // the fallbacks — escalate ONLY on network-class failures.
+        if (!isTransientGitNetworkError(e)) break;
+      }
+    }
+    if (fetched) {
+      if (totalRetried > 0) {
+        setStep('fetch', { note: { key: 'dlg.pullAgent.note.fetchRetried', params: { n: totalRetried } } });
+      }
+      setStep('fetch', { status: 'ok', note: { key: 'dlg.pullAgent.note.fetched' } });
+    } else {
+      const errText = gitNetworkErrorText(fetchErr, fetchErrTimeout);
+      // Degraded continue: cached origin refs let switch + sync still run
+      // against the last known remote state.
+      const targetRef = branch || (await currentBranch(projectPath)) || '';
+      let cachedRef = '';
+      if (targetRef) {
+        try {
+          await git(projectPath, ['rev-parse', '--verify', '--quiet', `origin/${targetRef}`], 15_000);
+          cachedRef = `origin/${targetRef}`;
+        } catch { /* no cached ref for the target branch */ }
+      }
+      if (cachedRef) {
+        fetchDegraded = { ref: cachedRef, error: errText.slice(0, 400) };
+        setStep('fetch', { status: 'warn', note: { key: 'dlg.pullAgent.note.fetchDegraded', params: { ref: cachedRef } }, info: errText });
+      } else {
+        setStep('fetch', { status: 'fail', note: { key: 'dlg.pullAgent.note.fetchFail' }, info: errText });
+        // Nothing destructive has happened yet — the tree is as it was (plus
+        // the safety stash, which finish() rolls back for us).
+        return finish(false, 'fetch failed', 'Fetching the remote failed', errText);
+      }
+    }
   } catch (e) {
     setStep('fetch', { status: 'fail', note: { key: 'dlg.pullAgent.note.fetchFail' }, info: gitErrorText(e) });
     // Nothing destructive has happened yet — the tree is as it was (plus the
@@ -711,6 +790,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
   const bits: string[] = [];
   if (switchedTo) bits.push(`switched to ${switchedTo}`);
   bits.push(upToDate ? 'already up to date' : (beforeSha && afterSha && beforeSha !== afterSha ? `${beforeSha} → ${afterSha}` : 'synced'));
+  if (fetchDegraded) bits.push(`fetch failed — synced against cached ${fetchDegraded.ref}`);
   if (artifacts.stash && restored) bits.push('local changes restored');
   if (autoResolved.length > 0) bits.push(`${autoResolved.length} conflict(s) auto-resolved`);
   if (artifacts.branch) bits.push(`local commits saved to ${artifacts.branch}`);

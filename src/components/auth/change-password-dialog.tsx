@@ -5,7 +5,7 @@ import { Eye, EyeOff, KeyRound, Loader2, CheckCircle2, AlertCircle } from 'lucid
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { AppDialog, AppDialogHeader, AppDialogBody, AppDialogFooter } from '@/components/app-dialog'
 import { useT, type I18nContextValue } from '@/lib/i18n'
 
 interface ChangePasswordDialogProps {
@@ -88,23 +88,19 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <KeyRound className="h-5 w-5 text-brand-strong" />
-            {t('auth.changePw.title')}
-          </DialogTitle>
-          <DialogDescription>{t('auth.changePw.desc')}</DialogDescription>
-        </DialogHeader>
-        {succeeded ? (
-          <div className="py-5 flex flex-col items-center text-center gap-3">
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="md">
+      <AppDialogHeader icon={KeyRound} title={t('auth.changePw.title')} description={t('auth.changePw.desc')} />
+      {succeeded ? (
+        <AppDialogBody>
+          <div className="flex flex-col items-center text-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 dark:bg-emerald-950/40 ring-4 ring-emerald-100 dark:ring-emerald-900/40">
               <CheckCircle2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
             </div>
             <p className="text-sm font-medium">{t('auth.changePw.updated')}</p>
           </div>
-        ) : (
+        </AppDialogBody>
+      ) : (
+        <AppDialogBody>
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="chpw-current">{t('auth.changePw.current')}</Label>
@@ -168,16 +164,16 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
                 <p className="font-medium leading-snug">{serverError}</p>
               </div>
             )}
-            <DialogFooter>
+            <AppDialogFooter>
               <Button type="button" variant="outline" onClick={onClose} disabled={submitting} className="h-10">{t('common.cancel')}</Button>
               <Button type="submit" disabled={submitting} className="h-10 bg-primary hover:bg-primary/90 text-primary-foreground">
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 {submitting ? t('auth.changePw.submitting') : t('auth.changePw.submit')}
               </Button>
-            </DialogFooter>
+            </AppDialogFooter>
           </form>
-        )}
-      </DialogContent>
-    </Dialog>
+        </AppDialogBody>
+      )}
+    </AppDialog>
   )
 }

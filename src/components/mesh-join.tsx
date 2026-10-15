@@ -4,7 +4,7 @@ import * as React from 'react'
 import {
   PlugZap, Loader2, Globe, KeyRound, Server, CheckCircle2, AlertTriangle, RefreshCw, Play, Wifi,
 } from 'lucide-react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { AppDialog, AppDialogHeader, AppDialogBody } from '@/components/app-dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -223,20 +223,10 @@ export function JoinMeshDialog({
   const canJoin = !!target.trim() && !!code.trim() && !joining && (!manualMode || (!!manualPort && !!manualKey))
 
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-base">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-teal-500 to-cyan-500 text-white shrink-0">
-              <PlugZap className="h-4 w-4" />
-            </span>
-            {t('dlg.meshJoin.title')}
-          </DialogTitle>
-          <DialogDescription className="text-xs">
-            {t('dlg.meshJoin.desc')}
-          </DialogDescription>
-        </DialogHeader>
+    <AppDialog open onOpenChange={(o) => { if (!o) onClose() }} size="md">
+      <AppDialogHeader icon={PlugZap} title={t('dlg.meshJoin.title')} description={t('dlg.meshJoin.desc')} />
 
+      <AppDialogBody>
         <div className="space-y-4">
           {/* Target dashboard URL */}
           <div className="space-y-1.5">
@@ -401,7 +391,7 @@ export function JoinMeshDialog({
             </Button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </AppDialogBody>
+    </AppDialog>
   )
 }

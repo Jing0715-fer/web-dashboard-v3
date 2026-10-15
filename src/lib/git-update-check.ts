@@ -2,7 +2,8 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { execGitNetwork } from '@/lib/git-retry';
+import { execGitNetwork, isGitKilledError } from '@/lib/git-retry';
+import { getGitNetConfig, gitProxyArgs } from '@/lib/git-net-config';
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
 // are console-subsystem programs — from a console-less dashboard server
@@ -17,6 +18,17 @@ const GIT_TIMEOUT = 20000;
  *  github.com / gitlab.com request volume at one ls-remote+fetch per repo
  *  per 5 minutes even with several dashboards tabs open. */
 const CACHE_TTL_MS = 5 * 60 * 1000;
+
+/** v1.27: the git network config (proxy) for this process — read once per
+ *  check cycle, applied to every network call below via -c args so nothing
+ *  is ever written into any repo's .git/config. */
+let cachedNetArgs: { args: string[]; readAt: number } | null = null;
+async function netArgs(): Promise<string[]> {
+  if (cachedNetArgs && Date.now() - cachedNetArgs.readAt < 60_000) return cachedNetArgs.args;
+  const cfg = await getGitNetConfig();
+  cachedNetArgs = { args: gitProxyArgs(cfg.proxy), readAt: Date.now() };
+  return cachedNetArgs.args;
+}
 
 /**
  * Remote-repository freshness for one project.
@@ -95,8 +107,9 @@ function unknown(error: string, remoteSha: string | null = null, branch: string 
  */
 async function lsRemoteHead(repoUrl: string): Promise<{ sha: string; branch: string | null }> {
   // ls-remote IS the network round trip — transient flakes (classic:
-  // `OpenSSL SSL_connect: SSL_ERROR_SYSCALL`) are auto-retried inside.
-  const { stdout } = await execGitNetwork(['ls-remote', '--symref', repoUrl, 'HEAD'], {
+  // `OpenSSL SSL_connect: SSL_ERROR_SYSCALL`) are auto-retried inside, and
+  // v1.27 routes it through the configured proxy when one is set.
+  const { stdout } = await execGitNetwork([...await netArgs(), 'ls-remote', '--symref', repoUrl, 'HEAD'], {
     timeout: GIT_TIMEOUT,
     maxBuffer: 64 * 1024,
   });
@@ -135,7 +148,12 @@ async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUp
   try {
     head = await lsRemoteHead(repoUrl);
   } catch (e: any) {
-    return unknown(maskCreds(`ls-remote failed: ${e?.message || e}`));
+    // v1.27: a killed ls-remote (timeout) says nothing about the repo —
+    // name the network path in the error so the UI tooltip is honest.
+    const why = isGitKilledError(e)
+      ? `ls-remote timed out after ${GIT_TIMEOUT / 1000}s (network path to the remote is too slow or blocked)`
+      : `ls-remote failed: ${e?.message || e}`;
+    return unknown(maskCreds(why));
   }
   const remoteSha = head.sha.slice(0, 7);
 
@@ -155,7 +173,7 @@ async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUp
   // the literal 'HEAD' ref covers servers that don't answer --symref.
   try {
     await execGitNetwork(
-      ['-C', path, 'fetch', '--quiet', '--no-tags', repoUrl, head.branch || 'HEAD'],
+      [...await netArgs(), '-C', path, 'fetch', '--quiet', '--no-tags', repoUrl, head.branch || 'HEAD'],
       { timeout: GIT_TIMEOUT, maxBuffer: 1024 * 512 },
     );
   } catch (e: any) {

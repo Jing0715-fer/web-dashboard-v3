@@ -11,6 +11,7 @@ import { invalidateUpdateCache, checkLocalRepoUpdate, checkRemoteRepoUpdate } fr
 import { probeRemoteAgentHealth } from '@/lib/agent-health';
 import { isValidBranchName, switchGitBranch } from '@/lib/git-branches';
 import { execGitNetwork, isTransientGitNetworkError } from '@/lib/git-retry';
+import { getGitNetConfig, gitProxyArgs } from '@/lib/git-net-config';
 import { syncDepsAfterPull } from '@/lib/pull-deps-sync';
 import {
   parsePullConflict, sanitizeConflictFiles, discardTrackedChanges, removeUntrackedBlockers,
@@ -355,6 +356,15 @@ async function handlePull(
   }
 
   try {
+    // v1.27: when a git proxy is configured (Settings → Git Network), every
+    // network call in this pull routes through it — the same path the agent
+    // flow uses. Read once; applied via `git -c http.proxy=…` so nothing is
+    // ever written into the repo's config.
+    let netProxyArgs: string[] = [];
+    try {
+      netProxyArgs = gitProxyArgs((await getGitNetConfig()).proxy);
+    } catch { /* settings table unavailable → direct */ }
+
     // Optional branch switch BEFORE the pull (checkout / checkout -b track
     // origin/<branch>). Uncommitted local changes are never stashed or
     // overwritten — git itself refuses a clobbering checkout and that error
@@ -374,11 +384,14 @@ async function handlePull(
       if (currentBranch !== branch) {
         // Fresh remote refs so remote-only branches resolve (the picker's
         // fetch may be stale by the time the user clicks). Transient network
-        // flakes (SSL_ERROR_SYSCALL…) are auto-retried inside.
-        await execGitNetwork(['fetch', 'origin', '--prune'], {
+        // flakes (SSL_ERROR_SYSCALL…) are auto-retried inside; v1.27 adds the
+        // configured proxy and caps retries at 1 so a dead link doesn't
+        // stall the pull before the real fetch below gets its turn.
+        await execGitNetwork([...netProxyArgs, 'fetch', 'origin', '--prune'], {
           cwd: project.path,
-          timeout: 60_000,
+          timeout: 90_000,
           maxBuffer: 1024 * 512,
+          maxRetries: 1,
         }).catch(() => { /* offline — switchGitBranch reports the miss */ });
         const sw = await switchGitBranch(project.path, branch);
         if (!sw.ok) {
@@ -461,7 +474,7 @@ async function handlePull(
     // branch has no upstream configured (common for freshly cloned/mirrored
     // checkouts). Detect that and fall back to pulling origin/<branch>.
     const buildPullArgs = async (): Promise<string[]> => {
-      const pullArgs = ['pull', '--ff-only'];
+      const pullArgs = [...netProxyArgs, 'pull', '--ff-only'];
       try {
         await execFileAsync('git', ['rev-parse', '--abbrev-ref', '@{u}'], {
           cwd: project.path,
