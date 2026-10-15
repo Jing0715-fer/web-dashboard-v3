@@ -142,6 +142,22 @@ model LlmConfig {
   // 'custom:<template>' where the template must contain {promptFile}
   // (relative) or {promptFileAbs} (absolute) as the task-file placeholder.
   repairCli  String   @default("")
+  // ---- v1.28: per-feature engine selection ----
+  // Environment-analysis engine (the "解析环境" action):
+  //   'agent'  — deepseek-harness (dsh): agentic loop, installs deps,
+  //              verifies the startup command by actually running it
+  //              (best result quality; needs dsh + can be slow on
+  //              cold-started machines)
+  //   'legacy' — single-shot callLLM analysis (fast, works everywhere,
+  //              no command verification)
+  analysisMode String @default("agent")
+  // Git pull engine:
+  //   'legacy' — plain git pull + AI diagnosis on failure (asks the user
+  //              how to resolve conflicts)
+  //   'agent'  — deterministic pull agent: backup local changes → fetch
+  //              (with the v1.27 network strategy ladder) → sync → restore
+  //              with auto conflict-resolution → verify. Zero interaction.
+  pullMode     String @default("legacy")
   updatedAt DateTime @updatedAt
 }
 

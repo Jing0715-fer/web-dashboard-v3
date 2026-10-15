@@ -17,7 +17,7 @@
  *   │   body — flex-1, scrolls, custom bar     │
  *   │                                          │
  *   ├──────────────────────────────────────────┤
- *   │                        [Cancel] [Save]   │  footer — border-t, bg-muted/40
+ *   │                        [Cancel] [Save]   │  footer — border-t, bg-muted/30
  *   └──────────────────────────────────────────┘
  *
  * Rules of the system (keep it looking like ONE product):
@@ -126,21 +126,40 @@ export function AppAlertDialog({
 
 /** Shared shell classes — height cap, column flex, no shell padding,
  *  overflow owned by the body section. Kept in one constant so the alert
- *  variant can never drift from the plain one. */
+ *  variant can never drift from the plain one. The 2xl shadow + hairline
+ *  ring give the shell a crisper edge than the old flat shadow-xl. */
 const APP_DIALOG_SHELL =
-  'flex max-h-[min(88dvh,800px)] w-full flex-col gap-0 overflow-hidden rounded-xl p-0 shadow-xl'
+  'flex max-h-[min(88dvh,800px)] w-full flex-col gap-0 overflow-hidden rounded-xl p-0 shadow-2xl ring-1 ring-black/5 dark:ring-white/10'
 
 /* ---------------------------------------------------------------- header  */
 
+/** Optional tint for the header icon chip. `default` keeps the neutral
+ *  muted chip; the others let a dialog signal intent (agent run = emerald,
+ *  conflict = amber, destructive = rose, info = sky) while staying inside
+ *  the same 36px anatomy. Purely opt-in — every existing caller that does
+ *  not pass it renders exactly as before. */
+export type AppDialogIconTone = 'default' | 'emerald' | 'amber' | 'rose' | 'sky'
+
+const ICON_TONE_CLASSES: Record<AppDialogIconTone, { chip: string; icon: string }> = {
+  default: { chip: 'border bg-muted/50', icon: 'text-muted-foreground' },
+  emerald: { chip: 'border-emerald-500/20 bg-emerald-500/10 dark:bg-emerald-500/15', icon: 'text-emerald-600 dark:text-emerald-400' },
+  amber: { chip: 'border-amber-500/20 bg-amber-500/10 dark:bg-amber-500/15', icon: 'text-amber-600 dark:text-amber-400' },
+  rose: { chip: 'border-rose-500/20 bg-rose-500/10 dark:bg-rose-500/15', icon: 'text-rose-600 dark:text-rose-400' },
+  sky: { chip: 'border-sky-500/20 bg-sky-500/10 dark:bg-sky-500/15', icon: 'text-sky-600 dark:text-sky-400' },
+}
+
 export function AppDialogHeader({
   icon: Icon,
+  iconTone = 'default',
   title,
   description,
   className,
   children,
 }: {
-  /** Optional leading icon — rendered inside a 36px muted chip. */
+  /** Optional leading icon — rendered inside a 36px chip (see iconTone). */
   icon?: LucideIcon
+  /** Chip + icon tint, default keeps the neutral muted look. */
+  iconTone?: AppDialogIconTone
   /** 15px semibold heading. Omit when passing custom children (which must
    *  then include their own <DialogTitle> for accessibility). */
   title?: React.ReactNode
@@ -158,8 +177,8 @@ export function AppDialogHeader({
       )}
     >
       {Icon ? (
-        <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/50">
-          <Icon className="size-4 text-muted-foreground" />
+        <div className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg ${ICON_TONE_CLASSES[iconTone].chip}`}>
+          <Icon className={`size-4 ${ICON_TONE_CLASSES[iconTone].icon}`} />
         </div>
       ) : null}
       <div className="min-w-0 flex-1">
@@ -228,7 +247,7 @@ export function AppDialogFooter({
     <div
       data-app-dialog-footer
       className={cn(
-        'flex shrink-0 flex-col-reverse gap-2 border-t bg-muted/40 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-end sm:px-6',
+        'flex shrink-0 flex-col-reverse gap-2 border-t bg-muted/30 px-5 py-3.5 backdrop-blur-[1px] sm:flex-row sm:items-center sm:justify-end sm:px-6',
         className,
       )}
     >

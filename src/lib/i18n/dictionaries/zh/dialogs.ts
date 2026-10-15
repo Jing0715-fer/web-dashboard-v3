@@ -222,6 +222,20 @@ export const dialogs = {
   'dlg.llm.repairNoneDetected': '未检测到任何 Agent CLI — 保存后仍为该模式，但修复时会自动回退 legacy',
   'dlg.llm.repairDetectedCount': '检测到 {count} 个已安装 CLI',
   'dlg.llm.cliNote.claudeDesktop': '桌面应用无法无人值守运行 — 委托修复实际经由 claude CLI 执行（未检出 CLI 时自动回退内置引擎）',
+  // ---- Per-feature engines (v1.28): analysis & pull pick their own engine ----
+  'dlg.llm.sectionEngines': '功能引擎',
+  'dlg.llm.engineAnalysis': '解析环境',
+  'dlg.llm.engineAnalysisDesc': '分析项目目录并生成启动配置的方式',
+  'dlg.llm.engineAgentBtn': '智能体',
+  'dlg.llm.engineLegacyBtn': 'API 直连',
+  'dlg.llm.engineAnalysisAgentHint': 'deepseek-harness 全流程：安装依赖、验证启动命令（慢但质量高）',
+  'dlg.llm.engineAnalysisLegacyHint': '单次 LLM 调用直接生成（快，不验证命令）',
+  'dlg.llm.enginePull': '代码拉取',
+  'dlg.llm.enginePullDesc': 'git pull 及本地改动冲突的处理方式',
+  'dlg.llm.enginePullAgentBtn': '智能体拉取',
+  'dlg.llm.enginePullLegacyBtn': '普通拉取',
+  'dlg.llm.enginePullAgentHint': '自动备份→同步→恢复，全自动零交互（网络不佳时更稳）',
+  'dlg.llm.enginePullLegacyHint': '普通 git pull，失败时 AI 诊断并给出选项',
 
   // ---- LLM 自动修复对话框 ----
   'dlg.repair.title': 'AI 自动修复',
@@ -312,6 +326,8 @@ export const dialogs = {
   'dlg.pullConflict.stashDesc': '先 git stash，拉取成功后自动恢复本地修改（推荐，不丢失任何改动）',
   'dlg.pullConflict.force': '放弃本地修改并拉取',
   'dlg.pullConflict.forceDesc': '仅丢弃上述文件的本地修改，以远程代码为准（不可恢复）',
+  // v1.29：智能体选项卡的“推荐”徽标（PullOptionCard emerald 实心小徽标）。
+  'dlg.pullConflict.agentBadge': '推荐',
   'dlg.pullConflict.cancel': '取消',
   'dlg.pullConflict.stashing': '暂存并拉取中…',
   'dlg.pullConflict.forcing': '放弃修改并拉取中…',
@@ -1094,6 +1110,9 @@ export const dialogs = {
   'dlg.toast.envsDetected': '环境已检测',
   'dlg.toast.envsCreatedDesc': '已创建 {count} 个环境：{list}',
   'dlg.toast.noEnvsGenerated': '未生成任何环境 — 请检查项目是否包含 package.json 等清单文件。',
+  'dlg.toast.legacyAnalyzing': '正在分析项目（单次 LLM）…',
+  'dlg.toast.legacyAnalyzed': '解析完成，生成 {count} 个环境',
+  'dlg.toast.legacyAnalyzeFailed': '解析失败',
   'dlg.toast.refetchFailed': '重新获取失败',
   'dlg.toast.agentReturned': 'Agent 返回 {status}',
   'dlg.toast.exportedCsv': '已导出为 CSV',
@@ -1248,6 +1267,8 @@ export const dialogs = {
   // v1.26：两类具名捕获失败的可执行提示。
   'card.thumb.hintBrowserMissing': '仪表盘所在机器没有无头浏览器——在那台机器上执行一次 `bunx playwright install chromium`',
   'card.thumb.hintPortNotReady': '页面在 90 秒内未应答——请确认环境确实在提供服务后重试',
+  'card.thumb.failedTitle': '预览截取失败',
+  'card.thumb.retry': '重试',
 
   'card.chipStart': '启动',
   'card.chipStop': '停止',

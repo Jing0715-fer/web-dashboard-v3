@@ -226,6 +226,20 @@ export const dialogs = {
   'dlg.llm.repairNoneDetected': 'No agent CLI detected — the mode is saved but repairs will fall back to legacy',
   'dlg.llm.repairDetectedCount': '{count} agent CLI(s) installed',
   'dlg.llm.cliNote.claudeDesktop': 'The desktop app cannot run unattended — delegated repairs actually go through the claude CLI (falls back to the built-in engine when no CLI is detected)',
+  // ---- Per-feature engines (v1.28): analysis & pull pick their own engine ----
+  'dlg.llm.sectionEngines': 'Feature engines',
+  'dlg.llm.engineAnalysis': 'Environment analysis',
+  'dlg.llm.engineAnalysisDesc': 'How project dirs are analyzed into startup configs',
+  'dlg.llm.engineAgentBtn': 'Agent',
+  'dlg.llm.engineLegacyBtn': 'Direct API',
+  'dlg.llm.engineAnalysisAgentHint': 'deepseek-harness full loop: installs deps, verifies the start command (slower, best quality)',
+  'dlg.llm.engineAnalysisLegacyHint': 'Single LLM call generates configs directly (fast, no verification)',
+  'dlg.llm.enginePull': 'Code pull',
+  'dlg.llm.enginePullDesc': 'How git pull and local-change conflicts are handled',
+  'dlg.llm.enginePullAgentBtn': 'Pull agent',
+  'dlg.llm.enginePullLegacyBtn': 'Plain pull',
+  'dlg.llm.enginePullAgentHint': 'Backup → sync → restore, fully automatic (more robust on bad networks)',
+  'dlg.llm.enginePullLegacyHint': 'Plain git pull; AI diagnoses failures and offers options',
 
   // ---- LLM auto-repair dialog ----
   'dlg.repair.title': 'AI Auto-Repair',
@@ -316,6 +330,8 @@ export const dialogs = {
   'dlg.pullConflict.stashDesc': 'git stash first, pull, then re-apply your changes automatically (recommended — nothing is lost)',
   'dlg.pullConflict.force': 'Discard local changes & pull',
   'dlg.pullConflict.forceDesc': 'Discard the changes listed above and take the remote version (irreversible)',
+  // v1.29: "Recommended" badge on the agent option card (PullOptionCard solid emerald pill).
+  'dlg.pullConflict.agentBadge': 'Recommended',
   'dlg.pullConflict.cancel': 'Cancel',
   'dlg.pullConflict.stashing': 'Stashing & pulling…',
   'dlg.pullConflict.forcing': 'Discarding & pulling…',
@@ -1099,6 +1115,9 @@ export const dialogs = {
   'dlg.toast.envsDetected': 'Environments detected',
   'dlg.toast.envsCreatedDesc': 'Created {count} environments: {list}',
   'dlg.toast.noEnvsGenerated': 'No environments were generated — check that the project has package.json or a similar manifest.',
+  'dlg.toast.legacyAnalyzing': 'Analyzing project (single LLM call)…',
+  'dlg.toast.legacyAnalyzed': 'Analysis done — {count} environment(s) created',
+  'dlg.toast.legacyAnalyzeFailed': 'Analysis failed',
   'dlg.toast.refetchFailed': 'Re-fetch failed',
   'dlg.toast.agentReturned': 'Agent returned {status}',
   'dlg.toast.exportedCsv': 'Exported as CSV',
@@ -1254,6 +1273,8 @@ export const dialogs = {
   // v1.26: actionable hints for the two named capture-failure classes.
   'card.thumb.hintBrowserMissing': 'No headless browser on the dashboard machine — run `bunx playwright install chromium` there once',
   'card.thumb.hintPortNotReady': 'The page did not answer within 90 s — make sure the environment is really serving, then retry',
+  'card.thumb.failedTitle': 'Preview capture failed',
+  'card.thumb.retry': 'Retry',
 
   'card.chipStart': 'Start',
   'card.chipStop': 'Stop',

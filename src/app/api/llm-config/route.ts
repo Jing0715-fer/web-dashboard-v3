@@ -66,6 +66,8 @@ export async function GET(req: Request) {
       model: config.model,
       repairMode: config.repairMode || 'legacy',
       repairCli: config.repairCli || '',
+      analysisMode: config.analysisMode === 'legacy' ? 'legacy' : 'agent',
+      pullMode: config.pullMode === 'agent' ? 'agent' : 'legacy',
       updatedAt: config.updatedAt,
       catalog: publicCatalog(),
     })
@@ -81,7 +83,7 @@ export async function PUT(request: Request) {
   if (adminGuard.error) return adminGuard.error;
   try {
     const body = await request.json()
-    const { provider, apiKey, baseUrl, model, repairMode, repairCli } = body
+    const { provider, apiKey, baseUrl, model, repairMode, repairCli, analysisMode, pullMode } = body
 
     // Resolve the effective key: masked / unchanged values keep the stored
     // secret instead of clobbering it.
@@ -103,6 +105,10 @@ export async function PUT(request: Request) {
         ...(model !== undefined && { model }),
         ...(repairMode !== undefined && { repairMode: repairMode === 'cli' ? 'cli' : 'legacy' }),
         ...(repairCli !== undefined && { repairCli: normalizeRepairCli(repairCli) }),
+        // v1.28 per-feature engines: analysis agent(harness)|legacy(API),
+        // pull legacy(plain+diagnosis)|agent(deterministic resolver).
+        ...(analysisMode !== undefined && { analysisMode: analysisMode === 'legacy' ? 'legacy' : 'agent' }),
+        ...(pullMode !== undefined && { pullMode: pullMode === 'agent' ? 'agent' : 'legacy' }),
       },
       create: {
         id: 'default',
@@ -112,6 +118,8 @@ export async function PUT(request: Request) {
         model: model || '',
         repairMode: repairMode === 'cli' ? 'cli' : 'legacy',
         repairCli: normalizeRepairCli(repairCli),
+        analysisMode: analysisMode === 'legacy' ? 'legacy' : 'agent',
+        pullMode: pullMode === 'agent' ? 'agent' : 'legacy',
       },
     })
 
@@ -130,6 +138,8 @@ export async function PUT(request: Request) {
       model: config.model,
       repairMode: config.repairMode || 'legacy',
       repairCli: config.repairCli || '',
+      analysisMode: config.analysisMode === 'legacy' ? 'legacy' : 'agent',
+      pullMode: config.pullMode === 'agent' ? 'agent' : 'legacy',
       updatedAt: config.updatedAt,
     })
   } catch (error) {

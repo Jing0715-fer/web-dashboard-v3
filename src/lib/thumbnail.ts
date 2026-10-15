@@ -218,11 +218,28 @@ export function lastBrowserResolutionError(): string | null {
  *   headless new:   chromium_headless_shell-<rev>/chrome-headless-shell-linux64/chrome-headless-shell
  *   macOS:          chromium-<rev>/chrome-mac/Chromium.app/Contents/MacOS/Chromium
  *   windows:        chromium-<rev>/chrome-win/chrome.exe (+ chrome-win64/chrome.exe)
+ *
+ * Cache ROOTS are platform-specific (v1.28 fix — Windows machines silently
+ * lost previews because only the Linux root was scanned):
+ *   linux:   ~/.cache/ms-playwright
+ *   windows: %LOCALAPPDATA%\ms-playwright  (~\AppData\Local\ms-playwright)
+ *            + %APPDATA%\ms-playwright     (~\AppData\Roaming\ms-playwright)
+ *   macOS:   ~/Library/Caches/ms-playwright
+ *   every:   $PLAYWRIGHT_BROWSERS_PATH (highest priority)
  */
 function discoverChromiumExecutable(): string | null {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
   const roots = [
     process.env.PLAYWRIGHT_BROWSERS_PATH,
-    path.join(process.env.HOME || process.env.USERPROFILE || '', '.cache', 'ms-playwright'),
+    // Windows — the DEFAULT install location for `playwright install`.
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'ms-playwright') : null,
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'ms-playwright') : null,
+    home && /^win/.test(process.platform) ? path.join(home, 'AppData', 'Local', 'ms-playwright') : null,
+    home && /^win/.test(process.platform) ? path.join(home, 'AppData', 'Roaming', 'ms-playwright') : null,
+    // macOS
+    process.platform === 'darwin' && home ? path.join(home, 'Library', 'Caches', 'ms-playwright') : null,
+    // Linux default
+    home ? path.join(home, '.cache', 'ms-playwright') : null,
   ].filter(Boolean) as string[];
 
   /** Ordered candidate RELATIVE paths, tried inside each matched browser dir. */
@@ -360,10 +377,14 @@ export function captureThumbnail(input: CaptureInput): Promise<CaptureResult> {
 
 async function runCapture(input: CaptureInput): Promise<CaptureResult> {
   const { projectId, projectName, envId, envName, port } = input;
-  const candidates = (input.targetUrls && input.targetUrls.length > 0
-    ? input.targetUrls
-    : [`http://127.0.0.1:${port}/`]
-  ).map((u) => (u.endsWith('/') ? u : `${u}/`));
+  // v1.28: for LOCAL captures probe 127.0.0.1 AND localhost in parallel —
+  // some dev stacks (Vite on Windows, Node 17+ DNS resolution) bind
+  // localhost → ::1 (IPv6) only; a 127.0.0.1-only probe then never answers
+  // and the capture dies as "port-not-ready" after the full 90s budget.
+  const explicitTargets = input.targetUrls && input.targetUrls.length > 0;
+  const localTargets = [`http://127.0.0.1:${port}/`, `http://localhost:${port}/`];
+  const candidates = (explicitTargets ? input.targetUrls! : localTargets)
+    .map((u) => (u.endsWith('/') ? u : `${u}/`));
 
   // 1. Wait for SOME target to actually answer (skip when caller knows better).
   let targetUrl = candidates[0];
@@ -399,11 +420,25 @@ async function runCapture(input: CaptureInput): Promise<CaptureResult> {
       timeout: 20_000,
     });
     const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(targetUrl, { waitUntil: 'load', timeout: GOTO_TIMEOUT_MS });
-    // networkidle is best-effort — SPAs with websockets never reach it.
-    await page.waitForLoadState('networkidle', { timeout: 4_000 }).catch(() => {});
-    await sleep(SETTLE_MS);
-    const buf: Buffer = await page.screenshot({ type: 'jpeg', quality: JPEG_QUALITY });
+    // v1.28: first-hit dev-server compiles can legitimately answer 500/timeout
+    // WHILE the page is still building. One goto retry (fresh full budget)
+    // converts those transient first hits into a good screenshot instead of
+    // a dead capture.
+    let buf: Buffer | null = null;
+    let lastGotoError: any = null;
+    for (let attempt = 0; attempt < 2 && !buf; attempt++) {
+      try {
+        await page.goto(targetUrl, { waitUntil: 'load', timeout: GOTO_TIMEOUT_MS });
+        // networkidle is best-effort — SPAs with websockets never reach it.
+        await page.waitForLoadState('networkidle', { timeout: 4_000 }).catch(() => {});
+        await sleep(SETTLE_MS);
+        buf = await page.screenshot({ type: 'jpeg', quality: JPEG_QUALITY });
+      } catch (e: any) {
+        lastGotoError = e;
+        if (attempt === 0) await sleep(2_500); // let the dev server settle mid-compile
+      }
+    }
+    if (!buf) throw lastGotoError ?? new Error('screenshot produced no data');
 
     // 3. Atomic write: tmp + rename so a reader never sees a partial JPEG.
     await fs.mkdir(THUMB_DIR, { recursive: true });
@@ -464,7 +499,10 @@ async function runCapture(input: CaptureInput): Promise<CaptureResult> {
 /**
  * A capture attempt failed. If a previous GOOD thumbnail exists we keep it
  * (cards stay informative with the last known preview) and only record the
- * error on that row; otherwise no row is written — the placeholder stays.
+ * error on that row; otherwise (v1.28) a placeholder row with file='' is
+ * UPSERTED so the card can SHOW the failure reason + a retry button —
+ * before, a machine whose capture never succeeded (e.g. no Chromium)
+ * silently kept the bare placeholder forever with zero feedback.
  */
 async function recordFailure(
   projectId: string, projectName: string,
@@ -472,10 +510,21 @@ async function recordFailure(
   error: string,
 ): Promise<void> {
   try {
-    const existing = await db.thumbnail.findUnique({ where: { envId } });
-    if (existing) {
-      await db.thumbnail.update({ where: { envId }, data: { error: error.slice(0, 500) } });
-    }
+    await db.thumbnail.upsert({
+      where: { envId },
+      create: {
+        projectId, envId, envName, port,
+        file: '',           // placeholder — no image, only the error
+        bytes: 0,
+        error: error.slice(0, 500),
+        capturedAt: new Date(),
+      },
+      update: {
+        error: error.slice(0, 500),
+        // Keep file/bytes from a previous GOOD capture — only the error
+        // changes (the upsert `update` branch leaves unspecified fields).
+      },
+    });
     logActivity({
       type: 'thumbnail',
       level: 'warn',
@@ -521,6 +570,11 @@ export async function getLatestThumbnailsByProject(projectIds: string[]): Promis
     });
     for (const row of rows) {
       if (result.has(row.projectId)) continue; // newest wins (desc order)
+      // v1.28: error placeholder rows (file='') only represent a project
+      // when NO env of it has a good image — otherwise they'd shadow an
+      // older good screenshot of a sibling environment. Two passes:
+      // good rows first, placeholders fill the gaps.
+      if (!row.file) continue;
       result.set(row.projectId, {
         envId: row.envId,
         envName: row.envName,
@@ -529,6 +583,21 @@ export async function getLatestThumbnailsByProject(projectIds: string[]): Promis
         capturedAt: row.capturedAt.toISOString(),
         url: `/api/thumbnails/${row.file}?v=${row.capturedAt.getTime()}`,
         bytes: row.bytes,
+        error: row.error,
+      });
+    }
+    // Second pass: placeholder rows for projects that still have nothing.
+    for (const row of rows) {
+      if (result.has(row.projectId)) continue;
+      if (row.file) continue;
+      result.set(row.projectId, {
+        envId: row.envId,
+        envName: row.envName,
+        port: row.port,
+        file: '',
+        capturedAt: row.capturedAt.toISOString(),
+        url: '',
+        bytes: 0,
         error: row.error,
       });
     }

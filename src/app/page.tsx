@@ -801,6 +801,43 @@ function ProjectThumbStrip({
   const envLabel = (name: string) => name === 'development' ? 'dev' : name === 'production' ? 'prod' : name
 
   if (thumb) {
+    // v1.28: failed capture with NO good image yet (file='') — placeholder
+    // row created by recordFailure. Show the reason + retry instead of the
+    // generic "start the project…" placeholder which told the user nothing.
+    if (!thumb.file) {
+      const errHint = /Playwright\/Chromium not available|browser-missing/i.test(thumb.error || '')
+        ? t('card.thumb.hintBrowserMissing')
+        : /No capture target answered|port-not-ready/i.test(thumb.error || '')
+          ? t('card.thumb.hintPortNotReady')
+          : (thumb.error || '').slice(0, 140)
+      return (
+        <div className={`shrink-0 border-b border-dashed border-amber-300/70 dark:border-amber-800/50 bg-amber-50/70 dark:bg-amber-950/20 flex items-center gap-2.5 px-3 h-[72px] ${capturing ? '' : 'hover:bg-amber-100/70 dark:hover:bg-amber-950/30 transition-colors'}`}>
+          {capturing ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-strong dark:text-brand shrink-0" />
+              <span className="text-[11px] text-muted-foreground font-medium">{t('card.thumb.capturing')}</span>
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
+              <div className="min-w-0 flex-1 leading-tight">
+                <div className="text-[11px] font-medium text-amber-700 dark:text-amber-400">{t('card.thumb.failedTitle')}</div>
+                <div className="text-[10px] text-amber-600/90 dark:text-amber-500/80 truncate" title={thumb.error || undefined}>{errHint}</div>
+              </div>
+              {onCapture && (
+                <button type="button"
+                  className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-amber-300/70 dark:border-amber-700/60 bg-background/70 hover:bg-background text-amber-700 dark:text-amber-400 text-[10px] font-medium transition-colors cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); onCapture(project) }}
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  {t('card.thumb.retry')}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )
+    }
     return (
       <div className="relative shrink-0 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 group/thumb overflow-hidden">
         {/* Real screenshot of the running page (object-top: page headers are
@@ -2106,7 +2143,7 @@ function ProjectFormDialog({
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="md">
       <AppDialogHeader title={mode === 'add' ? t('dlg.projectForm.addTitle') : t('dlg.projectForm.editTitle')} description={mode === 'add' ? t('dlg.projectForm.addDesc') : t('dlg.projectForm.editDesc')} />
       <AppDialogBody>
-        <form id="project-form" onSubmit={handleSubmit} className="space-y-3">
+        <form id="project-form" onSubmit={handleSubmit} className="space-y-4">
           {/* Templates - only shown when adding a new project */}
           {mode === 'add' && (
             <div className="space-y-1.5">
@@ -3320,6 +3357,62 @@ function pullNewerOnDefaultNote(data: any, t: I18nContextValue['t']): string {
 }
 
 /**
+ * Selectable action card for pull-strategy dialogs (v1.29) — replaces the old
+ * in-Button two-line layout whose descriptions were clipped by the shadcn
+ * Button base class's whitespace-nowrap (real user report: "Automatic backup
+ * → sync → restore, no interaction needed, local char…" cut mid-sentence).
+ * This is a plain <button> on purpose, NOT shadcn Button: no inherited
+ * nowrap, the description wraps naturally and is never clipped by the
+ * dialog shell's overflow-hidden. Three tones mirror the system's semantic
+ * colors: emerald = recommended/safe, neutral = ordinary, destructive =
+ * irreversible.
+ */
+function PullOptionCard({ icon: Icon, title, desc, badge, tone, busy, disabled, onClick }: {
+  icon: React.ComponentType<{ className?: string }>
+  title: string
+  desc: string
+  badge?: string
+  tone: 'emerald' | 'neutral' | 'destructive'
+  busy?: boolean
+  disabled?: boolean
+  onClick?: () => void
+}) {
+  const chip = tone === 'emerald'
+    ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400'
+    : tone === 'destructive'
+      ? 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400'
+      : 'bg-muted/60 text-muted-foreground'
+  const hover = tone === 'emerald'
+    ? 'hover:border-emerald-400/70 hover:bg-emerald-50/40 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'
+    : tone === 'destructive'
+      ? 'hover:border-rose-400/70 hover:bg-rose-50/40 dark:hover:border-rose-800/60 dark:hover:bg-rose-950/20'
+      : 'hover:bg-accent/50'
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`w-full rounded-xl border border-border/80 p-3.5 text-left transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50 ${hover}`}
+    >
+      <div className="flex items-start gap-3">
+        <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${chip}`}>
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Icon className="size-4" />}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold">{title}</span>
+            {badge ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">{badge}</span>
+            ) : null}
+          </div>
+          <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{desc}</div>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+/**
  * Pull-conflict dialog (v1.17): `git pull` refused to clobber local changes
  * and the API answered 409 { conflict, modified, untracked }. Instead of
  * dead-ending on git's raw stderr, ASK the user how to proceed:
@@ -3355,11 +3448,8 @@ function PullConflictDialog({ conflict, busy, onResolve, onAgent, allowAgent, on
   )
   return (
     <AppDialog open={!!conflict} onOpenChange={(o) => { if (!o && !busyNow) onClose() }} size="md">
-      <AppDialogHeader>
-        <AppDialogTitle className="flex items-center gap-2">
-          <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
-          {t('dlg.pullConflict.title')}
-        </AppDialogTitle>
+      <AppDialogHeader icon={AlertTriangle} iconTone="amber">
+        <AppDialogTitle>{t('dlg.pullConflict.title')}</AppDialogTitle>
         <AppDialogDescription>
           {t('dlg.pullConflict.desc')}
           {conflict?.branch ? <span className="ml-1 font-mono text-xs">({conflict.projectName} → {conflict.branch})</span> : null}
@@ -3368,75 +3458,70 @@ function PullConflictDialog({ conflict, busy, onResolve, onAgent, allowAgent, on
 
       <AppDialogBody>
         {conflict && (
-          <div className="space-y-3">
-            {conflict.modified.length > 0 && (
-              <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.modified')} · {conflict.modified.length}</div>
-                <ul className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 max-h-40 overflow-y-auto">
-                  {conflict.modified.map((f, i) => fileRow(f, i, 'modified'))}
-                </ul>
+          <div className="space-y-4">
+            {(conflict.modified.length > 0 || conflict.untracked.length > 0) && (
+              <div className="space-y-3">
+                {conflict.modified.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.modified')} · {conflict.modified.length}</div>
+                    <ul className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 max-h-40 overflow-y-auto">
+                      {conflict.modified.map((f, i) => fileRow(f, i, 'modified'))}
+                    </ul>
+                  </div>
+                )}
+                {conflict.untracked.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.untracked')} · {conflict.untracked.length}</div>
+                    <ul className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 max-h-40 overflow-y-auto">
+                      {conflict.untracked.map((f, i) => fileRow(f, i, 'untracked'))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
-            {conflict.untracked.length > 0 && (
-              <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.untracked')} · {conflict.untracked.length}</div>
-                <ul className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 max-h-40 overflow-y-auto">
-                  {conflict.untracked.map((f, i) => fileRow(f, i, 'untracked'))}
-                </ul>
-              </div>
-            )}
+            {/* v1.29: strategies as option CARDS in the body (not footer
+                buttons) — they are the content choice the dialog is asking
+                for, and the card layout lets descriptions wrap to full
+                length instead of being clipped by Button's nowrap. */}
+            <div className="space-y-2">
+              {allowAgent && onAgent && (
+                <PullOptionCard
+                  icon={Bot}
+                  tone="emerald"
+                  title={t('dlg.pullAgent.runAgent')}
+                  desc={t('dlg.pullAgent.runAgentDesc')}
+                  badge={t('dlg.pullConflict.agentBadge')}
+                  disabled={busyNow}
+                  onClick={onAgent}
+                />
+              )}
+              <PullOptionCard
+                icon={Archive}
+                tone="neutral"
+                title={busy === 'stash' ? t('dlg.pullConflict.stashing') : t('dlg.pullConflict.stash')}
+                desc={t('dlg.pullConflict.stashDesc')}
+                busy={busy === 'stash'}
+                disabled={busyNow}
+                onClick={() => onResolve('stash')}
+              />
+              <PullOptionCard
+                icon={Trash2}
+                tone="destructive"
+                title={busy === 'force' ? t('dlg.pullConflict.forcing') : t('dlg.pullConflict.force')}
+                desc={t('dlg.pullConflict.forceDesc')}
+                busy={busy === 'force'}
+                disabled={busyNow}
+                onClick={() => onResolve('force')}
+              />
+            </div>
           </div>
         )}
       </AppDialogBody>
 
-      <AppDialogFooter className="flex-col items-stretch sm:flex-col sm:items-stretch">
-        <div className="flex flex-col gap-2">
-          {allowAgent && onAgent && (
-            <Button
-              className="w-full justify-start text-left h-auto py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-              disabled={busyNow}
-              onClick={onAgent}
-            >
-              <div className="flex items-center gap-2">
-                <Bot className="h-4 w-4 shrink-0" />
-                <div className="flex flex-col items-start">
-                  <span className="text-sm font-medium">{t('dlg.pullAgent.runAgent')}</span>
-                  <span className="text-xs font-normal text-white/75">{t('dlg.pullAgent.runAgentDesc')}</span>
-                </div>
-              </div>
-            </Button>
-          )}
-          <Button
-            className="w-full justify-start text-left h-auto py-2.5"
-            disabled={busyNow}
-            onClick={() => onResolve('stash')}
-          >
-            <div className="flex items-center gap-2">
-              {busy === 'stash' ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <Archive className="h-4 w-4 shrink-0" />}
-              <div className="flex flex-col items-start">
-                <span className="text-sm font-medium">{busy === 'stash' ? t('dlg.pullConflict.stashing') : t('dlg.pullConflict.stash')}</span>
-                <span className="text-xs font-normal text-muted-foreground">{t('dlg.pullConflict.stashDesc')}</span>
-              </div>
-            </div>
-          </Button>
-          <Button
-            variant="destructive"
-            className="w-full justify-start text-left h-auto py-2.5"
-            disabled={busyNow}
-            onClick={() => onResolve('force')}
-          >
-            <div className="flex items-center gap-2">
-              {busy === 'force' ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <Trash2 className="h-4 w-4 shrink-0" />}
-              <div className="flex flex-col items-start">
-                <span className="text-sm font-medium">{busy === 'force' ? t('dlg.pullConflict.forcing') : t('dlg.pullConflict.force')}</span>
-                <span className="text-xs font-normal text-destructive/80">{t('dlg.pullConflict.forceDesc')}</span>
-              </div>
-            </div>
-          </Button>
-          <Button variant="ghost" className="w-full" disabled={busyNow} onClick={onClose}>
-            {t('dlg.pullConflict.cancel')}
-          </Button>
-        </div>
+      <AppDialogFooter>
+        <Button variant="outline" className="w-full sm:w-auto" disabled={busyNow} onClick={onClose}>
+          {t('dlg.pullConflict.cancel')}
+        </Button>
       </AppDialogFooter>
     </AppDialog>
   )
@@ -3532,9 +3617,8 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
   )
   return (
     <AppDialog open={!!req} onOpenChange={(o) => { if (!o && !busyNow) onClose() }} size="lg">
-      <AppDialogHeader>
+      <AppDialogHeader icon={Sparkles} iconTone="amber">
         <AppDialogTitle className="flex items-center gap-2 min-w-0">
-          <Sparkles className="h-5 w-5 text-amber-500 shrink-0" />
           <span className="truncate">{t('dlg.pullDiag.title')}</span>
           {req ? <span className="text-sm font-normal text-muted-foreground truncate min-w-0">· {req.projectName}</span> : null}
         </AppDialogTitle>
@@ -3640,84 +3724,80 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
                 )}
               </div>
             )}
+
+            {/* v1.29: the strategy actions moved into the BODY as option
+                cards (same treatment as the conflict dialog) — they are the
+                dialog's actual content choice, and PullOptionCard wraps the
+                descriptions instead of clipping them like the old footer
+                Buttons did. The force second-confirmation keeps its inline
+                block; the footer is left with just the Close button. */}
+            {!loading && diagnosis && (
+              <div className="space-y-2.5">
+                {diagnosis.reason && (
+                  <div className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 min-w-0">
+                    <div className="text-[11px] font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                      <Sparkles className="h-3 w-3 shrink-0" />
+                      {t('dlg.pullDiag.whyLabel')}
+                    </div>
+                    <div className="text-xs text-amber-900/80 dark:text-amber-200/80 break-words min-w-0">{diagnosis.reason}</div>
+                  </div>
+                )}
+                {forceConfirm ? (
+                  <div className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 space-y-2">
+                    <div className="text-sm font-medium text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
+                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      {t('dlg.pullDiag.confirmForceTitle')}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{t('dlg.pullDiag.confirmForceDesc')}</div>
+                    <div className="flex gap-2">
+                      <Button variant="ghost" size="sm" className="flex-1" disabled={busyNow} onClick={() => onForceConfirm(false)}>
+                        {t('dlg.pullDiag.goBack')}
+                      </Button>
+                      <Button variant="destructive" size="sm" className="flex-1" disabled={busyNow} onClick={() => onAction('force')}>
+                        {busy === 'force' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                        {busy === 'force' ? t('dlg.pullDiag.busy') : t('dlg.pullDiag.confirmForce')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {actions.map((a) => {
+                      const cfg = a === 'retry'
+                        ? { icon: RefreshCw, label: t('dlg.pullDiag.action.retry'), desc: t('dlg.pullDiag.action.retryDesc'), tone: 'neutral' as const }
+                        : a === 'agent'
+                          ? { icon: Bot, label: t('dlg.pullAgent.runAgent'), desc: t('dlg.pullAgent.runAgentDesc'), tone: 'emerald' as const }
+                          : a === 'stash'
+                            ? { icon: Archive, label: t('dlg.pullConflict.stash'), desc: t('dlg.pullConflict.stashDesc'), tone: 'neutral' as const }
+                            : a === 'force'
+                              ? { icon: Trash2, label: t('dlg.pullConflict.force'), desc: t('dlg.pullConflict.forceDesc'), tone: 'destructive' as const }
+                              : { icon: Terminal, label: t('dlg.pullDiag.action.manual'), desc: t('dlg.pullDiag.action.manualDesc'), tone: 'neutral' as const }
+                      return (
+                        <PullOptionCard
+                          key={a}
+                          icon={cfg.icon}
+                          tone={cfg.tone}
+                          title={busy === a ? t('dlg.pullDiag.busy') : cfg.label}
+                          desc={cfg.desc}
+                          badge={a === rec ? t('dlg.pullDiag.aiRecommended') : undefined}
+                          busy={busy === a}
+                          disabled={busyNow}
+                          onClick={() => (a === 'force' ? onForceConfirm(true) : onAction(a))}
+                        />
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </AppDialogBody>
 
-      <AppDialogFooter className="flex-col items-stretch sm:flex-col sm:items-stretch">
-        {!loading && diagnosis && (
-          <div className="flex flex-col gap-2">
-            {diagnosis.reason && (
-              <div className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 min-w-0">
-                <div className="text-[11px] font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                  <Sparkles className="h-3 w-3 shrink-0" />
-                  {t('dlg.pullDiag.whyLabel')}
-                </div>
-                <div className="text-xs text-amber-900/80 dark:text-amber-200/80 break-words min-w-0">{diagnosis.reason}</div>
-              </div>
-            )}
-            {forceConfirm ? (
-              <div className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 space-y-2">
-                <div className="text-sm font-medium text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
-                  <AlertTriangle className="h-4 w-4 shrink-0" />
-                  {t('dlg.pullDiag.confirmForceTitle')}
-                </div>
-                <div className="text-xs text-muted-foreground">{t('dlg.pullDiag.confirmForceDesc')}</div>
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="sm" className="flex-1" disabled={busyNow} onClick={() => onForceConfirm(false)}>
-                    {t('dlg.pullDiag.goBack')}
-                  </Button>
-                  <Button variant="destructive" size="sm" className="flex-1" disabled={busyNow} onClick={() => onAction('force')}>
-                    {busy === 'force' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                    {busy === 'force' ? t('dlg.pullDiag.busy') : t('dlg.pullDiag.confirmForce')}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <>
-                {actions.map((a) => {
-                  const cfg = a === 'retry'
-                    ? { icon: RefreshCw, label: t('dlg.pullDiag.action.retry'), desc: t('dlg.pullDiag.action.retryDesc'), variant: 'default' as const }
-                    : a === 'agent'
-                      ? { icon: Bot, label: t('dlg.pullAgent.runAgent'), desc: t('dlg.pullAgent.runAgentDesc'), variant: 'default' as const }
-                      : a === 'stash'
-                        ? { icon: Archive, label: t('dlg.pullConflict.stash'), desc: t('dlg.pullConflict.stashDesc'), variant: 'default' as const }
-                        : a === 'force'
-                          ? { icon: Trash2, label: t('dlg.pullConflict.force'), desc: t('dlg.pullConflict.forceDesc'), variant: 'destructive' as const }
-                          : { icon: Terminal, label: t('dlg.pullDiag.action.manual'), desc: t('dlg.pullDiag.action.manualDesc'), variant: 'ghost' as const }
-                  const RecIcon = cfg.icon
-                  return (
-                    <Button
-                      key={a}
-                      variant={cfg.variant}
-                      className="w-full justify-start text-left h-auto py-2.5 min-w-0"
-                      disabled={busyNow}
-                      onClick={() => (a === 'force' ? onForceConfirm(true) : onAction(a))}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        {busy === a ? <Loader2 className="h-4 w-4 animate-spin shrink-0" /> : <RecIcon className="h-4 w-4 shrink-0" />}
-                        <div className="flex flex-col items-start min-w-0">
-                          <span className="text-sm font-medium flex items-center gap-1.5 flex-wrap min-w-0">
-                            {busy === a ? t('dlg.pullDiag.busy') : cfg.label}
-                            {a === rec ? (
-                              <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 px-1.5 py-px text-[10px] font-semibold shrink-0">
-                                <Sparkles className="h-2.5 w-2.5" />
-                                {t('dlg.pullDiag.aiRecommended')}
-                              </span>
-                            ) : null}
-                          </span>
-                          <span className={`text-xs font-normal break-words min-w-0 ${a === 'force' ? 'text-destructive/80' : 'text-muted-foreground'}`}>{cfg.desc}</span>
-                        </div>
-                      </div>
-                    </Button>
-                  )
-                })}
-                <Button variant="ghost" className="w-full" disabled={busyNow} onClick={onClose}>
-                  {t('dlg.pullDiag.close')}
-                </Button>
-              </>
-            )}
-          </div>
+      <AppDialogFooter>
+        {!loading && (
+          <Button variant="outline" className="w-full sm:w-auto" disabled={busyNow} onClick={onClose}>
+            {t('dlg.pullDiag.close')}
+          </Button>
         )}
       </AppDialogFooter>
     </AppDialog>
@@ -3830,9 +3910,8 @@ function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
 
   return (
     <AppDialog open={!!run} onOpenChange={(o) => { if (!o && !busyNow) onClose() }} size="md">
-      <AppDialogHeader>
+      <AppDialogHeader icon={Bot} iconTone={run?.status === 'failed' ? 'amber' : 'emerald'}>
         <AppDialogTitle className="flex items-center gap-2">
-          <Bot className={`h-5 w-5 shrink-0 ${running ? 'animate-pulse text-emerald-600' : run?.status === 'done' ? 'text-emerald-600' : 'text-amber-500'}`} />
           {running ? t('dlg.pullAgent.title') : run?.status === 'done' ? t('dlg.pullAgent.doneTitle') : t('dlg.pullAgent.failedTitle')}
           {run ? <span className="text-sm font-normal text-muted-foreground truncate">· {run.projectName}</span> : null}
         </AppDialogTitle>
@@ -3851,7 +3930,7 @@ function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
             {/* Live step timeline */}
             <ol className="rounded-lg border divide-y" aria-label={t('dlg.pullAgent.title')}>
               {steps.map((s) => (
-                <li key={s.key} className="flex items-start gap-2.5 px-3 py-2">
+                <li key={s.key} className="flex items-start gap-2.5 px-3.5 py-2.5">
                   <span className="mt-0.5 flex h-4 w-4 items-center justify-center">{stepIcon(s.status)}</span>
                   <div className="min-w-0 flex-1">
                     <div className={`text-sm leading-5 ${s.status === 'pending' ? 'text-muted-foreground/70' : ''}`}>
@@ -4130,7 +4209,7 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
   )
 }
 
-function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onClose: () => void; onEnginesSaved?: (e: { analysisMode: 'agent' | 'legacy'; pullMode: 'legacy' | 'agent' }) => void }) {
   const t = useT()
   const [provider, setProvider] = React.useState('zai')
   const [apiKey, setApiKey] = React.useState('')
@@ -4152,6 +4231,10 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
   const [loadError, setLoadError] = React.useState('')
   // ---- auto-repair engine (legacy tool loop vs. delegated agent CLI) ----
   const [repairMode, setRepairMode] = React.useState<'legacy' | 'cli'>('legacy')
+  // v1.28: per-feature engines — analysis (dsh harness vs single API call)
+  // and pull (deterministic agent vs plain pull + AI diagnosis).
+  const [analysisMode, setAnalysisMode] = React.useState<'agent' | 'legacy'>('agent')
+  const [pullMode, setPullMode] = React.useState<'legacy' | 'agent'>('legacy')
   // Select value: 'auto' | a known CLI id | 'custom' (template below).
   // 'auto' is a sentinel for "" — Radix Select forbids empty-string item values.
   const [repairCli, setRepairCli] = React.useState('auto')
@@ -4245,6 +4328,8 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
             setBaseUrl(data.baseUrl || '')
             setModel(data.model || '')
             setRepairMode(data.repairMode === 'cli' ? 'cli' : 'legacy')
+            setAnalysisMode(data.analysisMode === 'legacy' ? 'legacy' : 'agent')
+            setPullMode(data.pullMode === 'agent' ? 'agent' : 'legacy')
             const savedCli: string = data.repairCli || ''
             if (savedCli.startsWith('custom:')) {
               setRepairCli('custom')
@@ -4312,7 +4397,7 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
     try {
       // Only send the key when it actually changed — an untouched masked
       // value round-trips as "undefined" so the server keeps the secret.
-      const body: Record<string, unknown> = { provider, baseUrl, model, repairMode }
+      const body: Record<string, unknown> = { provider, baseUrl, model, repairMode, analysisMode, pullMode }
       if (!keyUnchanged) body.apiKey = apiKey
       body.repairCli = repairCli === 'custom'
         ? `custom:${repairCliCustom.trim()}`
@@ -4325,6 +4410,9 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
       })
       if (res.ok) {
         toast({ title: t('dlg.llm.savedToast'), description: t('dlg.llm.savedToastDesc'), variant: 'success' })
+        // v1.28: the dashboard's per-feature routing state follows the
+        // freshly saved engines immediately (no remount / refetch needed).
+        onEnginesSaved?.({ analysisMode, pullMode })
         onClose()
       } else {
         // 4xx/5xx used to be silent (only network errors toasted) — the user
@@ -4357,7 +4445,7 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
         {loading ? (
           <div className="flex items-center justify-center py-10"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3.5">
             {loadError && (
               <div className="flex items-start gap-2.5 rounded-xl border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-xs px-3.5 py-3">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -4402,38 +4490,37 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
               )}
 
               {!isZai && (
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs">{t('dlg.llm.apiKey')}</Label>
-                    {activeProfile?.docsUrl && (
-                      <a href={activeProfile.docsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-emerald-600 hover:underline dark:text-emerald-400">
-                        <KeyRound className="h-3 w-3" />{t('dlg.llm.getKey')}<ExternalLink className="h-2.5 w-2.5" />
-                      </a>
-                    )}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs">{t('dlg.llm.apiKey')}</Label>
+                      {activeProfile?.docsUrl && (
+                        <a href={activeProfile.docsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-emerald-600 hover:underline dark:text-emerald-400">
+                          <KeyRound className="h-3 w-3" />{t('dlg.llm.getKey')}<ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
+                      <Input
+                        type="password"
+                        className="h-9 pl-9"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder={hasApiKey && keyUnchanged ? t('dlg.llm.savedKeyPlaceholder', { mask: keyMask }) : (activeProfile?.apiKeyEnv ? t('dlg.llm.keyEnvPlaceholder', { env: activeProfile.apiKeyEnv }) : 'sk-...')}
+                      />
+                    </div>
                   </div>
-                  <div className="relative">
-                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('dlg.llm.baseUrl')}</Label>
                     <Input
-                      type="password"
-                      className="h-9 pl-9"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder={hasApiKey && keyUnchanged ? t('dlg.llm.savedKeyPlaceholder', { mask: keyMask }) : (activeProfile?.apiKeyEnv ? t('dlg.llm.keyEnvPlaceholder', { env: activeProfile.apiKeyEnv }) : 'sk-...')}
+                      className="h-9"
+                      value={baseUrl}
+                      onChange={(e) => setBaseUrl(e.target.value)}
+                      placeholder={provider === 'custom' ? 'https://your-provider.com/v1' : activeProfile?.baseURL || 'https://api.openai.com/v1'}
                     />
+                    {provider === 'custom' && <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.baseUrlHint')}</p>}
                   </div>
-                </div>
-              )}
-
-              {!isZai && (
-                <div className="space-y-1">
-                  <Label className="text-xs">{t('dlg.llm.baseUrl')}</Label>
-                  <Input
-                    className="h-9"
-                    value={baseUrl}
-                    onChange={(e) => setBaseUrl(e.target.value)}
-                    placeholder={provider === 'custom' ? 'https://your-provider.com/v1' : activeProfile?.baseURL || 'https://api.openai.com/v1'}
-                  />
-                  {provider === 'custom' && <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.baseUrlHint')}</p>}
                 </div>
               )}
             </section>
@@ -4499,14 +4586,17 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
               </div>
             </section>
 
-            {/* ---- Section: auto-repair engine (legacy tool loop vs. delegated agent CLI) ---- */}
-            <section className="space-y-3.5 rounded-xl border border-border/70 bg-card/60 p-4 dark:bg-card/40">
+            {/* ---- Section: feature engines (v1.28) — per-feature routing:
+                  analysis (dsh harness vs single API call), pull (deterministic
+                  agent vs plain + AI diagnosis), auto-repair (legacy tool loop
+                  vs. delegated agent CLI) ---- */}
+            <section className="space-y-3 rounded-xl border border-border/70 bg-card/60 p-4 dark:bg-card/40">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400">
-                    <Wrench className="h-4 w-4" />
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
+                    <Zap className="h-4 w-4" />
                   </span>
-                  <p className="text-xs font-semibold tracking-wide">{t('dlg.llm.repairEngine')}</p>
+                  <p className="text-xs font-semibold tracking-wide">{t('dlg.llm.sectionEngines')}</p>
                 </div>
                 <button
                   type="button"
@@ -4518,98 +4608,176 @@ function LlmConfigDialog({ open, onClose }: { open: boolean; onClose: () => void
                   {detecting ? t('dlg.llm.repairDetecting') : t('dlg.llm.repairDetect')}
                 </button>
               </div>
-              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setRepairMode('legacy')}
-                  aria-pressed={repairMode === 'legacy'}
-                  className={`group relative rounded-lg border p-3 text-left transition-all cursor-pointer ${repairMode === 'legacy'
-                    ? 'border-emerald-400/90 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-300/50 dark:border-emerald-700 dark:bg-emerald-950/30 dark:ring-emerald-800/50'
-                    : 'border-border/80 hover:border-emerald-300/70 hover:bg-emerald-50/30 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'}`}
-                >
-                  {repairMode === 'legacy' && (
-                    <CheckCircle2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  )}
-                  <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                    <Bot className="h-3.5 w-3.5" />
-                    {t('dlg.llm.repairModeLegacy')}
+
+              {/* Engine row: environment analysis (agent harness vs single API call) */}
+              <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2.5 rounded-lg border p-3.5">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400">
+                    <Sparkles className="h-3.5 w-3.5" />
                   </span>
-                  <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
-                    {t('dlg.llm.repairModeLegacyDesc')}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRepairMode('cli')}
-                  aria-pressed={repairMode === 'cli'}
-                  className={`group relative rounded-lg border p-3 text-left transition-all cursor-pointer ${repairMode === 'cli'
-                    ? 'border-emerald-400/90 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-300/50 dark:border-emerald-700 dark:bg-emerald-950/30 dark:ring-emerald-800/50'
-                    : 'border-border/80 hover:border-emerald-300/70 hover:bg-emerald-50/30 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'}`}
-                >
-                  {repairMode === 'cli' && (
-                    <CheckCircle2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  )}
-                  <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                    <Terminal className="h-3.5 w-3.5" />
-                    {t('dlg.llm.repairModeCli')}
-                  </span>
-                  <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
-                    {t('dlg.llm.repairModeCliDesc', { rounds: 2, minutes: REPAIR_CLI_ROUND_TIMEOUT_MIN })}
-                  </span>
-                </button>
-              </div>
-              {detectNote && (
-                <p className={`flex items-start gap-1.5 text-[11px] leading-snug ${detectedClis.some((c) => c.found) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                  {detectedClis.some((c) => c.found) && <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />}
-                  <span>{detectNote}</span>
-                </p>
-              )}
-              {repairMode === 'cli' && (
-                <div className="space-y-2">
-                  <Label className="text-xs">{t('dlg.llm.repairCli')}</Label>
-                  <Select value={repairCli} onValueChange={(v) => setRepairCli(v)}>
-                    <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent className="max-h-60">
-                      <SelectItem value="auto" className="text-xs">{t('dlg.llm.repairCliAuto')}</SelectItem>
-                      {detectedClis.map((c) => (
-                        <SelectItem key={c.id} value={c.id} disabled={!c.found} className="text-xs">
-                          <span className="flex items-center gap-2">
-                            <span>{c.label}</span>
-                            {c.found
-                              ? <span className="rounded bg-emerald-500/10 px-1 py-px font-mono text-[9px] text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{c.version || '✓ installed'}</span>
-                              : <span className="text-[10px] text-muted-foreground">(not installed)</span>}
-                          </span>
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="custom" className="text-xs">{t('dlg.llm.repairCliCustom')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {repairCli !== 'auto' && repairCli !== 'custom' && (() => {
-                    const sel = detectedClis.find((c) => c.id === repairCli)
-                    // Prefer the localized note; the backend's raw note is a
-                    // zh fallback only (it leaked Chinese into the EN UI).
-                    const noteText = sel?.id === 'claude-desktop'
-                      ? t('dlg.llm.cliNote.claudeDesktop')
-                      : sel?.note
-                    if (!noteText) return null
-                    return (
-                      <p className="flex items-start gap-2 rounded-lg border border-amber-200/80 bg-amber-50/70 p-2.5 text-[11px] leading-snug text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/25 dark:text-amber-300">
-                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span>{noteText}</span>
-                      </p>
-                    )
-                  })()}
-                  {repairCli === 'custom' && (
-                    <Input
-                      value={repairCliCustom}
-                      onChange={(e) => setRepairCliCustom(e.target.value)}
-                      placeholder={t('dlg.llm.repairCliCustomPlaceholder')}
-                      className="h-9 font-mono text-[11px]"
-                    />
-                  )}
-                  <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.repairCliHint')}</p>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium">{t('dlg.llm.engineAnalysis')}</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.engineAnalysisDesc')}</p>
+                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">
+                      {analysisMode === 'agent' ? t('dlg.llm.engineAnalysisAgentHint') : t('dlg.llm.engineAnalysisLegacyHint')}
+                    </p>
+                  </div>
                 </div>
-              )}
+                <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.engineAnalysis')}>
+                  <button
+                    type="button"
+                    aria-pressed={analysisMode === 'agent'}
+                    onClick={() => setAnalysisMode('agent')}
+                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${analysisMode === 'agent' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {t('dlg.llm.engineAgentBtn')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={analysisMode === 'legacy'}
+                    onClick={() => setAnalysisMode('legacy')}
+                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${analysisMode === 'legacy' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {t('dlg.llm.engineLegacyBtn')}
+                  </button>
+                </div>
+              </div>
+
+              {/* Engine row: code pull (deterministic agent vs plain + AI diagnosis) */}
+              <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2.5 rounded-lg border p-3.5">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
+                    <GitPullRequest className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium">{t('dlg.llm.enginePull')}</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.enginePullDesc')}</p>
+                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">
+                      {pullMode === 'agent' ? t('dlg.llm.enginePullAgentHint') : t('dlg.llm.enginePullLegacyHint')}
+                    </p>
+                  </div>
+                </div>
+                <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.enginePull')}>
+                  <button
+                    type="button"
+                    aria-pressed={pullMode === 'agent'}
+                    onClick={() => setPullMode('agent')}
+                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${pullMode === 'agent' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {t('dlg.llm.enginePullAgentBtn')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={pullMode === 'legacy'}
+                    onClick={() => setPullMode('legacy')}
+                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${pullMode === 'legacy' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {t('dlg.llm.enginePullLegacyBtn')}
+                  </button>
+                </div>
+              </div>
+
+              {/* Engine row: auto-repair (legacy tool loop vs. delegated agent CLI) */}
+              <div className="space-y-2.5 rounded-lg border p-3.5">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400">
+                    <Wrench className="h-3.5 w-3.5" />
+                  </span>
+                  <p className="text-xs font-medium">{t('dlg.llm.repairEngine')}</p>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setRepairMode('legacy')}
+                    aria-pressed={repairMode === 'legacy'}
+                    className={`group relative rounded-lg border p-2.5 text-left transition-all cursor-pointer ${repairMode === 'legacy'
+                      ? 'border-emerald-400/90 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-300/50 dark:border-emerald-700 dark:bg-emerald-950/30 dark:ring-emerald-800/50'
+                      : 'border-border/80 hover:border-emerald-300/70 hover:bg-emerald-50/30 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'}`}
+                  >
+                    {repairMode === 'legacy' && (
+                      <CheckCircle2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                    )}
+                    <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                      <Bot className="h-3.5 w-3.5" />
+                      {t('dlg.llm.repairModeLegacy')}
+                    </span>
+                    <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
+                      {t('dlg.llm.repairModeLegacyDesc')}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRepairMode('cli')}
+                    aria-pressed={repairMode === 'cli'}
+                    className={`group relative rounded-lg border p-2.5 text-left transition-all cursor-pointer ${repairMode === 'cli'
+                      ? 'border-emerald-400/90 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-300/50 dark:border-emerald-700 dark:bg-emerald-950/30 dark:ring-emerald-800/50'
+                      : 'border-border/80 hover:border-emerald-300/70 hover:bg-emerald-50/30 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'}`}
+                  >
+                    {repairMode === 'cli' && (
+                      <CheckCircle2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                    )}
+                    <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                      <Terminal className="h-3.5 w-3.5" />
+                      {t('dlg.llm.repairModeCli')}
+                    </span>
+                    <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
+                      {t('dlg.llm.repairModeCliDesc', { rounds: 2, minutes: REPAIR_CLI_ROUND_TIMEOUT_MIN })}
+                    </span>
+                  </button>
+                </div>
+                {detectNote && (
+                  <p className={`flex items-start gap-1.5 text-[11px] leading-snug ${detectedClis.some((c) => c.found) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {detectedClis.some((c) => c.found) && <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />}
+                    <span>{detectNote}</span>
+                  </p>
+                )}
+                {repairMode === 'cli' && (
+                  <div className="space-y-2">
+                    <Label className="text-xs">{t('dlg.llm.repairCli')}</Label>
+                    <Select value={repairCli} onValueChange={(v) => setRepairCli(v)}>
+                      <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        <SelectItem value="auto" className="text-xs">{t('dlg.llm.repairCliAuto')}</SelectItem>
+                        {detectedClis.map((c) => (
+                          <SelectItem key={c.id} value={c.id} disabled={!c.found} className="text-xs">
+                            <span className="flex items-center gap-2">
+                              <span>{c.label}</span>
+                              {c.found
+                                ? <span className="rounded bg-emerald-500/10 px-1 py-px font-mono text-[9px] text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{c.version || '✓ installed'}</span>
+                                : <span className="text-[10px] text-muted-foreground">(not installed)</span>}
+                            </span>
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="custom" className="text-xs">{t('dlg.llm.repairCliCustom')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {repairCli !== 'auto' && repairCli !== 'custom' && (() => {
+                      const sel = detectedClis.find((c) => c.id === repairCli)
+                      // Prefer the localized note; the backend's raw note is a
+                      // zh fallback only (it leaked Chinese into the EN UI).
+                      const noteText = sel?.id === 'claude-desktop'
+                        ? t('dlg.llm.cliNote.claudeDesktop')
+                        : sel?.note
+                      if (!noteText) return null
+                      return (
+                        <p className="flex items-start gap-2 rounded-lg border border-amber-200/80 bg-amber-50/70 p-2.5 text-[11px] leading-snug text-amber-700 dark:border-amber-800/60 dark:bg-amber-950/25 dark:text-amber-300">
+                          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <span>{noteText}</span>
+                        </p>
+                      )
+                    })()}
+                    {repairCli === 'custom' && (
+                      <Input
+                        value={repairCliCustom}
+                        onChange={(e) => setRepairCliCustom(e.target.value)}
+                        placeholder={t('dlg.llm.repairCliCustomPlaceholder')}
+                        className="h-9 font-mono text-[11px]"
+                      />
+                    )}
+                    <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.repairCliHint')}</p>
+                  </div>
+                )}
+              </div>
             </section>
           </div>
         )}
@@ -7777,6 +7945,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [systemMonitorOpen, setSystemMonitorOpen] = React.useState(false)
   const [portsPanelOpen, setPortsPanelOpen] = React.useState(false)
   const [llmOpen, setLlmOpen] = React.useState(false)
+  // v1.28: per-feature engines loaded from the LLM config row — analysis
+  // (dsh harness vs legacy API) and pull (agent vs plain+diagnosis). The
+  // dashboard reads them once on mount (and again after the LLM config
+  // dialog saves) so each feature routes to its configured engine.
+  const [llmEngines, setLlmEngines] = React.useState<{ analysisMode: 'agent' | 'legacy'; pullMode: 'legacy' | 'agent' }>({ analysisMode: 'agent', pullMode: 'legacy' })
   // Switch-branch picker (branch detect + checkout + pull) — opened from
   // card context menus and the detail sheet's git block.
   const [branchPickerProject, setBranchPickerProject] = React.useState<Project | null>(null)
@@ -8236,6 +8409,23 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     }
   }, [toast, fetchDevices, t])
 
+  // v1.28: read the per-feature engine flags (analysisMode / pullMode) from
+  // the LLM config row. Silent-failure on purpose — a stalled config API must
+  // not block the dashboard; the defaults (analysis: agent, pull: legacy)
+  // simply stay in effect until the next successful read.
+  const fetchLlmEngines = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/llm-config', { signal: AbortSignal.timeout(20_000) })
+      if (!res.ok) return
+      const data = await res.json()
+      if (!data || data.error) return
+      setLlmEngines({
+        analysisMode: data.analysisMode === 'legacy' ? 'legacy' : 'agent',
+        pullMode: data.pullMode === 'agent' ? 'agent' : 'legacy',
+      })
+    } catch { /* keep current values */ }
+  }, [])
+
   const loadData = React.useCallback(async () => {
     // Cache-hydrated paint already shows projects — don't flash the skeleton
     // over it while the network refresh runs in the background.
@@ -8261,7 +8451,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       lastProjectsSerializedRef.current = JSON.stringify(init.data)
       hydratedFromCacheRef.current = true
     }
-    const id = requestAnimationFrame(() => { loadData() })
+    const id = requestAnimationFrame(() => { loadData(); void fetchLlmEngines() })
     return () => cancelAnimationFrame(id)
   }, []) // Initial load only
 
@@ -8732,11 +8922,50 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     setProjectFormOpen(true)
   }, [])
 
+  // v1.28: analysisMode=legacy — one direct LLM call through the classic
+  // analyze route (?replace=true wipes and regenerates the environments).
+  // No dsh harness, no dependency install, no start-command verification:
+  // the fast path for users whose network/model makes the agent loop time
+  // out. Mirrors the remote-project flow: start toast → POST → result
+  // toast (env list) → refresh.
+  const runLegacyAnalysis = React.useCallback(async (projectId: string, name: string) => {
+    toast({ title: t('dlg.toast.legacyAnalyzing'), description: name })
+    try {
+      const res = await fetch(`/api/projects/${projectId}/analyze?replace=true`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(180_000),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const envs: Array<{ name?: string; port?: number }> = Array.isArray(data?.project?.environments) ? data.project.environments : []
+        toast({
+          title: t('dlg.toast.legacyAnalyzed', { count: envs.length }),
+          description: envs.length > 0
+            ? t('dlg.toast.envsCreatedDesc', { count: envs.length, list: envs.map((e) => `${e.name ?? '?'} (:${e.port ?? '?'})`).join(', ').slice(0, 300) })
+            : t('dlg.toast.noEnvsGenerated'),
+          variant: 'success',
+        })
+        fetchProjects()
+      } else {
+        const err = await res.json().catch(() => ({}))
+        toast({ title: t('dlg.toast.legacyAnalyzeFailed'), description: summarizeError(err?.error), variant: 'destructive' })
+      }
+    } catch (e: any) {
+      toast({ title: t('dlg.toast.legacyAnalyzeFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
+    }
+  }, [toast, t, fetchProjects])
+
   // Launch a deepseek-harness analysis session (in-process engine, no
   // separate service) for a local project and open the live-progress wizard.
   // The agent installs deps, generates the startup command and auto-debugs
   // it until the service boots.
   const startHarnessAnalysis = React.useCallback(async (projectId: string, name: string, path: string) => {
+    // v1.28: analysisMode=legacy — skip the dsh harness entirely and run
+    // the single-call analyze route instead (fast, no verification loop).
+    if (llmEngines.analysisMode === 'legacy') {
+      await runLegacyAnalysis(projectId, name)
+      return
+    }
     // Immediate feedback: this POST previously showed NOTHING until a
     // response arrived — a slow/hung server left the click looking dead
     // ("re-fetch env 没有反应" symptom).
@@ -8772,7 +9001,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } catch (e: any) {
       toast({ title: t('dlg.toast.analysisStartFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
     }
-  }, [projects, toast, t])
+  }, [projects, toast, t, llmEngines, runLegacyAnalysis])
 
   const handleProjectSubmit = React.useCallback(async (data: { name: string; path: string; description: string; icon: string; tags: string[]; deviceId: string | null; repoUrl?: string }) => {
     try {
@@ -9328,6 +9557,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     setPullingProjectIds((prev) => new Set(prev).add(project.id))
     toast({ title: branch ? t('dlg.branch.switching') : t('dlg.detail.pulling'), description: branch ? `${project.name} → ${branch}` : sanitizeGitUrl(project.repoUrl) })
     try {
+      // v1.28: local projects with pullMode=agent hand the WHOLE loop to the
+      // deterministic pull agent (backup → fetch ladder → sync → restore →
+      // verify) — its SSE timeline dialog takes over and manages its own
+      // completion toasts; the finally below still clears the in-flight id.
+      // Remote projects always go through the plain proxy pull below.
+      if (!project.deviceId && llmEngines.pullMode === 'agent') {
+        await runAgentPull(project, branch)
+        return
+      }
       const res = await fetch(`/api/projects/${project.id}/pull`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -9381,7 +9619,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       pullingProjectIdsRef.current.delete(project.id)
       setPullingProjectIds((prev) => { const next = new Set(prev); next.delete(project.id); return next })
     }
-  }, [toast, fetchProjects, fetchProjectVersions, fetchProjectUpdates, openPullDiagnosis, t])
+  }, [toast, fetchProjects, fetchProjectVersions, fetchProjectUpdates, openPullDiagnosis, t, llmEngines, runAgentPull])
 
   // The AI diagnosis dialog's chosen action (user-confirmed in the dialog;
   // 'force' only arrives here AFTER the in-dialog second confirmation).
@@ -11599,7 +11837,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       <PortsPanel open={portsPanelOpen} onClose={() => setPortsPanelOpen(false)} onKilled={() => fetchProjects({ fresh: true })} />
 
       {/* LLM config */}
-      <LlmConfigDialog open={llmOpen} onClose={() => setLlmOpen(false)} />
+      <LlmConfigDialog open={llmOpen} onClose={() => setLlmOpen(false)} onEnginesSaved={(e) => setLlmEngines(e)} />
       <BranchPickerDialog
         project={branchPickerProject}
         open={!!branchPickerProject}
