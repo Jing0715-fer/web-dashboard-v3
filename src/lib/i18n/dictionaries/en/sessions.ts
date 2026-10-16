@@ -7,6 +7,7 @@ export const sessions = {
   // ---- dialog ----
   'sessions.title': 'Active Sessions',
   'sessions.desc': 'Devices and browsers currently signed in. Revoke anything you don\'t recognize.',
+  'sessions.section': 'Signed-in devices',
   'sessions.myScope': 'My sessions',
   'sessions.allScope': 'All users',
   'sessions.adminHint': 'Admin view — shows every active session in the system.',

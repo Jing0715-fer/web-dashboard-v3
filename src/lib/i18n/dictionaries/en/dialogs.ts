@@ -74,6 +74,9 @@ export const dialogs = {
   'dlg.shortcuts.secGeneral': 'General',
   'dlg.shortcuts.secNav': 'Navigation',
   'dlg.shortcuts.secProject': 'Projects & actions',
+  'dlg.shortcuts.groupBasic': 'Basics',
+  'dlg.shortcuts.groupNav': 'Navigation',
+  'dlg.shortcuts.groupActions': 'Project actions',
 
   // ---- notification detail dialog ----
   'dlg.notifDetail.type': 'Type',
@@ -86,6 +89,7 @@ export const dialogs = {
   'dlg.notifDetail.type.warning': 'Warning',
   'dlg.notifDetail.type.error': 'Error',
   'dlg.notifDetail.type.info': 'Info',
+  'dlg.notifDetail.content': 'Content',
 
   // ---- auto notifications (notification center + detail dialog) ----
   'dlg.notif.deviceOnlineTitle': 'Device online',
@@ -142,6 +146,10 @@ export const dialogs = {
   'dlg.projectForm.device': 'Device',
   'dlg.projectForm.pathLocked': 'Path is fixed after creation — to relocate the project, move its files and re-add it',
   'dlg.projectForm.deviceLocked': 'Device changes go through the card menu → Move',
+  'dlg.projectForm.sectionBasic': 'Basics',
+  'dlg.projectForm.sectionSource': 'Source Code',
+  'dlg.projectForm.sectionAppearance': 'Appearance',
+  'dlg.projectForm.sectionDeploy': 'Deployment',
 
   // ---- environment form dialog ----
   'dlg.envForm.addTitle': 'Add Environment',
@@ -152,6 +160,9 @@ export const dialogs = {
   'dlg.envForm.cmd': 'Command *',
   'dlg.envForm.port': 'Port *',
   'dlg.envForm.envVars': 'Environment Variables',
+  'dlg.envForm.sectionBasic': 'Basics',
+  'dlg.envForm.sectionCommand': 'Start Command',
+  'dlg.envForm.cmdHint': 'Executed in the project directory when this environment starts',
 
   // ---- system monitor dialog ----
   'dlg.systemMonitor.title': 'System Resource Monitor',
@@ -180,6 +191,10 @@ export const dialogs = {
   'dlg.systemMonitor.free': 'Free: {count}MB',
   'dlg.systemMonitor.lastChecked': 'Last checked: {time}',
   'dlg.systemMonitor.loadFailed': 'Failed to load system status.',
+  'dlg.systemMonitor.trendHigh': 'High',
+  'dlg.systemMonitor.trendMid': 'Moderate',
+  'dlg.systemMonitor.trendOk': 'Normal',
+  'dlg.systemMonitor.sectionLoad': 'Load detail',
 
   // ---- LLM config dialog ----
   'dlg.llm.title': 'LLM Configuration',
@@ -233,6 +248,7 @@ export const dialogs = {
   'dlg.llm.cliNote.claudeDesktop': 'The desktop app cannot run unattended — delegated repairs actually go through the claude CLI (falls back to the built-in engine when no CLI is detected)',
   // ---- Per-feature engines (v1.28): analysis & pull pick their own engine ----
   'dlg.llm.sectionEngines': 'Feature engines',
+  'dlg.llm.sectionRepair': 'Repair engine',
   'dlg.llm.engineAnalysis': 'Environment analysis',
   'dlg.llm.engineAnalysisDesc': 'How project dirs are analyzed into startup configs',
   'dlg.llm.engineAgentBtn': 'Agent',
@@ -310,6 +326,7 @@ export const dialogs = {
   'dlg.detail.pullRemoteOnly': 'Pull runs on the device that owns this project — use that device\u2019s dashboard',
   // ---- Switch-branch dialog ----
   'dlg.branch.title': 'Switch Branch',
+  'dlg.branch.sectionList': 'Branches',
   'dlg.branch.desc': 'Pick a target branch — it is checked out and pulled. Uncommitted local changes are never overwritten (git refuses clobbering checkouts).',
   'dlg.branch.current': 'current',
   'dlg.branch.remoteOnly': 'remote',
@@ -329,6 +346,9 @@ export const dialogs = {
   // ---- Pull-conflict dialog (local changes block git pull) ----
   'dlg.pullConflict.title': 'Local changes conflict with the pull',
   'dlg.pullConflict.desc': 'The pull is blocked by the local changes below — git refuses to overwrite them. Pick how to continue, or cancel and resolve it by hand:',
+  // v1.30: AppDialogSection eyebrows.
+  'dlg.pullConflict.sectionFiles': 'Conflicted files',
+  'dlg.pullConflict.sectionStrategy': 'How to proceed',
   'dlg.pullConflict.modified': 'Modified files (also updated remotely)',
   'dlg.pullConflict.untracked': 'Untracked files (same name exists remotely)',
   'dlg.pullConflict.stash': 'Stash local changes & pull',
@@ -347,6 +367,9 @@ export const dialogs = {
   'dlg.pullConflict.updated': 'Conflict file list updated',
   // ---- AI pull diagnosis (LLM analyzes a failed pull, user confirms the fix) ----
   'dlg.pullDiag.title': 'AI Pull Diagnosis',
+  // v1.30: AppDialogSection eyebrows.
+  'dlg.pullDiag.sectionDiagnosis': 'Diagnosis',
+  'dlg.pullDiag.sectionActions': 'Fix options',
   'dlg.pullDiag.loading': 'AI is analyzing the failure…',
   'dlg.pullDiag.loadingDesc': 'Reading the repository state and asking your configured LLM provider for the root cause and a recommended fix.',
   'dlg.pullDiag.rootCause': 'Root cause',
@@ -379,6 +402,9 @@ export const dialogs = {
   // ---- Pull-conflict agent (v1.20: fully automatic backup → sync → restore, live progress) ----
   'dlg.pullAgent.title': 'Agent Auto-Resolve Pull',
   'dlg.pullAgent.desc': 'The agent backs up your local changes first, syncs the remote code, then restores them automatically — every step is reported and nothing is lost.',
+  // v1.30: timeline section eyebrow + step count pill.
+  'dlg.pullAgent.sectionTimeline': 'Run timeline',
+  'dlg.pullAgent.stepCount': '{done}/{total} steps',
   'dlg.pullAgent.runAgent': 'Agent auto-resolve (recommended)',
   'dlg.pullAgent.runAgentDesc': 'Automatic backup → sync → restore, no interaction needed, local changes are never lost',
   'dlg.pullAgent.running': 'Agent working…',
@@ -474,6 +500,9 @@ export const dialogs = {
   'dlg.selfUpdate.autoUpdate': 'Background auto-update',
   'dlg.selfUpdate.autoOn': 'On',
   'dlg.selfUpdate.autoOff': 'Off',
+  'dlg.selfUpdate.sectionVersion': 'Version',
+  'dlg.selfUpdate.sectionInfo': 'Repository',
+  'dlg.selfUpdate.newTag': 'new',
   'dlg.selfUpdate.hint': 'The update flow is identical to every other project: the agent backs up local changes → syncs remote code → restores and auto-resolves all conflicts — local changes are never lost. Dev mode hot-reloads the code; a production build needs a process restart.',
   'dlg.selfUpdate.refreshPage': 'Update complete — refresh the page to load the latest UI.',
   'dlg.selfUpdate.toastDone': 'Dashboard updated to the latest version',
@@ -613,6 +642,8 @@ export const dialogs = {
   'dlg.deviceForm.addDesc': 'Register a remote device to monitor and manage its projects.',
   'dlg.deviceForm.editDesc': 'Update device connection settings.',
   'dlg.deviceForm.icon': 'Device Icon',
+  'dlg.deviceForm.sectionBasic': 'Basics',
+  'dlg.deviceForm.sectionConnection': 'Connection',
   'dlg.deviceForm.icon.monitor': 'Desktop',
   'dlg.deviceForm.icon.server': 'Server',
   'dlg.deviceForm.icon.smartphone': 'Mobile',
@@ -933,6 +964,10 @@ export const dialogs = {
   'dlg.userMgmt.removeGoogleTitle': 'Remove Google sign-in?',
   'dlg.userMgmt.removeGoogleDesc': 'The Google button on the sign-in page will be disabled immediately. Existing Google sessions are not affected.',
   'dlg.userMgmt.remove': 'Remove',
+  'dlg.userMgmt.sectionUsers': 'User directory',
+  'dlg.userMgmt.sectionStatus': 'Status',
+  'dlg.userMgmt.sectionCredentials': 'Client credentials',
+  'dlg.userMgmt.sectionProxy': 'Proxy settings',
 
   // ---- analyze wizard (agent analysis) ----
   'dlg.analyze.title': 'Agent Analysis · {name}',
@@ -971,6 +1006,7 @@ export const dialogs = {
   'dlg.analyze.autoSaving': 'Analysis complete — saving configuration automatically…',
   'dlg.analyze.autoSavedLine': 'Auto-saved {count} environment configs — closing or refreshing will not lose them',
   'dlg.analyze.autoSaveFailed': 'Auto-save failed — please save manually',
+  'dlg.analyze.sectionProgress': 'Live progress',
 
   // ---- remote project dialog ----
   'dlg.remoteProject.title': 'Add Remote Project',
@@ -1005,6 +1041,8 @@ export const dialogs = {
   'dlg.remoteProject.applyFailed': 'Apply failed',
   'dlg.remoteProject.agentTooOld': 'The agent on this device (v{version}) is too old for remote analysis — update it on that device (git pull in the project directory, then restart the agent; or re-download the package from the Devices panel) and retry',
   'dlg.remoteProject.jobLost': 'The analysis job was lost on the device — the agent most likely restarted. Start the analysis again',
+  'dlg.remoteProject.sectionTarget': 'Remote target',
+  'dlg.remoteProject.sectionProgress': 'Live progress',
 
   // ---- mesh pairing dialog ----
   'dlg.meshPairing.title': 'Device Pairing',
@@ -1028,6 +1066,8 @@ export const dialogs = {
   'dlg.meshPairing.devicePaired': 'Device joined',
   'dlg.meshPairing.devicePairedDesc': 'If it does not appear, refresh in a moment',
   'dlg.meshPairing.addressHint': 'Auto-picked: the NIC sharing the default gateway\u2019s subnet (virtual adapters like VMware are demoted). If the other device can\u2019t reach it, tap another address above.',
+  'dlg.meshPairing.sectionCode': 'Pairing code',
+  'dlg.meshPairing.sectionWeb': 'Web UI steps',
 
   // ---- mesh join dialog ----
   'dlg.meshJoin.title': 'Join Another Dashboard',
@@ -1075,6 +1115,8 @@ export const dialogs = {
   'dlg.meshJoin.checkError': 'Network error — check the address and network',
   'dlg.meshJoin.agentAutoStart': 'Join will start the local agent automatically',
   'dlg.meshJoin.projectsAdopted': 'auto-registered {count} peer project(s)',
+  'dlg.meshJoin.sectionTarget': 'Target dashboard',
+  'dlg.meshJoin.sectionCode': 'Pairing code',
 
   // ---- dialogs: misc toasts wired in page.tsx ----
   'dlg.toast.copied': 'Copied to clipboard',
@@ -1467,4 +1509,6 @@ export const dialogs = {
   'ports.orgReason.occupied': 'held by another process',
   'ports.orgReason.sequence': 'rule slot',
   'ports.orgRunningTag': 'after restart',
+  'ports.orgNoConflict': 'No conflicts',
+  'ports.orgWarnCount': '{count} warning(s)',
 }

@@ -70,6 +70,9 @@ export const dialogs = {
   'dlg.shortcuts.secGeneral': '通用',
   'dlg.shortcuts.secNav': '导航',
   'dlg.shortcuts.secProject': '项目与操作',
+  'dlg.shortcuts.groupBasic': '基础',
+  'dlg.shortcuts.groupNav': '导航',
+  'dlg.shortcuts.groupActions': '项目操作',
 
   // ---- 通知详情对话框 ----
   'dlg.notifDetail.type': '类型',
@@ -82,6 +85,7 @@ export const dialogs = {
   'dlg.notifDetail.type.warning': '警告',
   'dlg.notifDetail.type.error': '错误',
   'dlg.notifDetail.type.info': '信息',
+  'dlg.notifDetail.content': '内容',
 
   // ---- 自动通知（通知中心 + 详情对话框）----
   'dlg.notif.deviceOnlineTitle': '设备已上线',
@@ -138,6 +142,10 @@ export const dialogs = {
   'dlg.projectForm.device': '设备',
   'dlg.projectForm.pathLocked': '路径在创建后不可修改 —— 如需迁移请移动文件后重新添加项目',
   'dlg.projectForm.deviceLocked': '更改设备请使用卡片菜单中的「移动」操作',
+  'dlg.projectForm.sectionBasic': '基本信息',
+  'dlg.projectForm.sectionSource': '代码来源',
+  'dlg.projectForm.sectionAppearance': '外观',
+  'dlg.projectForm.sectionDeploy': '部署目标',
 
   // ---- 环境表单对话框 ----
   'dlg.envForm.addTitle': '添加环境',
@@ -148,6 +156,9 @@ export const dialogs = {
   'dlg.envForm.cmd': '命令 *',
   'dlg.envForm.port': '端口 *',
   'dlg.envForm.envVars': '环境变量',
+  'dlg.envForm.sectionBasic': '基础设置',
+  'dlg.envForm.sectionCommand': '启动命令',
+  'dlg.envForm.cmdHint': '环境启动时在项目目录中执行的命令',
 
   // ---- 系统监控对话框 ----
   'dlg.systemMonitor.title': '系统资源监控',
@@ -176,6 +187,10 @@ export const dialogs = {
   'dlg.systemMonitor.free': '剩余：{count}MB',
   'dlg.systemMonitor.lastChecked': '上次检查：{time}',
   'dlg.systemMonitor.loadFailed': '加载系统状态失败。',
+  'dlg.systemMonitor.trendHigh': '高',
+  'dlg.systemMonitor.trendMid': '中等',
+  'dlg.systemMonitor.trendOk': '正常',
+  'dlg.systemMonitor.sectionLoad': '负载详情',
 
   // ---- LLM 配置对话框 ----
   'dlg.llm.title': 'LLM 配置',
@@ -229,6 +244,7 @@ export const dialogs = {
   'dlg.llm.cliNote.claudeDesktop': '桌面应用无法无人值守运行 — 委托修复实际经由 claude CLI 执行（未检出 CLI 时自动回退内置引擎）',
   // ---- Per-feature engines (v1.28): analysis & pull pick their own engine ----
   'dlg.llm.sectionEngines': '功能引擎',
+  'dlg.llm.sectionRepair': '修复引擎',
   'dlg.llm.engineAnalysis': '解析环境',
   'dlg.llm.engineAnalysisDesc': '分析项目目录并生成启动配置的方式',
   'dlg.llm.engineAgentBtn': '智能体',
@@ -306,6 +322,7 @@ export const dialogs = {
   'dlg.detail.pullRemoteOnly': '拉取在项目所属设备上执行 — 请在该设备的控制台操作',
   // ---- 切换分支对话框 ----
   'dlg.branch.title': '切换分支',
+  'dlg.branch.sectionList': '分支列表',
   'dlg.branch.desc': '选择目标分支 — 检出并拉取最新代码。未提交的本地改动不会被覆盖（git 会拒绝可能丢失改动的切换）。',
   'dlg.branch.current': '当前',
   'dlg.branch.remoteOnly': '远程',
@@ -325,6 +342,9 @@ export const dialogs = {
   // ---- 拉取冲突对话框（本地修改阻塞了 git pull）----
   'dlg.pullConflict.title': '本地修改与拉取冲突',
   'dlg.pullConflict.desc': '拉取被以下本地修改阻止，git 拒绝覆盖它们。选择一种方式继续，或取消后手动处理：',
+  // v1.30：AppDialogSection 分区眉题。
+  'dlg.pullConflict.sectionFiles': '冲突文件',
+  'dlg.pullConflict.sectionStrategy': '处理方式',
   'dlg.pullConflict.modified': '已修改的文件（远程也有更新）',
   'dlg.pullConflict.untracked': '未跟踪的新文件（远程也存在同名文件）',
   'dlg.pullConflict.stash': '暂存本地修改后拉取',
@@ -343,6 +363,9 @@ export const dialogs = {
   'dlg.pullConflict.updated': '冲突文件列表已更新',
   // ---- AI 拉取诊断（LLM 分析失败的 pull，用户确认修复方案） ----
   'dlg.pullDiag.title': 'AI 拉取诊断',
+  // v1.30：AppDialogSection 分区眉题。
+  'dlg.pullDiag.sectionDiagnosis': '诊断结论',
+  'dlg.pullDiag.sectionActions': '修复方案',
   'dlg.pullDiag.loading': 'AI 正在分析失败原因…',
   'dlg.pullDiag.loadingDesc': '正在读取仓库状态，并调用你配置的 LLM 分析根本原因与推荐修复方案。',
   'dlg.pullDiag.rootCause': '根本原因',
@@ -375,6 +398,9 @@ export const dialogs = {
   // ---- 拉取冲突智能体（v1.20：全自动备份 + 同步 + 恢复，实时进度） ----
   'dlg.pullAgent.title': '智能体自动处理拉取',
   'dlg.pullAgent.desc': '智能体会先备份你的本地改动，再同步远程代码，最后自动恢复——全程可回溯，本地改动不会丢失。',
+  // v1.30：时间线分区眉题 + 步骤计数徽标。
+  'dlg.pullAgent.sectionTimeline': '执行时间线',
+  'dlg.pullAgent.stepCount': '{done}/{total} 步',
   'dlg.pullAgent.runAgent': '智能体全自动处理',
   'dlg.pullAgent.runAgentDesc': '自动备份 → 同步 → 恢复，全程无需干预，本地改动不会丢失',
   'dlg.pullAgent.running': '智能体处理中…',
@@ -469,6 +495,9 @@ export const dialogs = {
   'dlg.selfUpdate.autoUpdate': '后台自动更新',
   'dlg.selfUpdate.autoOn': '开启',
   'dlg.selfUpdate.autoOff': '关闭',
+  'dlg.selfUpdate.sectionVersion': '版本',
+  'dlg.selfUpdate.sectionInfo': '仓库信息',
+  'dlg.selfUpdate.newTag': '新',
   'dlg.selfUpdate.hint': '更新流程与其他项目完全一致：智能体先备份本地改动 → 同步远程代码 → 自动恢复并解决全部冲突，本地改动不会丢失。开发模式下代码热更新；生产构建需重启进程后生效。',
   'dlg.selfUpdate.refreshPage': '更新完成，建议刷新页面以加载最新界面。',
   'dlg.selfUpdate.toastDone': '仪表盘已更新到最新版本',
@@ -608,6 +637,8 @@ export const dialogs = {
   'dlg.deviceForm.addDesc': '注册远程设备以监控和管理其上的项目。',
   'dlg.deviceForm.editDesc': '更新设备连接设置。',
   'dlg.deviceForm.icon': '设备图标',
+  'dlg.deviceForm.sectionBasic': '基础信息',
+  'dlg.deviceForm.sectionConnection': '连接与安全',
   'dlg.deviceForm.icon.monitor': '台式机',
   'dlg.deviceForm.icon.server': '服务器',
   'dlg.deviceForm.icon.smartphone': '手机',
@@ -928,6 +959,10 @@ export const dialogs = {
   'dlg.userMgmt.removeGoogleTitle': '移除 Google 登录？',
   'dlg.userMgmt.removeGoogleDesc': '登录页上的 Google 按钮将立即停用。已有的 Google 会话不受影响。',
   'dlg.userMgmt.remove': '移除',
+  'dlg.userMgmt.sectionUsers': '用户列表',
+  'dlg.userMgmt.sectionStatus': '当前状态',
+  'dlg.userMgmt.sectionCredentials': '客户端凭据',
+  'dlg.userMgmt.sectionProxy': '代理设置',
 
   // ---- Agent 分析向导 ----
   'dlg.analyze.title': 'Agent 分析 · {name}',
@@ -966,6 +1001,7 @@ export const dialogs = {
   'dlg.analyze.autoSaving': '分析完成 — 正在自动保存环境配置…',
   'dlg.analyze.autoSavedLine': '已自动保存 {count} 个环境配置 — 关闭或刷新不会丢失',
   'dlg.analyze.autoSaveFailed': '自动保存失败 — 请手动保存',
+  'dlg.analyze.sectionProgress': '实时进度',
 
   // ---- 远程项目对话框 ----
   'dlg.remoteProject.title': '添加远程项目',
@@ -1000,6 +1036,8 @@ export const dialogs = {
   'dlg.remoteProject.applyFailed': '应用失败',
   'dlg.remoteProject.agentTooOld': '该设备上的 agent（v{version}）版本过旧，不支持远程解析 —— 请先在那台设备上更新 agent（在项目目录执行 git pull 后重启 agent，或在设备面板重新下载安装包）再重试',
   'dlg.remoteProject.jobLost': '设备上的解析任务已丢失（agent 很可能重启过）—— 请重新发起解析',
+  'dlg.remoteProject.sectionTarget': '目标位置',
+  'dlg.remoteProject.sectionProgress': '实时进度',
 
   // ---- 设备配对对话框 ----
   'dlg.meshPairing.title': '设备配对',
@@ -1023,6 +1061,8 @@ export const dialogs = {
   'dlg.meshPairing.devicePaired': '设备已接入',
   'dlg.meshPairing.devicePairedDesc': '如未显示请稍候刷新',
   'dlg.meshPairing.addressHint': '已自动选择与默认网关同子网的网卡（VMware 等虚拟网卡已降权）。若对方设备无法访问，可点上方其他地址切换。',
+  'dlg.meshPairing.sectionCode': '配对码',
+  'dlg.meshPairing.sectionWeb': '网页步骤',
 
   // ---- 加入网络对话框 ----
   'dlg.meshJoin.title': '加入其他仪表盘',
@@ -1070,6 +1110,8 @@ export const dialogs = {
   'dlg.meshJoin.checkError': '网络错误 — 请检查地址与网络',
   'dlg.meshJoin.agentAutoStart': '加入时将自动启动本机 Agent',
   'dlg.meshJoin.projectsAdopted': '已自动注册对方 {count} 个项目',
+  'dlg.meshJoin.sectionTarget': '目标面板',
+  'dlg.meshJoin.sectionCode': '配对码',
 
   // ---- 对话框：page.tsx 内的杂项提示 ----
   'dlg.toast.copied': '已复制到剪贴板',
@@ -1461,4 +1503,6 @@ export const dialogs = {
   'ports.orgReason.occupied': '被其他进程占用',
   'ports.orgReason.sequence': '按规则排序',
   'ports.orgRunningTag': '重启后生效',
+  'ports.orgNoConflict': '无冲突',
+  'ports.orgWarnCount': '{count} 条警告',
 }

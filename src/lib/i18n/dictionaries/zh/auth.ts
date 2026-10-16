@@ -23,6 +23,8 @@ export const auth = {
   'auth.changePw.confirm': '确认新密码',
   'auth.changePw.newPlaceholder': '至少 8 个字符',
   'auth.changePw.confirmPlaceholder': '再次输入新密码',
+  'auth.changePw.sectionVerify': '身份验证',
+  'auth.changePw.sectionNew': '设置新密码',
   'auth.changePw.error.current': '请输入当前密码。',
   'auth.changePw.error.next': '至少 8 个字符，且需包含字母和数字。',
   'auth.changePw.error.confirm': '两次输入的密码不一致。',

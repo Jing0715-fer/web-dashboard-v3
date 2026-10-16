@@ -25,6 +25,8 @@ export const auth = {
   'auth.changePw.confirm': 'Confirm new password',
   'auth.changePw.newPlaceholder': 'At least 8 characters',
   'auth.changePw.confirmPlaceholder': 'Repeat your new password',
+  'auth.changePw.sectionVerify': 'Identity check',
+  'auth.changePw.sectionNew': 'New password',
   'auth.changePw.error.current': 'Enter your current password.',
   'auth.changePw.error.next': 'At least 8 characters, including a letter and a digit.',
   'auth.changePw.error.confirm': 'Passwords do not match.',

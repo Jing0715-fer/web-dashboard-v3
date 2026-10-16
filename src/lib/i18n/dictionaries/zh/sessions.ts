@@ -7,6 +7,7 @@ export const sessions = {
   // ---- 对话框 ----
   'sessions.title': '活动会话',
   'sessions.desc': '当前已登录的设备与浏览器。可撤销任何可疑会话。',
+  'sessions.section': '已登录设备',
   'sessions.myScope': '我的会话',
   'sessions.allScope': '全部用户',
   'sessions.adminHint': '管理员视图 — 显示系统内所有活动会话。',

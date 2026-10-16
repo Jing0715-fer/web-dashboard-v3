@@ -3,14 +3,14 @@
 import * as React from 'react'
 import {
   Monitor, Smartphone, Tablet, Laptop, RefreshCw, Loader2,
-  Ban, LogOut, AlertCircle, ShieldCheck,
+  Ban, LogOut, AlertCircle, KeyRound, History, MonitorOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog'
-import { AppDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody, AppAlertDialog, AppDialogFooter } from '@/components/app-dialog'
+import { AppDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody, AppAlertDialog, AppDialogFooter, AppDialogSection } from '@/components/app-dialog'
 import { addToast } from '@/hooks/use-toast'
 import { useI18n, type I18nContextValue } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -189,7 +189,7 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
 
   return (
     <AppDialog open={open} onOpenChange={onOpenChange} size="lg">
-      <AppDialogHeader icon={ShieldCheck}>
+      <AppDialogHeader icon={KeyRound} iconTone="sky">
         <AppDialogTitle>{t('sessions.title')}</AppDialogTitle>
         <AppDialogDescription>{t('sessions.desc')}</AppDialogDescription>
         {/* Toolbar: scope switcher (admin) + count + refresh — pinned in the
@@ -197,14 +197,14 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
         <div className="pt-3 flex items-center gap-2 flex-wrap">
           {isAdmin && (
             <Tabs value={scope} onValueChange={(v) => setScope(v as 'mine' | 'all')}>
-              <TabsList className="h-8 p-1">
-                <TabsTrigger value="mine" className="h-6 px-3 text-xs">{t('sessions.myScope')}</TabsTrigger>
-                <TabsTrigger value="all" className="h-6 px-3 text-xs">{t('sessions.allScope')}</TabsTrigger>
+              <TabsList className="h-7 p-0.5">
+                <TabsTrigger value="mine" className="h-6 px-2.5 text-xs">{t('sessions.myScope')}</TabsTrigger>
+                <TabsTrigger value="all" className="h-6 px-2.5 text-xs">{t('sessions.allScope')}</TabsTrigger>
               </TabsList>
             </Tabs>
           )}
           {sessions && (
-            <Badge variant="secondary" className="text-[11px] font-medium">
+            <Badge variant="secondary" className="rounded-full text-[11px] font-medium px-2 py-0.5">
               {t('sessions.count', { count: list.length })}
             </Badge>
           )}
@@ -212,7 +212,7 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-7 px-2.5 text-xs"
               onClick={() => void load()}
               disabled={loading}
               title={t('sessions.refresh')}
@@ -228,7 +228,7 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-7 px-2.5 text-xs text-red-600 dark:text-red-400 border-red-200 dark:border-red-900/60 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-700 dark:hover:text-red-300"
+                  className="h-7 px-2.5 text-xs text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-700 dark:hover:text-rose-300"
                   disabled={revokingAll}
                   onClick={() => setRevokeConfirmOpen(true)}
                 >
@@ -236,11 +236,11 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
                   {t('sessions.revokeAll')}
                 </Button>
                 <AppAlertDialog open={revokeConfirmOpen} onOpenChange={setRevokeConfirmOpen} size="lg">
-                  <AppDialogHeader title={t('sessions.revokeAllTitle')} description={t('sessions.revokeAllDesc')} />
+                  <AppDialogHeader icon={Ban} iconTone="rose" title={t('sessions.revokeAllTitle')} description={t('sessions.revokeAllDesc')} />
                   <AppDialogFooter>
                     <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
                     <AlertDialogAction
-                      className="bg-red-600 hover:bg-red-700 text-white"
+                      className="bg-rose-600 hover:bg-rose-700 text-white"
                       onClick={() => { void handleRevokeAll() }}
                     >
                       {t('sessions.revokeAllConfirm')}
@@ -252,14 +252,15 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
           </div>
         </div>
         {scope === 'all' && (
-          <p className="pt-1 text-[11px] text-muted-foreground">{t('sessions.adminHint')}</p>
+          <p className="pt-1.5 text-[11px] text-muted-foreground">{t('sessions.adminHint')}</p>
         )}
       </AppDialogHeader>
 
       {/* Session list */}
       <AppDialogBody>
+        <AppDialogSection icon={History} label={t('sessions.section')}>
         {loadError && (
-          <div className="py-10 flex flex-col items-center gap-3 text-center">
+          <div className="py-8 flex flex-col items-center gap-3 text-center">
             <AlertCircle className="h-8 w-8 text-muted-foreground/50" />
             <p className="text-sm text-muted-foreground">{t('sessions.loadFailed')}</p>
             <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => void load()}>
@@ -267,12 +268,11 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
             </Button>
           </div>
         )}
-        {/* v1.31 R5: skeleton rows mirror the divided-list anatomy below */}
         {!loadError && loading && sessions === null && (
-          <div className="divide-y rounded-xl border bg-card">
+          <div className="space-y-2.5 pt-1">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="flex items-center gap-3 px-4 py-3">
-                <Skeleton className="h-9 w-9 rounded-lg" />
+              <div key={i} className="flex items-center gap-3 rounded-xl border border-border/60 p-3">
+                <Skeleton className="size-10 rounded-xl" />
                 <div className="flex-1 space-y-1.5">
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-3 w-56" />
@@ -283,14 +283,15 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
           </div>
         )}
         {!loadError && !loading && sessions !== null && list.length === 0 && (
-          <div className="py-10 text-center text-sm text-muted-foreground">
-            {t(scope === 'all' ? 'sessions.emptyAll' : 'sessions.empty')}
+          <div className="py-8 flex flex-col items-center gap-2 text-center">
+            <MonitorOff className="size-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">
+              {t(scope === 'all' ? 'sessions.emptyAll' : 'sessions.empty')}
+            </p>
           </div>
         )}
-        {/* v1.31 R5: one divided list container — rows px-4 py-3, current
-            session marked by a soft brand tint instead of its own card */}
         {!loadError && sessions !== null && list.length > 0 && (
-          <div className="divide-y rounded-xl border bg-card">
+          <div className="space-y-2.5 pt-1">
             {list.map((s) => {
               const DeviceIcon = DEVICE_ICONS[s.deviceType] ?? Laptop
               const deviceLabel = t(`sessions.device.${s.deviceType === 'unknown' ? 'unknown' : s.deviceType}` as Parameters<I18nContextValue['t']>[0])
@@ -298,17 +299,19 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
                 <div
                   key={s.id}
                   className={cn(
-                    'flex items-center gap-3 px-4 py-3 transition-colors',
-                    s.current ? 'bg-brand-soft/40' : 'hover:bg-muted/40',
+                    'flex items-center gap-3 rounded-xl border p-3 transition-all',
+                    s.current
+                      ? 'border-emerald-500/40 bg-emerald-500/[0.06] dark:bg-emerald-500/10 ring-1 ring-emerald-500/30'
+                      : 'border-border/60 bg-card hover:border-muted-foreground/30 hover:shadow-sm',
                   )}
                 >
                   <div className={cn(
-                    'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border',
+                    'flex size-10 shrink-0 items-center justify-center rounded-xl',
                     s.current
-                      ? 'border-brand/30 bg-background text-brand-strong'
-                      : 'border-border/60 bg-muted/40 text-muted-foreground',
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/25'
+                      : 'bg-muted/50 text-muted-foreground ring-1 ring-border/60',
                   )}>
-                    <DeviceIcon className="h-4.5 w-4.5" />
+                    <DeviceIcon className="size-5" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -316,9 +319,9 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
                         {s.browser} · {s.os}
                       </p>
                       {s.current && (
-                        <Badge className="border border-brand/30 bg-brand-soft px-1.5 py-0 text-[11px] text-brand-strong">
+                        <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/30">
                           {t('sessions.current')}
-                        </Badge>
+                        </span>
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5 truncate">
@@ -342,7 +345,7 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
                     disabled={s.current || revokingId === s.id}
                     onClick={() => void handleRevoke(s)}
                     title={s.current ? t('sessions.currentHint') : t('sessions.revoke')}
-                    className="h-7 px-2.5 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-950/40 disabled:opacity-40 shrink-0"
+                    className="h-7 px-2.5 text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 disabled:opacity-40 shrink-0"
                   >
                     {revokingId === s.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogOut className="h-3.5 w-3.5" />}
                     <span className="ml-1 hidden sm:inline">{t('sessions.revoke')}</span>
@@ -352,6 +355,7 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
             })}
           </div>
         )}
+        </AppDialogSection>
       </AppDialogBody>
     </AppDialog>
   )

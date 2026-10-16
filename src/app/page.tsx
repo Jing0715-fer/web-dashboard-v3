@@ -24,6 +24,7 @@ import {
   ShieldAlert, ShieldCheck, ShieldX, Minimize2,
   UserPlus, Github, GitPullRequest,
   Archive, Minus, Camera, WifiOff,
+  FolderPlus, Pencil, BrainCircuit, Braces, Palette, Image as ImageIcon, Check, FileWarning,
 } from 'lucide-react'
 
 import {
@@ -39,7 +40,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Button } from '@/components/ui/button'
 import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog'
-import { AppDialog, AppAlertDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody, AppDialogFooter } from '@/components/app-dialog'
+import { AppDialog, AppAlertDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody, AppDialogFooter, AppDialogSection, AppDialogDivider } from '@/components/app-dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -1997,41 +1998,47 @@ function CommandPalette({
       <AppDialogTitle className="sr-only">{t('dlg.cmd.placeholder')}</AppDialogTitle>
       <AppDialogDescription className="sr-only">{t('dlg.cmd.noResults')}</AppDialogDescription>
       {/* Custom search header — flush, no title row (command palette idiom).
-          v1.29: clear (×) button replaces the ambiguous tiny kbd — ESC hint
-          stays for discoverability. */}
-      <div className="flex items-center border-b px-3 gap-2">
-        <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+          v1.30: larger type, 4.5 search glyph, hairline border, keycap ESC.
+          v1.33: pr-13 reserves the floating ✕ zone (right 16→44px) — the
+          input/clear/ESC used to run straight under the close button. */}
+      <div className="flex items-center gap-3 border-b border-border/60 pl-4 pr-13">
+        <Search className="size-4.5 shrink-0 text-muted-foreground" />
         <input
           ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('dlg.cmd.placeholder')}
-          className="flex-1 py-3 bg-transparent text-sm outline-none placeholder:text-muted-foreground min-w-0"
+          className="min-w-0 flex-1 bg-transparent py-3 text-base outline-none placeholder:text-muted-foreground"
         />
         {query && (
           <button type="button" aria-label={t('dlg.cmd.clear')} onClick={() => { setQuery(''); inputRef.current?.focus() }} className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <X className="h-3.5 w-3.5" />
           </button>
         )}
-        <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[11px] font-medium text-muted-foreground shrink-0">ESC</kbd>
+        <kbd className="pointer-events-none hidden sm:inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-border bg-muted px-1.5 font-mono text-[11px] text-muted-foreground shadow-[0_1px_0_rgb(0_0_0/0.06)]">ESC</kbd>
       </div>
-      <AppDialogBody flush className="p-1">
+      <AppDialogBody flush className="p-2">
           {filtered.length === 0 && (
-            <div className="py-6 text-center text-sm text-muted-foreground">{t('dlg.cmd.noResults')}</div>
+            <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+              <SearchX className="size-8 text-muted-foreground/50" />
+              <p className="text-sm text-muted-foreground">{t('dlg.cmd.noResults')}</p>
+            </div>
           )}
           {categories.map((cat) => (
             <div key={cat}>
-              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">{cat}</div>
+              <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">{cat}</div>
               {filtered.filter((i) => i.category === cat).map((item) => (
                 <button
                   key={item.id}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md hover:bg-accent transition-colors text-left"
+                  className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted/60 active:bg-emerald-500/[0.08]"
                   onClick={() => { item.action(); onClose(); }}
                 >
-                  <item.icon className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span className="truncate">{item.label}</span>
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground/[0.06] text-muted-foreground transition-colors group-hover:text-foreground">
+                    <item.icon className="size-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   {'shortcut' in item && (item as { shortcut?: string }).shortcut && (
-                    <kbd className="ml-auto inline-flex h-5 min-w-8 select-none items-center justify-center text-[11px] text-muted-foreground bg-muted px-1.5 rounded border font-mono shrink-0">{(item as { shortcut: string }).shortcut}</kbd>
+                    <kbd className="ml-auto inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md border border-border bg-muted px-1.5 font-mono text-[11px] text-muted-foreground shadow-[0_1px_0_rgb(0_0_0/0.06)]">{(item as { shortcut: string }).shortcut}</kbd>
                   )}
                 </button>
               ))}
@@ -2046,35 +2053,39 @@ function CommandPalette({
 
 function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()
-  // v1.29: grouped into sections — a flat 18-row list was hard to scan, and
-  // the mixed-width key badges had no visual rhythm.
-  const sections: { title: string; items: { keys: string; description: string }[] }[] = [
+  // v1.30: the flat list is grouped into three labelled sections (basics /
+  // navigation / project actions). Same 17 entries and i18n keys as before —
+  // only the grouping is new.
+  const groups = [
     {
-      title: t('dlg.shortcuts.secGeneral'),
+      icon: Zap,
+      label: t('dlg.shortcuts.groupBasic'),
       items: [
         { keys: '⌘/Ctrl + K', description: t('dlg.shortcuts.focusSearch') },
+        { keys: '⌘/Ctrl + N', description: t('dlg.shortcuts.addProject') },
+        { keys: '⌘/Ctrl + Shift + A', description: t('dlg.shortcuts.addProjectGlobal') },
+        { keys: '⌘/Ctrl + Shift + R', description: t('dlg.shortcuts.refreshData') },
         { keys: '⌘/Ctrl + P', description: t('dlg.shortcuts.commandPalette') },
+        { keys: '⌘/Ctrl + D', description: t('dlg.shortcuts.deviceMgmt') },
         { keys: '?', description: t('dlg.shortcuts.showShortcuts') },
+      ],
+    },
+    {
+      icon: ArrowUpDown,
+      label: t('dlg.shortcuts.groupNav'),
+      items: [
+        { keys: 'G then G', description: t('dlg.shortcuts.gridView') },
+        { keys: 'G then L', description: t('dlg.shortcuts.listView') },
+        { keys: '↑ / ↓', description: t('dlg.shortcuts.navigateCards') },
+        { keys: 'Home / End', description: t('dlg.shortcuts.firstLast') },
+        { keys: 'Enter', description: t('dlg.shortcuts.openDetails') },
         { keys: 'Escape', description: t('dlg.shortcuts.closeDialog') },
       ],
     },
     {
-      title: t('dlg.shortcuts.secNav'),
+      icon: Hammer,
+      label: t('dlg.shortcuts.groupActions'),
       items: [
-        { keys: '↑ / ↓', description: t('dlg.shortcuts.navigateCards') },
-        { keys: 'Home / End', description: t('dlg.shortcuts.firstLast') },
-        { keys: 'G then G', description: t('dlg.shortcuts.gridView') },
-        { keys: 'G then L', description: t('dlg.shortcuts.listView') },
-        { keys: 'Enter', description: t('dlg.shortcuts.openDetails') },
-      ],
-    },
-    {
-      title: t('dlg.shortcuts.secProject'),
-      items: [
-        { keys: '⌘/Ctrl + N', description: t('dlg.shortcuts.addProject') },
-        { keys: '⌘/Ctrl + Shift + A', description: t('dlg.shortcuts.addProjectGlobal') },
-        { keys: '⌘/Ctrl + Shift + R', description: t('dlg.shortcuts.refreshData') },
-        { keys: '⌘/Ctrl + D', description: t('dlg.shortcuts.deviceMgmt') },
         { keys: 'e', description: t('dlg.shortcuts.editProject') },
         { keys: 's', description: t('dlg.shortcuts.startEnvs') },
         { keys: 'x', description: t('dlg.shortcuts.stopEnvs') },
@@ -2082,23 +2093,41 @@ function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: ()
       ],
     },
   ]
+
+  // Render one keycap cluster: combos ('A + B') split into separate keycaps
+  // joined by '+'; 'G then G' keeps its word connector. Pure presentation.
+  const renderKeys = (keys: string) => {
+    const isThen = keys.includes(' then ')
+    const parts = isThen ? keys.split(' then ') : keys.split(' + ')
+    const conn = isThen ? 'then' : '+'
+    return (
+      <span className="flex shrink-0 items-center gap-1.5">
+        {parts.map((part, idx) => (
+          <React.Fragment key={`${part}-${idx}`}>
+            {idx > 0 && <span className="text-[10px] text-muted-foreground">{conn}</span>}
+            <kbd className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-border bg-muted px-1.5 font-mono text-[11px] text-muted-foreground shadow-[0_1px_0_rgb(0_0_0/0.06)]">{part}</kbd>
+          </React.Fragment>
+        ))}
+      </span>
+    )
+  }
+
   return (
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="lg">
-      <AppDialogHeader title={t('dlg.shortcuts.title')} description={t('dlg.shortcuts.desc')} />
-      <AppDialogBody>
-        <div className="space-y-5">
-          {sections.map((sec) => (
-            <div key={sec.title} className="space-y-1">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 pb-1 border-b border-border/60">{sec.title}</div>
-              {sec.items.map((s) => (
-                <div key={s.keys + s.description} className="flex items-center justify-between py-1 gap-4">
-                  <span className="text-sm">{s.description}</span>
-                  <kbd className="inline-flex h-5 min-w-8 items-center justify-center gap-1 rounded border bg-muted px-1.5 font-mono text-[11px] font-medium text-muted-foreground shrink-0">{s.keys}</kbd>
+      <AppDialogHeader icon={Keyboard} iconTone="default" title={t('dlg.shortcuts.title')} description={t('dlg.shortcuts.desc')} />
+      <AppDialogBody className="space-y-5">
+        {groups.map((g) => (
+          <AppDialogSection key={g.label} icon={g.icon} label={g.label}>
+            <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-card">
+              {g.items.map((s) => (
+                <div key={s.keys} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+                  <span className="min-w-0 truncate text-[13px]">{s.description}</span>
+                  {renderKeys(s.keys)}
                 </div>
               ))}
             </div>
-          ))}
-        </div>
+          </AppDialogSection>
+        ))}
       </AppDialogBody>
     </AppDialog>
   )
@@ -2115,32 +2144,63 @@ function NotificationDetailDialog({
 }) {
   const t = useT()
   if (!notification) return null
-  const iconMap = { success: CheckCircle2, warning: AlertTriangle, error: XCircle, info: Info }
-  const colorMap = {
-    success: 'text-emerald-500',
-    warning: 'text-amber-500',
-    error: 'text-red-500',
-    info: 'text-cyan-500',
+  // v1.30: type → semantic pill tint (emerald/amber/rose/sky). The old
+  // per-type colored header icon is replaced by the Bell/sky header tile.
+  const TYPE_PILL: Record<Notification['type'], string> = {
+    success: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+    warning: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+    error: 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
+    info: 'bg-sky-500/10 text-sky-700 dark:text-sky-400',
   }
-  const Icon = iconMap[notification.type]
   return (
-    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="lg">
-      <AppDialogHeader>
-        <AppDialogTitle className="flex items-center gap-2">
-          <Icon className={`h-5 w-5 ${colorMap[notification.type]}`} />
-          {notification.title}
-        </AppDialogTitle>
-        <AppDialogDescription>{notification.message}</AppDialogDescription>
-      </AppDialogHeader>
-      <AppDialogBody>
-        <div className="divide-y rounded-xl border bg-card text-[13px]">
-          <div className="flex items-center justify-between px-4 py-2.5"><span className="text-muted-foreground">{t('dlg.notifDetail.type')}</span><Badge variant="outline" className="capitalize">{t(`dlg.notifDetail.type.${notification.type}` as Parameters<typeof t>[0])}</Badge></div>
-          <div className="flex items-center justify-between px-4 py-2.5"><span className="text-muted-foreground">{t('dlg.notifDetail.time')}</span><span className="tabular-nums">{new Date(notification.timestamp).toLocaleString()}</span></div>
+    <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="md">
+      <AppDialogHeader icon={Bell} iconTone="sky">
+        <AppDialogTitle className="min-w-0 break-words">{notification.title}</AppDialogTitle>
+        {/* meta line under the title: type pill · timestamp · project */}
+        <AppDialogDescription className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${TYPE_PILL[notification.type]}`}>
+            {t(`dlg.notifDetail.type.${notification.type}` as Parameters<typeof t>[0])}
+          </span>
+          <span className="min-w-0 truncate text-[11px] tabular-nums">{new Date(notification.timestamp).toLocaleString()}</span>
           {notification.projectName && (
-            <div className="flex items-center justify-between px-4 py-2.5"><span className="text-muted-foreground">{t('dlg.notifDetail.project')}</span><span className="truncate min-w-0 max-w-[60%] text-right" title={notification.projectName}>{notification.projectName}</span></div>
+            <span className="min-w-0 truncate text-[11px]">· {notification.projectName}</span>
           )}
-          <div className="flex items-center justify-between px-4 py-2.5"><span className="text-muted-foreground">{t('dlg.notifDetail.status')}</span><Badge variant={notification.read ? 'secondary' : 'default'}>{notification.read ? t('dlg.notifDetail.read') : t('dlg.notifDetail.unread')}</Badge></div>
-        </div>
+          <span className="sr-only">{notification.message}</span>
+        </AppDialogDescription>
+      </AppDialogHeader>
+      <AppDialogBody className="space-y-5">
+        {/* content */}
+        <AppDialogSection icon={Info} label={t('dlg.notifDetail.content')}>
+          <p className="min-w-0 break-words text-sm leading-relaxed text-foreground/90">{notification.message}</p>
+        </AppDialogSection>
+
+        <AppDialogDivider />
+
+        {/* key facts */}
+        <dl className="space-y-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-xs text-muted-foreground">{t('dlg.notifDetail.time')}</dt>
+            <dd className="text-right text-[13px] font-medium tabular-nums">{new Date(notification.timestamp).toLocaleString()}</dd>
+          </div>
+          {notification.projectName && (
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-xs text-muted-foreground">{t('dlg.notifDetail.project')}</dt>
+              <dd className="min-w-0 truncate text-right text-[13px] font-medium">{notification.projectName}</dd>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-xs text-muted-foreground">{t('dlg.notifDetail.status')}</dt>
+            <dd className="text-right">
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                notification.read
+                  ? 'bg-muted text-muted-foreground'
+                  : 'bg-sky-500/10 text-sky-700 dark:text-sky-400'
+              }`}>
+                {notification.read ? t('dlg.notifDetail.read') : t('dlg.notifDetail.unread')}
+              </span>
+            </dd>
+          </div>
+        </dl>
       </AppDialogBody>
     </AppDialog>
   )
@@ -2183,14 +2243,17 @@ function ProjectFormDialog({
 
   return (
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="md">
-      <AppDialogHeader title={mode === 'add' ? t('dlg.projectForm.addTitle') : t('dlg.projectForm.editTitle')} description={mode === 'add' ? t('dlg.projectForm.addDesc') : t('dlg.projectForm.editDesc')} />
+      <AppDialogHeader
+        icon={mode === 'add' ? FolderPlus : Pencil}
+        title={mode === 'add' ? t('dlg.projectForm.addTitle') : t('dlg.projectForm.editTitle')}
+        description={mode === 'add' ? t('dlg.projectForm.addDesc') : t('dlg.projectForm.editDesc')}
+      />
       <AppDialogBody>
-        <form id="project-form" onSubmit={handleSubmit} className="space-y-4">
-          {/* Templates - only shown when adding a new project */}
-          {mode === 'add' && (
-            <div className="space-y-1.5">
-              <Label className="flex items-center gap-1.5"><LayoutTemplate className="h-3.5 w-3.5" />{t('dlg.projectForm.templates')}</Label>
-              <div className="grid grid-cols-5 gap-1.5">
+        <form id="project-form" onSubmit={handleSubmit} className="space-y-5">
+          {/* ---- Section: basics — template row (add mode only) + name + description ---- */}
+          <AppDialogSection icon={Info} label={t('dlg.projectForm.sectionBasic')}>
+            {mode === 'add' && (
+              <div className="grid grid-cols-5 gap-2">
                 {([
                   { label: t('dlg.projectForm.tpl.web'), icon: Globe, tpl: { name: 'Web App', icon: 'globe', tags: ['Frontend', 'Fullstack'], description: t('dlg.projectForm.tpl.webDesc') } },
                   { label: t('dlg.projectForm.tpl.api'), icon: Server, tpl: { name: 'API Server', icon: 'server', tags: ['Backend', 'API'], description: t('dlg.projectForm.tpl.apiDesc') } },
@@ -2202,136 +2265,166 @@ function ProjectFormDialog({
                     key={label}
                     type="button"
                     onClick={() => { setName(tpl.name); setIcon(tpl.icon); setSelectedTags([...tpl.tags]); setDescription(tpl.description) }}
-                    className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all duration-150 hover:bg-accent/50 cursor-pointer border-border hover:border-muted-foreground/30"
+                    className="group flex flex-col items-center gap-1.5 rounded-xl border border-border bg-card p-2.5 transition-all duration-150 cursor-pointer hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm"
                   >
-                    <TplIcon className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-[11px] leading-none text-muted-foreground">{label}</span>
+                    <span className="flex size-7 items-center justify-center rounded-lg bg-muted/60 transition-colors group-hover:bg-muted">
+                      <TplIcon className="size-3.5 text-muted-foreground" />
+                    </span>
+                    <span className="text-[10px] leading-tight text-muted-foreground transition-colors group-hover:text-foreground">{label}</span>
                   </button>
                 ))}
               </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="proj-name" className="text-[13px] font-medium">{t('dlg.projectForm.name')}</Label>
+              <Input id="proj-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('dlg.projectForm.namePlaceholder')} />
             </div>
-          )}
-          <div className="space-y-1.5">
-            <Label htmlFor="proj-name">{t('dlg.projectForm.name')}</Label>
-            <Input id="proj-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('dlg.projectForm.namePlaceholder')} />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="proj-path">{t('dlg.projectForm.path')}</Label>
-            {/* The PUT route never updates `path` (local branch) and agents
-                treat it as project identity — editing it here was silently
-                discarded with a success toast. Lock it in edit mode with an
-                honest hint instead of pretending it saved. */}
-            <Input
-              id="proj-path"
-              value={path}
-              onChange={(e) => setPath(e.target.value)}
-              placeholder="/home/user/projects/my-project"
-              disabled={mode === 'edit'}
-              className={mode === 'edit' ? 'font-mono text-xs' : ''}
-            />
-            {mode === 'edit' && (
-              <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.pathLocked')}</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="proj-desc">{t('dlg.projectForm.description')}</Label>
-            <Textarea id="proj-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('dlg.projectForm.descPlaceholder')} rows={2} />
-          </div>
-          {/* Git repository — powers one-click "Pull latest code" (local projects) */}
-          <div className="space-y-1.5">
-            <Label htmlFor="proj-repo" className="flex items-center gap-1.5">
-              <Github className="h-3.5 w-3.5" />
-              {t('dlg.projectForm.repoUrl')}
-              <span className="text-[11px] font-normal text-muted-foreground">{t('dlg.projectForm.repoUrlOptional')}</span>
-            </Label>
-            <Input
-              id="proj-repo"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/user/repo"
-              className={`font-mono text-xs ${repoUrl.trim() !== '' && !repoUrlValid ? 'border-red-400 focus-visible:ring-red-400/40' : ''}`}
-              inputMode="url"
-            />
-            {repoUrl.trim() !== '' && !repoUrlValid && (
-              <p className="text-[11px] text-red-500">{t('dlg.projectForm.repoUrlInvalid')}</p>
-            )}
-            {repoUrl.trim() !== '' && repoUrlValid && selectedDeviceId && (
-              <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.repoUrlRemoteHint')}</p>
-            )}
-            {repoUrl.trim() === '' && !selectedDeviceId && (
-              <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.repoUrlHint')}</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t('dlg.projectForm.icon')}</Label>
-            {/* v1.31: 8-wide grid (2 rows) replaces the 4-wide 4-row wall —
-             * same 16 icons, half the vertical space; selection reads as a
-             * quiet brand tint instead of the old double ring + glow. */}
-            <div className="grid grid-cols-8 gap-1.5">
-              {Object.entries(ICON_MAP).map(([key, Ic]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setIcon(key)}
-                  title={key.replace('-', ' ')}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all duration-150 hover:bg-accent/50 cursor-pointer ${
-                    icon === key
-                      ? 'border-brand bg-brand-soft/60 dark:bg-brand-soft'
-                      : 'border-border hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <Ic className={`h-4 w-4 ${icon === key ? 'text-brand-strong' : 'text-muted-foreground'}`} />
-                  <span className={`text-[10px] leading-none ${icon === key ? 'text-brand-strong font-medium' : 'text-muted-foreground'}`}>
-                    {key.replace('-', ' ')}
-                  </span>
-                </button>
-              ))}
+            <div className="space-y-1.5">
+              <Label htmlFor="proj-desc" className="text-[13px] font-medium">{t('dlg.projectForm.description')}</Label>
+              <Textarea id="proj-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('dlg.projectForm.descPlaceholder')} rows={2} />
             </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t('dlg.projectForm.tags')}</Label>
-            <div className="flex flex-wrap gap-1.5">
-              {TAG_OPTIONS.map((tag) => (
-                <button
-                  key={tag.name}
-                  type="button"
-                  onClick={() => toggleTag(tag.name)}
-                  className={`px-2 py-0.5 rounded-full text-xs transition-colors border ${selectedTags.includes(tag.name) ? tag.color + ' border-current/20' : 'border-border text-muted-foreground hover:text-foreground'}`}
-                >
-                  {tag.name}
-                </button>
-              ))}
+          </AppDialogSection>
+
+          <AppDialogDivider />
+
+          {/* ---- Section: source — local path + git repository ---- */}
+          <AppDialogSection icon={Folder} label={t('dlg.projectForm.sectionSource')}>
+            <div className="space-y-1.5">
+              <Label htmlFor="proj-path" className="text-[13px] font-medium">{t('dlg.projectForm.path')}</Label>
+              {/* The PUT route never updates `path` (local branch) and agents
+                  treat it as project identity — editing it here was silently
+                  discarded with a success toast. Lock it in edit mode with an
+                  honest hint instead of pretending it saved. */}
+              <Input
+                id="proj-path"
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="/home/user/projects/my-project"
+                disabled={mode === 'edit'}
+                className="font-mono text-xs"
+              />
+              {mode === 'edit' && (
+                <p className="text-[10px] text-muted-foreground">{t('dlg.projectForm.pathLocked')}</p>
+              )}
             </div>
-          </div>
-          <div className="space-y-1">
-            <Label>{t('dlg.projectForm.device')}</Label>
+            {/* Git repository — powers one-click "Pull latest code" (local projects) */}
+            <div className="space-y-1.5">
+              <Label htmlFor="proj-repo" className="flex items-center gap-1.5 text-[13px] font-medium">
+                <Github className="h-3.5 w-3.5" />
+                {t('dlg.projectForm.repoUrl')}
+                <span className="text-[10px] font-normal text-muted-foreground">{t('dlg.projectForm.repoUrlOptional')}</span>
+              </Label>
+              <Input
+                id="proj-repo"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="https://github.com/user/repo"
+                className={`font-mono text-xs ${repoUrl.trim() !== '' && !repoUrlValid ? 'border-red-400 focus-visible:ring-red-400/40' : ''}`}
+                inputMode="url"
+              />
+              {repoUrl.trim() !== '' && !repoUrlValid && (
+                <p className="text-[11px] text-red-500">{t('dlg.projectForm.repoUrlInvalid')}</p>
+              )}
+              {repoUrl.trim() !== '' && repoUrlValid && selectedDeviceId && (
+                <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.repoUrlRemoteHint')}</p>
+              )}
+              {repoUrl.trim() === '' && !selectedDeviceId && (
+                <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.repoUrlHint')}</p>
+              )}
+            </div>
+          </AppDialogSection>
+
+          <AppDialogDivider />
+
+          {/* ---- Section: appearance — icon picker + tag pills ---- */}
+          <AppDialogSection icon={Palette} label={t('dlg.projectForm.sectionAppearance')}>
+            <div className="space-y-1.5">
+              <Label className="text-[13px] font-medium">{t('dlg.projectForm.icon')}</Label>
+              <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
+                {Object.entries(ICON_MAP).map(([key, Ic]) => {
+                  const active = icon === key
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      title={key.replace('-', ' ')}
+                      aria-label={key.replace('-', ' ')}
+                      aria-pressed={active}
+                      onClick={() => setIcon(key)}
+                      className={`relative flex h-9 items-center justify-center rounded-lg border transition-all duration-150 cursor-pointer ${
+                        active
+                          ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                          : 'border-border hover:border-muted-foreground/30 hover:bg-accent/50'
+                      }`}
+                    >
+                      <Ic className={`size-4 ${active ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
+                      <span className="sr-only">{key.replace('-', ' ')}</span>
+                      {active && (
+                        <span className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
+                          <Check className="size-3" />
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[13px] font-medium">{t('dlg.projectForm.tags')}</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {TAG_OPTIONS.map((tag) => {
+                  const active = selectedTags.includes(tag.name)
+                  return (
+                    <button
+                      key={tag.name}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => toggleTag(tag.name)}
+                      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors cursor-pointer ${active ? tag.color + ' border-current/20 font-medium' : 'border-border text-muted-foreground hover:border-muted-foreground/30 hover:text-foreground'}`}
+                    >
+                      <span className={`size-1.5 shrink-0 rounded-full ${active ? 'bg-current' : 'bg-muted-foreground/50'}`} />
+                      {tag.name}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </AppDialogSection>
+
+          <AppDialogDivider />
+
+          {/* ---- Section: deployment target ---- */}
+          <AppDialogSection icon={MonitorSmartphone} label={t('dlg.projectForm.sectionDeploy')}>
             {/* Same story as `path`: the PUT route never reads body.deviceId
                 — device changes are a dedicated /move operation (card menu).
                 Lock the selector in edit mode and say where to do it. */}
-            <Select
-              value={selectedDeviceId ?? 'local'}
-              onValueChange={(v) => setSelectedDeviceId(v === 'local' ? null : v)}
-              disabled={mode === 'edit'}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t('dlg.common.thisMachine')} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local">{t('dlg.common.thisMachine')}</SelectItem>
-                {devices.map((device) => (
-                  <SelectItem key={device.id} value={device.id}>
-                    <span className="inline-flex items-center gap-2">
-                      <CircleDot className={`h-3 w-3 ${device.status === 'online' ? 'text-emerald-500 fill-emerald-500' : 'text-red-400 fill-red-400'}`} />
-                      {device.name}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {mode === 'edit' && (
-              <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.deviceLocked')}</p>
-            )}
-          </div>
+            <div className="space-y-1.5">
+              <Label className="text-[13px] font-medium">{t('dlg.projectForm.device')}</Label>
+              <Select
+                value={selectedDeviceId ?? 'local'}
+                onValueChange={(v) => setSelectedDeviceId(v === 'local' ? null : v)}
+                disabled={mode === 'edit'}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={t('dlg.common.thisMachine')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="local">{t('dlg.common.thisMachine')}</SelectItem>
+                  {devices.map((device) => (
+                    <SelectItem key={device.id} value={device.id}>
+                      <span className="inline-flex items-center gap-2">
+                        <CircleDot className={`h-3 w-3 ${device.status === 'online' ? 'text-emerald-500 fill-emerald-500' : 'text-red-400 fill-red-400'}`} />
+                        {device.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {mode === 'edit' && (
+                <p className="text-[10px] text-muted-foreground">{t('dlg.projectForm.deviceLocked')}</p>
+              )}
+            </div>
+          </AppDialogSection>
         </form>
       </AppDialogBody>
       <AppDialogFooter>
@@ -2389,38 +2482,61 @@ function EnvFormDialog({
 
   return (
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="md">
-      <AppDialogHeader title={mode === 'add' ? t('dlg.envForm.addTitle') : t('dlg.envForm.editTitle')} description={mode === 'add' ? t('dlg.envForm.addDesc') : t('dlg.envForm.editDesc')} />
+      <AppDialogHeader
+        icon={Layers}
+        iconTone="sky"
+        title={mode === 'add' ? t('dlg.envForm.addTitle') : t('dlg.envForm.editTitle')}
+        description={mode === 'add' ? t('dlg.envForm.addDesc') : t('dlg.envForm.editDesc')}
+      />
       <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-        <AppDialogBody className="space-y-3">
-          <div className="space-y-1">
-            <Label htmlFor="env-name">{t('dlg.envForm.name')}</Label>
-            <Input id="env-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="development" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="env-cmd">{t('dlg.envForm.cmd')}</Label>
-            <Input id="env-cmd" value={cmd} onChange={(e) => setCmd(e.target.value)} placeholder="npm run dev" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="env-port">{t('dlg.envForm.port')}</Label>
-            <Input id="env-port" type="number" value={port} onChange={(e) => setPort(e.target.value)} placeholder="3000" />
-          </div>
-          <div className="space-y-2">
-            <Label>{t('dlg.envForm.envVars')}</Label>
-            <div className="space-y-1 max-h-32 overflow-y-auto">
+        <AppDialogBody className="space-y-5">
+          {/* ---- Section: basics — name + port ---- */}
+          <AppDialogSection icon={Settings} label={t('dlg.envForm.sectionBasic')}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="env-name" className="text-[13px] font-medium">{t('dlg.envForm.name')}</Label>
+                <Input id="env-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="development" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="env-port" className="text-[13px] font-medium">{t('dlg.envForm.port')}</Label>
+                <Input id="env-port" type="number" value={port} onChange={(e) => setPort(e.target.value)} placeholder="3000" />
+              </div>
+            </div>
+          </AppDialogSection>
+
+          <AppDialogDivider />
+
+          {/* ---- Section: start command ---- */}
+          <AppDialogSection icon={Terminal} label={t('dlg.envForm.sectionCommand')}>
+            <div className="space-y-1.5">
+              <Label htmlFor="env-cmd" className="text-[13px] font-medium">{t('dlg.envForm.cmd')}</Label>
+              <div className="relative">
+                <Terminal className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70" />
+                <Input id="env-cmd" value={cmd} onChange={(e) => setCmd(e.target.value)} placeholder="npm run dev" className="pl-9 font-mono text-xs" />
+              </div>
+              <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.envForm.cmdHint')}</p>
+            </div>
+          </AppDialogSection>
+
+          <AppDialogDivider />
+
+          {/* ---- Section: environment variables ---- */}
+          <AppDialogSection icon={Braces} label={t('dlg.envForm.envVars')}>
+            <div className="max-h-32 space-y-1.5 overflow-y-auto">
               {Object.entries(envVars).map(([key, val]) => (
-                <div key={key} className="flex items-center gap-1">
-                  <Input value={key} readOnly className="h-7 text-xs flex-1 font-mono" />
-                  <Input value={val} readOnly className="h-7 text-xs flex-1 font-mono" />
-                  <Button type="button" variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => removeEnvVar(key)}><X className="h-3 w-3" /></Button>
+                <div key={key} className="flex items-center gap-1.5">
+                  <Input value={key} readOnly className="h-8 rounded-md text-xs flex-1 font-mono" />
+                  <Input value={val} readOnly className="h-8 rounded-md text-xs flex-1 font-mono" />
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" onClick={() => removeEnvVar(key)}><X className="h-3.5 w-3.5" /></Button>
                 </div>
               ))}
             </div>
-            <div className="flex items-center gap-1">
-              <Input value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="KEY" className="h-7 text-xs font-mono flex-1" />
-              <Input value={newVal} onChange={(e) => setNewVal(e.target.value)} placeholder="value" className="h-7 text-xs font-mono flex-1" />
-              <Button type="button" variant="outline" size="icon" className="h-7 w-7 shrink-0" onClick={addEnvVar}><Plus className="h-3 w-3" /></Button>
+            <div className="flex items-center gap-1.5">
+              <Input value={newKey} onChange={(e) => setNewKey(e.target.value)} placeholder="KEY" className="h-8 rounded-md text-xs font-mono flex-1" />
+              <Input value={newVal} onChange={(e) => setNewVal(e.target.value)} placeholder="value" className="h-8 rounded-md text-xs font-mono flex-1" />
+              <Button type="button" variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={addEnvVar}><Plus className="h-3.5 w-3.5" /></Button>
             </div>
-          </div>
+          </AppDialogSection>
         </AppDialogBody>
         <AppDialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
@@ -2525,114 +2641,174 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
   const cpuColor = (v: number) => v >= 80 ? '#ef4444' : v >= 50 ? '#f59e0b' : '#10b981'
   const memColor = (v: number) => v >= 80 ? '#ef4444' : v >= 50 ? '#f59e0b' : '#10b981'
 
+  // v1.30: semantic trend badge for the overview stat cards (rose ≥80 /
+  // amber ≥50 / emerald otherwise) — mirrors the gauge color thresholds.
+  const trendBadge = (v: number): { cls: string; text: string } =>
+    v >= 80
+      ? { cls: 'bg-rose-500/10 text-rose-600 dark:text-rose-400', text: t('dlg.systemMonitor.trendHigh') }
+      : v >= 50
+        ? { cls: 'bg-amber-500/10 text-amber-600 dark:text-amber-400', text: t('dlg.systemMonitor.trendMid') }
+        : { cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400', text: t('dlg.systemMonitor.trendOk') }
+
   return (
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="xl">
-      <AppDialogHeader>
-        <AppDialogTitle className="flex items-center gap-2">
-          <Monitor className="h-5 w-5 text-emerald-600" />
-          {t('dlg.systemMonitor.title')}
-        </AppDialogTitle>
-        <AppDialogDescription>{t('dlg.systemMonitor.desc')}</AppDialogDescription>
-      </AppDialogHeader>
-      <AppDialogBody>
+      <AppDialogHeader icon={Activity} iconTone="sky" title={t('dlg.systemMonitor.title')} description={t('dlg.systemMonitor.desc')} />
+      <AppDialogBody className="space-y-5">
         {loading && !status ? (
-          <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
+          <div className="flex items-center justify-center py-8"><Loader2 className="size-6 animate-spin text-emerald-600" /></div>
         ) : status ? (
-          <div className="space-y-5">
-            {/* CPU & Memory gauges */}
-            <div className="grid grid-cols-2 gap-6">
-              <div className="p-4 rounded-xl border bg-gradient-to-br from-amber-50/50 to-orange-50/30 dark:from-amber-950/20 dark:to-orange-950/10">
-                <div className="flex items-center gap-2 mb-3">
-                  <Gauge className="h-4 w-4 text-amber-500" />
-                  <span className="text-sm font-semibold">{t('dlg.systemMonitor.cpuUsage')}</span>
-                </div>
-                <div className="flex items-center justify-center">
-                  <CircularGauge value={status.cpuUsage.percentage} size={88} label={t('dlg.systemMonitor.cpu')} color={cpuColor(status.cpuUsage.percentage)} />
-                </div>
-                <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                  <div className="flex justify-between"><span>{t('dlg.systemMonitor.cores')}</span><span className="font-medium text-foreground">{status.cpuUsage.cores}</span></div>
-                  <div className="flex justify-between"><span>{t('dlg.systemMonitor.loadAvg')}</span><span className="font-medium text-foreground font-mono">{status.cpuUsage.loadAverage.map((l) => l.toFixed(2)).join(', ')}</span></div>
-                </div>
+          <>
+            {/* ---- Overview stat cards (big numbers + semantic trend badges) ---- */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="relative rounded-xl border bg-card p-3">
+                <span className={`absolute right-2.5 top-2.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${trendBadge(status.cpuUsage.percentage).cls}`}>{trendBadge(status.cpuUsage.percentage).text}</span>
+                <span className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500/20 to-sky-500/[0.05]">
+                  <Gauge className="size-4 text-sky-600 dark:text-sky-400" />
+                </span>
+                <p className="mt-2.5 flex items-baseline gap-1">
+                  <span className="text-xl font-semibold leading-none tabular-nums">{status.cpuUsage.percentage}</span>
+                  <span className="text-[11px] text-muted-foreground">%</span>
+                </p>
+                <p className="mt-1.5 truncate text-[11px] text-muted-foreground">{t('dlg.systemMonitor.cpuUsage')}</p>
               </div>
-              <div className="p-4 rounded-xl border bg-gradient-to-br from-teal-50/50 to-cyan-50/30 dark:from-teal-950/20 dark:to-cyan-950/10">
-                <div className="flex items-center gap-2 mb-3">
-                  <MemoryStick className="h-4 w-4 text-teal-500" />
-                  <span className="text-sm font-semibold">{t('dlg.systemMonitor.memUsage')}</span>
-                </div>
-                <div className="flex items-center justify-center">
-                  <CircularGauge value={status.memoryUsage.percentage} size={88} label={t('dlg.systemMonitor.memory')} color={memColor(status.memoryUsage.percentage)} />
-                </div>
-                <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                  <div className="flex justify-between"><span>{t('dlg.systemMonitor.usedTotal')}</span><span className="font-medium text-foreground">{status.memoryUsage.used}MB / {status.memoryUsage.total}MB</span></div>
-                  <div className="flex justify-between"><span>{t('dlg.systemMonitor.processRss')}</span><span className="font-medium text-foreground">{status.processMemory?.rss ?? '—'} MB</span></div>
-                </div>
+              <div className="relative rounded-xl border bg-card p-3">
+                <span className={`absolute right-2.5 top-2.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${trendBadge(status.memoryUsage.percentage).cls}`}>{trendBadge(status.memoryUsage.percentage).text}</span>
+                <span className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500/20 to-violet-500/[0.05]">
+                  <MemoryStick className="size-4 text-violet-600 dark:text-violet-400" />
+                </span>
+                <p className="mt-2.5 flex items-baseline gap-1">
+                  <span className="text-xl font-semibold leading-none tabular-nums">{status.memoryUsage.percentage}</span>
+                  <span className="text-[11px] text-muted-foreground">%</span>
+                </p>
+                <p className="mt-1.5 truncate text-[11px] text-muted-foreground">{t('dlg.systemMonitor.memUsage')}</p>
               </div>
-            </div>
-
-            {/* Network info */}
-            <div className="p-4 rounded-xl border bg-gradient-to-br from-cyan-50/50 to-sky-50/30 dark:from-cyan-950/20 dark:to-sky-950/10">
-              <div className="flex items-center gap-2 mb-3">
-                <Wifi className="h-4 w-4 text-cyan-500" />
-                <span className="text-sm font-semibold">{t('dlg.systemMonitor.network')}</span>
+              <div className="relative rounded-xl border bg-card p-3">
+                <span className={`absolute right-2.5 top-2.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${trendBadge(status.diskUsage?.percentage ?? 0).cls}`}>{trendBadge(status.diskUsage?.percentage ?? 0).text}</span>
+                <span className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-amber-500/20 to-amber-500/[0.05]">
+                  <BarChart3 className="size-4 text-amber-600 dark:text-amber-400" />
+                </span>
+                <p className="mt-2.5 flex items-baseline gap-1">
+                  <span className="text-xl font-semibold leading-none tabular-nums">{status.diskUsage?.percentage ?? 0}</span>
+                  <span className="text-[11px] text-muted-foreground">%</span>
+                </p>
+                <p className="mt-1.5 truncate text-[11px] text-muted-foreground">{t('dlg.systemMonitor.diskUsage')}</p>
               </div>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.hostname')}</span><span className="font-medium">{networkInfo?.hostname ?? '—'}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.platform')}</span><span className="font-medium">{networkInfo?.platform ?? '—'}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.architecture')}</span><span className="font-medium">{networkInfo?.arch ?? '—'}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.gateway')}</span><span className="font-medium">:{status.gatewayPort}</span></div>
-              </div>
-            </div>
-
-            {/* Uptime */}
-            <div className="p-4 rounded-xl border bg-gradient-to-br from-emerald-50/50 to-teal-50/30 dark:from-emerald-950/20 dark:to-teal-950/10">
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm font-semibold">{t('dlg.systemMonitor.uptime')}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.gateway')}</span><span className="font-medium">{status.uptime}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.systemMonitor.system')}</span><span className="font-medium">{status.systemUptime}</span></div>
+              <div className="relative rounded-xl border bg-card p-3">
+                <span className="flex size-9 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500/20 to-emerald-500/[0.05]">
+                  <Server className="size-4 text-emerald-600 dark:text-emerald-400" />
+                </span>
+                <p className="mt-2.5 text-xl font-semibold leading-none tabular-nums">{runningServices.length}</p>
+                <p className="mt-1.5 truncate text-[11px] text-muted-foreground">{t('dlg.systemMonitor.services')}</p>
               </div>
             </div>
 
-            {/* Services — real running environments across local + remote devices */}
-            <div className="p-4 rounded-xl border bg-gradient-to-br from-emerald-50/50 to-teal-50/30 dark:from-emerald-950/20 dark:to-teal-950/10">
-              <div className="flex items-center gap-2 mb-2">
-                <Server className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm font-semibold">{t('dlg.systemMonitor.services')}</span>
-                <Badge variant="secondary" className="text-[11px] ml-auto">{t('dlg.systemMonitor.servicesCount', { count: runningServices.length })}</Badge>
-              </div>
-              <div className="space-y-1.5">
-                {runningServices.length === 0 && (
-                  <div className="text-xs text-muted-foreground py-2">{t('dlg.systemMonitor.noServices')}</div>
-                )}
-                {runningServices.map((svc) => (
-                  <div key={`${svc.device}-${svc.name}`} className="flex items-center justify-between p-2 rounded border text-xs">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
-                      <span className="font-medium truncate">{svc.name}</span>
-                      <span className="text-[11px] text-muted-foreground shrink-0">{svc.device}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-muted-foreground shrink-0">
-                      {svc.port > 0 && <span>:{svc.port}</span>}
-                      {svc.pid != null && <span>PID {svc.pid}</span>}
-                    </div>
+            <AppDialogDivider />
+
+            {/* ---- Load detail: animated gauges + per-metric rows ---- */}
+            <AppDialogSection icon={Gauge} label={t('dlg.systemMonitor.sectionLoad')}>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border bg-card p-4">
+                  <div className="flex items-center justify-center">
+                    <CircularGauge value={status.cpuUsage.percentage} size={88} label={t('dlg.systemMonitor.cpu')} color={cpuColor(status.cpuUsage.percentage)} />
                   </div>
-                ))}
+                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                    <div className="flex justify-between"><span>{t('dlg.systemMonitor.cores')}</span><span className="font-medium text-foreground">{status.cpuUsage.cores}</span></div>
+                    <div className="flex justify-between"><span>{t('dlg.systemMonitor.loadAvg')}</span><span className="font-medium text-foreground font-mono">{status.cpuUsage.loadAverage.map((l) => l.toFixed(2)).join(', ')}</span></div>
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-card p-4">
+                  <div className="flex items-center justify-center">
+                    <CircularGauge value={status.memoryUsage.percentage} size={88} label={t('dlg.systemMonitor.memory')} color={memColor(status.memoryUsage.percentage)} />
+                  </div>
+                  <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                    <div className="flex justify-between"><span>{t('dlg.systemMonitor.usedTotal')}</span><span className="font-medium text-foreground">{status.memoryUsage.used}MB / {status.memoryUsage.total}MB</span></div>
+                    <div className="flex justify-between"><span>{t('dlg.systemMonitor.processRss')}</span><span className="font-medium text-foreground">{status.processMemory?.rss ?? '—'} MB</span></div>
+                  </div>
+                </div>
               </div>
-            </div>
+            </AppDialogSection>
 
-            {/* Disk Usage (real data from df) */}
-            <div className="p-4 rounded-xl border bg-gradient-to-br from-violet-50/50 to-purple-50/30 dark:from-violet-950/20 dark:to-purple-950/10">
-              <div className="flex items-center gap-2 mb-3">
-                <BarChart3 className="h-4 w-4 text-violet-500" />
-                <span className="text-sm font-semibold">{t('dlg.systemMonitor.diskUsage')}</span>
-              </div>
-              <div className="space-y-2">
+            <AppDialogDivider />
+
+            {/* ---- Network — dl rows, dd right-aligned ---- */}
+            <AppDialogSection icon={Network} label={t('dlg.systemMonitor.network')}>
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-xs">
+                <div className="flex min-w-0 items-baseline justify-between gap-3">
+                  <dt className="shrink-0 text-muted-foreground">{t('dlg.systemMonitor.hostname')}</dt>
+                  <dd className="min-w-0 truncate text-right font-medium">{networkInfo?.hostname ?? '—'}</dd>
+                </div>
+                <div className="flex min-w-0 items-baseline justify-between gap-3">
+                  <dt className="shrink-0 text-muted-foreground">{t('dlg.systemMonitor.platform')}</dt>
+                  <dd className="min-w-0 truncate text-right font-medium">{networkInfo?.platform ?? '—'}</dd>
+                </div>
+                <div className="flex min-w-0 items-baseline justify-between gap-3">
+                  <dt className="shrink-0 text-muted-foreground">{t('dlg.systemMonitor.architecture')}</dt>
+                  <dd className="min-w-0 truncate text-right font-medium">{networkInfo?.arch ?? '—'}</dd>
+                </div>
+                <div className="flex min-w-0 items-baseline justify-between gap-3">
+                  <dt className="shrink-0 text-muted-foreground">{t('dlg.systemMonitor.gateway')}</dt>
+                  <dd className="min-w-0 truncate text-right font-mono">:{status.gatewayPort}</dd>
+                </div>
+              </dl>
+            </AppDialogSection>
+
+            <AppDialogDivider />
+
+            {/* ---- Uptime ---- */}
+            <AppDialogSection icon={Clock} label={t('dlg.systemMonitor.uptime')}>
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-xs">
+                <div className="flex min-w-0 items-baseline justify-between gap-3">
+                  <dt className="shrink-0 text-muted-foreground">{t('dlg.systemMonitor.gateway')}</dt>
+                  <dd className="min-w-0 truncate text-right font-medium tabular-nums">{status.uptime}</dd>
+                </div>
+                <div className="flex min-w-0 items-baseline justify-between gap-3">
+                  <dt className="shrink-0 text-muted-foreground">{t('dlg.systemMonitor.system')}</dt>
+                  <dd className="min-w-0 truncate text-right font-medium tabular-nums">{status.systemUptime}</dd>
+                </div>
+              </dl>
+            </AppDialogSection>
+
+            <AppDialogDivider />
+
+            {/* ---- Services — real running environments across local + remote devices ---- */}
+            <AppDialogSection
+              icon={Server}
+              label={t('dlg.systemMonitor.services')}
+              action={<span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">{t('dlg.systemMonitor.servicesCount', { count: runningServices.length })}</span>}
+            >
+              {runningServices.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+                  <Server className="size-8 text-muted-foreground/50" />
+                  <p className="text-sm text-muted-foreground">{t('dlg.systemMonitor.noServices')}</p>
+                </div>
+              ) : (
                 <div className="space-y-1">
+                  {runningServices.map((svc) => (
+                    <div key={`${svc.device}-${svc.name}`} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-xs transition-colors hover:bg-muted/50">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="size-1.5 shrink-0 rounded-full bg-emerald-500" />
+                        <span className="truncate font-medium">{svc.name}</span>
+                        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{svc.device}</span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3 font-mono text-[11px] tabular-nums text-muted-foreground">
+                        {svc.port > 0 && <span>:{svc.port}</span>}
+                        {svc.pid != null && <span>PID {svc.pid}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </AppDialogSection>
+
+            <AppDialogDivider />
+
+            {/* ---- Disk usage (real data from df) ---- */}
+            <AppDialogSection icon={HardDrive} label={t('dlg.systemMonitor.diskUsage')}>
+              <div className="space-y-2.5">
+                <div className="space-y-1.5">
                   <div className="flex justify-between text-xs">
                     <span className="text-muted-foreground">{t('dlg.systemMonitor.usage')}</span>
-                    <span className="font-medium">{status.diskUsage?.percentage ?? 0}%</span>
+                    <span className="font-medium tabular-nums">{status.diskUsage?.percentage ?? 0}%</span>
                   </div>
                   <Progress value={status.diskUsage?.percentage ?? 0} className="h-2" />
                 </div>
@@ -2641,16 +2817,19 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
                   <span>{t('dlg.systemMonitor.free', { count: status.diskUsage?.free ?? 0 })}</span>
                 </div>
               </div>
-            </div>
+            </AppDialogSection>
 
-            {/* Footer */}
-            <div className="flex items-center justify-between">
+            {/* ---- meta row ---- */}
+            <div className="flex items-center justify-between gap-3 pt-1">
               <Button variant="outline" size="sm" onClick={fetchStatus}><RefreshCw className="h-3.5 w-3.5 mr-1" />{t('dlg.common.refresh')}</Button>
               <span className="text-[11px] text-muted-foreground">{t('dlg.systemMonitor.lastChecked', { time: formatTimeAgo(status.lastChecked, t) })}</span>
             </div>
-          </div>
+          </>
         ) : (
-          <div className="text-center py-8 text-muted-foreground">{t('dlg.systemMonitor.loadFailed')}</div>
+          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+            <Activity className="size-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">{t('dlg.systemMonitor.loadFailed')}</p>
+          </div>
         )}
       </AppDialogBody>
     </AppDialog>
@@ -2962,6 +3141,9 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
 
   const totalChanges = plan?.stats.changed ?? 0
   const runningAffected = plan?.groups.reduce((n, g) => n + g.changes.filter((c) => c.running).length, 0) ?? 0
+  // v1.30: warning count drives the summary row's conflict badge
+  // (emerald "no conflicts" vs amber warning count) — derived, no new state.
+  const warnCount = plan?.groups.reduce((n, g) => n + g.warnings.length, 0) ?? 0
 
   const apply = React.useCallback(async () => {
     setApplying(true)
@@ -2993,97 +3175,96 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
 
   return (
     <AppAlertDialog open={open} onOpenChange={(v) => !v && onClose()} size="2xl">
-      <AppDialogHeader>
-        <AppDialogTitle className="flex items-center gap-2">
-          <ArrowRightLeft className="h-4 w-4 text-teal-600" />
-          {t('ports.orgTitle')}
-          {totalChanges > 0 && <Badge variant="secondary" className="text-[11px] ml-1">{t('ports.orgChanges', { count: totalChanges })}</Badge>}
-        </AppDialogTitle>
+      <AppDialogHeader icon={LayoutGrid} iconTone="amber">
+        <AppDialogTitle>{t('ports.orgTitle')}</AppDialogTitle>
         <AppDialogDescription>{t('ports.orgDesc')}</AppDialogDescription>
       </AppDialogHeader>
 
-      <AppDialogBody className="space-y-4">
-          {totalChanges === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
-              <CheckCircle2 className="h-8 w-8 text-emerald-500" />
-              <p className="text-sm font-medium">{t('ports.orgNoChanges')}</p>
-              {plan.stats.kept > 0 && <p className="text-xs text-muted-foreground">{t('ports.orgKept', { count: plan.stats.kept })}</p>}
-            </div>
-          ) : (
-            plan.groups.map((g) => (
-              <div key={g.deviceId ?? 'local'} className="space-y-2">
-                <div className="flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur py-1 z-10">
-                  <span className={`text-xs font-semibold ${g.deviceId ? 'text-violet-600 dark:text-violet-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                    {g.deviceId ? t('ports.orgDevice', { name: g.deviceName || g.deviceId }) : t('ports.orgLocal')}
-                  </span>
-                  {g.changes.length > 0 && <Badge variant="outline" className="text-[11px] px-1.5">{g.changes.length}</Badge>}
-                  {g.keptProjects.length > 0 && (
-                    <span className="text-[11px] text-muted-foreground truncate">{t('ports.orgKept', { count: g.keptProjects.length })}</span>
-                  )}
+      <AppDialogBody className="space-y-5">
+        {totalChanges === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+            <CheckCircle2 className="size-8 text-emerald-500/70" />
+            <p className="text-sm font-medium">{t('ports.orgNoChanges')}</p>
+            {plan.stats.kept > 0 && <p className="text-xs text-muted-foreground">{t('ports.orgKept', { count: plan.stats.kept })}</p>}
+          </div>
+        ) : (
+          plan.groups.map((g) => (
+            <AppDialogSection
+              key={g.deviceId ?? 'local'}
+              icon={g.deviceId ? Smartphone : Monitor}
+              label={g.deviceId ? t('ports.orgDevice', { name: g.deviceName || g.deviceId }) : t('ports.orgLocal')}
+              hint={g.keptProjects.length > 0 ? t('ports.orgKept', { count: g.keptProjects.length }) : undefined}
+              action={g.changes.length > 0 ? (
+                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-amber-700 dark:text-amber-400">{g.changes.length}</span>
+              ) : undefined}
+            >
+              {g.changes.length === 0 ? (
+                <p className="px-1 text-xs text-muted-foreground">{t('ports.orgNoChanges')}</p>
+              ) : (
+                <div className="space-y-2">
+                  {g.changes.map((c) => (
+                    <div key={c.envId} className="rounded-xl border bg-card px-3.5 py-3">
+                      {/* owner + old → new port arrow line */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <span className="truncate text-sm font-medium" title={c.projectName}>{c.projectName}</span>
+                          <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{c.kind === 'custom' ? c.envName : c.kind}</span>
+                          {c.running && (
+                            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">{t('ports.orgRunningTag')}</span>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5 font-mono text-sm tabular-nums">
+                          <span className="text-muted-foreground">{c.oldPort}</span>
+                          <span aria-hidden className="text-muted-foreground/60">→</span>
+                          <span className="font-semibold text-emerald-600 dark:text-emerald-400">{c.newPort}</span>
+                        </div>
+                      </div>
+                      {/* reason badge */}
+                      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center rounded-full bg-amber-500/[0.06] px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/30 dark:text-amber-400">
+                          {t((ORG_REASON_KEY[c.reason] || 'ports.orgReason.sequence') as Parameters<typeof t>[0])}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+              )}
+              {g.warnings.map((w, i) => (
+                <p key={i} className="flex items-start gap-2 rounded-lg bg-amber-500/[0.06] px-3 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="mt-px size-3 shrink-0" />{w}
+                </p>
+              ))}
+            </AppDialogSection>
+          ))
+        )}
 
-                {g.changes.length === 0 ? (
-                  <p className="text-xs text-muted-foreground pl-1">{t('ports.orgNoChanges')}</p>
-                ) : (
-                  <div className="rounded-md border overflow-hidden">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/70 dark:bg-zinc-900/80">
-                        <tr className="text-left text-muted-foreground">
-                          <th className="px-2.5 py-1.5 font-medium">{t('ports.colOwner')}</th>
-                          <th className="px-2.5 py-1.5 font-medium">{t('ports.orgColPort')}</th>
-                          <th className="px-2.5 py-1.5 font-medium">{t('ports.orgColReason')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {g.changes.map((c) => (
-                          <tr key={c.envId} className="border-t border-border/60">
-                            <td className="px-2.5 py-1.5">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="truncate font-medium max-w-[140px]" title={c.projectName}>{c.projectName}</span>
-                                <span className="shrink-0 text-[11px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium uppercase">{c.kind === 'custom' ? c.envName : c.kind}</span>
-                              </div>
-                            </td>
-                            <td className="px-2.5 py-1.5 whitespace-nowrap">
-                              <span className="font-mono text-zinc-500 dark:text-zinc-400">{c.oldPort}</span>
-                              <span className="mx-1 text-muted-foreground">→</span>
-                              <span className="font-mono font-semibold text-teal-600 dark:text-teal-400">{c.newPort}</span>
-                            </td>
-                            <td className="px-2.5 py-1.5">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <Badge variant="outline" className="text-[11px] px-1.5 py-0 font-medium text-amber-700 dark:text-amber-400 border-amber-300/60 dark:border-amber-500/30">
-                                  {t((ORG_REASON_KEY[c.reason] || 'ports.orgReason.sequence') as Parameters<typeof t>[0])}
-                                </Badge>
-                                {c.running && (
-                                  <Badge variant="outline" className="text-[11px] px-1.5 py-0 font-medium text-zinc-500 dark:text-zinc-400">{t('ports.orgRunningTag')}</Badge>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {g.warnings.map((w, i) => (
-                  <p key={i} className="text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5 pl-1">
-                    <AlertTriangle className="h-3 w-3 mt-px shrink-0" />{w}
-                  </p>
-                ))}
-              </div>
-            ))
+        {/* summary row: change count + running note | conflict badge */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-xl border bg-muted/40 px-3.5 py-2.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-[11px] font-medium tabular-nums text-foreground/80">{t('ports.orgChanges', { count: totalChanges })}</span>
+            {runningAffected > 0 && (
+              <span className="flex min-w-0 items-start gap-1.5 text-[11px] text-muted-foreground">
+                <Info className="mt-px size-3 shrink-0" />
+                {t('ports.orgRunning', { count: runningAffected })}
+              </span>
+            )}
+          </div>
+          {warnCount > 0 ? (
+            <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="size-3" />{t('ports.orgWarnCount', { count: warnCount })}
+            </span>
+          ) : (
+            <span className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+              <ShieldCheck className="size-3" />{t('ports.orgNoConflict')}
+            </span>
           )}
-          {runningAffected > 0 && (
-            <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
-              <Info className="h-3 w-3 mt-px shrink-0" />
-              {t('ports.orgRunning', { count: runningAffected })}
-            </p>
-          )}
-        </AppDialogBody>
+        </div>
+      </AppDialogBody>
 
       <AppDialogFooter>
         <AlertDialogCancel disabled={applying}>{t('dlg.common.cancel')}</AlertDialogCancel>
         <AlertDialogAction
+          className="bg-emerald-600 hover:bg-emerald-700 text-white"
           disabled={totalChanges === 0 || applying}
           onClick={(e) => { e.preventDefault(); apply() }}
         >
@@ -3259,14 +3440,17 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
 
   return (
     <AppDialog open={open} onOpenChange={(o) => { if (!o && !switching) onClose() }} size="md">
-      <AppDialogHeader>
-        <AppDialogTitle className="flex items-center gap-2">
-          <GitBranch className="h-5 w-5 text-emerald-600" />
-          {t('dlg.branch.title')}
-          {project && <span className="text-sm font-normal text-muted-foreground truncate">· {project.name}</span>}
-        </AppDialogTitle>
-        <AppDialogDescription>{t('dlg.branch.desc')}</AppDialogDescription>
-      </AppDialogHeader>
+      <AppDialogHeader
+        icon={GitBranch}
+        iconTone="sky"
+        title={
+          <span className="flex min-w-0 items-center gap-2">
+            {t('dlg.branch.title')}
+            {project && <span className="truncate text-sm font-normal text-muted-foreground">· {project.name}</span>}
+          </span>
+        }
+        description={t('dlg.branch.desc')}
+      />
 
       <AppDialogBody className="space-y-4">
         {loading ? (
@@ -3276,7 +3460,7 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
           </div>
         ) : error && branches.length === 0 ? (
           <div className="space-y-3">
-            <div className="rounded-md border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-xs px-3 py-2.5 break-words">
+            <div className="rounded-lg border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-xs px-3 py-2.5 break-words">
               {error}
             </div>
             {project && (
@@ -3287,73 +3471,82 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
           </div>
         ) : (
           <>
-            <div className="rounded-lg border divide-y" role="listbox" aria-label={t('dlg.branch.title')}>
-              {branches.map((b) => (
-                <button
-                  key={b.name}
+            <AppDialogSection
+              icon={GitBranch}
+              label={t('dlg.branch.sectionList')}
+              action={
+                <Button
                   type="button"
-                  role="option"
-                  aria-selected={selected === b.name}
-                  onClick={() => setSelected(b.name)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-left transition-colors cursor-pointer ${
-                    selected === b.name
-                      ? 'bg-emerald-50 dark:bg-emerald-900/25'
-                      : 'hover:bg-accent'
-                  }`}
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  disabled={fetching || switching}
+                  title={t('dlg.branch.refresh')}
+                  aria-label={t('dlg.branch.refresh')}
+                  onClick={() => project && loadBranches(project.id, true)}
                 >
-                  <span className={`h-3.5 w-3.5 rounded-full border-2 shrink-0 flex items-center justify-center ${selected === b.name ? 'border-emerald-500' : 'border-zinc-300 dark:border-zinc-600'}`}>
-                    {selected === b.name && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
-                  </span>
-                  <GitBranch className={`h-3.5 w-3.5 shrink-0 ${b.current ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
-                  <span className={`font-mono truncate flex-1 min-w-0 ${b.current ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}>{b.name}</span>
-                  {/* v1.26: per-branch freshness — the "which branch actually
-                      carries the update" answer. A stale side branch shows
-                      nothing to pull; the default branch shows ↓N behind. */}
-                  {typeof b.behind === 'number' && b.behind > 0 && (
-                    <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border border-amber-300/70 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 font-medium tabular-nums" title={t('dlg.branch.behindTip', { count: b.behind, branch: b.name })}>↓{b.behind}</span>
-                  )}
-                  {typeof b.ahead === 'number' && b.ahead > 0 && (
-                    <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border text-muted-foreground tabular-nums" title={t('dlg.branch.aheadTip', { count: b.ahead, branch: b.name })}>↑{b.ahead}</span>
-                  )}
-                  {b.current && (
-                    <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium">{t('dlg.branch.current')}</span>
-                  )}
-                  {!b.current && b.remote && (
-                    <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border text-muted-foreground">{t('dlg.branch.remoteOnly')}</span>
-                  )}
-                </button>
-              ))}
-              {branches.length === 0 && (
-                <div className="px-3 py-6 text-center text-sm text-muted-foreground">{t('dlg.branch.none')}</div>
-              )}
-            </div>
+                  {fetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </Button>
+              }
+            >
+              <div className="space-y-1" role="listbox" aria-label={t('dlg.branch.title')}>
+                {branches.map((b) => {
+                  const active = selected === b.name
+                  return (
+                    <button
+                      key={b.name}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      onClick={() => setSelected(b.name)}
+                      className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors cursor-pointer ${
+                        active
+                          ? 'bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                          : 'hover:bg-muted/50'
+                      }`}
+                    >
+                      <span className={`h-3.5 w-3.5 rounded-full border-2 shrink-0 flex items-center justify-center ${active ? 'border-emerald-500' : 'border-zinc-300 dark:border-zinc-600'}`}>
+                        {active && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />}
+                      </span>
+                      <GitBranch className={`h-3.5 w-3.5 shrink-0 ${b.current ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
+                      <span className={`min-w-0 flex-1 truncate font-mono text-[13px] ${b.current ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}>{b.name}</span>
+                      {/* v1.26: per-branch freshness — the "which branch actually
+                          carries the update" answer. A stale side branch shows
+                          nothing to pull; the default branch shows ↓N behind. */}
+                      {typeof b.behind === 'number' && b.behind > 0 && (
+                        <span className="shrink-0 text-[11px] px-2 py-0.5 rounded-full border border-amber-300/70 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 font-medium tabular-nums" title={t('dlg.branch.behindTip', { count: b.behind, branch: b.name })}>↓{b.behind}</span>
+                      )}
+                      {typeof b.ahead === 'number' && b.ahead > 0 && (
+                        <span className="shrink-0 text-[11px] px-2 py-0.5 rounded-full border text-muted-foreground tabular-nums" title={t('dlg.branch.aheadTip', { count: b.ahead, branch: b.name })}>↑{b.ahead}</span>
+                      )}
+                      {b.current && (
+                        <span className="shrink-0 text-[11px] px-2 py-0.5 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium">{t('dlg.branch.current')}</span>
+                      )}
+                      {!b.current && b.remote && (
+                        <span className="shrink-0 text-[11px] px-2 py-0.5 rounded-full border text-muted-foreground">{t('dlg.branch.remoteOnly')}</span>
+                      )}
+                    </button>
+                  )
+                })}
+                {branches.length === 0 && (
+                  <div className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">{t('dlg.branch.none')}</div>
+                )}
+              </div>
+            </AppDialogSection>
 
             {error && branches.length > 0 && (
               <p className="text-[11px] text-amber-600 dark:text-amber-400">{t('dlg.branch.fetchFailed')}: {error.slice(0, 160)}</p>
             )}
 
-            <div className="flex items-center gap-2 pt-1">
-              <Button
-                type="button"
-                className="flex-1"
-                disabled={!selected || switching || selected === currentBranch}
-                onClick={handleSwitch}
-              >
-                {switching ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <GitBranch className="h-4 w-4 mr-1.5" />}
-                {switching ? t('dlg.branch.switching') : t('dlg.branch.switchPull')}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={fetching || switching}
-                title={t('dlg.branch.refresh')}
-                aria-label={t('dlg.branch.refresh')}
-                onClick={() => project && loadBranches(project.id, true)}
-              >
-                {fetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              </Button>
-            </div>
+            <Button
+              type="button"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+              disabled={!selected || switching || selected === currentBranch}
+              onClick={handleSwitch}
+            >
+              {switching ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <GitBranch className="h-4 w-4 mr-1.5" />}
+              {switching ? t('dlg.branch.switching') : t('dlg.branch.switchPull')}
+            </Button>
           </>
         )}
       </AppDialogBody>
@@ -3402,7 +3595,9 @@ function pullNewerOnDefaultNote(data: any, t: I18nContextValue['t']): string {
 }
 
 /**
- * Selectable action card for pull-strategy dialogs (v1.29) — replaces the old
+ * Selectable action card for pull-strategy dialogs (v1.29, v1.30 Studio pass):
+ * a full-width option card with a 40px gradient icon tile, a wrapping
+ * description and a solid recommendation badge. Replaces the old
  * in-Button two-line layout whose descriptions were clipped by the shadcn
  * Button base class's whitespace-nowrap (real user report: "Automatic backup
  * → sync → restore, no interaction needed, local char…" cut mid-sentence).
@@ -3410,7 +3605,8 @@ function pullNewerOnDefaultNote(data: any, t: I18nContextValue['t']): string {
  * nowrap, the description wraps naturally and is never clipped by the
  * dialog shell's overflow-hidden. Three tones mirror the system's semantic
  * colors: emerald = recommended/safe, neutral = ordinary, destructive =
- * irreversible.
+ * irreversible. The tile gradients mirror app-dialog.tsx's ICON_TONE_CLASSES
+ * so the cards read as part of the same design system as the header tiles.
  */
 function PullOptionCard({ icon: Icon, title, desc, badge, tone, busy, disabled, onClick }: {
   icon: React.ComponentType<{ className?: string }>
@@ -3422,35 +3618,30 @@ function PullOptionCard({ icon: Icon, title, desc, badge, tone, busy, disabled, 
   disabled?: boolean
   onClick?: () => void
 }) {
-  const chip = tone === 'emerald'
-    ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400'
+  const tile = tone === 'emerald'
+    ? 'bg-gradient-to-br from-emerald-500/20 to-emerald-500/[0.05] ring-1 ring-emerald-500/20 text-emerald-600 dark:text-emerald-400'
     : tone === 'destructive'
-      ? 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/15 dark:text-rose-400'
-      : 'bg-muted/60 text-muted-foreground'
-  const hover = tone === 'emerald'
-    ? 'hover:border-emerald-400/70 hover:bg-emerald-50/40 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'
-    : tone === 'destructive'
-      ? 'hover:border-rose-400/70 hover:bg-rose-50/40 dark:hover:border-rose-800/60 dark:hover:bg-rose-950/20'
-      : 'hover:bg-accent/50'
+      ? 'bg-gradient-to-br from-rose-500/20 to-rose-500/[0.05] ring-1 ring-rose-500/20 text-rose-600 dark:text-rose-400'
+      : 'bg-gradient-to-br from-foreground/[0.08] to-foreground/[0.03] ring-1 ring-foreground/[0.08] text-foreground/70'
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`w-full rounded-xl border border-border/80 p-3.5 text-left transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50 ${hover}`}
+      className="w-full cursor-pointer rounded-xl border border-border bg-card p-3.5 text-left transition-all hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:border-border disabled:hover:shadow-none"
     >
       <div className="flex items-start gap-3">
-        <span className={`flex size-9 shrink-0 items-center justify-center rounded-lg ${chip}`}>
-          {busy ? <Loader2 className="size-4 animate-spin" /> : <Icon className="size-4" />}
+        <span className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${tile}`}>
+          {busy ? <Loader2 className="size-[18px] animate-spin" /> : <Icon className="size-[18px]" />}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold">{title}</span>
+            <span className="text-sm font-medium">{title}</span>
             {badge ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">{badge}</span>
             ) : null}
           </div>
-          <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{desc}</div>
+          <div className="mt-1 min-w-0 break-words text-xs leading-relaxed text-muted-foreground">{desc}</div>
         </div>
       </div>
     </button>
@@ -3485,10 +3676,22 @@ function PullConflictDialog({ conflict, busy, onResolve, onAgent, allowAgent, on
 }) {
   const t = useT()
   const busyNow = busy !== null
+  // v1.30 file rows: mono path + M/A status chip (rule 3) — one row per file
+  // inside a divided card list, truncating with a title tooltip instead of
+  // stretching the dialog with unbreakable paths.
   const fileRow = (f: string, i: number, kind: 'modified' | 'untracked') => (
-    <li key={`${kind}:${i}:${f}`} className="flex items-start gap-1.5 py-0.5 break-all">
-      <span className={kind === 'modified' ? 'text-amber-600 dark:text-amber-400 shrink-0' : 'text-rose-600 dark:text-rose-400 shrink-0'}>•</span>
-      <span className="font-mono text-[11px] leading-4">{f}</span>
+    <li key={`${kind}:${i}:${f}`} className="flex items-center gap-2.5 px-3 py-1.5">
+      <span
+        className={`inline-flex size-4 shrink-0 items-center justify-center rounded font-mono text-[10px] font-bold ${
+          kind === 'modified'
+            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+            : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+        }`}
+        aria-hidden
+      >
+        {kind === 'modified' ? 'M' : 'A'}
+      </span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs" title={f}>{f}</span>
     </li>
   )
   return (
@@ -3503,62 +3706,74 @@ function PullConflictDialog({ conflict, busy, onResolve, onAgent, allowAgent, on
 
       <AppDialogBody>
         {conflict && (
-          <div className="space-y-4">
+          <div className="space-y-5">
             {(conflict.modified.length > 0 || conflict.untracked.length > 0) && (
-              <div className="space-y-3">
-                {conflict.modified.length > 0 && (
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.modified')} · {conflict.modified.length}</div>
-                    <ul className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 max-h-40 overflow-y-auto">
-                      {conflict.modified.map((f, i) => fileRow(f, i, 'modified'))}
-                    </ul>
-                  </div>
-                )}
-                {conflict.untracked.length > 0 && (
-                  <div>
-                    <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.untracked')} · {conflict.untracked.length}</div>
-                    <ul className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 max-h-40 overflow-y-auto">
-                      {conflict.untracked.map((f, i) => fileRow(f, i, 'untracked'))}
-                    </ul>
-                  </div>
-                )}
-              </div>
+              <AppDialogSection icon={FileWarning} label={t('dlg.pullConflict.sectionFiles')}>
+                <div className="space-y-3">
+                  {conflict.modified.length > 0 && (
+                    <div>
+                      <div className="mb-1.5 flex min-w-0 items-center gap-2">
+                        <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">{t('dlg.pullConflict.modified')}</span>
+                        <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">{conflict.modified.length}</span>
+                      </div>
+                      <ul className="custom-scrollbar max-h-40 divide-y divide-border/60 overflow-y-auto rounded-lg border bg-card">
+                        {conflict.modified.map((f, i) => fileRow(f, i, 'modified'))}
+                      </ul>
+                    </div>
+                  )}
+                  {conflict.untracked.length > 0 && (
+                    <div>
+                      <div className="mb-1.5 flex min-w-0 items-center gap-2">
+                        <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">{t('dlg.pullConflict.untracked')}</span>
+                        <span className="shrink-0 rounded-full bg-rose-500/10 px-1.5 py-px text-[10px] font-semibold tabular-nums text-rose-600 dark:text-rose-400">{conflict.untracked.length}</span>
+                      </div>
+                      <ul className="custom-scrollbar max-h-40 divide-y divide-border/60 overflow-y-auto rounded-lg border bg-card">
+                        {conflict.untracked.map((f, i) => fileRow(f, i, 'untracked'))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </AppDialogSection>
             )}
-            {/* v1.29: strategies as option CARDS in the body (not footer
-                buttons) — they are the content choice the dialog is asking
-                for, and the card layout lets descriptions wrap to full
-                length instead of being clipped by Button's nowrap. */}
-            <div className="space-y-2">
-              {allowAgent && onAgent && (
+            {/* v1.29 → v1.30: strategies as option CARDS in the body (not
+                footer buttons) — they are the content choice the dialog is
+                asking for, and the card layout lets descriptions wrap to
+                full length instead of being clipped by Button's nowrap.
+                v1.30 groups them under a section eyebrow like the rest of
+                the Studio language. */}
+            <AppDialogSection icon={Zap} label={t('dlg.pullConflict.sectionStrategy')}>
+              <div className="space-y-2">
+                {allowAgent && onAgent && (
+                  <PullOptionCard
+                    icon={Bot}
+                    tone="emerald"
+                    title={t('dlg.pullAgent.runAgent')}
+                    desc={t('dlg.pullAgent.runAgentDesc')}
+                    badge={t('dlg.pullConflict.agentBadge')}
+                    disabled={busyNow}
+                    onClick={onAgent}
+                  />
+                )}
                 <PullOptionCard
-                  icon={Bot}
-                  tone="emerald"
-                  title={t('dlg.pullAgent.runAgent')}
-                  desc={t('dlg.pullAgent.runAgentDesc')}
-                  badge={t('dlg.pullConflict.agentBadge')}
+                  icon={Archive}
+                  tone="neutral"
+                  title={busy === 'stash' ? t('dlg.pullConflict.stashing') : t('dlg.pullConflict.stash')}
+                  desc={t('dlg.pullConflict.stashDesc')}
+                  busy={busy === 'stash'}
                   disabled={busyNow}
-                  onClick={onAgent}
+                  onClick={() => onResolve('stash')}
                 />
-              )}
-              <PullOptionCard
-                icon={Archive}
-                tone="neutral"
-                title={busy === 'stash' ? t('dlg.pullConflict.stashing') : t('dlg.pullConflict.stash')}
-                desc={t('dlg.pullConflict.stashDesc')}
-                busy={busy === 'stash'}
-                disabled={busyNow}
-                onClick={() => onResolve('stash')}
-              />
-              <PullOptionCard
-                icon={Trash2}
-                tone="destructive"
-                title={busy === 'force' ? t('dlg.pullConflict.forcing') : t('dlg.pullConflict.force')}
-                desc={t('dlg.pullConflict.forceDesc')}
-                busy={busy === 'force'}
-                disabled={busyNow}
-                onClick={() => onResolve('force')}
-              />
-            </div>
+                <PullOptionCard
+                  icon={Trash2}
+                  tone="destructive"
+                  title={busy === 'force' ? t('dlg.pullConflict.forcing') : t('dlg.pullConflict.force')}
+                  desc={t('dlg.pullConflict.forceDesc')}
+                  busy={busy === 'force'}
+                  disabled={busyNow}
+                  onClick={() => onResolve('force')}
+                />
+              </div>
+            </AppDialogSection>
           </div>
         )}
       </AppDialogBody>
@@ -3649,20 +3864,29 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
   const rec = diagnosis?.recommendedAction
   const actions: Array<'retry' | 'agent' | 'stash' | 'force' | 'manual'> =
     rec && base.includes(rec) ? [rec, ...base.filter((a) => a !== rec)] : base
-  const severityClass = diagnosis?.severity === 'high'
-    ? 'text-rose-600 dark:text-rose-400'
+  const severityPill = diagnosis?.severity === 'high'
+    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
     : diagnosis?.severity === 'medium'
-      ? 'text-amber-600 dark:text-amber-400'
-      : 'text-emerald-600 dark:text-emerald-400'
+      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+      : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
   const fileRow = (f: string, i: number, kind: 'modified' | 'untracked') => (
-    <li key={`${kind}:${i}:${f}`} className="flex items-start gap-1.5 py-0.5 break-all">
-      <span className={kind === 'modified' ? 'text-amber-600 dark:text-amber-400 shrink-0' : 'text-rose-600 dark:text-rose-400 shrink-0'}>•</span>
-      <span className="font-mono text-[11px] leading-4">{f}</span>
+    <li key={`${kind}:${i}:${f}`} className="flex items-center gap-2.5 px-3 py-1.5">
+      <span
+        className={`inline-flex size-4 shrink-0 items-center justify-center rounded font-mono text-[10px] font-bold ${
+          kind === 'modified'
+            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+            : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+        }`}
+        aria-hidden
+      >
+        {kind === 'modified' ? 'M' : 'A'}
+      </span>
+      <span className="min-w-0 flex-1 truncate font-mono text-xs" title={f}>{f}</span>
     </li>
   )
   return (
     <AppDialog open={!!req} onOpenChange={(o) => { if (!o && !busyNow) onClose() }} size="lg">
-      <AppDialogHeader icon={Sparkles} iconTone="amber">
+      <AppDialogHeader icon={Sparkles} iconTone="violet">
         <AppDialogTitle className="flex items-center gap-2 min-w-0">
           <span className="truncate">{t('dlg.pullDiag.title')}</span>
           {req ? <span className="text-sm font-normal text-muted-foreground truncate min-w-0">· {req.projectName}</span> : null}
@@ -3674,79 +3898,83 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
 
       <AppDialogBody>
         {req && (
-          <div className="space-y-3">
+          <div className="space-y-5">
             {loading ? (
               <div className="flex flex-col items-center gap-3 py-8">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <Loader2 className="size-8 animate-spin text-muted-foreground/50" />
                 <div className="text-sm text-muted-foreground">{t('dlg.pullDiag.loading')}</div>
               </div>
             ) : diagnosis ? (
-              <>
-                {/* Severity + root cause — colored container by severity so
-                    the eye lands on the verdict first. Everything inside is
-                    wrap-safe: min-w-0 on flex children, break-words on prose. */}
-                <div className={`rounded-md border px-3 py-2.5 min-w-0 ${
-                  diagnosis.severity === 'high'
-                    ? 'border-rose-300/70 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20'
-                    : diagnosis.severity === 'medium'
-                      ? 'border-amber-300/70 dark:border-amber-900/60 bg-amber-50/50 dark:bg-amber-950/20'
-                      : 'border-emerald-300/70 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20'
-                }`}>
-                  <div className="flex items-center gap-1.5 mb-1.5 min-w-0">
-                    <span className={`text-xs font-semibold uppercase tracking-wide ${severityClass}`}>{t(`dlg.pullDiag.severity.${diagnosis.severity}`)}</span>
-                    <span className="text-[11px] text-muted-foreground">{t('dlg.pullDiag.severityLabel')}</span>
-                    {req.transient ? (
-                      <span className="ml-auto shrink-0 inline-flex items-center gap-1 h-5 px-1.5 rounded-full border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 text-[11px] font-medium text-amber-700 dark:text-amber-400" title={t('dlg.pullDiag.action.retryDesc')}>
-                        {t('dlg.pullDiag.transientChip')}
-                      </span>
-                    ) : null}
+              <AppDialogSection icon={BrainCircuit} label={t('dlg.pullDiag.sectionDiagnosis')}>
+                <div className="min-w-0 space-y-3">
+                  {/* v1.30: the AI's verdict as a violet quote panel (its own
+                      words) with a semantic severity pill, so the eye lands
+                      on the verdict first. Everything inside is wrap-safe:
+                      min-w-0 on flex children, break-words on prose. */}
+                  <div className="min-w-0 rounded-lg border-l-2 border-violet-500/40 bg-violet-500/[0.04] p-3">
+                    <div className="mb-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${severityPill}`}>{t('dlg.pullDiag.severityLabel')} · {t(`dlg.pullDiag.severity.${diagnosis.severity}`)}</span>
+                      {req.transient ? (
+                        <span className="ml-auto inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 text-[10px] font-medium text-amber-700 dark:text-amber-400" title={t('dlg.pullDiag.action.retryDesc')}>
+                          {t('dlg.pullDiag.transientChip')}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="min-w-0 break-words text-[13px] font-medium leading-relaxed">{diagnosis.rootCause}</div>
+                    {diagnosis.explanation ? <div className="mt-1.5 min-w-0 break-words text-xs leading-relaxed text-muted-foreground">{diagnosis.explanation}</div> : null}
                   </div>
-                  <div className="text-sm font-medium break-words min-w-0">{diagnosis.rootCause}</div>
-                  {diagnosis.explanation ? <div className="text-xs text-muted-foreground mt-1.5 break-words min-w-0">{diagnosis.explanation}</div> : null}
+                  {diagnosis.steps.length > 0 && (
+                    <div className="min-w-0">
+                      <div className="mb-1.5 text-xs font-medium text-muted-foreground">{t('dlg.pullDiag.steps')}</div>
+                      <ol className="custom-scrollbar list-decimal min-w-0 max-h-44 space-y-1.5 overflow-y-auto rounded-lg border bg-card py-2.5 pl-8 pr-3">
+                        {diagnosis.steps.map((s, i) => (
+                          <li key={i} className="min-w-0 break-words text-xs leading-relaxed">{s}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                  {hasConflict && (
+                    <div className="min-w-0 space-y-3">
+                      {req.modified.length > 0 && (
+                        <div className="min-w-0">
+                          <div className="mb-1.5 flex min-w-0 items-center gap-2">
+                            <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">{t('dlg.pullConflict.modified')}</span>
+                            <span className="shrink-0 rounded-full bg-amber-500/10 px-1.5 py-px text-[10px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">{req.modified.length}</span>
+                          </div>
+                          <ul className="custom-scrollbar min-w-0 max-h-32 divide-y divide-border/60 overflow-y-auto rounded-lg border bg-card">
+                            {req.modified.map((f, i) => fileRow(f, i, 'modified'))}
+                          </ul>
+                        </div>
+                      )}
+                      {req.untracked.length > 0 && (
+                        <div className="min-w-0">
+                          <div className="mb-1.5 flex min-w-0 items-center gap-2">
+                            <span className="min-w-0 truncate text-xs font-medium text-muted-foreground">{t('dlg.pullConflict.untracked')}</span>
+                            <span className="shrink-0 rounded-full bg-rose-500/10 px-1.5 py-px text-[10px] font-semibold tabular-nums text-rose-600 dark:text-rose-400">{req.untracked.length}</span>
+                          </div>
+                          <ul className="custom-scrollbar min-w-0 max-h-32 divide-y divide-border/60 overflow-y-auto rounded-lg border bg-card">
+                            {req.untracked.map((f, i) => fileRow(f, i, 'untracked'))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {diagnosis.steps.length > 0 && (
-                  <div className="min-w-0">
-                    <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullDiag.steps')}</div>
-                    <ol className="rounded-md border bg-muted/40 px-4 py-2 space-y-1.5 max-h-44 overflow-y-auto list-decimal min-w-0 custom-scrollbar">
-                      {diagnosis.steps.map((s, i) => (
-                        <li key={i} className="text-xs leading-4 break-words min-w-0">{s}</li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
-                {hasConflict && (
-                  <div className="space-y-2 min-w-0">
-                    {req.modified.length > 0 && (
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.modified')} · {req.modified.length}</div>
-                        <ul className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 max-h-32 overflow-y-auto min-w-0 custom-scrollbar">
-                          {req.modified.map((f, i) => fileRow(f, i, 'modified'))}
-                        </ul>
-                      </div>
-                    )}
-                    {req.untracked.length > 0 && (
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium text-muted-foreground mb-1">{t('dlg.pullConflict.untracked')} · {req.untracked.length}</div>
-                        <ul className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 max-h-32 overflow-y-auto min-w-0 custom-scrollbar">
-                          {req.untracked.map((f, i) => fileRow(f, i, 'untracked'))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
+              </AppDialogSection>
             ) : null}
 
-            {/* Raw error detail (v1.26): the technical git output, contained
-                in its own collapsed, scrolled, wrap-everything block. Shown
-                while the LLM thinks AND after it answers — the user asked for
-                the raw stderr to stop overflowing the dialog frame. */}
+            {/* Raw error detail (v1.26 → v1.30 terminal look): the technical
+                git output, contained in its own collapsed, scrolled,
+                wrap-everything block on the system's dark terminal surface
+                (same in light and dark mode). Shown while the LLM thinks AND
+                after it answers — the user asked for the raw stderr to stop
+                overflowing the dialog frame. */}
             {(req?.error || req?.detail) && (
-              <div className="rounded-md border bg-muted/30 min-w-0">
-                <div className="flex items-stretch min-w-0">
+              <div className="min-w-0 overflow-hidden rounded-lg border bg-card">
+                <div className="flex min-w-0 items-stretch">
                   <button
                     type="button"
-                    className="flex flex-1 min-w-0 items-center gap-1.5 px-2.5 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
                     onClick={() => setShowRaw((v) => !v)}
                   >
                     {showRaw ? <ChevronUp className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
@@ -3754,7 +3982,7 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
                   </button>
                   <button
                     type="button"
-                    className="flex shrink-0 items-center gap-1 px-2.5 py-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer border-l border-border/60"
+                    className="flex shrink-0 cursor-pointer items-center gap-1 border-l border-border/60 px-3 py-2.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
                     onClick={copyRaw}
                     title={t('dlg.pullDiag.copyRaw')}
                   >
@@ -3763,76 +3991,79 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
                   </button>
                 </div>
                 {showRaw && (
-                  <pre className="border-t border-border/60 px-3 py-2 max-h-36 overflow-y-auto text-[11px] leading-4 whitespace-pre-wrap break-all font-mono text-muted-foreground min-w-0 custom-scrollbar">
+                  <pre className="custom-scrollbar min-w-0 max-h-36 overflow-y-auto border-t border-zinc-800 bg-zinc-950/[0.97] px-3 py-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all text-zinc-200">
                     {[req?.error, req?.detail].filter(Boolean).join('\n')}
                   </pre>
                 )}
               </div>
             )}
 
-            {/* v1.29: the strategy actions moved into the BODY as option
-                cards (same treatment as the conflict dialog) — they are the
-                dialog's actual content choice, and PullOptionCard wraps the
-                descriptions instead of clipping them like the old footer
-                Buttons did. The force second-confirmation keeps its inline
-                block; the footer is left with just the Close button. */}
+            {/* v1.29 → v1.30: the strategy actions moved into the BODY as
+                option cards (same treatment as the conflict dialog) — they
+                are the dialog's actual content choice, and PullOptionCard
+                wraps the descriptions instead of clipping them like the old
+                footer Buttons did. v1.30 groups them (plus the AI's reasoning
+                and the force second-confirmation) under one section eyebrow.
+                The footer is left with just the Close button. */}
             {!loading && diagnosis && (
-              <div className="space-y-2.5">
-                {diagnosis.reason && (
-                  <div className="rounded-md border border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 min-w-0">
-                    <div className="text-[11px] font-medium text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                      <Sparkles className="h-3 w-3 shrink-0" />
-                      {t('dlg.pullDiag.whyLabel')}
+              <AppDialogSection icon={Zap} label={t('dlg.pullDiag.sectionActions')}>
+                <div className="space-y-2.5">
+                  {diagnosis.reason && (
+                    <div className="min-w-0 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3">
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                        <Sparkles className="h-3 w-3 shrink-0" />
+                        {t('dlg.pullDiag.whyLabel')}
+                      </div>
+                      <div className="mt-1 min-w-0 break-words text-xs leading-relaxed text-amber-900/80 dark:text-amber-200/80">{diagnosis.reason}</div>
                     </div>
-                    <div className="text-xs text-amber-900/80 dark:text-amber-200/80 break-words min-w-0">{diagnosis.reason}</div>
-                  </div>
-                )}
-                {forceConfirm ? (
-                  <div className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2 space-y-2">
-                    <div className="text-sm font-medium text-rose-700 dark:text-rose-300 flex items-center gap-1.5">
-                      <AlertTriangle className="h-4 w-4 shrink-0" />
-                      {t('dlg.pullDiag.confirmForceTitle')}
+                  )}
+                  {forceConfirm ? (
+                    <div className="space-y-2.5 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] p-3.5">
+                      <div className="flex items-center gap-2 text-sm font-medium text-rose-700 dark:text-rose-300">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        {t('dlg.pullDiag.confirmForceTitle')}
+                      </div>
+                      <div className="text-xs leading-relaxed text-muted-foreground">{t('dlg.pullDiag.confirmForceDesc')}</div>
+                      <div className="flex gap-2">
+                        <Button variant="ghost" size="sm" className="flex-1" disabled={busyNow} onClick={() => onForceConfirm(false)}>
+                          {t('dlg.pullDiag.goBack')}
+                        </Button>
+                        <Button variant="destructive" size="sm" className="flex-1" disabled={busyNow} onClick={() => onAction('force')}>
+                          {busy === 'force' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          {busy === 'force' ? t('dlg.pullDiag.busy') : t('dlg.pullDiag.confirmForce')}
+                        </Button>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">{t('dlg.pullDiag.confirmForceDesc')}</div>
-                    <div className="flex gap-2">
-                      <Button variant="ghost" size="sm" className="flex-1" disabled={busyNow} onClick={() => onForceConfirm(false)}>
-                        {t('dlg.pullDiag.goBack')}
-                      </Button>
-                      <Button variant="destructive" size="sm" className="flex-1" disabled={busyNow} onClick={() => onAction('force')}>
-                        {busy === 'force' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                        {busy === 'force' ? t('dlg.pullDiag.busy') : t('dlg.pullDiag.confirmForce')}
-                      </Button>
+                  ) : (
+                    <div className="space-y-2">
+                      {actions.map((a) => {
+                        const cfg = a === 'retry'
+                          ? { icon: RefreshCw, label: t('dlg.pullDiag.action.retry'), desc: t('dlg.pullDiag.action.retryDesc'), tone: 'neutral' as const }
+                          : a === 'agent'
+                            ? { icon: Bot, label: t('dlg.pullAgent.runAgent'), desc: t('dlg.pullAgent.runAgentDesc'), tone: 'emerald' as const }
+                            : a === 'stash'
+                              ? { icon: Archive, label: t('dlg.pullConflict.stash'), desc: t('dlg.pullConflict.stashDesc'), tone: 'neutral' as const }
+                              : a === 'force'
+                                ? { icon: Trash2, label: t('dlg.pullConflict.force'), desc: t('dlg.pullConflict.forceDesc'), tone: 'destructive' as const }
+                                : { icon: Terminal, label: t('dlg.pullDiag.action.manual'), desc: t('dlg.pullDiag.action.manualDesc'), tone: 'neutral' as const }
+                        return (
+                          <PullOptionCard
+                            key={a}
+                            icon={cfg.icon}
+                            tone={cfg.tone}
+                            title={busy === a ? t('dlg.pullDiag.busy') : cfg.label}
+                            desc={cfg.desc}
+                            badge={a === rec ? t('dlg.pullDiag.aiRecommended') : undefined}
+                            busy={busy === a}
+                            disabled={busyNow}
+                            onClick={() => (a === 'force' ? onForceConfirm(true) : onAction(a))}
+                          />
+                        )
+                      })}
                     </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {actions.map((a) => {
-                      const cfg = a === 'retry'
-                        ? { icon: RefreshCw, label: t('dlg.pullDiag.action.retry'), desc: t('dlg.pullDiag.action.retryDesc'), tone: 'neutral' as const }
-                        : a === 'agent'
-                          ? { icon: Bot, label: t('dlg.pullAgent.runAgent'), desc: t('dlg.pullAgent.runAgentDesc'), tone: 'emerald' as const }
-                          : a === 'stash'
-                            ? { icon: Archive, label: t('dlg.pullConflict.stash'), desc: t('dlg.pullConflict.stashDesc'), tone: 'neutral' as const }
-                            : a === 'force'
-                              ? { icon: Trash2, label: t('dlg.pullConflict.force'), desc: t('dlg.pullConflict.forceDesc'), tone: 'destructive' as const }
-                              : { icon: Terminal, label: t('dlg.pullDiag.action.manual'), desc: t('dlg.pullDiag.action.manualDesc'), tone: 'neutral' as const }
-                      return (
-                        <PullOptionCard
-                          key={a}
-                          icon={cfg.icon}
-                          tone={cfg.tone}
-                          title={busy === a ? t('dlg.pullDiag.busy') : cfg.label}
-                          desc={cfg.desc}
-                          badge={a === rec ? t('dlg.pullDiag.aiRecommended') : undefined}
-                          busy={busy === a}
-                          disabled={busyNow}
-                          onClick={() => (a === 'force' ? onForceConfirm(true) : onAction(a))}
-                        />
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              </AppDialogSection>
             )}
           </div>
         )}
@@ -3924,14 +4155,19 @@ function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
   // reach the remote at all; the failure box adds the proxy hint.
   const fetchNetworkFailed = run?.status === 'failed' && run.steps.some((s) => s.key === 'fetch' && s.status === 'fail')
 
-  const stepIcon = (status: PullAgentStepView['status']) => {
+  // v1.30 timeline (rule 4): each step renders as a 28px status dot riding a
+  // vertical connector line — done = emerald check, running = amber spinner,
+  // failed = rose X, pending = muted dot; warn/skipped get their own tints.
+  // The tint layer sits on a solid background circle so the connector line
+  // never shows through the dot.
+  const stepDot = (status: PullAgentStepView['status']): { tint: string; node: React.ReactNode } => {
     switch (status) {
-      case 'running': return <Loader2 className="h-4 w-4 animate-spin shrink-0 text-emerald-600" />
-      case 'ok': return <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-      case 'warn': return <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
-      case 'fail': return <XCircle className="h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
-      case 'skipped': return <Minus className="h-4 w-4 shrink-0 text-muted-foreground/60" />
-      default: return <span className="h-2 w-2 rounded-full border border-muted-foreground/40 shrink-0 ml-1 mr-[3px]" />
+      case 'running': return { tint: 'bg-amber-500/15', node: <Loader2 className="size-3.5 animate-spin text-amber-600 dark:text-amber-400" /> }
+      case 'ok': return { tint: 'bg-emerald-500/15', node: <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" /> }
+      case 'warn': return { tint: 'bg-amber-500/15', node: <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400" /> }
+      case 'fail': return { tint: 'bg-rose-500/15', node: <X className="size-3.5 text-rose-600 dark:text-rose-400" /> }
+      case 'skipped': return { tint: 'bg-muted', node: <Minus className="size-3.5 text-muted-foreground/50" /> }
+      default: return { tint: 'bg-muted', node: <span className="size-2 rounded-full bg-muted-foreground/30" /> }
     }
   }
 
@@ -3939,6 +4175,16 @@ function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
     const live = run?.steps.find((s) => s.key === key)
     return live || { key, status: 'pending' as const }
   })
+
+  // v1.30 progress summary: settled steps over the fixed 8-step ladder,
+  // surfaced as a count pill on the section eyebrow (semantic color by run
+  // status) plus a thin gradient progress bar while the run is live.
+  const doneCount = steps.filter((s) => s.status === 'ok' || s.status === 'warn' || s.status === 'skipped').length
+  const stepCountPill = run?.status === 'failed'
+    ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+    : run?.status === 'done'
+      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+      : 'bg-muted text-muted-foreground'
 
   const artifactRows: Array<{ icon: React.ReactNode; text: string }> = []
   if (result) {
@@ -3971,36 +4217,67 @@ function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
 
       <AppDialogBody>
         {run && (
-          <div className="space-y-3">
-            {/* Live step timeline */}
-            <ol className="rounded-lg border divide-y" aria-label={t('dlg.pullAgent.title')}>
-              {steps.map((s) => (
-                <li key={s.key} className="flex items-start gap-2.5 px-3.5 py-2.5">
-                  <span className="mt-0.5 flex h-4 w-4 items-center justify-center">{stepIcon(s.status)}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className={`text-sm leading-5 ${s.status === 'pending' ? 'text-muted-foreground/70' : ''}`}>
-                      {t(`dlg.pullAgent.step.${s.key}`)}
-                      {s.status === 'running' ? <span className="ml-1.5 text-xs text-muted-foreground animate-pulse">{t('dlg.pullAgent.running')}</span> : null}
-                    </div>
-                    {s.note ? (
-                      <div className={`text-xs leading-4 break-words mt-0.5 ${
-                        s.status === 'fail' ? 'text-rose-600 dark:text-rose-400'
-                        : s.status === 'warn' ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-muted-foreground'
-                      }`}>
-                        {t(s.note.key, s.note.params)}
-                      </div>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ol>
+          <div className="space-y-5">
+            {/* v1.30: live step timeline (the visual focus) — a vertical
+                connector line with 28px status dots (rule 4), under a section
+                eyebrow whose action slot carries the done/total count pill.
+                A thin gradient progress bar sits above the list while the
+                run is live (rule 5). */}
+            <AppDialogSection
+              icon={Activity}
+              label={t('dlg.pullAgent.sectionTimeline')}
+              action={(
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${stepCountPill}`}>
+                  {t('dlg.pullAgent.stepCount', { done: doneCount, total: steps.length })}
+                </span>
+              )}
+            >
+              {running && (
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                    style={{ width: `${Math.round((doneCount / steps.length) * 100)}%` }}
+                  />
+                </div>
+              )}
+              <div className="relative">
+                <div aria-hidden className="absolute bottom-2 left-[13px] top-2 w-px bg-border" />
+                <ol className="min-w-0" aria-label={t('dlg.pullAgent.title')}>
+                  {steps.map((s) => {
+                    const dot = stepDot(s.status)
+                    return (
+                      <li key={s.key} className="flex gap-3 py-0.5">
+                        <span className="relative z-10 flex size-7 shrink-0 items-center justify-center rounded-full bg-background">
+                          <span aria-hidden className={`absolute inset-0 rounded-full ${dot.tint}`} />
+                          <span className="relative flex items-center justify-center">{dot.node}</span>
+                        </span>
+                        <div className="min-w-0 flex-1 pb-1 pt-1">
+                          <div className={`text-[13px] font-medium leading-5 ${s.status === 'pending' ? 'text-muted-foreground/70' : ''}`}>
+                            {t(`dlg.pullAgent.step.${s.key}`)}
+                            {s.status === 'running' ? <span className="ml-1.5 text-xs font-normal text-muted-foreground animate-pulse">{t('dlg.pullAgent.running')}</span> : null}
+                          </div>
+                          {s.note ? (
+                            <div className={`mt-0.5 break-words text-xs leading-relaxed ${
+                              s.status === 'fail' ? 'text-rose-600 dark:text-rose-400'
+                              : s.status === 'warn' ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-muted-foreground'
+                            }`}>
+                              {t(s.note.key, s.note.params)}
+                            </div>
+                          ) : null}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ol>
+              </div>
+            </AppDialogSection>
 
-            {/* Failure report */}
+            {/* Failure report — rose-tinted card (v1.30) */}
             {run.status === 'failed' && (
-              <div className="rounded-md border border-rose-300/60 dark:border-rose-900/60 bg-rose-50/60 dark:bg-rose-950/20 px-3 py-2.5 space-y-1.5">
-                <div className="text-sm font-medium text-rose-700 dark:text-rose-300 break-words min-w-0">{run.error || 'Agent pull failed'}</div>
-                {run.detail ? <div className="text-xs text-muted-foreground break-all min-w-0">{run.detail.slice(0, 300)}</div> : null}
+              <div className="space-y-1.5 rounded-lg border border-rose-500/25 bg-rose-500/[0.06] p-3.5">
+                <div className="min-w-0 break-words text-[13px] font-medium text-rose-700 dark:text-rose-300">{run.error || 'Agent pull failed'}</div>
+                {run.detail ? <div className="min-w-0 break-all text-xs text-muted-foreground">{run.detail.slice(0, 300)}</div> : null}
                 {/* v1.26: say what ACTUALLY happened to the user's local
                     changes. The old text hard-coded "Code is up to date. Your
                     changes are safe in the git stash…" for EVERY failure —
@@ -4032,22 +4309,22 @@ function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
               </div>
             )}
 
-            {/* Success report + artifacts */}
+            {/* Success report + artifacts (v1.30 tinted cards + section) */}
             {run.status === 'done' && result && (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {/* v1.27: degraded run — every fetch strategy failed and the
                     sync used the CACHED remote refs. It worked, but it is NOT
                     a claim of freshness; say so. */}
                 {result.fetchDegraded && (
-                  <div className="rounded-md border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-2.5">
-                    <div className="text-sm font-medium text-amber-800 dark:text-amber-300 break-words">
+                  <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3.5">
+                    <div className="min-w-0 break-words text-[13px] font-medium text-amber-800 dark:text-amber-300">
                       {t('dlg.pullAgent.fetchDegradedTitle', { ref: result.fetchDegraded.ref })}
                     </div>
-                    <div className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-0.5">{t('dlg.pullAgent.fetchDegradedHint')}</div>
+                    <div className="mt-0.5 break-words text-xs leading-relaxed text-amber-700/80 dark:text-amber-400/80">{t('dlg.pullAgent.fetchDegradedHint')}</div>
                   </div>
                 )}
-                <div className="rounded-md border border-emerald-300/60 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/20 px-3 py-2.5">
-                  <div className="text-sm font-medium text-emerald-800 dark:text-emerald-300 break-words">
+                <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.06] p-3.5">
+                  <div className="min-w-0 break-words text-[13px] font-medium text-emerald-800 dark:text-emerald-300">
                     {result.upToDate
                       ? t('dlg.detail.pullUpToDate')
                       : result.before && result.after && result.before !== result.after
@@ -4055,50 +4332,50 @@ function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
                         : t('dlg.pullAgent.doneTitle')}
                     {result.switchedTo ? ` @ ${result.switchedTo}` : ''}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5 break-words">{result.summary}</div>
+                  <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">{result.summary}</div>
                 </div>
                 {/* v1.25: "up to date" on a stale side branch while the default
                     branch moved on — pulling again brings nothing; name the
                     branch to switch to. */}
                 {result.newerOnDefault && (
-                  <div className="rounded-md border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-2.5">
-                    <div className="text-sm font-medium text-amber-800 dark:text-amber-300 break-words">
+                  <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3.5">
+                    <div className="min-w-0 break-words text-[13px] font-medium text-amber-800 dark:text-amber-300">
                       {t('dlg.detail.pullNewerOnDefault', { branch: result.newerOnDefault.branch, behind: result.newerOnDefault.behind, remoteSha: String(result.newerOnDefault.remoteSha || '') })}
                     </div>
-                    <div className="text-xs text-amber-700/80 dark:text-amber-400/80 mt-0.5">{t('dlg.detail.pullNewerOnDefaultHint')}</div>
+                    <div className="mt-0.5 break-words text-xs leading-relaxed text-amber-700/80 dark:text-amber-400/80">{t('dlg.detail.pullNewerOnDefaultHint')}</div>
                   </div>
                 )}
-                <div className="rounded-md border px-3 py-2">
-                  <div className="text-xs font-medium text-muted-foreground mb-1.5">{t('dlg.pullAgent.artifacts')}</div>
+                <AppDialogSection icon={Archive} label={t('dlg.pullAgent.artifacts')}>
                   {artifactRows.length > 0 ? (
-                    <ul className="space-y-1">
+                    <ul className="space-y-1 rounded-lg border bg-card px-3 py-2.5">
                       {artifactRows.map((a, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground break-all">
-                          <span className="mt-0.5 text-emerald-600 dark:text-emerald-400">{a.icon}</span>
-                          <span>{a.text}</span>
+                        <li key={i} className="flex items-start gap-2 break-words text-xs text-muted-foreground">
+                          <span className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400">{a.icon}</span>
+                          <span className="min-w-0 break-words">{a.text}</span>
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <div className="text-xs text-muted-foreground">{t('dlg.pullAgent.artifactNone')}</div>
+                    <div className="rounded-lg border border-dashed bg-card px-3 py-2.5 text-xs text-muted-foreground">{t('dlg.pullAgent.artifactNone')}</div>
                   )}
-                </div>
+                </AppDialogSection>
               </div>
             )}
 
-            {/* Collapsible raw transcript */}
+            {/* Collapsible raw transcript (v1.30: system terminal surface,
+                identical in light and dark mode — rule 6) */}
             {result?.output ? (
-              <div>
+              <div className="min-w-0">
                 <button
                   type="button"
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                   onClick={() => setShowLog((v) => !v)}
                 >
                   {showLog ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                   {t('dlg.pullAgent.detailLog')}
                 </button>
                 {showLog && (
-                  <pre className="mt-1.5 rounded-md border bg-muted/40 px-3 py-2 max-h-40 overflow-y-auto text-[11px] leading-4 whitespace-pre-wrap break-all font-mono">
+                  <pre className="custom-scrollbar mt-1.5 max-h-40 min-w-0 overflow-y-auto rounded-lg bg-zinc-950/[0.97] px-3 py-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all text-zinc-200">
                     {result.output}
                   </pre>
                 )}
@@ -4190,47 +4467,75 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
   })()
 
   const row = (label: string, value: React.ReactNode) => (
-    <div className="flex items-baseline justify-between gap-3 min-w-0">
-      <span className="text-xs text-muted-foreground shrink-0">{label}</span>
-      <span className="text-xs font-mono text-foreground/90 truncate" title={typeof value === 'string' ? value : undefined}>{value}</span>
+    <div className="flex min-w-0 items-baseline justify-between gap-3">
+      <dt className="shrink-0 text-xs text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 truncate text-right font-mono text-xs font-medium text-foreground/90" title={typeof value === 'string' ? value : undefined}>{value}</dd>
     </div>
   )
 
   return (
     <AppDialog open={open} onOpenChange={(o) => { if (!o && !updating) onClose() }} size="md">
-      <AppDialogHeader icon={Github} title={t('dlg.selfUpdate.title')} description={t('dlg.selfUpdate.desc')} />
+      <AppDialogHeader icon={RefreshCw} iconTone="emerald" title={t('dlg.selfUpdate.title')} description={t('dlg.selfUpdate.desc')} />
 
       <AppDialogBody>
-        <div className="space-y-3">
+        <div className="space-y-5">
           {/* State banner — same palette language as the project update pills */}
-          <div className={`flex items-start gap-2 rounded-md border px-3 py-2.5 ${banner.cls}`} role="status">
+          <div className={`flex items-start gap-2.5 rounded-xl border px-3.5 py-3 ${banner.cls}`} role="status">
             {banner.icon}
-            <div className="text-sm font-medium leading-5 break-words">{banner.text}</div>
+            <div className="min-w-0 text-sm font-medium leading-5 break-words">{banner.text}</div>
           </div>
 
           {/* v1.25: stale-branch contradiction — the plain update cannot help */}
           {staleBranch && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-3 py-2.5" role="status">
-              <GitBranch className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-              <div className="text-xs leading-5 break-words text-amber-800 dark:text-amber-300">
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-3.5 py-3" role="status">
+              <GitBranch className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+              <div className="min-w-0 text-xs leading-5 break-words text-amber-800 dark:text-amber-300">
                 {t('dlg.selfUpdate.staleBranch', { current: staleBranch.current, branch: staleBranch.branch, behind: staleBranch.behind })}
               </div>
             </div>
           )}
 
-          {/* Version facts */}
-          <div className="rounded-md border px-3 py-2.5 space-y-2">
-            {row(t('dlg.selfUpdate.localVer'), meta?.localSha || '—')}
-            {row(t('dlg.selfUpdate.remoteVer'), status?.remoteSha || '—')}
-            {row(t('dlg.selfUpdate.branch'), meta?.branch || '—')}
-            {row(t('dlg.selfUpdate.autoUpdate'), meta ? (meta.autoUpdate ? t('dlg.selfUpdate.autoOn') : t('dlg.selfUpdate.autoOff')) : '—')}
-            {meta?.repoUrl ? row(t('dlg.selfUpdate.repo'), meta.repoUrl.replace(/^https?:\/\//, '')) : null}
-            {status?.checkedAt ? (
-              <div className="text-[11px] text-muted-foreground/70 pt-0.5">{new Date(status.checkedAt).toLocaleString()}</div>
-            ) : null}
-          </div>
+          {/* Version compare — local → remote, big tabular-nums + "new" badge
+              on the remote side when an update is actually available. */}
+          <AppDialogSection icon={GitFork} label={t('dlg.selfUpdate.sectionVersion')}>
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-xl border bg-card p-4">
+              <div className="min-w-0">
+                <p className="text-[11px] text-muted-foreground">{t('dlg.selfUpdate.localVer')}</p>
+                <p className="mt-1.5 truncate font-mono text-lg font-semibold leading-none tabular-nums" title={meta?.localSha || undefined}>{meta?.localSha || '—'}</p>
+              </div>
+              <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground/50" />
+              <div className="min-w-0 text-right">
+                <p className="flex items-center justify-end gap-1.5 text-[11px] text-muted-foreground">
+                  {t('dlg.selfUpdate.remoteVer')}
+                  {canUpdate && (
+                    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">{t('dlg.selfUpdate.newTag')}</span>
+                  )}
+                </p>
+                <p className={`mt-1.5 truncate font-mono text-lg font-semibold leading-none tabular-nums ${canUpdate ? 'text-emerald-600 dark:text-emerald-400' : ''}`} title={status?.remoteSha || undefined}>
+                  {status?.remoteSha || '—'}
+                </p>
+              </div>
+            </div>
+          </AppDialogSection>
 
-          <div className="text-xs text-muted-foreground leading-5">{t('dlg.selfUpdate.hint')}</div>
+          <AppDialogDivider />
+
+          {/* Repo facts */}
+          <AppDialogSection icon={Github} label={t('dlg.selfUpdate.sectionInfo')}>
+            <dl className="space-y-2.5">
+              {row(t('dlg.selfUpdate.branch'), meta?.branch || '—')}
+              {row(t('dlg.selfUpdate.autoUpdate'), meta ? (meta.autoUpdate ? t('dlg.selfUpdate.autoOn') : t('dlg.selfUpdate.autoOff')) : '—')}
+              {meta?.repoUrl ? row(t('dlg.selfUpdate.repo'), meta.repoUrl.replace(/^https?:\/\//, '')) : null}
+            </dl>
+            {status?.checkedAt ? (
+              <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+                <Clock className="size-3 shrink-0" />
+                {new Date(status.checkedAt).toLocaleString()}
+              </div>
+            ) : null}
+          </AppDialogSection>
+
+          <p className="text-xs leading-relaxed text-muted-foreground">{t('dlg.selfUpdate.hint')}</p>
         </div>
       </AppDialogBody>
 
@@ -4239,12 +4544,12 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
           <RefreshCw className={`h-4 w-4 mr-1.5 ${busy ? 'animate-spin' : ''}`} />
           {busy ? t('dlg.selfUpdate.checking') : t('dlg.selfUpdate.check')}
         </Button>
-        <Button className="flex-1" onClick={onUpdate} disabled={busy || updating || !canUpdate} hidden={!!staleBranch}>
+        <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={onUpdate} disabled={busy || updating || !canUpdate} hidden={!!staleBranch}>
           {updating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Download className="h-4 w-4 mr-1.5" />}
           {t('dlg.selfUpdate.updateNow')}
         </Button>
         {staleBranch && (
-          <Button className="flex-1" onClick={() => onSwitchUpdate(staleBranch.branch)} disabled={busy || updating}>
+          <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => onSwitchUpdate(staleBranch.branch)} disabled={busy || updating}>
             {updating ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <GitBranch className="h-4 w-4 mr-1.5" />}
             {t('dlg.selfUpdate.switchUpdate', { branch: staleBranch.branch })}
           </Button>
@@ -4482,21 +4787,21 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
   return (
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="xl">
       <AppDialogHeader>
-        <AppDialogTitle className="flex items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/15 to-teal-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20">
-            <Bot className="h-5 w-5" />
-          </span>
-          <span className="flex flex-col items-start leading-tight">
-            <span>{t('dlg.llm.title')}</span>
-            <span className="text-[11px] font-normal text-muted-foreground">{t('dlg.llm.desc')}</span>
-          </span>
-        </AppDialogTitle>
+        <div className="flex items-center gap-3.5">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/25 to-violet-500/[0.06] ring-1 ring-violet-500/25">
+            <BrainCircuit className="size-[18px] text-violet-600 dark:text-violet-400" />
+          </div>
+          <div className="min-w-0">
+            <AppDialogTitle>{t('dlg.llm.title')}</AppDialogTitle>
+            <AppDialogDescription>{t('dlg.llm.desc')}</AppDialogDescription>
+          </div>
+        </div>
       </AppDialogHeader>
       <AppDialogBody>
         {loading ? (
           <div className="flex items-center justify-center py-10"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div>
         ) : (
-          <div className="space-y-3.5">
+          <div className="space-y-5">
             {loadError && (
               <div className="flex items-start gap-2.5 rounded-xl border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 text-xs px-3.5 py-3">
                 <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -4504,31 +4809,63 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
               </div>
             )}
 
-            {/* ---- Section: connection (provider / key / base URL) ---- */}
-            <section className="space-y-3.5 rounded-xl border bg-muted/30 dark:bg-muted/20 p-4">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
-                  <PlugZap className="h-4 w-4" />
-                </span>
-                <p className="text-[13px] font-semibold tracking-[-0.01em]">{t('dlg.llm.sectionConnection')}</p>
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">{t('dlg.llm.provider')}</Label>
-                <Select value={provider} onValueChange={handleProviderChange}>
-                  <SelectTrigger className="h-9"><SelectValue placeholder={t('dlg.llm.providerPlaceholder')} /></SelectTrigger>
-                  <SelectContent className="max-h-72">
-                    {catalog.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        <span className="mr-2 inline-flex h-4 min-w-8 items-center justify-center rounded bg-emerald-500/10 px-1 font-mono text-[10px] font-bold text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{p.label}</span>
-                        {p.displayName}
-                      </SelectItem>
-                    ))}
-                    <SelectItem value="custom">
-                      <span className="mr-2 inline-flex h-4 min-w-8 items-center justify-center rounded bg-muted px-1 font-mono text-[10px] font-bold text-muted-foreground">CU</span>
-                      {t('dlg.llm.custom')}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+            {/* ---- Section: connection (provider tiles / key / base URL) ---- */}
+            <AppDialogSection icon={Plug} label={t('dlg.llm.sectionConnection')}>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {catalog.map((p) => {
+                  const active = provider === p.id
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => handleProviderChange(p.id)}
+                      className={`relative flex items-center gap-2 rounded-xl border p-2.5 text-left transition-all duration-150 cursor-pointer ${
+                        active
+                          ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                          : 'border-border bg-card hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'
+                      }`}
+                    >
+                      <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-bold ring-1 ring-inset ${
+                        active
+                          ? 'bg-gradient-to-br from-emerald-500/20 to-emerald-500/[0.05] text-emerald-600 ring-emerald-500/25 dark:text-emerald-400'
+                          : 'bg-gradient-to-br from-foreground/[0.08] to-foreground/[0.03] text-muted-foreground ring-foreground/[0.06]'
+                      }`}>
+                        {p.label}
+                      </span>
+                      <span className={`min-w-0 truncate text-xs font-medium ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>{p.displayName}</span>
+                      {active && (
+                        <span className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
+                          <Check className="size-3" />
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+                <button
+                  type="button"
+                  aria-pressed={provider === 'custom'}
+                  onClick={() => handleProviderChange('custom')}
+                  className={`relative flex items-center gap-2 rounded-xl border p-2.5 text-left transition-all duration-150 cursor-pointer ${
+                    provider === 'custom'
+                      ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                      : 'border-border bg-card hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'
+                  }`}
+                >
+                  <span className={`flex size-8 shrink-0 items-center justify-center rounded-lg font-mono text-[10px] font-bold ring-1 ring-inset ${
+                    provider === 'custom'
+                      ? 'bg-gradient-to-br from-emerald-500/20 to-emerald-500/[0.05] text-emerald-600 ring-emerald-500/25 dark:text-emerald-400'
+                      : 'bg-gradient-to-br from-foreground/[0.08] to-foreground/[0.03] text-muted-foreground ring-foreground/[0.06]'
+                  }`}>
+                    CU
+                  </span>
+                  <span className={`min-w-0 truncate text-xs font-medium ${provider === 'custom' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>{t('dlg.llm.custom')}</span>
+                  {provider === 'custom' && (
+                    <span className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
+                      <Check className="size-3" />
+                    </span>
+                  )}
+                </button>
               </div>
 
               {isZai && (
@@ -4541,10 +4878,10 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
               )}
 
               {!isZai && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs">{t('dlg.llm.apiKey')}</Label>
+                      <Label className="text-[13px] font-medium">{t('dlg.llm.apiKey')}</Label>
                       {activeProfile?.docsUrl && (
                         <a href={activeProfile.docsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-emerald-600 hover:underline dark:text-emerald-400">
                           <KeyRound className="h-3 w-3" />{t('dlg.llm.getKey')}<ExternalLink className="h-2.5 w-2.5" />
@@ -4562,10 +4899,10 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                       />
                     </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">{t('dlg.llm.baseUrl')}</Label>
+                  <div className="space-y-1.5">
+                    <Label className="text-[13px] font-medium">{t('dlg.llm.baseUrl')}</Label>
                     <Input
-                      className="h-9"
+                      className="h-9 font-mono text-xs"
                       value={baseUrl}
                       onChange={(e) => setBaseUrl(e.target.value)}
                       placeholder={provider === 'custom' ? 'https://your-provider.com/v1' : activeProfile?.baseURL || 'https://api.openai.com/v1'}
@@ -4574,17 +4911,15 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                   </div>
                 </div>
               )}
-            </section>
+            </AppDialogSection>
+
+            <AppDialogDivider />
 
             {/* ---- Section: model ---- */}
-            <section className="space-y-3.5 rounded-xl border bg-muted/30 dark:bg-muted/20 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400">
-                    <Sparkles className="h-4 w-4" />
-                  </span>
-                  <p className="text-[13px] font-semibold tracking-[-0.01em]">{t('dlg.llm.sectionModel')}</p>
-                </div>
+            <AppDialogSection
+              icon={Cpu}
+              label={t('dlg.llm.sectionModel')}
+              action={
                 <button
                   type="button"
                   className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/60 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50/60 disabled:opacity-50 dark:text-emerald-400 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
@@ -4594,8 +4929,9 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                   {fetchingModels ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
                   {fetchingModels ? t('dlg.llm.fetching') : t('dlg.llm.fetchLive')}
                 </button>
-              </div>
-              <div className="space-y-1">
+              }
+            >
+              <div className="space-y-1.5">
                 <Input
                   className="h-9"
                   aria-label={t('dlg.llm.sectionModel')}
@@ -4616,13 +4952,13 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                           key={m.id}
                           type="button"
                           onClick={() => setModel(m.id)}
-                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-all cursor-pointer ${selected
+                          className={`inline-flex min-w-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] transition-all cursor-pointer ${selected
                             ? 'border-emerald-400 bg-emerald-50 font-medium text-emerald-700 shadow-sm dark:border-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
                             : 'border-border/80 bg-background/40 text-muted-foreground hover:border-emerald-300/70 hover:text-foreground dark:hover:border-emerald-700/60'}`}
                           title={m.name}
                         >
-                          {selected && <CheckCircle2 className="h-3 w-3" />}
-                          <span className="font-mono">{m.id}</span>
+                          {selected && <CheckCircle2 className="h-3 w-3 shrink-0" />}
+                          <span className="min-w-0 truncate font-mono">{m.id}</span>
                         </button>
                       )
                     })}
@@ -4635,41 +4971,23 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                   </p>
                 )}
               </div>
-            </section>
+            </AppDialogSection>
+
+            <AppDialogDivider />
 
             {/* ---- Section: feature engines (v1.28) — per-feature routing:
                   analysis (dsh harness vs single API call), pull (deterministic
-                  agent vs plain + AI diagnosis), auto-repair (legacy tool loop
-                  vs. delegated agent CLI) ---- */}
-            <section className="space-y-3.5 rounded-xl border bg-muted/30 dark:bg-muted/20 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
-                    <Zap className="h-4 w-4" />
-                  </span>
-                  <p className="text-[13px] font-semibold tracking-[-0.01em]">{t('dlg.llm.sectionEngines')}</p>
-                </div>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/60 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50/60 disabled:opacity-50 dark:text-emerald-400 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
-                  onClick={() => void detectClis()}
-                  disabled={detecting}
-                >
-                  {detecting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
-                  {detecting ? t('dlg.llm.repairDetecting') : t('dlg.llm.repairDetect')}
-                </button>
-              </div>
+                  agent vs plain + AI diagnosis). Auto-repair lives in its own
+                  section below. ---- */}
+            <AppDialogSection icon={Zap} label={t('dlg.llm.sectionEngines')}>
 
-              {/* Engine row: environment analysis (agent harness vs single API call).
-                  v1.29: segmented control sits ON the label line — it was
-                  right-aligned against the description block, reading as
-                  disconnected from the feature it switches. */}
-              <div className="rounded-lg border p-3.5">
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400">
-                      <Sparkles className="h-3.5 w-3.5" />
-                    </span>
+              {/* Engine row: environment analysis (agent harness vs single API call) */}
+              <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2.5 rounded-xl border bg-card p-3.5 transition-colors">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400">
+                    <Sparkles className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="min-w-0">
                     <p className="text-xs font-medium">{t('dlg.llm.engineAnalysis')}</p>
                   </div>
                   <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.engineAnalysis')}>
@@ -4691,19 +5009,33 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                     </button>
                   </div>
                 </div>
-                <p className="mt-2 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.engineAnalysisDesc')}</p>
-                <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">
-                  {analysisMode === 'agent' ? t('dlg.llm.engineAnalysisAgentHint') : t('dlg.llm.engineAnalysisLegacyHint')}
-                </p>
+                <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.engineAnalysis')}>
+                  <button
+                    type="button"
+                    aria-pressed={analysisMode === 'agent'}
+                    onClick={() => setAnalysisMode('agent')}
+                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${analysisMode === 'agent' ? 'bg-background text-emerald-600 shadow-sm dark:text-emerald-400' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {t('dlg.llm.engineAgentBtn')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={analysisMode === 'legacy'}
+                    onClick={() => setAnalysisMode('legacy')}
+                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${analysisMode === 'legacy' ? 'bg-background text-emerald-600 shadow-sm dark:text-emerald-400' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {t('dlg.llm.engineLegacyBtn')}
+                  </button>
+                </div>
               </div>
 
               {/* Engine row: code pull (deterministic agent vs plain + AI diagnosis) */}
-              <div className="rounded-lg border p-3.5">
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
-                      <GitPullRequest className="h-3.5 w-3.5" />
-                    </span>
+              <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2.5 rounded-xl border bg-card p-3.5 transition-colors">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
+                    <GitPullRequest className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="min-w-0">
                     <p className="text-xs font-medium">{t('dlg.llm.enginePull')}</p>
                   </div>
                   <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.enginePull')}>
@@ -4725,60 +5057,91 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                     </button>
                   </div>
                 </div>
-                <p className="mt-2 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.enginePullDesc')}</p>
-                <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">
-                  {pullMode === 'agent' ? t('dlg.llm.enginePullAgentHint') : t('dlg.llm.enginePullLegacyHint')}
-                </p>
+                <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.enginePull')}>
+                  <button
+                    type="button"
+                    aria-pressed={pullMode === 'agent'}
+                    onClick={() => setPullMode('agent')}
+                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${pullMode === 'agent' ? 'bg-background text-emerald-600 shadow-sm dark:text-emerald-400' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {t('dlg.llm.enginePullAgentBtn')}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={pullMode === 'legacy'}
+                    onClick={() => setPullMode('legacy')}
+                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${pullMode === 'legacy' ? 'bg-background text-emerald-600 shadow-sm dark:text-emerald-400' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    {t('dlg.llm.enginePullLegacyBtn')}
+                  </button>
+                </div>
               </div>
 
-              {/* Engine row: auto-repair (legacy tool loop vs. delegated agent CLI) */}
-              <div className="space-y-2.5 rounded-lg border p-3.5">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400">
-                    <Wrench className="h-3.5 w-3.5" />
+            </AppDialogSection>
+
+            <AppDialogDivider />
+
+            {/* ---- Section: auto-repair engine (legacy tool loop vs. delegated
+                  agent CLI) — the detect action powers the CLI tiles below ---- */}
+            <AppDialogSection
+              icon={Wrench}
+              label={t('dlg.llm.sectionRepair')}
+              action={
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md border border-border/70 bg-background/60 px-2 py-1 text-[11px] font-medium text-emerald-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50/60 disabled:opacity-50 dark:text-emerald-400 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/30"
+                  onClick={() => void detectClis()}
+                  disabled={detecting}
+                >
+                  {detecting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  {detecting ? t('dlg.llm.repairDetecting') : t('dlg.llm.repairDetect')}
+                </button>
+              }
+            >
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setRepairMode('legacy')}
+                  aria-pressed={repairMode === 'legacy'}
+                  className={`relative rounded-xl border p-3 text-left transition-all cursor-pointer ${repairMode === 'legacy'
+                    ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                    : 'border-border bg-card hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                >
+                  {repairMode === 'legacy' && (
+                    <span className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
+                      <Check className="size-3" />
+                    </span>
+                  )}
+                  <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                    <Bot className="h-3.5 w-3.5" />
+                    {t('dlg.llm.repairModeLegacy')}
                   </span>
-                  <p className="text-xs font-medium">{t('dlg.llm.repairEngine')}</p>
-                </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => setRepairMode('legacy')}
-                    aria-pressed={repairMode === 'legacy'}
-                    className={`group relative rounded-lg border p-2.5 text-left transition-all cursor-pointer ${repairMode === 'legacy'
-                      ? 'border-emerald-400/90 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-300/50 dark:border-emerald-700 dark:bg-emerald-950/30 dark:ring-emerald-800/50'
-                      : 'border-border/80 hover:border-emerald-300/70 hover:bg-emerald-50/30 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'}`}
-                  >
-                    {repairMode === 'legacy' && (
-                      <CheckCircle2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                    )}
-                    <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                      <Bot className="h-3.5 w-3.5" />
-                      {t('dlg.llm.repairModeLegacy')}
+                  <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
+                    {t('dlg.llm.repairModeLegacyDesc')}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRepairMode('cli')}
+                  aria-pressed={repairMode === 'cli'}
+                  className={`relative rounded-xl border p-3 text-left transition-all cursor-pointer ${repairMode === 'cli'
+                    ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                    : 'border-border bg-card hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                >
+                  {repairMode === 'cli' && (
+                    <span className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
+                      <Check className="size-3" />
                     </span>
-                    <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
-                      {t('dlg.llm.repairModeLegacyDesc')}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRepairMode('cli')}
-                    aria-pressed={repairMode === 'cli'}
-                    className={`group relative rounded-lg border p-2.5 text-left transition-all cursor-pointer ${repairMode === 'cli'
-                      ? 'border-emerald-400/90 bg-emerald-50/70 shadow-sm ring-1 ring-emerald-300/50 dark:border-emerald-700 dark:bg-emerald-950/30 dark:ring-emerald-800/50'
-                      : 'border-border/80 hover:border-emerald-300/70 hover:bg-emerald-50/30 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20'}`}
-                  >
-                    {repairMode === 'cli' && (
-                      <CheckCircle2 className="absolute right-2.5 top-2.5 h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                    )}
-                    <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                      <Terminal className="h-3.5 w-3.5" />
-                      {t('dlg.llm.repairModeCli')}
-                    </span>
-                    <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
-                      {t('dlg.llm.repairModeCliDesc', { rounds: 2, minutes: REPAIR_CLI_ROUND_TIMEOUT_MIN })}
-                    </span>
-                  </button>
-                </div>
+                  )}
+                  <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                    <Terminal className="h-3.5 w-3.5" />
+                    {t('dlg.llm.repairModeCli')}
+                  </span>
+                  <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
+                    {t('dlg.llm.repairModeCliDesc', { rounds: 2, minutes: REPAIR_CLI_ROUND_TIMEOUT_MIN })}
+                  </span>
+                </button>
+              </div>
                 {detectNote && (
                   <p className={`flex items-start gap-1.5 text-[11px] leading-snug ${detectedClis.some((c) => c.found) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                     {detectedClis.some((c) => c.found) && <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />}
@@ -4786,25 +5149,78 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                   </p>
                 )}
                 {repairMode === 'cli' && (
-                  <div className="space-y-2">
-                    <Label className="text-xs">{t('dlg.llm.repairCli')}</Label>
-                    <Select value={repairCli} onValueChange={(v) => setRepairCli(v)}>
-                      <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent className="max-h-60">
-                        <SelectItem value="auto" className="text-xs">{t('dlg.llm.repairCliAuto')}</SelectItem>
-                        {detectedClis.map((c) => (
-                          <SelectItem key={c.id} value={c.id} disabled={!c.found} className="text-xs">
-                            <span className="flex items-center gap-2">
-                              <span>{c.label}</span>
-                              {c.found
-                                ? <span className="rounded bg-emerald-500/10 px-1 py-px font-mono text-[11px] text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{c.version || '✓ installed'}</span>
-                                : <span className="text-[11px] text-muted-foreground">(not installed)</span>}
+                  <div className="space-y-2.5">
+                    <Label className="text-[13px] font-medium">{t('dlg.llm.repairCli')}</Label>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      <button
+                        type="button"
+                        aria-pressed={repairCli === 'auto'}
+                        onClick={() => setRepairCli('auto')}
+                        className={`relative flex items-center gap-2 rounded-xl border p-2.5 text-left transition-all cursor-pointer ${repairCli === 'auto'
+                          ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                          : 'border-border bg-card hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                      >
+                        <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg ${repairCli === 'auto' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+                          <Sparkles className="size-3.5" />
+                        </span>
+                        <span className={`min-w-0 truncate text-xs font-medium ${repairCli === 'auto' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>{t('dlg.llm.repairCliAuto')}</span>
+                        {repairCli === 'auto' && (
+                          <span className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
+                            <Check className="size-3" />
+                          </span>
+                        )}
+                      </button>
+                      {detectedClis.map((c) => {
+                        const active = repairCli === c.id
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            aria-pressed={active}
+                            disabled={!c.found}
+                            onClick={() => setRepairCli(c.id)}
+                            className={`relative flex items-center gap-2 rounded-xl border p-2.5 text-left transition-all ${active
+                              ? 'cursor-pointer border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                              : c.found
+                                ? 'cursor-pointer border-border bg-card hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'
+                                : 'cursor-not-allowed border-border/60 bg-muted/30 opacity-60'}`}
+                          >
+                            <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg ${active ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+                              <Terminal className="size-3.5" />
                             </span>
-                          </SelectItem>
-                        ))}
-                        <SelectItem value="custom" className="text-xs">{t('dlg.llm.repairCliCustom')}</SelectItem>
-                      </SelectContent>
-                    </Select>
+                            <span className="min-w-0 flex-1">
+                              <span className={`block truncate text-xs font-medium ${active ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>{c.label}</span>
+                              {c.found
+                                ? <span className="block truncate rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{c.version || '✓ installed'}</span>
+                                : <span className="block truncate text-[11px] text-muted-foreground">(not installed)</span>}
+                            </span>
+                            {active && (
+                              <span className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
+                                <Check className="size-3" />
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
+                      <button
+                        type="button"
+                        aria-pressed={repairCli === 'custom'}
+                        onClick={() => setRepairCli('custom')}
+                        className={`relative flex items-center gap-2 rounded-xl border p-2.5 text-left transition-all cursor-pointer ${repairCli === 'custom'
+                          ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                          : 'border-border bg-card hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                      >
+                        <span className={`flex size-7 shrink-0 items-center justify-center rounded-lg ${repairCli === 'custom' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+                          <Terminal className="size-3.5" />
+                        </span>
+                        <span className={`min-w-0 truncate text-xs font-medium ${repairCli === 'custom' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>{t('dlg.llm.repairCliCustom')}</span>
+                        {repairCli === 'custom' && (
+                          <span className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
+                            <Check className="size-3" />
+                          </span>
+                        )}
+                      </button>
+                    </div>
                     {repairCli !== 'auto' && repairCli !== 'custom' && (() => {
                       const sel = detectedClis.find((c) => c.id === repairCli)
                       // Prefer the localized note; the backend's raw note is a
@@ -4831,8 +5247,7 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                     <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.repairCliHint')}</p>
                   </div>
                 )}
-              </div>
-            </section>
+            </AppDialogSection>
           </div>
         )}
       </AppDialogBody>
@@ -4886,18 +5301,22 @@ function localizeRepairError(raw: string | null | undefined, t: I18nContextValue
   return raw
 }
 
+/* v1.30: single terminal palette (no light/dark split) — the repair log
+ * renders on the system's always-dark terminal surface (bg-zinc-950/[0.97]),
+ * so every level uses one dark-appropriate color. Used only by
+ * RepairDialog's renderedSteps. */
 const REPAIR_LOG_STYLES: Record<string, string> = {
-  info: 'text-zinc-500 dark:text-zinc-400',
-  command: 'text-teal-600 dark:text-teal-300',
-  output: 'text-zinc-400 dark:text-zinc-500 text-[11px] whitespace-pre-wrap',
-  llm: 'text-violet-600 dark:text-violet-300',
-  tool: 'text-cyan-700 dark:text-cyan-300',
-  success: 'text-emerald-600 dark:text-emerald-400 font-medium',
-  error: 'text-red-600 dark:text-red-400',
-  warn: 'text-amber-600 dark:text-amber-400',
-  approval: 'text-amber-600 dark:text-amber-300 font-medium',
-  approved: 'text-emerald-600 dark:text-emerald-300',
-  denied: 'text-zinc-400 dark:text-zinc-500',
+  info: 'text-zinc-400',
+  command: 'text-teal-300',
+  output: 'text-zinc-500 text-[11px] whitespace-pre-wrap',
+  llm: 'text-violet-300',
+  tool: 'text-cyan-300',
+  success: 'text-emerald-400 font-medium',
+  error: 'text-rose-400',
+  warn: 'text-amber-400',
+  approval: 'text-amber-300 font-medium',
+  approved: 'text-emerald-300',
+  denied: 'text-zinc-500',
 }
 
 function formatRepairClock(ts: number): string {
@@ -5055,7 +5474,18 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
   const progressPct = !job ? 30
     : job.status !== 'running' ? 100
     : Math.min(88, ((job.round - 1) / job.maxRounds) * 100 + 30)
-  const barColor = !job || isRunning ? 'bg-amber-400 animate-pulse' : job.status === 'success' ? 'bg-emerald-500' : 'bg-red-500'
+  const barColor = !job || isRunning
+    ? 'bg-gradient-to-r from-amber-500 to-amber-400 animate-pulse'
+    : job.status === 'success'
+      ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
+      : 'bg-gradient-to-r from-rose-500 to-rose-400'
+  // v1.30: the header status pill (semantic tint; running also carries the
+  // little ping dot that used to live on the hand-rolled header tile).
+  const statusPillClass = job?.status === 'running'
+    ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+    : job?.status === 'success'
+      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+      : 'bg-rose-500/10 text-rose-700 dark:text-rose-400'
 
   // Steps grouped by repair round — a divider row marks each new round.
   const renderedSteps: React.ReactNode[] = []
@@ -5067,24 +5497,24 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
       if (s.round != null && s.round > 0 && s.round !== prevRound) {
         renderedSteps.push(
           <div key={`rd-${s.round}-${i}`} className="flex items-center gap-2.5 py-2">
-            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+            <span className="h-px flex-1 bg-zinc-800" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
               {t('dlg.repair.round', { round: s.round, max: job.maxRounds })}
             </span>
-            <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+            <span className="h-px flex-1 bg-zinc-800" />
           </div>
         )
         prevRound = s.round
       }
       renderedSteps.push(
         <div key={`st-${i}`} className="flex gap-2.5">
-          <span className="shrink-0 select-none tabular-nums text-zinc-400/60 dark:text-zinc-600">{formatRepairClock(s.ts)}</span>
+          <span className="shrink-0 select-none tabular-nums text-zinc-600">{formatRepairClock(s.ts)}</span>
           <span className={`min-w-0 break-all whitespace-pre-wrap leading-relaxed ${REPAIR_LOG_STYLES[s.level] || REPAIR_LOG_STYLES.info}`}>
-            {s.level === 'command' && <span className="select-none text-teal-600/70 dark:text-teal-500/70">$ </span>}
-            {s.level === 'tool' && <span className="select-none text-cyan-700/70 dark:text-cyan-400/70">❯ </span>}
-            {s.level === 'approval' && <ShieldAlert className="mr-1 inline h-3 w-3 -mt-0.5 text-amber-500" />}
-            {s.level === 'approved' && <ShieldCheck className="mr-1 inline h-3 w-3 -mt-0.5 text-emerald-500" />}
-            {s.level === 'denied' && <ShieldX className="mr-1 inline h-3 w-3 -mt-0.5 text-zinc-400" />}
+            {s.level === 'command' && <span className="select-none text-teal-400/70">$ </span>}
+            {s.level === 'tool' && <span className="select-none text-cyan-400/70">❯ </span>}
+            {s.level === 'approval' && <ShieldAlert className="mr-1 inline h-3 w-3 -mt-0.5 text-amber-400" />}
+            {s.level === 'approved' && <ShieldCheck className="mr-1 inline h-3 w-3 -mt-0.5 text-emerald-400" />}
+            {s.level === 'denied' && <ShieldX className="mr-1 inline h-3 w-3 -mt-0.5 text-zinc-500" />}
             {s.msg}
           </span>
         </div>
@@ -5098,69 +5528,70 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
        * max-h safety net): header / progress / footer stay pinned, the body
        * below flexes and scrolls, the terminal log shrinks first (own scroll)
        * before the body ever scrolls — nothing overflows small screens. */}
-      <AppDialogHeader>
-        <AppDialogTitle className="flex items-center gap-2.5">
-          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
-            <Wrench className="h-5 w-5" />
-            {isRunning && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
-              </span>
-            )}
-          </span>
-          <span className="flex flex-col items-start leading-tight">
-            <span className="flex items-center gap-2">
-              {t('dlg.repair.title')}
-              {job && (
-                <Badge variant={job.status === 'running' ? 'secondary' : job.status === 'success' ? 'default' : 'destructive'} className="text-[11px] px-1.5 py-0">
-                  {job.status === 'running' ? t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds }) : job.status === 'success' ? t('dlg.repair.statusSuccess') : t('dlg.repair.statusFailed')}
-                </Badge>
+      {/* v1.30: system header tile (Wrench/amber) — the status Badge moved
+       * into a semantic pill on the title line (running keeps its ping dot),
+       * the project·env·kind meta line into the description. */}
+      <AppDialogHeader icon={Wrench} iconTone="amber">
+        <AppDialogTitle className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="truncate">{t('dlg.repair.title')}</span>
+          {job && (
+            <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusPillClass}`}>
+              {isRunning && (
+                <span className="relative flex size-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+                  <span className="relative inline-flex size-1.5 rounded-full bg-amber-500" />
+                </span>
               )}
+              {job.status === 'running' ? t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds }) : job.status === 'success' ? t('dlg.repair.statusSuccess') : t('dlg.repair.statusFailed')}
             </span>
-            <span className="text-xs font-normal text-muted-foreground">
-              {job ? `${job.projectName} · ${envLabel(job.envName)} · ${job.kind === 'rebuild' ? 'rebuild' : 'start'}` : t('dlg.repair.creating')}
-            </span>
-          </span>
+          )}
         </AppDialogTitle>
-        <AppDialogDescription>
-          {job
-            ? t(job.kind === 'rebuild' ? 'dlg.repair.descRebuild' : 'dlg.repair.descStart', { project: job.projectName, env: envLabel(job.envName) })
-            : t('dlg.repair.creating')}
+        <AppDialogDescription className="min-w-0">
+          <span className="block break-words">
+            {job
+              ? t(job.kind === 'rebuild' ? 'dlg.repair.descRebuild' : 'dlg.repair.descStart', { project: job.projectName, env: envLabel(job.envName) })
+              : t('dlg.repair.creating')}
+          </span>
+          {job ? (
+            <span className="mt-0.5 block min-w-0 break-words font-mono text-[11px] text-muted-foreground/70">
+              {`${job.projectName} · ${envLabel(job.envName)} · ${job.kind === 'rebuild' ? 'rebuild' : 'start'}`}
+            </span>
+          ) : null}
         </AppDialogDescription>
       </AppDialogHeader>
 
-      {/* round progress bar */}
-      <div className="h-1 shrink-0 overflow-hidden rounded-full bg-muted">
+      {/* round progress bar (v1.30: rule 5 — gradient fill by run state) */}
+      <div className="h-1.5 shrink-0 overflow-hidden rounded-full bg-muted">
         <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${progressPct}%` }} />
       </div>
 
       <AppDialogBody>
         {notFound ? (
-          <div className="text-center py-8 text-muted-foreground text-sm">{t('dlg.repair.notFound')}</div>
+          <div className="flex flex-col items-center gap-3 py-8">
+            <AlertCircle className="size-8 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">{t('dlg.repair.notFound')}</p>
+          </div>
         ) : authLost ? (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-300/80 bg-amber-50/80 p-4 dark:border-amber-700/60 dark:bg-amber-950/30">
-            <div className="shrink-0 rounded-lg bg-amber-400/20 dark:bg-amber-500/15 p-2">
-              <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+          <div className="flex items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/[0.07] p-4">
+            <div className="shrink-0 rounded-lg bg-rose-500/15 p-2">
+              <ShieldAlert className="h-5 w-5 text-rose-600 dark:text-rose-400" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">{t('dlg.repair.sessionLost')}</p>
-              <p className="mt-1 text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/80">{t('dlg.repair.sessionLostDesc')}</p>
-              <p className="mt-1 text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/80">{t('dlg.repair.sessionLostNote')}</p>
+              <p className="text-sm font-semibold text-rose-900 dark:text-rose-200">{t('dlg.repair.sessionLost')}</p>
+              <p className="mt-1 text-xs leading-relaxed text-rose-700/90 dark:text-rose-300/80">{t('dlg.repair.sessionLostDesc')}</p>
+              <p className="mt-1 text-xs leading-relaxed text-rose-700/90 dark:text-rose-300/80">{t('dlg.repair.sessionLostNote')}</p>
             </div>
           </div>
         ) : !job ? (
-          <div className="flex items-center justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-amber-500" /></div>
+          <div className="flex items-center justify-center py-10"><Loader2 className="size-8 animate-spin text-amber-500" /></div>
         ) : (
           <div className="flex flex-col gap-3">
             {job.diagnosis && (
-              <div className="flex shrink-0 gap-3 rounded-xl border border-violet-200/80 bg-violet-50/60 p-3.5 dark:border-violet-900/50 dark:bg-violet-950/20">
-                <div className="h-fit shrink-0 rounded-lg bg-violet-500/15 p-1.5">
-                  <Bot className="h-4 w-4 text-violet-600 dark:text-violet-400" />
-                </div>
+              <div className="flex shrink-0 gap-3 rounded-lg border-l-2 border-violet-500/40 bg-violet-500/[0.04] p-3.5">
+                <Bot className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-400" />
                 <div className="min-w-0">
                   <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">{t('dlg.repair.diagnosis')}</p>
-                  <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-violet-900 dark:text-violet-200">{job.diagnosis}</p>
+                  <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground/90">{job.diagnosis}</p>
                 </div>
               </div>
             )}
@@ -5169,23 +5600,23 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
               <motion.div
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="shrink-0 rounded-xl border border-amber-300/80 bg-amber-50/80 p-4 dark:border-amber-700/60 dark:bg-amber-950/30"
+                className="shrink-0 rounded-xl border border-amber-500/25 bg-amber-500/[0.08] p-3.5"
               >
                 <div className="flex items-start gap-3">
-                  <div className="shrink-0 rounded-lg bg-amber-400/20 dark:bg-amber-500/15 p-2">
+                  <div className="shrink-0 rounded-lg bg-amber-400/20 p-2 dark:bg-amber-500/15">
                     <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">{t('dlg.repair.approvalTitle')}</p>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[11px] text-amber-700 tabular-nums dark:bg-amber-900/50 dark:text-amber-300">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 font-mono text-[10px] tabular-nums text-amber-700 dark:text-amber-300">
                         <Clock className="h-2.5 w-2.5" />{t('dlg.repair.autoDenyIn', { time: formatRepairCountdown(remaining) })}
                       </span>
                     </div>
                     <p className="mt-1 text-xs leading-relaxed text-amber-700/90 dark:text-amber-300/80">{t('dlg.repair.approvalDesc')}</p>
                   </div>
                 </div>
-                <div className="mt-3 whitespace-pre-wrap break-all rounded-lg border border-amber-400/25 bg-zinc-950 px-3 py-2.5 font-mono text-xs text-amber-200 dark:text-amber-300">
+                <div className="mt-3 whitespace-pre-wrap break-all rounded-lg bg-zinc-950/[0.97] px-3 py-2.5 font-mono text-xs text-amber-200 dark:text-amber-300">
                   <span className="select-none text-amber-500/70">$ </span>{pending.cmd}
                 </div>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -5201,32 +5632,35 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
               </motion.div>
             )}
 
-            <div className="flex min-h-[8.5rem] flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-              <div className="flex items-center gap-1.5 border-b border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/60">
-                <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
+            {/* v1.30: the terminal window now sits on the system's always-dark
+                surface (bg-zinc-950/[0.97], rule 6) — identical in light and
+                dark mode, like every other terminal block in the app. */}
+            <div className="flex min-h-[8.5rem] flex-col overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950/[0.97]">
+              <div className="flex items-center gap-1.5 border-b border-zinc-800 bg-zinc-900/60 px-3 py-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-400/80" />
                 <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
-                <span className="ml-2 inline-flex items-center gap-1.5 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
+                <span className="ml-2 inline-flex items-center gap-1.5 font-mono text-[10px] text-zinc-400">
                   <Terminal className="h-3 w-3" />{t('dlg.repair.logTitle')}
                 </span>
                 {isRunning && (
-                  <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500">
+                  <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] tabular-nums text-zinc-500">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     {t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds })}
                   </span>
                 )}
               </div>
-              <div ref={scrollRef} className="max-h-48 min-h-0 space-y-1 overflow-y-auto p-3 font-mono text-xs sm:max-h-80">
+              <div ref={scrollRef} className="custom-scrollbar max-h-48 min-h-0 space-y-1 overflow-y-auto p-3 font-mono text-xs text-zinc-200 sm:max-h-80">
                 {job.steps.length === 0 && (
                   <div className="space-y-2 py-2">
                     {[0, 1, 2].map((i) => (
-                      <div key={i} className="h-3 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800/60" style={{ width: `${76 - i * 22}%` }} />
+                      <div key={i} className="h-3 animate-pulse rounded bg-zinc-800/60" style={{ width: `${76 - i * 22}%` }} />
                     ))}
                   </div>
                 )}
                 {renderedSteps}
                 {isRunning && (
-                  <div className="flex items-center gap-2.5 pt-1 text-zinc-400 dark:text-zinc-500">
+                  <div className="flex items-center gap-2.5 pt-1 text-zinc-500">
                     <span className="flex gap-1">
                       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400" />
                       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-zinc-400" style={{ animationDelay: '150ms' }} />
@@ -5239,7 +5673,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
             </div>
 
             {job.status === 'success' && (
-              <div className="flex shrink-0 items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300">
+              <div className="flex shrink-0 items-center gap-2.5 rounded-lg border border-emerald-500/25 bg-emerald-500/[0.07] p-3 text-xs text-emerald-700 dark:text-emerald-300">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
                 {/* v1.24: no-LLM resolutions say so — pattern fix / replayed
                     lesson instead of an AI repair. */}
@@ -5249,7 +5683,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
               </div>
             )}
             {job.status === 'failed' && job.error && (
-              <div className="shrink-0 rounded-xl border border-red-200 bg-red-50/60 p-3 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+              <div className="shrink-0 rounded-lg border border-rose-500/25 bg-rose-500/[0.07] p-3 text-xs text-rose-700 dark:text-rose-300">
                 <p className="mb-1 flex items-center gap-1.5 font-semibold">
                   <XCircle className="h-3.5 w-3.5 shrink-0" />{t('dlg.repair.failedTitle')}
                 </p>
@@ -5910,7 +6344,7 @@ function DetailSheet({
          * title and a loud full-width badge into one row; the new one gives
          * the project identity room and moves status into a quiet dot chip. */}
         <SheetHeader className="shrink-0 border-b px-5 pt-5 pb-4 sm:px-6">
-          <div className="flex items-start gap-4 pr-8 sm:pr-10">
+          <div className="flex items-start gap-4 pr-14">
             <div className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-soft-strong ring-1 ring-inset ring-black/[0.03] dark:ring-white/[0.06]">
               <IconComp className="h-5 w-5 text-brand-strong" />
             </div>
@@ -7519,10 +7953,10 @@ function DeviceManagementPanel({
           {/* Title row — icon + title/description + ONE primary action.
            * The remaining actions live in the wrap-friendly toolbar below:
            * 4 buttons in this row used to squeeze the title to 0px on narrow
-           * screens and push "Add Device" off-viewport. pr-9 keeps the button
-           * clear of the Sheet's absolute-positioned close (X) at top-4
-           * right-4 — they used to overlap on the same spot. */}
-          <div className="flex items-center gap-2 pr-9">
+           * screens and push "Add Device" off-viewport. pr-14 keeps the row
+           * clear of the Sheet's floating close (✕) zone (right 14→46px,
+           * v1.33) — they used to overlap on the same spot. */}
+          <div className="flex items-center gap-2 pr-14">
             <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30 shrink-0">
               <Plug className="h-5 w-5 text-teal-600 dark:text-teal-400" />
             </div>
@@ -7791,12 +8225,22 @@ function DeviceFormDialog({
 
   return (
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="md">
-      <AppDialogHeader title={mode === 'add' ? t('dlg.deviceForm.addTitle') : t('dlg.deviceForm.editTitle')} description={mode === 'add' ? t('dlg.deviceForm.addDesc') : t('dlg.deviceForm.editDesc')} />
+      <AppDialogHeader>
+        <div className="flex items-center gap-3.5">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/25 to-violet-500/[0.06] ring-1 ring-violet-500/25">
+            <MonitorSmartphone className="size-[18px] text-violet-600 dark:text-violet-400" />
+          </div>
+          <div className="min-w-0">
+            <AppDialogTitle>{mode === 'add' ? t('dlg.deviceForm.addTitle') : t('dlg.deviceForm.editTitle')}</AppDialogTitle>
+            <AppDialogDescription>{mode === 'add' ? t('dlg.deviceForm.addDesc') : t('dlg.deviceForm.editDesc')}</AppDialogDescription>
+          </div>
+        </div>
+      </AppDialogHeader>
       <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-        <AppDialogBody className="space-y-3">
-          <div className="space-y-1">
-            <Label>{t('dlg.deviceForm.icon')}</Label>
-            <div className="flex flex-wrap gap-1.5">
+        <AppDialogBody className="space-y-5">
+          {/* ---- Section: device icon ---- */}
+          <AppDialogSection icon={ImageIcon} label={t('dlg.deviceForm.icon')}>
+            <div className="grid grid-cols-8 gap-1.5">
               {DEVICE_ICONS.map(({ key: iconKey, Icon, label }) => {
                 const active = icon === iconKey
                 return (
@@ -7807,66 +8251,91 @@ function DeviceFormDialog({
                     aria-label={label}
                     aria-pressed={active}
                     onClick={() => setIcon(iconKey)}
-                    className={`p-1.5 rounded-md border transition-colors ${
+                    className={`relative flex h-9 items-center justify-center rounded-lg border transition-all duration-150 cursor-pointer ${
                       active
-                        ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20 ring-1 ring-teal-500/30'
-                        : 'border-border hover:bg-accent'
+                        ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                        : 'border-border hover:border-muted-foreground/30 hover:bg-accent/50'
                     }`}
                   >
-                    <Icon className={`h-4 w-4 ${active ? 'text-teal-600 dark:text-teal-400' : 'text-muted-foreground'}`} />
+                    <Icon className={`size-4 ${active ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
+                    {active && (
+                      <span className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
+                        <Check className="size-3" />
+                      </span>
+                    )}
                   </button>
                 )
               })}
             </div>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="device-name">{t('dlg.deviceForm.name')}</Label>
-            <div className="flex items-center gap-2">
-              {(() => {
-                const selected = DEVICE_ICONS.find((d) => d.key === icon)
-                const SelectedIcon = selected?.Icon ?? Monitor
-                return <SelectedIcon className="h-5 w-5 shrink-0 text-muted-foreground" />
-              })()}
-              <Input id="device-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="MacBook Pro" />
+          </AppDialogSection>
+
+          <AppDialogDivider />
+
+          {/* ---- Section: basics — name + IP ---- */}
+          <AppDialogSection icon={Info} label={t('dlg.deviceForm.sectionBasic')}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="device-name" className="text-[13px] font-medium">{t('dlg.deviceForm.name')}</Label>
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const selected = DEVICE_ICONS.find((d) => d.key === icon)
+                    const SelectedIcon = selected?.Icon ?? Monitor
+                    return (
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted/50">
+                        <SelectedIcon className="size-4 text-muted-foreground" />
+                      </span>
+                    )
+                  })()}
+                  <Input id="device-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="MacBook Pro" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="device-ip" className="text-[13px] font-medium">{t('dlg.deviceForm.ip')}</Label>
+                <Input id="device-ip" value={ip} onChange={(e) => setIp(e.target.value)} placeholder="192.168.1.100" className="font-mono text-xs" />
+              </div>
             </div>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="device-ip">{t('dlg.deviceForm.ip')}</Label>
-            <Input id="device-ip" value={ip} onChange={(e) => setIp(e.target.value)} placeholder="192.168.1.100" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="device-port">{t('dlg.deviceForm.port')}</Label>
-            <Input id="device-port" type="number" value={port} onChange={(e) => setPort(e.target.value)} placeholder="3100" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="device-apikey">{t('dlg.deviceForm.apiKey')}</Label>
-            <div className="relative">
-              <Input
-                id="device-apikey"
-                type={showApiKey ? 'text' : 'password'}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={t('dlg.deviceForm.autoKey')}
-                className="pr-10 font-mono"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <button
-                type="button"
-                onClick={() => setShowApiKey((v) => !v)}
-                title={showApiKey ? t('dlg.deviceForm.hideKey') : t('dlg.deviceForm.showKey')}
-                aria-label={showApiKey ? t('dlg.deviceForm.hideKey') : t('dlg.deviceForm.showKey')}
-                aria-pressed={showApiKey}
-                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+          </AppDialogSection>
+
+          <AppDialogDivider />
+
+          {/* ---- Section: connection — port + API key ---- */}
+          <AppDialogSection icon={PlugZap} label={t('dlg.deviceForm.sectionConnection')}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="device-port" className="text-[13px] font-medium">{t('dlg.deviceForm.port')}</Label>
+                <Input id="device-port" type="number" value={port} onChange={(e) => setPort(e.target.value)} placeholder="3100" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="device-apikey" className="text-[13px] font-medium">{t('dlg.deviceForm.apiKey')}</Label>
+                <div className="relative">
+                  <Input
+                    id="device-apikey"
+                    type={showApiKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder={t('dlg.deviceForm.autoKey')}
+                    className="pr-10 font-mono"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowApiKey((v) => !v)}
+                    title={showApiKey ? t('dlg.deviceForm.hideKey') : t('dlg.deviceForm.showKey')}
+                    aria-label={showApiKey ? t('dlg.deviceForm.hideKey') : t('dlg.deviceForm.showKey')}
+                    aria-pressed={showApiKey}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          </AppDialogSection>
         </AppDialogBody>
         <AppDialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
-          <Button type="submit" disabled={!name.trim() || !ip.trim()}>
+          <Button type="submit" disabled={!name.trim() || !ip.trim()} className="bg-emerald-600 hover:bg-emerald-700 text-white">
             {mode === 'add' ? t('dlg.deviceForm.addBtn') : t('dlg.deviceForm.updateBtn')}
           </Button>
         </AppDialogFooter>

@@ -3,13 +3,13 @@
 import * as React from 'react'
 import {
   Users, Loader2, Trash2, CheckCircle2, XCircle, Clock, Copy,
-  AlertCircle, LogOut, WifiOff,
+  AlertCircle, LogOut, WifiOff, Globe, KeyRound, Network,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { AppDialog, AppDialogHeader, AppDialogBody, AppAlertDialog, AppDialogFooter } from '@/components/app-dialog'
+import { AppDialog, AppDialogHeader, AppDialogBody, AppAlertDialog, AppDialogFooter, AppDialogSection, AppDialogDivider } from '@/components/app-dialog'
 import { AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -59,27 +59,25 @@ function UserAvatar({ user, className = 'h-9 w-9 text-xs' }: { user: PublicUser;
   )
 }
 
-/** v1.31 R7 — quiet dot+text status chips instead of full-bg badges;
- *  semantic colors stay (amber=pending, emerald=approved, red=rejected). */
 function StatusBadge({ status }: { status: PublicUser['status'] }) {
   const t = useT()
   if (status === 'pending') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{t('dlg.userMgmt.filter.pending')}
+      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200/80 bg-amber-50/80 dark:border-amber-900/60 dark:bg-amber-950/40 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+        <Clock className="h-3 w-3" />{t('dlg.userMgmt.filter.pending')}
       </span>
     )
   }
   if (status === 'approved') {
     return (
-      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{t('dlg.userMgmt.filter.approved')}
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200/80 bg-emerald-50/80 dark:border-emerald-900/60 dark:bg-emerald-950/40 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+        <CheckCircle2 className="h-3 w-3" />{t('dlg.userMgmt.filter.approved')}
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-red-600 dark:text-red-400">
-      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />{t('dlg.userMgmt.filter.rejected')}
+    <span className="inline-flex items-center gap-1 rounded-full border border-rose-200/80 bg-rose-50/80 dark:border-rose-900/60 dark:bg-rose-950/40 px-2 py-0.5 text-[11px] font-medium text-rose-700 dark:text-rose-400">
+      <XCircle className="h-3 w-3" />{t('dlg.userMgmt.filter.rejected')}
     </span>
   )
 }
@@ -87,7 +85,7 @@ function StatusBadge({ status }: { status: PublicUser['status'] }) {
 function ProviderBadge({ provider }: { provider: PublicUser['provider'] }) {
   const t = useT()
   return (
-    <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+    <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
       {provider === 'google' ? t('dlg.userMgmt.provider.google') : t('dlg.userMgmt.provider.email')}
     </span>
   )
@@ -391,27 +389,25 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
 
   return (
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="3xl">
-      <AppDialogHeader icon={Users} title={t('dlg.userMgmt.title')} description={t('dlg.userMgmt.desc')} />
+      <AppDialogHeader icon={Users} iconTone="sky" title={t('dlg.userMgmt.title')} description={t('dlg.userMgmt.desc')} />
 
       <AppDialogBody>
         <Tabs value={tab} onValueChange={(v) => setTab(v as 'users' | 'google' | 'network')}>
-          {/* v1.31: unified segmented tabs — same shadcn anatomy as the rest
-              of the system (the old hand-rolled pills had drifted). */}
-          <TabsList className="h-9 w-full justify-start gap-1 p-1">
-            <TabsTrigger value="users" className="gap-1.5 px-3 text-xs">
+          <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-1.5 mb-5 border-b border-border/60 pb-3">
+            <TabsTrigger value="users" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-emerald-500/[0.12] data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-300 rounded-full transition-colors">
               {t('dlg.userMgmt.users')}
               {counts.pending > 0 && (
-                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-100 px-1 text-[11px] font-bold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400">{counts.pending > 9 ? '9+' : counts.pending}</span>
+                <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">{counts.pending > 9 ? '9+' : counts.pending}</span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="google" className="px-3 text-xs">{t('dlg.userMgmt.google')}</TabsTrigger>
-            <TabsTrigger value="network" className="px-3 text-xs">{t('dlg.userMgmt.gitNetwork')}</TabsTrigger>
+            <TabsTrigger value="google" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-emerald-500/[0.12] data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-300 rounded-full transition-colors">{t('dlg.userMgmt.google')}</TabsTrigger>
+            <TabsTrigger value="network" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-emerald-500/[0.12] data-[state=active]:text-emerald-700 dark:data-[state=active]:text-emerald-300 rounded-full transition-colors">{t('dlg.userMgmt.gitNetwork')}</TabsTrigger>
           </TabsList>
 
           {/* ==================== USERS TAB ==================== */}
           {tab === 'users' && (
-            <div className="space-y-4">
-              {/* Filter chips — v1.31 R7: quiet token-colored chips, counts muted */}
+            <AppDialogSection icon={Users} label={t('dlg.userMgmt.sectionUsers')}>
+              {/* Filter chips */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 {filterChips.map((chip) => {
                   const active = filter === chip.id
@@ -420,12 +416,12 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                       key={chip.id}
                       type="button"
                       onClick={() => setFilter(chip.id)}
-                      className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium cursor-pointer transition-colors ${active
-                        ? 'border-brand/40 bg-brand-soft text-brand-strong'
-                        : 'border-border/60 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`}
+                      className={`inline-flex items-center gap-1.5 rounded-full border h-7 px-3 text-xs font-medium cursor-pointer transition-all ${active
+                        ? 'border-transparent bg-emerald-500/[0.06] dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/40'
+                        : 'border-border/70 bg-card text-muted-foreground hover:border-muted-foreground/30 hover:shadow-sm'}`}
                     >
                       {chip.label}
-                      <span className={`text-[11px] tabular-nums ${active ? 'text-brand-strong/80' : 'text-muted-foreground/70'}`}>{chip.count}</span>
+                      <span className={`text-[10px] tabular-nums ${active ? 'text-emerald-700/80 dark:text-emerald-300/80' : 'text-muted-foreground/70'}`}>{chip.count}</span>
                     </button>
                   )
                 })}
@@ -434,43 +430,47 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
               {/* User list */}
               {users === null ? (
                 <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-brand" />
+                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
                 </div>
               ) : filtered.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-10 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/50 mb-3">
-                    {filter === 'pending' ? <Clock className="h-6 w-6 text-muted-foreground" /> : <Users className="h-6 w-6 text-muted-foreground" />}
-                  </div>
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  {filter === 'pending'
+                    ? <Clock className="size-8 text-muted-foreground/50 mb-3" />
+                    : <Users className="size-8 text-muted-foreground/50 mb-3" />}
                   <p className="text-sm font-medium">
                     {filter === 'pending' ? t('dlg.userMgmt.noPending') : filter === 'approved' ? t('dlg.userMgmt.noApproved') : filter === 'rejected' ? t('dlg.userMgmt.noRejected') : t('dlg.userMgmt.noUsers')}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
+                  <p className="text-xs text-muted-foreground mt-1 max-w-sm">
                     {filter === 'pending' ? t('dlg.userMgmt.allCaughtUp') : t('dlg.userMgmt.usersAppear')}
                   </p>
                 </div>
               ) : (
-                /* v1.31 R5: one divided list container — rows px-4 py-3 */
-                <ul className="divide-y rounded-xl border bg-card">
+                <ul className="space-y-2.5">
                   {filtered.map((u) => {
                     const isSelf = currentUser?.id === u.id
                     const busy = busyId === u.id
                     return (
                       <li
                         key={u.id}
-                        className={`px-4 py-3 flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_118px_102px_minmax(0,132px)_auto] md:items-center gap-2.5 md:gap-3 transition-opacity ${busy ? 'opacity-60' : ''}`}
+                        className={`flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_128px_auto_auto] md:items-center gap-2.5 md:gap-3 rounded-xl border border-border/60 bg-card p-3 transition-all hover:border-muted-foreground/30 hover:shadow-sm ${busy ? 'opacity-60' : ''}`}
                       >
                         {/* Identity */}
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <UserAvatar user={u} className="h-9 w-9 text-xs shrink-0" />
+                        <div className="flex items-center gap-3 min-w-0">
+                          <UserAvatar user={u} className="h-10 w-10 text-xs shrink-0" />
                           <div className="min-w-0">
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <p className="text-sm font-medium truncate max-w-[160px] sm:max-w-[220px]">{u.name}</p>
+                              <p className="text-sm font-medium truncate max-w-[180px] sm:max-w-[240px]">{u.name}</p>
                               {isSelf && (
-                                <span className="inline-flex items-center rounded-full border border-brand/40 bg-brand-soft px-1.5 py-0.5 text-[11px] font-semibold text-brand-strong">{t('dlg.userMgmt.you')}</span>
+                                <span className="inline-flex items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">{t('dlg.userMgmt.you')}</span>
                               )}
                               <ProviderBadge provider={u.provider} />
                             </div>
                             <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                            <p className="text-[11px] text-muted-foreground/70 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                              <span>{t('dlg.userMgmt.joined', { time: timeAgo(u.createdAt, t) })}</span>
+                              <span aria-hidden>·</span>
+                              <span>{t('dlg.userMgmt.lastLogin', { time: timeAgo(u.lastLoginAt, t) })}</span>
+                            </p>
                           </div>
                         </div>
 
@@ -507,15 +507,9 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                         {/* Status */}
                         <div><StatusBadge status={u.status} /></div>
 
-                        {/* Dates */}
-                        <div className="text-[11px] text-muted-foreground leading-relaxed">
-                          <p>{t('dlg.userMgmt.joined', { time: timeAgo(u.createdAt, t) })}</p>
-                          <p>{t('dlg.userMgmt.lastLogin', { time: timeAgo(u.lastLoginAt, t) })}</p>
-                        </div>
-
                         {/* Actions */}
                         <div className="flex items-center gap-1.5 md:justify-end flex-wrap">
-                          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                          {busy && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
                           {u.status === 'pending' && (
                             <>
                               <Button
@@ -523,7 +517,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                                 size="sm"
                                 onClick={() => void handleApprove(u)}
                                 disabled={busy}
-                                className="h-8 px-3 text-xs"
+                                className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
                               >
                                 <CheckCircle2 className="h-3.5 w-3.5 mr-1" />{t('dlg.userMgmt.approve')}
                               </Button>
@@ -533,7 +527,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                                 variant="outline"
                                 onClick={() => { setRejectTarget(u); setRejectReason('') }}
                                 disabled={busy}
-                                className="h-8 px-3 text-xs border-red-300/70 text-red-600 dark:border-red-900/60 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-700 dark:hover:text-red-300"
+                                className="h-8 px-3 text-xs border-rose-300/70 text-rose-600 dark:border-rose-900/60 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-700 dark:hover:text-rose-300"
                               >
                                 <XCircle className="h-3.5 w-3.5 mr-1" />{t('dlg.userMgmt.reject')}
                               </Button>
@@ -559,7 +553,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                               onClick={() => setDeleteTarget(u)}
                               disabled={busy}
                               aria-label={t('dlg.userMgmt.deleteUser', { name: u.name })}
-                              className="h-8 w-8 px-0 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-300"
+                              className="h-8 w-8 px-0 text-rose-500 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 dark:hover:text-rose-300"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
@@ -570,194 +564,207 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                   })}
                 </ul>
               )}
-            </div>
+            </AppDialogSection>
           )}
 
           {/* ==================== GOOGLE SIGN-IN TAB ==================== */}
           {tab === 'google' && (
-            <div className="space-y-4">
-              {/* Status card — quiet nested block (v1.31 R5/R7) */}
-              <div className="flex items-start gap-3 rounded-xl border bg-muted/30 p-4">
-                <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${configured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium flex items-center gap-2 flex-wrap">
-                    {configured ? t('dlg.userMgmt.configured') : t('dlg.userMgmt.notConfigured')}
-                    {configured && maskedClient && (
-                      <code className="font-mono text-xs text-muted-foreground font-normal break-all">{maskedClient}</code>
-                    )}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {configured
-                      ? t('dlg.userMgmt.testHint')
-                      : t('dlg.userMgmt.enableHint')}
-                  </p>
+            <div className="space-y-5">
+              {/* Status */}
+              <AppDialogSection icon={Globe} label={t('dlg.userMgmt.sectionStatus')}>
+                <div className="rounded-xl border border-border/60 bg-card p-3.5 flex items-start gap-3 transition-all">
+                  <span className={`mt-1.5 size-2 rounded-full shrink-0 ${configured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium flex items-center gap-2 flex-wrap">
+                      {configured ? t('dlg.userMgmt.configured') : t('dlg.userMgmt.notConfigured')}
+                      {configured && maskedClient && (
+                        <code className="font-mono text-xs text-muted-foreground font-normal break-all">{maskedClient}</code>
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {configured
+                        ? t('dlg.userMgmt.testHint')
+                        : t('dlg.userMgmt.enableHint')}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              </AppDialogSection>
 
-              {/* Redirect URI */}
-              <div className="space-y-2">
-                <Label className="text-xs">{t('dlg.userMgmt.redirectUri')}</Label>
-                <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 p-2.5 dark:bg-zinc-950 dark:border-zinc-800">
-                  <code className="flex-1 min-w-0 font-mono text-xs text-zinc-300 truncate">{redirectUri || t('dlg.userMgmt.redirectNA')}</code>
-                  <Button type="button" variant="outline" size="sm" onClick={() => copyToClipboard(redirectUri)} disabled={!redirectUri} className="h-7 shrink-0 border-zinc-700 bg-transparent px-2.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
+              <AppDialogDivider />
+
+              {/* Redirect URI + setup instructions */}
+              <AppDialogSection icon={Copy} label={t('dlg.userMgmt.redirectUri')}>
+                <div className="rounded-lg bg-zinc-950/[0.97] border border-zinc-800 p-2.5 flex items-center gap-2 custom-scrollbar">
+                  <code className="flex-1 min-w-0 font-mono text-xs text-zinc-200 truncate">{redirectUri || t('dlg.userMgmt.redirectNA')}</code>
+                  <Button type="button" variant="outline" size="sm" onClick={() => copyToClipboard(redirectUri)} disabled={!redirectUri} className="h-7 px-2.5 text-xs shrink-0 bg-transparent border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
                     <Copy className="h-3 w-3 mr-1" />{t('dlg.common.copy')}
                   </Button>
                 </div>
-              </div>
+                <ol className="space-y-1.5 text-xs text-muted-foreground list-decimal list-inside leading-relaxed pt-1">
+                  <li>{t('dlg.userMgmt.instr1')}</li>
+                  <li>{t('dlg.userMgmt.instr2')}</li>
+                  <li>{t('dlg.userMgmt.instr3')}</li>
+                  <li>{t('dlg.userMgmt.instr4')}</li>
+                </ol>
+              </AppDialogSection>
 
-              {/* Instructions */}
-              <ol className="space-y-1.5 text-xs text-muted-foreground list-decimal list-inside leading-relaxed">
-                <li>{t('dlg.userMgmt.instr1')}</li>
-                <li>{t('dlg.userMgmt.instr2')}</li>
-                <li>{t('dlg.userMgmt.instr3')}</li>
-                <li>{t('dlg.userMgmt.instr4')}</li>
-              </ol>
+              <AppDialogDivider />
 
-              {/* Form */}
-              <div className="space-y-4 rounded-xl border bg-card p-4">
-                <div className="space-y-2">
-                  <Label htmlFor="google-client-id" className="text-xs">{t('dlg.userMgmt.clientId')}</Label>
-                  {configured && maskedClient && (
-                    <p className="text-[11px] text-muted-foreground">
-                      {t('dlg.userMgmt.current')} <code className="font-mono break-all">{maskedClient}</code>
-                    </p>
-                  )}
-                  <Input
-                    id="google-client-id"
-                    type="text"
-                    autoComplete="off"
-                    placeholder="123456789-abcdefg.apps.googleusercontent.com"
-                    value={clientId}
-                    onChange={(e) => { setClientId(e.target.value); setGoogleError(null) }}
-                    disabled={savingGoogle}
-                    className="h-10 font-mono text-xs"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="google-client-secret" className="text-xs">{t('dlg.userMgmt.clientSecret')}</Label>
-                  <Input
-                    id="google-client-secret"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={configured ? t('dlg.userMgmt.keepSecret') : 'GOCSPX-…'}
-                    value={clientSecret}
-                    onChange={(e) => { setClientSecret(e.target.value); setGoogleError(null) }}
-                    disabled={savingGoogle}
-                    className="h-10 font-mono text-xs"
-                  />
-                </div>
-                {googleError && (
-                  <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-destructive/40 bg-card px-3.5 py-2.5 text-sm text-destructive dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-400">
-                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <p className="font-medium leading-snug">{googleError}</p>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Button type="button" onClick={() => void handleSaveGoogle()} disabled={savingGoogle} className="h-10 px-5 text-sm">
-                    {savingGoogle && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    {savingGoogle ? t('dlg.userMgmt.saving') : t('dlg.userMgmt.save')}
-                  </Button>
-                  {configured && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setRemoveConfirm(true)}
+              {/* Credentials form */}
+              <AppDialogSection icon={KeyRound} label={t('dlg.userMgmt.sectionCredentials')}>
+                <div className="space-y-3.5 rounded-xl border border-border/60 bg-card p-3.5">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="google-client-id" className="text-[13px] font-medium">{t('dlg.userMgmt.clientId')}</Label>
+                    {configured && maskedClient && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('dlg.userMgmt.current')} <code className="font-mono break-all">{maskedClient}</code>
+                      </p>
+                    )}
+                    <Input
+                      id="google-client-id"
+                      type="text"
+                      autoComplete="off"
+                      placeholder="123456789-abcdefg.apps.googleusercontent.com"
+                      value={clientId}
+                      onChange={(e) => { setClientId(e.target.value); setGoogleError(null) }}
                       disabled={savingGoogle}
-                      className="h-10 px-5 text-sm border-red-300/70 text-red-600 dark:border-red-900/60 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
-                    >
-                      <LogOut className="h-4 w-4 mr-2 rotate-180" />{t('dlg.userMgmt.removeConfig')}
-                    </Button>
+                      className="h-10 font-mono text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="google-client-secret" className="text-[13px] font-medium">{t('dlg.userMgmt.clientSecret')}</Label>
+                    <Input
+                      id="google-client-secret"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={configured ? t('dlg.userMgmt.keepSecret') : 'GOCSPX-…'}
+                      value={clientSecret}
+                      onChange={(e) => { setClientSecret(e.target.value); setGoogleError(null) }}
+                      disabled={savingGoogle}
+                      className="h-10 font-mono text-xs"
+                    />
+                  </div>
+                  {googleError && (
+                    <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-destructive/40 bg-card px-3.5 py-2.5 text-sm text-destructive dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-400">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <p className="font-medium leading-snug">{googleError}</p>
+                    </div>
                   )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Button type="button" onClick={() => void handleSaveGoogle()} disabled={savingGoogle} className="h-10 px-5 text-sm bg-primary hover:bg-primary/90 text-primary-foreground">
+                      {savingGoogle && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                      {savingGoogle ? t('dlg.userMgmt.saving') : t('dlg.userMgmt.save')}
+                    </Button>
+                    {configured && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setRemoveConfirm(true)}
+                        disabled={savingGoogle}
+                        className="h-10 px-5 text-sm border-rose-300/70 text-rose-600 dark:border-rose-900/60 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                      >
+                        <LogOut className="h-4 w-4 mr-2 rotate-180" />{t('dlg.userMgmt.removeConfig')}
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
+              </AppDialogSection>
             </div>
           )}
 
           {/* ==================== GIT NETWORK TAB (v1.27) ==================== */}
           {tab === 'network' && (
-            <div className="space-y-4">
-              {/* Status card — quiet neutral block; the icon carries the state color */}
-              <div className="flex items-start gap-3 rounded-xl border bg-muted/30 p-4">
-                {gitProxyConfigured
-                  ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
-                  : <WifiOff className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />}
-                <div className="min-w-0">
-                  <p className="text-sm font-medium leading-snug">
-                    {gitProxyConfigured ? t('dlg.userMgmt.gitProxyOn') : t('dlg.userMgmt.gitProxyOff')}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1 break-all">
-                    {gitProxyConfigured
-                      ? t('dlg.userMgmt.gitProxyCurrent', {
-                          proxy: gitProxyMasked || '',
-                          source: gitProxySource === 'env' ? t('dlg.userMgmt.gitProxySourceEnv') : t('dlg.userMgmt.gitProxySourceSetting'),
-                        })
-                      : t('dlg.userMgmt.gitProxyOffDesc')}
-                  </p>
-                </div>
-              </div>
-
-              {/* Form */}
-              <div className="space-y-4 rounded-xl border bg-card p-4">
-                <div className="space-y-2">
-                  <Label htmlFor="git-proxy-url" className="text-xs">{t('dlg.userMgmt.gitProxyUrl')}</Label>
-                  <Input
-                    id="git-proxy-url"
-                    type="text"
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder="http://127.0.0.1:7890"
-                    value={gitProxy}
-                    onChange={(e) => { setGitProxy(e.target.value); setProxyError(null); setProxySavedAt(0) }}
-                    disabled={savingProxy}
-                    className="h-10 font-mono text-xs"
-                  />
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">{t('dlg.userMgmt.gitProxyHint')}</p>
-                </div>
-                {proxyError && (
-                  <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-destructive/40 bg-card px-3.5 py-2.5 text-sm text-destructive dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-400">
-                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <p className="font-medium leading-snug">{proxyError}</p>
+            <div className="space-y-5">
+              {/* Status */}
+              <AppDialogSection icon={gitProxyConfigured ? CheckCircle2 : WifiOff} label={t('dlg.userMgmt.sectionStatus')}>
+                <div className={`flex items-start gap-3 rounded-xl border p-3.5 ${gitProxyConfigured
+                  ? 'border-emerald-500/30 bg-emerald-500/[0.06] dark:bg-emerald-500/10'
+                  : 'border-amber-500/30 bg-amber-500/[0.06] dark:bg-amber-500/10'}`}>
+                  {gitProxyConfigured
+                    ? <CheckCircle2 className="size-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                    : <WifiOff className="size-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium leading-snug">
+                      {gitProxyConfigured ? t('dlg.userMgmt.gitProxyOn') : t('dlg.userMgmt.gitProxyOff')}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1 break-all">
+                      {gitProxyConfigured
+                        ? t('dlg.userMgmt.gitProxyCurrent', {
+                            proxy: gitProxyMasked || '',
+                            source: gitProxySource === 'env' ? t('dlg.userMgmt.gitProxySourceEnv') : t('dlg.userMgmt.gitProxySourceSetting'),
+                          })
+                        : t('dlg.userMgmt.gitProxyOffDesc')}
+                    </p>
                   </div>
-                )}
-                {proxySavedAt > 0 && !proxyError && (
-                  <p className="text-xs text-emerald-600 dark:text-emerald-400">{t('dlg.userMgmt.gitProxySavedDesc')}</p>
-                )}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Button
-                    type="button"
-                    onClick={() => void handleSaveProxy()}
-                    disabled={savingProxy || gitProxy.trim() === ''}
-                    className="h-10 px-5 text-sm"
-                  >
-                    {savingProxy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                    {t('dlg.userMgmt.save')}
-                  </Button>
-                  {gitProxyConfigured && (
+                </div>
+              </AppDialogSection>
+
+              <AppDialogDivider />
+
+              {/* Proxy form + scope */}
+              <AppDialogSection icon={Network} label={t('dlg.userMgmt.sectionProxy')}>
+                <div className="space-y-3.5 rounded-xl border border-border/60 bg-card p-3.5">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="git-proxy-url" className="text-[13px] font-medium">{t('dlg.userMgmt.gitProxyUrl')}</Label>
+                    <Input
+                      id="git-proxy-url"
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder="http://127.0.0.1:7890"
+                      value={gitProxy}
+                      onChange={(e) => { setGitProxy(e.target.value); setProxyError(null); setProxySavedAt(0) }}
+                      disabled={savingProxy}
+                      className="h-10 font-mono text-xs"
+                    />
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">{t('dlg.userMgmt.gitProxyHint')}</p>
+                  </div>
+                  {proxyError && (
+                    <div role="alert" className="flex items-start gap-2.5 rounded-lg border border-destructive/40 bg-card px-3.5 py-2.5 text-sm text-destructive dark:border-rose-900/60 dark:bg-rose-950/20 dark:text-rose-400">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <p className="font-medium leading-snug">{proxyError}</p>
+                    </div>
+                  )}
+                  {proxySavedAt > 0 && !proxyError && (
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400">{t('dlg.userMgmt.gitProxySavedDesc')}</p>
+                  )}
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Button
                       type="button"
-                      variant="outline"
-                      onClick={() => { setGitProxy(''); void handleSaveProxy() }}
-                      disabled={savingProxy}
-                      className="h-10 px-5 text-sm border-red-300/70 text-red-600 dark:border-red-900/60 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40"
+                      onClick={() => void handleSaveProxy()}
+                      disabled={savingProxy || gitProxy.trim() === ''}
+                      className="h-10 px-5 text-sm"
                     >
-                      <LogOut className="h-4 w-4 mr-2 rotate-180" />{t('dlg.userMgmt.gitProxyRemove')}
+                      {savingProxy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                      {t('dlg.userMgmt.save')}
                     </Button>
+                    {gitProxyConfigured && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => { setGitProxy(''); void handleSaveProxy() }}
+                        disabled={savingProxy}
+                        className="h-10 px-5 text-sm border-rose-300/70 text-rose-600 dark:border-rose-900/60 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                      >
+                        <LogOut className="h-4 w-4 mr-2 rotate-180" />{t('dlg.userMgmt.gitProxyRemove')}
+                      </Button>
+                    )}
+                  </div>
+                  {gitProxy.trim() === '' && gitProxyConfigured && !savingProxy && (
+                    <p className="text-[11px] text-muted-foreground">{t('dlg.userMgmt.gitProxyClearHint')}</p>
                   )}
                 </div>
-                {gitProxy.trim() === '' && gitProxyConfigured && !savingProxy && (
-                  <p className="text-[11px] text-muted-foreground">{t('dlg.userMgmt.gitProxyClearHint')}</p>
-                )}
-              </div>
 
-              {/* What this affects — quiet nested block with a receding label */}
-              <div className="rounded-xl border bg-muted/30 p-4">
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{t('dlg.userMgmt.gitProxyAffects')}</p>
-                <ul className="space-y-1 text-xs text-muted-foreground leading-relaxed">
-                  <li>· {t('dlg.userMgmt.gitProxyAffect1')}</li>
-                  <li>· {t('dlg.userMgmt.gitProxyAffect2')}</li>
-                  <li>· {t('dlg.userMgmt.gitProxyAffect3')}</li>
-                </ul>
-              </div>
+                {/* What this affects */}
+                <div className="rounded-xl border border-border/60 bg-muted/30 p-3.5">
+                  <p className="text-xs font-medium mb-1.5">{t('dlg.userMgmt.gitProxyAffects')}</p>
+                  <ul className="space-y-1 text-xs text-muted-foreground leading-relaxed">
+                    <li>· {t('dlg.userMgmt.gitProxyAffect1')}</li>
+                    <li>· {t('dlg.userMgmt.gitProxyAffect2')}</li>
+                    <li>· {t('dlg.userMgmt.gitProxyAffect3')}</li>
+                  </ul>
+                </div>
+              </AppDialogSection>
             </div>
           )}
         </Tabs>
@@ -765,10 +772,10 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
 
       {/* ---------- Reject reason dialog ---------- */}
       <AppDialog open={!!rejectTarget} onOpenChange={(v) => { if (!v) { setRejectTarget(null); setRejectReason('') } }} size="md">
-        <AppDialogHeader icon={XCircle} title={t('dlg.userMgmt.rejectTitle')} description={rejectTarget ? t('dlg.userMgmt.rejectDesc', { name: rejectTarget.name, email: rejectTarget.email }) : ''} />
-        <AppDialogBody>
-          <div className="space-y-2">
-            <Label htmlFor="reject-reason">{t('dlg.userMgmt.reason')}</Label>
+        <AppDialogHeader icon={XCircle} iconTone="rose" title={t('dlg.userMgmt.rejectTitle')} description={rejectTarget ? t('dlg.userMgmt.rejectDesc', { name: rejectTarget.name, email: rejectTarget.email }) : ''} />
+        <AppDialogBody className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="reject-reason" className="text-[13px] font-medium">{t('dlg.userMgmt.reason')}</Label>
             <Textarea
               id="reject-reason"
               placeholder={t('dlg.userMgmt.reasonPlaceholder')}
@@ -776,23 +783,25 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
               maxLength={200}
               onChange={(e) => setRejectReason(e.target.value)}
               disabled={rejectBusy}
-              className="min-h-[72px] text-sm"
+              className="min-h-[88px] text-sm"
             />
             <p className="text-[11px] text-muted-foreground text-right tabular-nums">{rejectReason.length}/200</p>
           </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => { setRejectTarget(null); setRejectReason('') }} disabled={rejectBusy} className="h-10">{t('dlg.common.cancel')}</Button>
+            <Button type="button" onClick={() => void handleRejectConfirm()} disabled={rejectBusy} className="h-10 bg-rose-600 hover:bg-rose-700 text-white">
+              {rejectBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {t('dlg.userMgmt.reject')}
+            </Button>
+          </div>
         </AppDialogBody>
-        <AppDialogFooter>
-          <Button type="button" variant="outline" onClick={() => { setRejectTarget(null); setRejectReason('') }} disabled={rejectBusy} className="h-10">{t('dlg.common.cancel')}</Button>
-          <Button type="button" onClick={() => void handleRejectConfirm()} disabled={rejectBusy} className="h-10 bg-red-600 hover:bg-red-700 text-white">
-            {rejectBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            {t('dlg.userMgmt.reject')}
-          </Button>
-        </AppDialogFooter>
       </AppDialog>
 
       {/* ---------- Delete confirm ---------- */}
       <AppAlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null) }} size="lg">
         <AppDialogHeader
+          icon={Trash2}
+          iconTone="rose"
           title={t('dlg.userMgmt.deleteTitle')}
           description={deleteTarget
             ? t('dlg.userMgmt.deleteDesc', { name: deleteTarget.name, email: deleteTarget.email })
@@ -803,7 +812,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
           <AlertDialogAction
             onClick={(e) => { e.preventDefault(); void handleDeleteConfirm() }}
             disabled={deleteBusy}
-            className="bg-red-600 hover:bg-red-700 text-white focus:ring-red-600"
+            className="bg-rose-600 hover:bg-rose-700 text-white focus:ring-rose-600"
           >
             {deleteBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {t('dlg.common.delete')}
@@ -813,13 +822,13 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
 
       {/* ---------- Remove Google configuration confirm ---------- */}
       <AppAlertDialog open={removeConfirm} onOpenChange={setRemoveConfirm} size="lg">
-        <AppDialogHeader title={t('dlg.userMgmt.removeGoogleTitle')} description={t('dlg.userMgmt.removeGoogleDesc')} />
+        <AppDialogHeader icon={LogOut} iconTone="rose" title={t('dlg.userMgmt.removeGoogleTitle')} description={t('dlg.userMgmt.removeGoogleDesc')} />
         <AppDialogFooter>
           <AlertDialogCancel disabled={removeBusy}>{t('dlg.common.cancel')}</AlertDialogCancel>
           <AlertDialogAction
             onClick={(e) => { e.preventDefault(); void handleRemoveGoogle() }}
             disabled={removeBusy}
-            className="bg-red-600 hover:bg-red-700 text-white focus:ring-red-600"
+            className="bg-rose-600 hover:bg-rose-700 text-white focus:ring-rose-600"
           >
             {removeBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {t('dlg.userMgmt.remove')}

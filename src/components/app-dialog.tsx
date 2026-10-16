@@ -1,36 +1,41 @@
 'use client'
 
 /**
- * AppDialog — the ONE modal system for the whole dashboard (v1.31 "Clear").
+ * AppDialog — the ONE modal system for the whole dashboard (v1.30 visual pass).
  *
- * v1.31 is a full visual refactor of the previous v1.27 anatomy. The
- * structure below is unchanged (header / body / footer, sizes sm→3xl,
- * body scrolls, alert variant) — every existing caller keeps working —
- * but the visual language is rebuilt:
+ * The v1.27 pass unified ~30 dialogs structurally (one shell, one size scale,
+ * body-owned scrolling) but kept the visuals plain — the shell was a flat
+ * rounded-xl card and bodies were stock label/input stacks. This pass gives
+ * the system an actual design language:
  *
- *   ┌────────────────────────────────────────────┐
- *   │ ◻ [icon]  Title (16px semibold)     (✕)    │  header — py-5, 40px chip, hairline border
- *   │           Support line (13px muted)        │
- *   ├────────────────────────────────────────────┤
- *   │  SECTION LABEL (11px uppercase, muted)     │  AppDialogSection — new in v1.31:
- *   │                                            │  quiet section headers inside bodies
- *   │   body — flex-1, scrolls, px-6 py-5        │
- *   ├────────────────────────────────────────────┤
- *   │                        [Cancel] [Save]     │  footer — py-4 on muted/40 strip
- *   └────────────────────────────────────────────┘
+ *   ╭──────────────────────────────────────────────╮
+ *   │ ▓▓▓▓▓▓▓▓░░░  tone gradient accent strip       │  3px, tone-tinted
+ *   │                                              │
+ *   │  ▢  Title                                    │  gradient icon tile (40px)
+ *   │     Secondary line (13px muted)          ✕  │  header sits on a soft
+ *   ├──────────────────────────────────────────────┤  muted wash
+ *   │  SECTION EYEBROW                             │  AppDialogSection
+ *   │  fields / lists / option cards               │
+ *   │  ── fade divider ──                          │  AppDialogDivider
+ *   │  ...                                         │
+ *   ├──────────────────────────────────────────────┤
+ *   │                          [Cancel] [Save]     │  footer on hairline strip
+ *   ╰──────────────────────────────────────────────╯
  *
- * Design rules of the system (keep it looking like ONE product):
- *   - quiet chrome: labels and headers recede (uppercase micro-labels,
- *     muted color); the user's DATA is the foreground — never decoration
- *   - one accent: colored chips/dots only for status, links and primary
- *     actions — section headers carry NO color bars
- *   - soft depth: rounded-2xl shell, layered soft shadow, hairline ring
- *     instead of the old hard shadow-2xl edge
+ * Rules of the system (keep it looking like ONE product):
  *   - sizes come from the `size` scale ONLY (sm → 3xl) — never ad-hoc max-w
- *   - height: capped at min(88dvh, 800px); the BODY scrolls, never the
- *     shell — headers and footers never leave the screen
- *   - padding is owned by the sections (px-6 · py-5 · py-4), never by the
- *     shell — content can go flush (tables, lists, terminal output)
+ *   - height: every dialog is capped at min(88dvh, 800px) and the BODY
+ *     scrolls, never the dialog shell — headers and footers never leave
+ *     the screen
+ *   - headers carry an optional 40px gradient icon tile + 16px semibold
+ *     title + 13px muted description, plus a tone-colored accent strip
+ *     along the top edge of the dialog; the header reserves the top-right
+ *     corner so content never overlaps the floating close button (v1.33)
+ *   - bodies are organized with AppDialogSection eyebrows instead of bare
+ *     label stacks; AppDialogDivider separates groups with a fading hairline
+ *   - footers sit on a hairline-muted strip, buttons right-aligned
+ *   - padding is owned by the sections (px-5 py-4 · py-5 · py-4), never
+ *     by the shell — content can go flush (tables, lists, terminal output)
  *
  * AppAlertDialog mirrors the exact same anatomy on radix's alert-dialog
  * (focus stays trapped, no close on outside click) for destructive
@@ -62,11 +67,11 @@ export type AppDialogSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl'
 
 const SIZE_CLASSES: Record<AppDialogSize, string> = {
   sm: 'sm:max-w-[420px]',     // small confirms, single-field prompts
-  md: 'sm:max-w-[480px]',     // standard forms (default)
-  lg: 'sm:max-w-[560px]',     // details, diagnoses, multi-field forms
-  xl: 'sm:max-w-[640px]',     // settings, monitors
-  '2xl': 'sm:max-w-[760px]',  // tables, wizards
-  '3xl': 'sm:max-w-[900px]',  // wide tables, log viewers
+  md: 'sm:max-w-[520px]',     // standard forms (default)
+  lg: 'sm:max-w-[580px]',     // details, diagnoses, multi-field forms
+  xl: 'sm:max-w-[660px]',     // settings, monitors
+  '2xl': 'sm:max-w-[780px]',  // tables, wizards
+  '3xl': 'sm:max-w-[920px]',  // wide tables, log viewers
 }
 
 /* ----------------------------------------------------------------- dialog */
@@ -127,27 +132,55 @@ export function AppAlertDialog({
 
 /** Shared shell classes — height cap, column flex, no shell padding,
  *  overflow owned by the body section. Kept in one constant so the alert
- *  variant can never drift from the plain one. v1.31: rounded-2xl + layered
- *  soft shadow + hairline ring — the old shadow-2xl/ring-5% edge read as
- *  heavy; this one sits softer on the blurred backdrop. */
+ *  variant can never drift from the plain one. The v1.30 look: softer
+ *  2xl radius, a two-layer depth shadow (tight contact shadow + wide
+ *  ambient) and a hairline ring so the card reads as a physical sheet
+ *  floating over the frosted page. */
 const APP_DIALOG_SHELL =
-  'flex max-h-[min(88dvh,800px)] w-full flex-col gap-0 overflow-hidden rounded-2xl p-0 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_8px_24px_-6px_rgba(0,0,0,0.14),0_24px_48px_-12px_rgba(0,0,0,0.14)] ring-1 ring-black/[0.06] dark:shadow-[0_1px_2px_rgba(0,0,0,0.4),0_8px_24px_-6px_rgba(0,0,0,0.5)] dark:ring-white/[0.08]'
+  'flex max-h-[min(88dvh,800px)] w-full flex-col gap-0 overflow-hidden rounded-2xl border border-border/70 p-0 ' +
+  'shadow-[0_6px_16px_-6px_rgb(0_0_0/0.10),0_32px_72px_-16px_rgb(0_0_0/0.28)] ' +
+  'ring-1 ring-black/[0.04] dark:ring-white/[0.06]'
 
 /* ---------------------------------------------------------------- header  */
 
-/** Optional tint for the header icon chip. `default` keeps the neutral
- *  muted chip; the others let a dialog signal intent (agent run = emerald,
- *  conflict = amber, destructive = rose, info = sky) while staying inside
- *  the same 40px anatomy. Purely opt-in — every existing caller that does
- *  not pass it renders exactly as before. */
-export type AppDialogIconTone = 'default' | 'emerald' | 'amber' | 'rose' | 'sky'
+/** Optional tint for the header icon tile and the top accent strip.
+ *  `default` keeps the neutral look; the others let a dialog signal intent
+ *  (agent run = emerald, conflict = amber, destructive = rose, info = sky)
+ *  while staying inside the same 40px anatomy. Purely opt-in — every
+ *  existing caller that does not pass it renders exactly as before. */
+export type AppDialogIconTone = 'default' | 'emerald' | 'amber' | 'rose' | 'sky' | 'violet'
 
-const ICON_TONE_CLASSES: Record<AppDialogIconTone, { chip: string; icon: string }> = {
-  default: { chip: 'border bg-muted/60', icon: 'text-muted-foreground' },
-  emerald: { chip: 'border-emerald-500/25 bg-emerald-500/10 dark:bg-emerald-500/15', icon: 'text-emerald-600 dark:text-emerald-400' },
-  amber: { chip: 'border-amber-500/25 bg-amber-500/10 dark:bg-amber-500/15', icon: 'text-amber-600 dark:text-amber-400' },
-  rose: { chip: 'border-rose-500/25 bg-rose-500/10 dark:bg-rose-500/15', icon: 'text-rose-600 dark:text-rose-400' },
-  sky: { chip: 'border-sky-500/25 bg-sky-500/10 dark:bg-sky-500/15', icon: 'text-sky-600 dark:text-sky-400' },
+const ICON_TONE_CLASSES: Record<AppDialogIconTone, { tile: string; icon: string; accent: string }> = {
+  default: {
+    tile: 'bg-gradient-to-br from-foreground/[0.08] to-foreground/[0.03] ring-1 ring-foreground/[0.08]',
+    icon: 'text-foreground/70',
+    accent: 'bg-gradient-to-r from-foreground/[0.16] via-foreground/[0.06] to-transparent',
+  },
+  emerald: {
+    tile: 'bg-gradient-to-br from-emerald-500/25 to-emerald-500/[0.06] ring-1 ring-emerald-500/25',
+    icon: 'text-emerald-600 dark:text-emerald-400',
+    accent: 'bg-gradient-to-r from-emerald-500/80 via-emerald-500/25 to-transparent',
+  },
+  amber: {
+    tile: 'bg-gradient-to-br from-amber-500/25 to-amber-500/[0.06] ring-1 ring-amber-500/25',
+    icon: 'text-amber-600 dark:text-amber-400',
+    accent: 'bg-gradient-to-r from-amber-500/80 via-amber-500/25 to-transparent',
+  },
+  rose: {
+    tile: 'bg-gradient-to-br from-rose-500/25 to-rose-500/[0.06] ring-1 ring-rose-500/25',
+    icon: 'text-rose-600 dark:text-rose-400',
+    accent: 'bg-gradient-to-r from-rose-500/80 via-rose-500/25 to-transparent',
+  },
+  sky: {
+    tile: 'bg-gradient-to-br from-sky-500/25 to-sky-500/[0.06] ring-1 ring-sky-500/25',
+    icon: 'text-sky-600 dark:text-sky-400',
+    accent: 'bg-gradient-to-r from-sky-500/80 via-sky-500/25 to-transparent',
+  },
+  violet: {
+    tile: 'bg-gradient-to-br from-violet-500/25 to-violet-500/[0.06] ring-1 ring-violet-500/25',
+    icon: 'text-violet-600 dark:text-violet-400',
+    accent: 'bg-gradient-to-r from-violet-500/80 via-violet-500/25 to-transparent',
+  },
 }
 
 export function AppDialogHeader({
@@ -158,9 +191,9 @@ export function AppDialogHeader({
   className,
   children,
 }: {
-  /** Optional leading icon — rendered inside a 40px chip (see iconTone). */
+  /** Optional leading icon — rendered inside a 40px gradient tile (see iconTone). */
   icon?: LucideIcon
-  /** Chip + icon tint, default keeps the neutral muted look. */
+  /** Tile + icon + accent strip tint, default keeps the neutral look. */
   iconTone?: AppDialogIconTone
   /** 16px semibold heading. Omit when passing custom children (which must
    *  then include their own <DialogTitle> for accessibility). */
@@ -170,17 +203,29 @@ export function AppDialogHeader({
   className?: string
   children?: React.ReactNode
 }) {
+  const tone = ICON_TONE_CLASSES[iconTone]
+  // Dialog shells render an absolute ✕ at top-[18px] right-4 (zone: right
+  // 16→44px). Reserve that strip on the header so titles, descriptions and
+  // custom header rows can never run underneath it (the v1.32 overlap
+  // complaint). Alert shells render no close button, so they skip the
+  // reservation and keep symmetric padding.
+  const variant = React.useContext(AppDialogVariantContext)
   return (
     <div
       data-app-dialog-header
       className={cn(
-        'flex min-h-0 shrink-0 items-start gap-4 border-b border-border/70 px-6 py-5',
+        'relative flex min-h-0 shrink-0 items-start gap-3.5 border-b border-border/60 bg-gradient-to-b from-muted/60 via-muted/25 to-transparent py-4 pl-5 sm:pl-6',
+        variant === 'dialog' ? 'pr-13 sm:pr-14' : 'pr-5 sm:pr-6',
         className,
       )}
     >
+      {/* Tone accent strip — runs along the very top edge of the dialog
+          (the shell clips it to the rounded corners). Gives every dialog
+          a signature colored edge that matches its intent. */}
+      <div aria-hidden className={cn('absolute inset-x-0 top-0 h-[3px]', tone.accent)} />
       {Icon ? (
-        <div className={`mt-0 flex size-10 shrink-0 items-center justify-center rounded-xl ${ICON_TONE_CLASSES[iconTone].chip}`}>
-          <Icon className={`size-[18px] ${ICON_TONE_CLASSES[iconTone].icon}`} />
+        <div className={`mt-0 flex size-10 shrink-0 items-center justify-center rounded-xl ${tone.tile}`}>
+          <Icon className={`size-[18px] ${tone.icon}`} />
         </div>
       ) : null}
       <div className="min-w-0 flex-1">
@@ -201,12 +246,12 @@ export function AppDialogHeader({
 export function AppDialogTitle({ className, ...props }: React.ComponentProps<typeof DialogTitle>) {
   const variant = React.useContext(AppDialogVariantContext)
   const Comp = variant === 'alert' ? AlertDialogTitle : DialogTitle
-  return <Comp className={cn('text-left text-base leading-6 font-semibold tracking-[-0.01em]', className)} {...props} />
+  return <Comp className={cn('text-left text-base leading-6 font-semibold tracking-tight', className)} {...props} />
 }
 export function AppDialogDescription({ className, ...props }: React.ComponentProps<typeof DialogDescription>) {
   const variant = React.useContext(AppDialogVariantContext)
   const Comp = variant === 'alert' ? AlertDialogDescription : DialogDescription
-  return <Comp className={cn('mt-1 text-left text-[13px] leading-relaxed', className)} {...props} />
+  return <Comp className={cn('mt-1 text-left text-[13px] leading-relaxed text-muted-foreground', className)} {...props} />
 }
 
 /* ------------------------------------------------------------------ body  */
@@ -227,7 +272,7 @@ export function AppDialogBody({
       data-app-dialog-body
       className={cn(
         'custom-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain',
-        flush ? 'p-0' : 'px-6 py-5',
+        flush ? 'p-0' : 'px-5 py-5 sm:px-6',
         className,
       )}
     >
@@ -236,54 +281,70 @@ export function AppDialogBody({
   )
 }
 
-/* --------------------------------------------------------------- section  */
+/* --------------------------------------------------------------- sections */
 
-/** Quiet section header for dialog bodies — NEW in v1.31.
+/** Labeled subsection for dialog bodies — the v1.30 form language. Instead
+ *  of bare label/input stacks, bodies organize content into sections with
+ *  a small icon chip + 11px uppercase eyebrow, an optional muted hint and
+ *  an optional right-aligned action (e.g. a "detect" button). Purely
+ *  presentational: children stay exactly what the caller renders.
  *
- * Dialog bodies used to open with an <h4> semibold line (or worse, colored
- * bars) that competed with the dialog title. AppDialogSection replaces all
- * of them with the receding pattern: 11px uppercase tracking label in
- * muted color, an optional one-line hint, and an optional action slot on
- * the right. The section's content stays in the foreground.
- *
- *   <AppDialogSection title="Connection" hint="Tested on save"
- *                     action={<Button …/>}>
- *     …fields…
- *   </AppDialogSection>
- *
- * `divider` (default true) draws the hairline under the label row; pass
- * false for stacked sections inside one card. */
+ *  API note: `title` is an alias of `label` kept for v1.31-era callers
+ *  (theme-customizer passes title + divider); `divider` renders the
+ *  v1.31-style hairline under the eyebrow row, off by default. */
 export function AppDialogSection({
+  icon: Icon,
+  label,
   title,
   hint,
   action,
-  divider = true,
+  divider = false,
   className,
   children,
 }: {
-  title: React.ReactNode
+  /** Optional 24px chip icon next to the eyebrow. */
+  icon?: LucideIcon
+  /** Eyebrow text — keep it short, it renders uppercase. */
+  label?: React.ReactNode
+  /** Alias of `label` (v1.31 API) — either prop works. */
+  title?: React.ReactNode
+  /** Optional muted aside on the eyebrow line. */
   hint?: React.ReactNode
+  /** Optional right-aligned slot (buttons, badges…). */
   action?: React.ReactNode
-  /** Hairline under the label row (default true). */
+  /** Hairline under the eyebrow row (v1.31 API, default off). */
   divider?: boolean
   className?: string
   children?: React.ReactNode
 }) {
+  const heading = label ?? title
   return (
-    <section data-app-dialog-section className={cn('min-w-0', className)}>
-      <div className={cn('mb-3 flex flex-wrap items-center gap-x-3 gap-y-1', divider && 'border-b border-border/60 pb-2.5')}>
-        <h3 className="text-[11px] leading-4 font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          {title}
+    <section className={cn('space-y-3', className)}>
+      <div className={cn('flex min-h-6 items-center gap-2', divider && 'border-b border-border/60 pb-2.5')}>
+        {Icon ? (
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-foreground/[0.06] ring-1 ring-inset ring-foreground/[0.05]">
+            <Icon className="size-3 text-muted-foreground" />
+          </span>
+        ) : null}
+        <h3 className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          {heading}
         </h3>
-        {hint ? (
-          <p className="min-w-0 flex-1 basis-52 text-xs leading-4 text-muted-foreground/70">{hint}</p>
-        ) : (
-          <span className="flex-1" aria-hidden />
-        )}
-        {action ? <div className="ml-auto flex shrink-0 items-center">{action}</div> : null}
+        {hint ? <span className="min-w-0 truncate text-[11px] text-muted-foreground/60">{hint}</span> : null}
+        {action ? <div className="ml-auto shrink-0">{action}</div> : null}
       </div>
       {children}
     </section>
+  )
+}
+
+/** Fading hairline divider for between sections — quieter than a full
+ *  border because it dissolves towards the edges. */
+export function AppDialogDivider({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden
+      className={cn('h-px w-full bg-gradient-to-r from-transparent via-border to-transparent', className)}
+    />
   )
 }
 
@@ -300,7 +361,7 @@ export function AppDialogFooter({
     <div
       data-app-dialog-footer
       className={cn(
-        'flex shrink-0 flex-col-reverse gap-2.5 border-t border-border/70 bg-muted/40 px-6 py-4 sm:flex-row sm:items-center sm:justify-end',
+        'flex shrink-0 flex-col-reverse gap-2 border-t border-border/60 bg-muted/30 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-end sm:px-6',
         className,
       )}
     >
