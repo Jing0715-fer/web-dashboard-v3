@@ -7,31 +7,40 @@ REM ============================================
 REM
 REM  Starts the dashboard dev server on http://localhost:3000
 REM
+REM  Two ways to start:
+REM    start-dashboard.bat            visible console - this window shows the
+REM                                   server log. Stop: Ctrl+C in this window.
+REM    start-dashboard-silent.vbs     NO window at all - everything is logged
+REM                                   to logs\dashboard-console.log and the
+REM                                   browser opens by itself. Stop with
+REM                                   stop-dashboard.bat.
+REM
 REM  First run:  installs dependencies (npm), creates .env, inits the DB.
 REM              Needs internet; takes a few minutes.
 REM  Later runs: fast start. Auto re-runs npm install after a `git pull`
 REM              changed package.json (timestamp stamp check).
 REM
 REM  Requirements: Node.js 20.9+  (https://nodejs.org/)
-REM  Stop:         Ctrl+C in this window
 REM
 REM  Separate agent script: start-agent.bat 3101
 
 cd /d "%~dp0"
 
+REM SILENT=1 is set by start-dashboard-silent.vbs: the console is hidden and
+REM output is redirected to a log file. In that mode NEVER `pause` (nobody
+REM could press a key in an invisible window) and never flash helper windows.
+
 REM ---------- [1/5] Node.js check ----------
 where node >nul 2>nul
 if errorlevel 1 (
   echo ERROR: Node.js not found. Install Node 20.9+ from https://nodejs.org/ and re-run.
-  pause
-  exit /b 1
+  goto :die
 )
 for /f "delims=" %%v in ('node --version') do set "NODEV=%%v"
 set "NODEMAJOR=%NODEV:~1,2%"
 if %NODEMAJOR% LSS 20 (
   echo ERROR: Node.js 20.9+ required, found %NODEV%. Upgrade from https://nodejs.org/
-  pause
-  exit /b 1
+  goto :die
 )
 echo [1/5] Node.js %NODEV% OK
 
@@ -40,9 +49,11 @@ netstat -an | findstr /C:":3000 " | findstr /C:"LISTENING" >nul 2>nul
 if not errorlevel 1 (
   echo [2/5] Port 3000 is already LISTENING - assuming the dashboard is running.
   echo         Opening http://localhost:3000
-  echo         ^(If that is NOT the dashboard, stop the other app and re-run.^)
   start http://localhost:3000
-  pause
+  if not "%SILENT%"=="1" (
+    echo         ^(If that is NOT the dashboard, stop the other app and re-run.^)
+    pause
+  )
   exit /b 0
 )
 echo [2/5] Port 3000 free
@@ -63,8 +74,7 @@ if "%NEED_INSTALL%"=="1" (
   call npm install --no-audit --no-fund
   if errorlevel 1 (
     echo ERROR: npm install failed - see the messages above.
-    pause
-    exit /b 1
+    goto :die
   )
   if not exist "node_modules" mkdir "node_modules"
   type nul > "%STAMP%"
@@ -87,8 +97,7 @@ echo [4/5] Syncing database schema...
 call npx prisma db push
 if errorlevel 1 (
   echo ERROR: prisma db push failed - check DATABASE_URL inside .env
-  pause
-  exit /b 1
+  goto :die
 )
 
 REM ---------- [5/5] Start ----------
@@ -98,12 +107,31 @@ echo ========================================
 echo   Web Dashboard
 echo   URL:   http://localhost:3000
 echo   Login: admin@dashboard.local / admin123456
-echo   Stop:  Ctrl+C in this window
+if "%SILENT%"=="1" (
+  echo   Mode:  hidden - log: logs\dashboard-console.log
+  echo   Stop:  run stop-dashboard.bat
+) else (
+  echo   Stop:  Ctrl+C in this window
+)
 echo ========================================
 echo.
 
 REM Open the browser once the server is likely up (cosmetic - if it opens too
-REM early just refresh; first Turbopack compile can take a while)
-start "" /min cmd /c "ping -n 12 127.0.0.1 >nul & start http://localhost:3000"
+REM early just refresh; first Turbopack compile can take a while).
+REM Silent mode: the helper runs inside THIS hidden console via `start /b`
+REM so no window flashes on the taskbar either.
+if "%SILENT%"=="1" (
+  start /b "" cmd /c "ping -n 12 127.0.0.1 >nul & start http://localhost:3000"
+) else (
+  start "" /min cmd /c "ping -n 12 127.0.0.1 >nul & start http://localhost:3000"
+)
 
 call npx next dev -p 3000
+if "%SILENT%"=="1" echo Server exited - see logs\dashboard-console.log for the reason.
+goto :eof
+
+:die
+REM Error exit. Visible mode: keep the window open so the message is readable.
+REM Silent mode: the message is already in logs\dashboard-console.log.
+if not "%SILENT%"=="1" pause
+exit /b 1

@@ -715,6 +715,7 @@ export const dialogs = {
   'dlg.customize.title': 'Customize Dashboard',
   'dlg.customize.desc': 'Personalize your dashboard layout and preferences',
   'dlg.customize.density': 'Card Density',
+  'dlg.customize.densityHint': 'Density also controls the preview image height on cards — compact is the smallest, spacious the largest. Hover a card or open its details for the full screenshot.',
   'dlg.customize.compact': 'compact',
   'dlg.customize.comfortable': 'comfortable',
   'dlg.customize.spacious': 'spacious',

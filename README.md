@@ -72,7 +72,8 @@ One Next.js process. The agents you deploy elsewhere are the only other moving p
 | `src/lib/` | Process manager, harness engine, device mesh, sync, safety guards |
 | `prisma/` | Schema (SQLite) |
 | `mini-services/agent-*` | Device agents for Windows / macOS / Linux |
-| `start-dashboard.bat`, `start-agent.bat` | One-click scripts for Windows |
+| `start-dashboard-silent.vbs`, `start-dashboard.bat`, `stop-dashboard.bat` | One-click start (hidden / visible) and stop for Windows |
+| `start-agent.bat`, `start-agent.sh` | One-click agent start for Windows / macOS / Linux |
 
 Stack: Next.js 16, React 19, TypeScript, Prisma + SQLite, Tailwind CSS, shadcn/ui, running on Bun.
 
@@ -102,10 +103,14 @@ Change the password on first login (Account menu → Change password), or set `A
 ```bat
 git clone https://github.com/Jing0715-fer/web-dashboard-v3.git
 cd web-dashboard-v3
-start-dashboard.bat
+start-dashboard-silent.vbs
 ```
 
-The script installs dependencies (bun not required), writes `.env`, initializes the database, and starts the server. Re-running it is cheap: when everything is already installed it starts in seconds.
+`start-dashboard-silent.vbs` starts the dashboard **with no console window at all** — everything is logged to `logs\dashboard-console.log` and the browser opens automatically. Stop it with `stop-dashboard.bat`.
+
+Prefer a visible server log (e.g. on first run or while debugging)? Use `start-dashboard.bat` instead — it shows the same output in a console window (stop with Ctrl+C).
+
+Both scripts install dependencies (bun not required), write `.env`, initialize the database, and start the server. Re-running them is cheap: when everything is already installed they start in seconds.
 
 The only required setting is `DATABASE_URL` — where the SQLite file lives. Keep the default `file:../db/custom.db` (resolves to `db/custom.db` at the repo root); if you customize it, prefer an absolute path with forward slashes.
 
@@ -162,6 +167,8 @@ Managing processes is the whole point of this tool, so the guards are part of th
 
 | Symptom | Cause and fix |
 |---|---|
+| A CMD window stays open while the dashboard runs (Windows) | That's `start-dashboard.bat` keeping the server in a visible console — closing the window stops the service. Use `start-dashboard-silent.vbs` to run with no window at all (log: `logs\dashboard-console.log`, stop: `stop-dashboard.bat`). |
+| Double-clicking `start-dashboard-silent.vbs` does nothing | The setup failed before the server started. Open `logs\dashboard-console.log` — the error (Node missing, npm install failed, …) is recorded there. |
 | Adding a project fails with "it contains the dashboard itself" | Intentional. Analyzing the dashboard's own directory used to stop the service (the agent killed the live dev server via its `.next/dev/lock`). Register a copy of the project in a different directory instead. |
 | "Re-fetch environments" on a project that points at the dashboard itself (possibly via a differently-cased path or symlink) still refuses | Same guard, working as designed — even when the stored path doesn't string-match the dashboard's directory, the canonicalized comparison recognizes it. Copy the project to a separate directory if you want it managed. |
 | Remote analysis of the dashboard's own directory on a paired machine | Refused by the agent's self-guard (v1.15+). Agents that predate it answer `DASHBOARD_SELF_GUARD`-less errors or may race the live dashboard on that machine — update the agent (`git pull` + restart) there. |

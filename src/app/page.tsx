@@ -782,16 +782,27 @@ function HealthScoreHoverCard({
 /** Full-bleed thumbnail strip for grid cards: latest screenshot, capturing
  *  spinner, or a placeholder that explains how to get a preview. Local and
  *  remote projects render identically (v1.24 — remote captures go through
- *  the device agent's proxy). */
+ *  the device agent's proxy).
+ *
+ *  v1.30: the strip height follows the card density setting instead of the
+ *  full 16:10 aspect — at card width the uncropped screenshot made cards
+ *  ~220px taller than their text content. The image keeps object-top so the
+ *  page header (the informative part) stays in frame; the full screenshot
+ *  remains available in the hover card and the detail sheet. */
 function ProjectThumbStrip({
-  project, capturing, onCapture,
+  project, capturing, onCapture, density = 'comfortable',
 }: {
   project: Project
   capturing: boolean
   onCapture?: (p: Project) => void
+  density?: 'compact' | 'comfortable' | 'spacious'
 }) {
   const t = useT()
   const thumb = project.thumbnail
+  // Screenshot strip heights per density (compact / comfortable / spacious).
+  const imgH = density === 'compact' ? 'h-24' : density === 'spacious' ? 'h-40' : 'h-32'
+  // Failed-capture / placeholder rows are text rows — smaller, also per density.
+  const rowH = density === 'compact' ? 'h-14' : density === 'spacious' ? 'h-20' : 'h-[72px]'
 
   // Nothing to preview yet: empty projects have no page at all. Remote
   // projects (v1.24) DO get a strip — their thumbnail is captured through
@@ -811,7 +822,7 @@ function ProjectThumbStrip({
           ? t('card.thumb.hintPortNotReady')
           : (thumb.error || '').slice(0, 140)
       return (
-        <div className={`shrink-0 border-b border-dashed border-amber-300/70 dark:border-amber-800/50 bg-amber-50/70 dark:bg-amber-950/20 flex items-center gap-2.5 px-3 h-[72px] ${capturing ? '' : 'hover:bg-amber-100/70 dark:hover:bg-amber-950/30 transition-colors'}`}>
+        <div className={`shrink-0 border-b border-dashed border-amber-300/70 dark:border-amber-800/50 bg-amber-50/70 dark:bg-amber-950/20 flex items-center gap-2.5 px-3 ${rowH} ${capturing ? '' : 'hover:bg-amber-100/70 dark:hover:bg-amber-950/30 transition-colors'}`}>
           {capturing ? (
             <>
               <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-strong dark:text-brand shrink-0" />
@@ -847,7 +858,7 @@ function ProjectThumbStrip({
           alt={t('card.thumb.alt', { name: project.name })}
           loading="lazy"
           decoding="async"
-          className="w-full aspect-[16/10] object-cover object-top"
+          className={`w-full ${imgH} object-cover object-top`}
         />
         {/* Hover overlay — meta line + re-capture button (local projects) */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/0 to-black/0 opacity-0 group-hover/thumb:opacity-100 transition-opacity pointer-events-none" />
@@ -878,7 +889,7 @@ function ProjectThumbStrip({
 
   // No screenshot yet — placeholder (spinner while a capture is in flight).
   return (
-    <div className={`shrink-0 h-[72px] border-b border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 flex items-center justify-center gap-2 px-3 ${capturing ? '' : 'hover:bg-zinc-100/70 dark:hover:bg-zinc-800/40 transition-colors'}`}>
+    <div className={`shrink-0 ${rowH} border-b border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 flex items-center justify-center gap-2 px-3 ${capturing ? '' : 'hover:bg-zinc-100/70 dark:hover:bg-zinc-800/40 transition-colors'}`}>
       {capturing ? (
         <>
           <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-strong dark:text-brand shrink-0" />
@@ -1623,8 +1634,10 @@ function SortableProjectCardImpl({
         {/* Live preview thumbnail (v1.22) — real screenshot of the running
             page, auto-captured on env start. Full-bleed strip between the
             header and the environment list. v1.24: remote projects too —
-            captured through their device agent's proxy. */}
-        <ProjectThumbStrip project={project} capturing={!!project.thumbCapturing} onCapture={onCaptureThumb} />
+            captured through their device agent's proxy. v1.30: strip height
+            follows the density setting (cards were too tall with the full
+            16:10 crop). */}
+        <ProjectThumbStrip project={project} capturing={!!project.thumbCapturing} onCapture={onCaptureThumb} density={cardDensity} />
 
         <CardContent className={`${contentPad} flex-1 min-w-0 relative z-[1]`}>
           {project.description && (
@@ -12408,6 +12421,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   </button>
                 ))}
               </div>
+              {/* v1.30: density now also drives the preview strip height —
+                  say so, otherwise the effect of this control is invisible. */}
+              <p className="text-[11px] leading-relaxed text-muted-foreground">{t('dlg.customize.densityHint')}</p>
             </div>
             {/* Visible Stats */}
             <div className="space-y-3">

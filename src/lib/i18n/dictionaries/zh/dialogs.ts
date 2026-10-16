@@ -710,6 +710,7 @@ export const dialogs = {
   'dlg.customize.title': '自定义仪表盘',
   'dlg.customize.desc': '个性化仪表盘布局与偏好',
   'dlg.customize.density': '卡片密度',
+  'dlg.customize.densityHint': '密度同时控制卡片上的预览图高度：紧凑最小、宽松最大。悬停卡片或打开项目详情可查看完整截图。',
   'dlg.customize.compact': '紧凑',
   'dlg.customize.comfortable': '适中',
   'dlg.customize.spacious': '宽松',
