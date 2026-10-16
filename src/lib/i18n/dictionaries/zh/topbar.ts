@@ -30,6 +30,7 @@ export const topbar = {
   'topbar.appearance.accent': '主题色',
   'topbar.appearance.hint': '应用于按钮、标签、高亮与焦点环。保存在本浏览器。',
   // ---- 设置下拉菜单 ----
+  'topbar.settings.label': '设置与工具',
   'topbar.settings.systemStatus': '系统状态',
   'topbar.settings.llmConfig': 'LLM 配置',
   'topbar.settings.dependencyMap': '依赖关系图',

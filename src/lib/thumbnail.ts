@@ -349,6 +349,101 @@ async function waitForHttpReady(urls: string[], timeoutMs: number): Promise<stri
 }
 
 // ---------------------------------------------------------------------------
+// Tour / onboarding overlay dismissal (v1.29)
+// ---------------------------------------------------------------------------
+
+/**
+ * Many generated apps open with a first-visit guided tour (shepherd.js,
+ * driver.js, intro.js, react-joyride, hopscotch, bespoke overlays) — a
+ * thumbnail that shows a tour tooltip instead of the app itself is useless.
+ * This pass runs BEFORE the screenshot and tries to dismiss the common ones.
+ * Everything is strictly best-effort: any failure is swallowed and the
+ * capture proceeds regardless.
+ *
+ * Strategy (up to `rounds` passes, early-exit when nothing reacts):
+ *  1. Press Escape — most tour libraries cancel the ENTIRE tour on it.
+ *  2. Click dedicated close/skip controls of the popular tour libraries.
+ *  3. Click any visible button/anchor whose short label is an explicit
+ *     skip/end/close-tour word (EN + zh) — also clears cookie-consent
+ *     banners ("Got it" / "知道了") that would otherwise cover the app.
+ *  4. Re-scroll to top (tours often auto-scroll the page mid-step).
+ */
+
+/** Short, UNAMBIGUOUS dismiss labels. Deliberately excludes "Get started" /
+ *  "Start tour" style CTAs — those may navigate the app instead of closing. */
+const TOUR_DISMISS_LABEL = [
+  'skip', 'skip tour', 'skip the tour', 'skip all', 'skip guide', 'skip onboarding',
+  'end tour', 'end the tour', 'exit tour', 'close tour', 'dismiss',
+  'no thanks', 'got it', 'close the guide',
+  '跳过', '跳过引导', '跳过教程', '跳过导览', '跳过漫游', '跳过全部',
+  '结束引导', '结束教程', '关闭引导', '关闭教程', '知道了', '不再显示', '跳过指南',
+].join('|');
+
+/** Library close controls, most-specific first. All best-effort. */
+const TOUR_LIBRARY_SELECTORS = [
+  '.shepherd-cancel-icon', '.shepherd-cancel-link', '[data-shepherd-cancel]',
+  '.driver-close-btn', '.driver-popover-close-btn',
+  '.introjs-skipbutton',
+  '.react-joyride__close',
+  '.hopscotch-close',
+  '[data-tour-skip]', '[data-tour="skip"]',
+  '.tour-skip', '.tour-skip-btn', '.skip-tour', '.skip-tour-btn',
+  '.onboarding-skip', '.onboarding-close', '.guide-skip', '.guided-tour-skip',
+  '[class*="tour" i] [class*="skip" i]',
+  '[class*="onboarding" i] [class*="skip" i]',
+  '[class*="onboarding" i] [class*="close" i]',
+];
+
+async function dismissTourOverlays(page: any): Promise<boolean> {
+  let acted = false;
+  const swallow = async (fn: () => Promise<any>) => {
+    try { return await fn(); } catch { return undefined; }
+  };
+
+  // 1) Escape — usually cancels the whole tour, not just one step.
+  await swallow(() => page.keyboard.press('Escape'));
+
+  // 2) Known tour-library close/skip controls (visible ones only).
+  for (const sel of TOUR_LIBRARY_SELECTORS) {
+    await swallow(async () => {
+      const els = await page.$$(sel);
+      for (const el of els) {
+        const visible = await el.isVisible().catch(() => false);
+        if (!visible) continue;
+        await el.click({ timeout: 800 }).catch(() => {});
+        acted = true;
+      }
+    });
+  }
+
+  // 3) Any visible short-label button that explicitly says skip/end/close-tour.
+  const clickedLabels = await swallow(() => page.evaluate((pattern: string) => {
+    const rx = new RegExp(`^(?:${pattern})$`, 'i');
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>(
+      'button, a, [role="button"], [class*="btn" i], [class*="button" i]',
+    ));
+    const hits: HTMLElement[] = [];
+    for (const n of nodes) {
+      const text = (n.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!text || text.length > 24 || !rx.test(text)) continue;
+      const r = n.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      const st = getComputedStyle(n);
+      if (st.visibility === 'hidden' || st.display === 'none' || st.pointerEvents === 'none') continue;
+      hits.push(n);
+    }
+    hits.forEach((n) => n.click());
+    return hits.length;
+  }, TOUR_DISMISS_LABEL));
+  if (typeof clickedLabels === 'number' && clickedLabels > 0) acted = true;
+
+  // 4) Tours auto-scroll mid-step — restore the top of the page.
+  await swallow(() => page.evaluate(() => window.scrollTo(0, 0)));
+
+  return acted;
+}
+
+// ---------------------------------------------------------------------------
 // Core capture
 // ---------------------------------------------------------------------------
 
@@ -432,6 +527,18 @@ async function runCapture(input: CaptureInput): Promise<CaptureResult> {
         // networkidle is best-effort — SPAs with websockets never reach it.
         await page.waitForLoadState('networkidle', { timeout: 4_000 }).catch(() => {});
         await sleep(SETTLE_MS);
+        // v1.29: dismiss first-visit tour/onboarding overlays so the shot
+        // shows the actual app, not a "welcome tour" tooltip. Two bounded
+        // rounds (some tours re-show a second overlay after the first is
+        // dismissed); each round is fully best-effort.
+        let dismissedAny = false;
+        for (let round = 0; round < 2; round++) {
+          const acted = await dismissTourOverlays(page);
+          if (!acted) break;
+          dismissedAny = true;
+          await sleep(500); // let the exit animation finish
+        }
+        if (dismissedAny) await sleep(300); // one final paint settle
         buf = await page.screenshot({ type: 'jpeg', quality: JPEG_QUALITY });
       } catch (e: any) {
         lastGotoError = e;

@@ -111,7 +111,9 @@ export function ThemeCustomizer() {
           })}
         </div>
         <p className="text-[11px] font-medium text-muted-foreground mb-2">{t('topbar.appearance.accent')}</p>
-        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('topbar.appearance.accent')}>
+        {/* v1.29: grid-cols-4 — the old flex-wrap put 6 swatches on row one
+            and 2 on row two, reading as broken. */}
+        <div className="grid grid-cols-4 justify-items-center gap-2" role="radiogroup" aria-label={t('topbar.appearance.accent')}>
           {ACCENT_PRESETS.map((a) => {
             const active = accent === a.id
             const swatch = mounted ? (resolvedTheme === 'dark' ? a.dark : a.light) : a.light

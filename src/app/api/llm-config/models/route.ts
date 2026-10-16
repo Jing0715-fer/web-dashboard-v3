@@ -34,12 +34,14 @@ export async function GET(request: NextRequest) {
   const useSavedKey = searchParams.get('useSavedKey') === '1';
 
   // zai uses the built-in z-ai SDK — return the catalog list directly.
+  // v1.29: noteCode instead of a hard-coded zh sentence — the dialog localizes
+  // it (the raw note leaked Chinese into the EN UI).
   if (providerId === 'zai' || providerId === '') {
     const zai = getProviderProfile('zai');
     return NextResponse.json({
       models: zai!.models.map((m) => ({ id: m.id, name: m.name })),
       live: false,
-      note: 'Z.ai 使用内置 SDK，无需 API Key（以下为可用模型）',
+      noteCode: 'zaiSdkCatalog',
     });
   }
 

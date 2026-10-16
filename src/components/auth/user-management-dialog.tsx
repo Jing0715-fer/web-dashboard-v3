@@ -394,14 +394,14 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
       <AppDialogBody>
         <Tabs value={tab} onValueChange={(v) => setTab(v as 'users' | 'google' | 'network')}>
           <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-2 mb-4">
-            <TabsTrigger value="users" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">
+            <TabsTrigger value="users" className="px-3.5 py-1 text-xs border border-border/60 bg-background data-[state=active]:border-transparent data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">
               {t('dlg.userMgmt.users')}
               {counts.pending > 0 && (
                 <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">{counts.pending > 9 ? '9+' : counts.pending}</span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="google" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('dlg.userMgmt.google')}</TabsTrigger>
-            <TabsTrigger value="network" className="px-3.5 py-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('dlg.userMgmt.gitNetwork')}</TabsTrigger>
+            <TabsTrigger value="google" className="px-3.5 py-1 text-xs border border-border/60 bg-background data-[state=active]:border-transparent data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('dlg.userMgmt.google')}</TabsTrigger>
+            <TabsTrigger value="network" className="px-3.5 py-1 text-xs border border-border/60 bg-background data-[state=active]:border-transparent data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('dlg.userMgmt.gitNetwork')}</TabsTrigger>
           </TabsList>
 
           {/* ==================== USERS TAB ==================== */}

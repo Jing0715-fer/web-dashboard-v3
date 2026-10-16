@@ -1983,17 +1983,24 @@ function CommandPalette({
           title row (command-palette idiom), but radix a11y requires both. */}
       <AppDialogTitle className="sr-only">{t('dlg.cmd.placeholder')}</AppDialogTitle>
       <AppDialogDescription className="sr-only">{t('dlg.cmd.noResults')}</AppDialogDescription>
-      {/* Custom search header — flush, no title row (command palette idiom) */}
-      <div className="flex items-center border-b px-3">
-        <Search className="h-4 w-4 mr-2 text-muted-foreground shrink-0" />
+      {/* Custom search header — flush, no title row (command palette idiom).
+          v1.29: clear (×) button replaces the ambiguous tiny kbd — ESC hint
+          stays for discoverability. */}
+      <div className="flex items-center border-b px-3 gap-2">
+        <Search className="h-4 w-4 text-muted-foreground shrink-0" />
         <input
           ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder={t('dlg.cmd.placeholder')}
-          className="flex-1 py-3 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          className="flex-1 py-3 bg-transparent text-sm outline-none placeholder:text-muted-foreground min-w-0"
         />
-        <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">ESC</kbd>
+        {query && (
+          <button type="button" aria-label={t('dlg.cmd.clear')} onClick={() => { setQuery(''); inputRef.current?.focus() }} className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors shrink-0">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+        <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground shrink-0">ESC</kbd>
       </div>
       <AppDialogBody flush className="p-1">
           {filtered.length === 0 && (
@@ -2011,7 +2018,7 @@ function CommandPalette({
                   <item.icon className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span className="truncate">{item.label}</span>
                   {'shortcut' in item && (item as { shortcut?: string }).shortcut && (
-                    <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono shrink-0">{(item as { shortcut: string }).shortcut}</kbd>
+                    <kbd className="ml-auto inline-flex h-5 min-w-8 select-none items-center justify-center text-[9px] text-muted-foreground bg-muted px-1.5 rounded border font-mono shrink-0">{(item as { shortcut: string }).shortcut}</kbd>
                   )}
                 </button>
               ))}
@@ -2026,34 +2033,56 @@ function CommandPalette({
 
 function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useT()
-  const shortcuts = [
-    { keys: '⌘/Ctrl + K', description: t('dlg.shortcuts.focusSearch') },
-    { keys: '⌘/Ctrl + N', description: t('dlg.shortcuts.addProject') },
-    { keys: '⌘/Ctrl + Shift + A', description: t('dlg.shortcuts.addProjectGlobal') },
-    { keys: '⌘/Ctrl + Shift + R', description: t('dlg.shortcuts.refreshData') },
-    { keys: '⌘/Ctrl + P', description: t('dlg.shortcuts.commandPalette') },
-    { keys: '⌘/Ctrl + D', description: t('dlg.shortcuts.deviceMgmt') },
-    { keys: 'G then G', description: t('dlg.shortcuts.gridView') },
-    { keys: 'G then L', description: t('dlg.shortcuts.listView') },
-    { keys: '↑ / ↓', description: t('dlg.shortcuts.navigateCards') },
-    { keys: 'Home / End', description: t('dlg.shortcuts.firstLast') },
-    { keys: 'Enter', description: t('dlg.shortcuts.openDetails') },
-    { keys: 'e', description: t('dlg.shortcuts.editProject') },
-    { keys: 's', description: t('dlg.shortcuts.startEnvs') },
-    { keys: 'x', description: t('dlg.shortcuts.stopEnvs') },
-    { keys: 'Delete', description: t('dlg.shortcuts.deleteProject') },
-    { keys: 'Escape', description: t('dlg.shortcuts.closeDialog') },
-    { keys: '?', description: t('dlg.shortcuts.showShortcuts') },
+  // v1.29: grouped into sections — a flat 18-row list was hard to scan, and
+  // the mixed-width key badges had no visual rhythm.
+  const sections: { title: string; items: { keys: string; description: string }[] }[] = [
+    {
+      title: t('dlg.shortcuts.secGeneral'),
+      items: [
+        { keys: '⌘/Ctrl + K', description: t('dlg.shortcuts.focusSearch') },
+        { keys: '⌘/Ctrl + P', description: t('dlg.shortcuts.commandPalette') },
+        { keys: '?', description: t('dlg.shortcuts.showShortcuts') },
+        { keys: 'Escape', description: t('dlg.shortcuts.closeDialog') },
+      ],
+    },
+    {
+      title: t('dlg.shortcuts.secNav'),
+      items: [
+        { keys: '↑ / ↓', description: t('dlg.shortcuts.navigateCards') },
+        { keys: 'Home / End', description: t('dlg.shortcuts.firstLast') },
+        { keys: 'G then G', description: t('dlg.shortcuts.gridView') },
+        { keys: 'G then L', description: t('dlg.shortcuts.listView') },
+        { keys: 'Enter', description: t('dlg.shortcuts.openDetails') },
+      ],
+    },
+    {
+      title: t('dlg.shortcuts.secProject'),
+      items: [
+        { keys: '⌘/Ctrl + N', description: t('dlg.shortcuts.addProject') },
+        { keys: '⌘/Ctrl + Shift + A', description: t('dlg.shortcuts.addProjectGlobal') },
+        { keys: '⌘/Ctrl + Shift + R', description: t('dlg.shortcuts.refreshData') },
+        { keys: '⌘/Ctrl + D', description: t('dlg.shortcuts.deviceMgmt') },
+        { keys: 'e', description: t('dlg.shortcuts.editProject') },
+        { keys: 's', description: t('dlg.shortcuts.startEnvs') },
+        { keys: 'x', description: t('dlg.shortcuts.stopEnvs') },
+        { keys: 'Delete', description: t('dlg.shortcuts.deleteProject') },
+      ],
+    },
   ]
   return (
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="lg">
       <AppDialogHeader title={t('dlg.shortcuts.title')} description={t('dlg.shortcuts.desc')} />
       <AppDialogBody>
-        <div className="space-y-2">
-          {shortcuts.map((s) => (
-            <div key={s.keys} className="flex items-center justify-between py-1">
-              <span className="text-sm">{s.description}</span>
-              <kbd className="inline-flex h-5 items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">{s.keys}</kbd>
+        <div className="space-y-5">
+          {sections.map((sec) => (
+            <div key={sec.title} className="space-y-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 pb-1 border-b border-border/60">{sec.title}</div>
+              {sec.items.map((s) => (
+                <div key={s.keys + s.description} className="flex items-center justify-between py-1 gap-4">
+                  <span className="text-sm">{s.description}</span>
+                  <kbd className="inline-flex h-5 min-w-8 items-center justify-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground shrink-0">{s.keys}</kbd>
+                </div>
+              ))}
             </div>
           ))}
         </div>
@@ -2816,9 +2845,9 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
                         {r.reserved && <LockIcon className="inline ml-1 h-3 w-3 text-amber-500" />}
                       </td>
                       <td className="px-3 py-2 font-mono text-muted-foreground">{r.pid ?? '—'}</td>
-                      <td className="px-3 py-2 max-w-[260px]">
+                      <td className="px-3 py-2 max-w-[320px]">
                         <div className="truncate font-medium" title={r.command || r.processName}>{r.processName || t('ports.unknownProc')}</div>
-                        {r.command && <div className="truncate text-[10px] text-muted-foreground" title={r.command}>{r.command}</div>}
+                        {r.command && <div className="truncate text-[10px] text-muted-foreground" title={r.command} dir="ltr">{r.command}</div>}
                       </td>
                       <td className="px-3 py-2 hidden md:table-cell">
                         {r.owner ? (
@@ -4267,13 +4296,19 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
       if (Array.isArray(data.models) && data.models.length > 0) {
         setModels(data.models)
         setModelsLive(!!data.live)
-        setModelNote(data.live
-          ? t('dlg.llm.modelsLive', { count: data.models.length })
-          : (data.warning || data.error || data.note || t('dlg.llm.modelsCatalog')))
+        // v1.29: structured noteCode localizes cleanly; raw note/error strings
+        // stay as fallback (they are provider API text, usually EN).
+        setModelNote(data.noteCode === 'zaiSdkCatalog'
+          ? t('dlg.llm.modelsZaiCatalog')
+          : data.live
+            ? t('dlg.llm.modelsLive', { count: data.models.length })
+            : (data.note || data.warning || data.error || t('dlg.llm.modelsCatalog')))
       } else {
         setModels([])
         setModelsLive(false)
-        setModelNote(data.error || data.warning || t('dlg.llm.noModels'))
+        setModelNote(data.noteCode === 'zaiSdkCatalog'
+          ? t('dlg.llm.modelsZaiCatalog')
+          : (data.error || data.warning || t('dlg.llm.noModels')))
       }
     } catch {
       setModelNote(t('dlg.llm.fetchFailed'))
@@ -4481,10 +4516,10 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
               </div>
 
               {isZai && (
-                <div className="flex items-start gap-2.5 rounded-lg border border-emerald-200/80 bg-emerald-50/70 p-3 text-xs leading-relaxed text-emerald-700 dark:border-emerald-800/60 dark:bg-emerald-950/25 dark:text-emerald-300">
-                  <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="flex items-start gap-2.5 rounded-lg border border-border/70 bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground dark:bg-muted/20">
+                  <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                   <span>
-                    {t('dlg.llm.zaiHintBefore')} <span className="font-semibold">{t('dlg.llm.zaiHintNoKey')}</span>{t('dlg.llm.zaiHintAfter')}
+                    {t('dlg.llm.zaiHintBefore')} <span className="font-semibold text-foreground">{t('dlg.llm.zaiHintNoKey')}</span>{t('dlg.llm.zaiHintAfter')}
                   </span>
                 </div>
               )}
@@ -4609,72 +4644,75 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                 </button>
               </div>
 
-              {/* Engine row: environment analysis (agent harness vs single API call) */}
-              <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2.5 rounded-lg border p-3.5">
-                <div className="flex min-w-0 items-start gap-2.5">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400">
-                    <Sparkles className="h-3.5 w-3.5" />
-                  </span>
-                  <div className="min-w-0">
+              {/* Engine row: environment analysis (agent harness vs single API call).
+                  v1.29: segmented control sits ON the label line — it was
+                  right-aligned against the description block, reading as
+                  disconnected from the feature it switches. */}
+              <div className="rounded-lg border p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400">
+                      <Sparkles className="h-3.5 w-3.5" />
+                    </span>
                     <p className="text-xs font-medium">{t('dlg.llm.engineAnalysis')}</p>
-                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.engineAnalysisDesc')}</p>
-                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">
-                      {analysisMode === 'agent' ? t('dlg.llm.engineAnalysisAgentHint') : t('dlg.llm.engineAnalysisLegacyHint')}
-                    </p>
+                  </div>
+                  <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.engineAnalysis')}>
+                    <button
+                      type="button"
+                      aria-pressed={analysisMode === 'agent'}
+                      onClick={() => setAnalysisMode('agent')}
+                      className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${analysisMode === 'agent' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      {t('dlg.llm.engineAgentBtn')}
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={analysisMode === 'legacy'}
+                      onClick={() => setAnalysisMode('legacy')}
+                      className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${analysisMode === 'legacy' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      {t('dlg.llm.engineLegacyBtn')}
+                    </button>
                   </div>
                 </div>
-                <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.engineAnalysis')}>
-                  <button
-                    type="button"
-                    aria-pressed={analysisMode === 'agent'}
-                    onClick={() => setAnalysisMode('agent')}
-                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${analysisMode === 'agent' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {t('dlg.llm.engineAgentBtn')}
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={analysisMode === 'legacy'}
-                    onClick={() => setAnalysisMode('legacy')}
-                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${analysisMode === 'legacy' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {t('dlg.llm.engineLegacyBtn')}
-                  </button>
-                </div>
+                <p className="mt-2 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.engineAnalysisDesc')}</p>
+                <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">
+                  {analysisMode === 'agent' ? t('dlg.llm.engineAnalysisAgentHint') : t('dlg.llm.engineAnalysisLegacyHint')}
+                </p>
               </div>
 
               {/* Engine row: code pull (deterministic agent vs plain + AI diagnosis) */}
-              <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2.5 rounded-lg border p-3.5">
-                <div className="flex min-w-0 items-start gap-2.5">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
-                    <GitPullRequest className="h-3.5 w-3.5" />
-                  </span>
-                  <div className="min-w-0">
+              <div className="rounded-lg border p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
+                      <GitPullRequest className="h-3.5 w-3.5" />
+                    </span>
                     <p className="text-xs font-medium">{t('dlg.llm.enginePull')}</p>
-                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.enginePullDesc')}</p>
-                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">
-                      {pullMode === 'agent' ? t('dlg.llm.enginePullAgentHint') : t('dlg.llm.enginePullLegacyHint')}
-                    </p>
+                  </div>
+                  <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.enginePull')}>
+                    <button
+                      type="button"
+                      aria-pressed={pullMode === 'agent'}
+                      onClick={() => setPullMode('agent')}
+                      className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${pullMode === 'agent' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      {t('dlg.llm.enginePullAgentBtn')}
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={pullMode === 'legacy'}
+                      onClick={() => setPullMode('legacy')}
+                      className={`h-7 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${pullMode === 'legacy' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
+                    >
+                      {t('dlg.llm.enginePullLegacyBtn')}
+                    </button>
                   </div>
                 </div>
-                <div className="inline-flex shrink-0 rounded-lg border bg-muted/40 p-0.5" role="group" aria-label={t('dlg.llm.enginePull')}>
-                  <button
-                    type="button"
-                    aria-pressed={pullMode === 'agent'}
-                    onClick={() => setPullMode('agent')}
-                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${pullMode === 'agent' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {t('dlg.llm.enginePullAgentBtn')}
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={pullMode === 'legacy'}
-                    onClick={() => setPullMode('legacy')}
-                    className={`h-8 cursor-pointer rounded-md px-3 text-xs font-medium transition-colors ${pullMode === 'legacy' ? 'bg-background text-emerald-700 shadow-sm dark:text-emerald-300' : 'text-muted-foreground hover:text-foreground'}`}
-                  >
-                    {t('dlg.llm.enginePullLegacyBtn')}
-                  </button>
-                </div>
+                <p className="mt-2 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.enginePullDesc')}</p>
+                <p className="mt-1 text-[11px] leading-snug text-muted-foreground/80">
+                  {pullMode === 'agent' ? t('dlg.llm.enginePullAgentHint') : t('dlg.llm.enginePullLegacyHint')}
+                </p>
               </div>
 
               {/* Engine row: auto-repair (legacy tool loop vs. delegated agent CLI) */}
@@ -5358,7 +5396,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 // ======================== DETAIL SHEET ========================
 
 function DetailSheet({
-  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch, onPullFailure, onRetryUpdateCheck
+  project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch, onPullFailure, onRetryUpdateCheck, onAddEnv, onEditEnv
 }: {
   project: Project | null
   open: boolean
@@ -5385,6 +5423,12 @@ function DetailSheet({
   version?: ProjectVersion | null
   /** Remote-repo freshness — hint states render an "update available" pill. */
   update?: RepoUpdateStatus | null
+  /** v1.29: manual environment add — the EnvFormDialog existed but had NO
+   *  entry point, so a failed/timed-out analysis left the project stuck
+   *  with zero envs and no way forward. */
+  onAddEnv?: (projectId: string) => void
+  /** v1.29: manual environment edit (same gap as onAddEnv). */
+  onEditEnv?: (env: Environment) => void
 }) {
   const t = useT()
   // "Update available" hint (behind / diverged / differs) for the git repo block.
@@ -5964,8 +6008,8 @@ function DetailSheet({
                           </div>
                           {localNetworkInfo && (
                             <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-6">
-                              <span>{t('dlg.detail.hostname')}</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.hostname}</span>
-                              <span>{t('dlg.detail.platform')}</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.platform} {localNetworkInfo.arch}</span>
+                              <span>{t('dlg.detail.hostname')}</span><span className="font-mono text-foreground dark:text-zinc-200 truncate min-w-0" title={localNetworkInfo.hostname}>{localNetworkInfo.hostname}</span>
+                              <span>{t('dlg.detail.platform')}</span><span className="font-mono text-foreground dark:text-zinc-200 truncate min-w-0">{localNetworkInfo.platform} {localNetworkInfo.arch}</span>
                               <span>{t('dlg.detail.cpuCores')}</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.cpus}</span>
                             </div>
                           )}
@@ -6500,6 +6544,11 @@ function DetailSheet({
                   <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { const ports = envs.map((e) => `:${e.port}`).join(', '); navigator.clipboard.writeText(ports); toast({ title: t('dlg.detail.portsCopied'), description: ports, variant: 'success' }) }}>
                     <Copy className="h-3 w-3 mr-1 text-teal-500" />{t('dlg.detail.copyPorts')}
                   </Button>
+                  {project && onAddEnv && (
+                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => onAddEnv(project.id)}>
+                      <Plus className="h-3 w-3 mr-1 text-emerald-500" />{t('dlg.detail.addEnvManually')}
+                    </Button>
+                  )}
                 </div>
               </div>
             )}
@@ -6562,6 +6611,9 @@ function DetailSheet({
                       )}
                       {env.name !== 'development' && (
                         <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-teal-500" onClick={() => onEnvAction(project.id, env.id, 'rebuild')}><Hammer className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.rebuild')}</TooltipContent></Tooltip></TooltipProvider>
+                      )}
+                      {onEditEnv && (
+                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" aria-label={t('dlg.common.edit')} className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-muted-foreground" onClick={() => onEditEnv(env)}><Edit3 className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.common.edit')}</TooltipContent></Tooltip></TooltipProvider>
                       )}
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpandedEnv(isExpanded ? null : env.id)}>
                         <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
@@ -6730,18 +6782,31 @@ function DetailSheet({
               <div className="text-center py-8 text-muted-foreground">
                 <Layers className="h-8 w-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm mb-3">{t('dlg.detail.noEnvsYet')}</p>
-                {project && onReanalyze && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5"
-                    onClick={() => onReanalyze(project)}
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" />
-                    {t('dlg.detail.detectEnvs')}
-                  </Button>
-                )}
+                <div className="flex items-center justify-center gap-2">
+                  {project && onReanalyze && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5"
+                      onClick={() => onReanalyze(project)}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      {t('dlg.detail.detectEnvs')}
+                    </Button>
+                  )}
+                  {project && onAddEnv && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground"
+                      onClick={() => onAddEnv(project.id)}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {t('dlg.detail.addEnvManually')}
+                    </Button>
+                  )}
+                </div>
               </div>
             )}
             </motion.div>
@@ -7308,10 +7373,10 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
           </div>
           {/* Quick action buttons */}
           {onRefresh && (
-            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onRefresh}><RefreshCw className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('dlg.common.refresh')}</TooltipContent></Tooltip></TooltipProvider>
+            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" aria-label={t('dlg.common.refresh')} className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onRefresh}><RefreshCw className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('dlg.common.refresh')}</TooltipContent></Tooltip></TooltipProvider>
           )}
           {onAddProject && (
-            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onAddProject}><Plus className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('topbar.addProject')}</TooltipContent></Tooltip></TooltipProvider>
+            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" aria-label={t('topbar.addProject')} className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onAddProject}><Plus className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('topbar.addProject')}</TooltipContent></Tooltip></TooltipProvider>
           )}
           <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-2.5 sm:px-3 py-1.5 rounded-md bg-brand-soft text-brand-strong hover:bg-brand-soft-strong ring-1 ring-brand/25 dark:ring-brand/20 active:scale-95 font-medium" onClick={onOpenDevices}>
             <Plug className="h-3.5 w-3.5" />
@@ -7324,7 +7389,7 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
             <Monitor className="h-3.5 w-3.5" />
             <span className="font-medium text-xs">{t('surf.system')}</span>
           </button>
-          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onOpenPorts}><Network className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('ports.title')}</TooltipContent></Tooltip></TooltipProvider>
+          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" aria-label={t('ports.title')} className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-accent dark:hover:bg-white/10 text-muted-foreground hover:text-foreground transition-all active:scale-90" onClick={onOpenPorts}><Network className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('ports.title')}</TooltipContent></Tooltip></TooltipProvider>
         </div>
       </div>
     </motion.footer>
@@ -7433,19 +7498,21 @@ function DeviceManagementPanel({
           </div>
           {/* Action toolbar — wraps on narrow screens instead of overlapping
            * the header text. One instance of each action (no duplicates: the
-           * empty state below no longer repeats them). */}
+           * empty state below no longer repeats them). v1.29: unified neutral
+           * outline style — the actions keep their color identity via the
+           * icon only (was: 4 differently-colored button variants). */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            <Button variant="outline" size="sm" onClick={onOpenPairing} className="h-7 text-xs border-orange-300 text-orange-700 hover:bg-orange-50 dark:border-orange-700 dark:text-orange-400 dark:hover:bg-orange-900/20">
-              <PlugZap className="h-3 w-3 mr-1" />{t('dlg.devicePanel.pair')}
+            <Button variant="outline" size="sm" onClick={onOpenPairing} className="h-7 text-xs">
+              <PlugZap className="h-3 w-3 mr-1 text-orange-500" />{t('dlg.devicePanel.pair')}
             </Button>
-            <Button variant="outline" size="sm" onClick={onOpenJoin} className="h-7 text-xs border-cyan-300 text-cyan-700 hover:bg-cyan-50 dark:border-cyan-700 dark:text-cyan-400 dark:hover:bg-cyan-900/20">
-              <MonitorSmartphone className="h-3 w-3 mr-1" />{t('dlg.devicePanel.join')}
+            <Button variant="outline" size="sm" onClick={onOpenJoin} className="h-7 text-xs">
+              <MonitorSmartphone className="h-3 w-3 mr-1 text-cyan-500" />{t('dlg.devicePanel.join')}
             </Button>
-            <Button variant="outline" size="sm" onClick={onOpenDeployGuide} className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
-              <Download className="h-3 w-3 mr-1" />{t('dlg.devicePanel.deploy')}
+            <Button variant="outline" size="sm" onClick={onOpenDeployGuide} className="h-7 text-xs">
+              <Download className="h-3 w-3 mr-1 text-teal-500" />{t('dlg.devicePanel.deploy')}
             </Button>
-            <Button variant="outline" size="sm" onClick={onOpenRemoteProject} className="h-7 text-xs border-teal-300 text-teal-700 hover:bg-teal-50 dark:border-teal-700 dark:text-teal-400 dark:hover:bg-teal-900/20">
-              <MonitorSmartphone className="h-3 w-3 mr-1" />{t('dlg.devicePanel.addRemote')}
+            <Button variant="outline" size="sm" onClick={onOpenRemoteProject} className="h-7 text-xs">
+              <Plus className="h-3 w-3 mr-1 text-teal-500" />{t('dlg.devicePanel.addRemote')}
             </Button>
           </div>
         </SheetHeader>
@@ -10561,7 +10628,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             {/* Notifications */}
             <Popover>
               <PopoverTrigger asChild>
-                <button type="button" className="inline-flex items-center justify-center rounded-md h-8 w-8 hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground cursor-pointer relative transition-all duration-150 active:scale-95">
+                <button type="button" aria-label={t('topbar.notifications.title')} className="inline-flex items-center justify-center rounded-md h-8 w-8 hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground cursor-pointer relative transition-all duration-150 active:scale-95">
+                  <span className="sr-only">{t('topbar.notifications.title')}</span>
                   <Bell className={`h-4 w-4 ${unreadNotifs > 0 ? 'bell-shake' : ''}`} />
                   {unreadNotifs > 0 && (
                     <motion.span
@@ -10576,8 +10644,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   )}
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-80 p-0">
-                <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
+              <PopoverContent align="end" className="w-[340px] sm:w-[380px] p-0">
+                <div className="flex items-center justify-between px-3.5 py-2.5 border-b bg-muted/30">
                   <span className="text-sm font-semibold">{t('topbar.notifications.title')}</span>
                   <div className="flex items-center gap-1">
                     {unreadNotifs > 0 && (
@@ -10592,7 +10660,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     )}
                   </div>
                 </div>
-                <div className="max-h-80 overflow-y-auto">
+                <div className="max-h-[22rem] overflow-y-auto custom-scrollbar">
                   {notifications.length === 0 && (
                     <div className="py-8 text-center text-sm text-muted-foreground">
                       <Bell className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -10613,7 +10681,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                           animate={{ opacity: 1, height: 'auto' }}
                           exit={{ opacity: 0, height: 0, marginBottom: 0 }}
                           transition={{ duration: 0.2, ease: 'easeInOut' }}
-                          className={`w-full flex items-start gap-2 p-2.5 text-left hover:bg-accent/50 transition-colors border-b last:border-0 border-l-2 ${NotifBorderMap[notif.type]} ${!notif.read ? NotifBgMap[notif.type] : ''}`}
+                          className={`w-full flex items-start gap-2.5 p-3 text-left hover:bg-accent/50 transition-colors border-b last:border-0 border-l-2 ${NotifBorderMap[notif.type]} ${!notif.read ? NotifBgMap[notif.type] : ''}`}
                           onClick={() => {
                             if (!notif.read) handleMarkNotifRead(notif.id)
                             setNotifDetail(notif)
@@ -10623,11 +10691,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                           <NIcon className={`h-4 w-4 mt-0.5 shrink-0 ${NotifColorMap[notif.type]}`} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
-                              <span className={`text-sm truncate ${!notif.read ? 'font-semibold' : 'font-medium'}`}>{notif.title}</span>
+                              <span className={`text-[13px] truncate ${!notif.read ? 'font-semibold' : 'font-medium'}`}>{notif.title}</span>
                               {!notif.read && <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 400, damping: 20 }} className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />}
                             </div>
-                            <p className="text-xs text-muted-foreground truncate">{notif.message}</p>
-                            <p className="text-[10px] text-muted-foreground/70 mt-0.5 flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{formatTimeAgo(notif.timestamp, t)}</p>
+                            <p className="text-xs leading-snug text-muted-foreground line-clamp-2">{notif.message}</p>
+                            <p className="text-[10px] text-muted-foreground/70 mt-1 flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{formatTimeAgo(notif.timestamp, t)}</p>
                           </div>
                         </motion.button>
                       )
@@ -10639,24 +10707,24 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
             <Separator orientation="vertical" className="h-5 mx-0.5" />
 
-            {/* View toggle */}
-            <div className="hidden sm:flex items-center gap-1">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild><button type="button" className={`inline-flex items-center justify-center rounded-md h-8 w-8 cursor-pointer transition-all duration-150 active:scale-95 ${viewMode === 'grid' ? 'bg-secondary text-secondary-foreground' : 'hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground'}`} onClick={() => setViewMode('grid')}>
-                    <LayoutGrid className="h-4 w-4" />
+            {/* View toggle — ONE segmented control (grid | list), not two floating buttons */}
+            <div className="hidden sm:flex items-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-card/60 dark:bg-zinc-900/60 p-0.5 gap-0.5">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild><button type="button" aria-label={t('topbar.view.grid')} aria-pressed={viewMode === 'grid'} className={`inline-flex items-center justify-center rounded-[5px] h-6 w-8 cursor-pointer transition-colors ${viewMode === 'grid' ? 'bg-secondary text-secondary-foreground shadow-xs' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground active:scale-95'}`} onClick={() => setViewMode('grid')}>
+                    <LayoutGrid className="h-3.5 w-3.5" />
                   </button></TooltipTrigger>
-                <TooltipContent>{t('topbar.view.grid')}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild><button type="button" className={`inline-flex items-center justify-center rounded-md h-8 w-8 cursor-pointer transition-all duration-150 active:scale-95 ${viewMode === 'list' ? 'bg-secondary text-secondary-foreground' : 'hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground'}`} onClick={() => setViewMode('list')}>
-                    <List className="h-4 w-4" />
+                  <TooltipContent>{t('topbar.view.grid')}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild><button type="button" aria-label={t('topbar.view.list')} aria-pressed={viewMode === 'list'} className={`inline-flex items-center justify-center rounded-[5px] h-6 w-8 cursor-pointer transition-colors ${viewMode === 'list' ? 'bg-secondary text-secondary-foreground shadow-xs' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground active:scale-95'}`} onClick={() => setViewMode('list')}>
+                    <List className="h-3.5 w-3.5" />
                   </button></TooltipTrigger>
-                <TooltipContent>{t('topbar.view.list')}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+                  <TooltipContent>{t('topbar.view.list')}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </div>
 
             <Separator orientation="vertical" className="h-5 mx-0.5 hidden sm:block" />
@@ -10703,7 +10771,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
             {/* Settings dropdown: Gateway, LLM, Export, Sync */}
             <DropdownMenu>
-              <DropdownMenuTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-8 w-8 cursor-pointer hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground transition-colors">
+              <DropdownMenuTrigger asChild><button type="button" aria-label={t('topbar.settings.label')} className="inline-flex items-center justify-center rounded-md h-8 w-8 cursor-pointer hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground transition-colors">
+                <span className="sr-only">{t('topbar.settings.label')}</span>
                 <Settings className="h-4 w-4" />
               </button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[200px] p-1.5 text-sm">
@@ -10745,7 +10814,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             <Separator orientation="vertical" className="h-5 mx-1.5" />
 
             {/* Primary action */}
-            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" onClick={() => setRemoteProjectOpen(true)} disabled={devices.length === 0} className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
+            <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" aria-label={devices.length === 0 ? t('topbar.remoteProject.noDevice') : t('topbar.remoteProject.tooltip')} onClick={() => setRemoteProjectOpen(true)} disabled={devices.length === 0} className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
               <MonitorSmartphone className="h-4 w-4" />
             </button></TooltipTrigger><TooltipContent>{devices.length === 0 ? t('topbar.remoteProject.noDevice') : t('topbar.remoteProject.tooltip')}</TooltipContent></Tooltip></TooltipProvider>
             <Button onClick={handleAddProject} className="h-8 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-xs transition-colors">
@@ -11095,7 +11164,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             {/* Horizontal activity scroller — right-edge fade signals more
                 content instead of an abrupt clip. */}
             <div className="relative">
-              <div className="px-4 py-2 flex items-center gap-3 overflow-x-auto custom-scrollbar [mask-image:linear-gradient(to_right,black_92%,transparent)] [scrollbar-width:thin]">
+              <div className="px-4 py-2 flex items-center gap-3 overflow-x-auto custom-scrollbar [mask-image:linear-gradient(to_right,transparent,black_2.5%,black_96%,transparent)] [scrollbar-width:thin]">
               {globalActivity.map((event) => {
                 const IconComp = ACTIVITY_ICONS[event.type] || Activity
                 const colorClass = ACTIVITY_COLORS[event.type] || 'text-zinc-500 bg-zinc-100'
@@ -11827,6 +11896,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         onReanalyze={handleReanalyzeProject}
         onPullFailure={openPullDiagnosis}
         onRetryUpdateCheck={() => { void fetchProjectUpdates({ refresh: true }) }}
+        onAddEnv={handleAddEnv}
+        onEditEnv={handleEditEnv}
       />
 
       {/* Gateway monitor */}
@@ -12093,15 +12164,22 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         </g>
                       )
                     })}
-                    {/* Nodes */}
+                    {/* Nodes — v1.29: monogram inside the circle (was a 7-char
+                        truncated name), full label BELOW the node, native SVG
+                        <title> tooltip with the untouched name. */}
                     {nodes.map((node, ni) => {
                       const x = cx + r * Math.cos(node.angle)
                       const y = cy + r * Math.sin(node.angle)
+                      const label = node.name.length > 14 ? node.name.slice(0, 13) + '…' : node.name
                       return (
                         <g key={ni}>
-                          <circle cx={x} cy={y} r={22} fill={statusColor(node.status)} fillOpacity={0.15} stroke={statusColor(node.status)} strokeWidth={2} />
-                          <text x={x} y={y + 1} textAnchor="middle" dominantBaseline="central" className="fill-foreground text-[9px] font-semibold" style={{ pointerEvents: 'none' }}>
-                            {node.name.length > 8 ? node.name.slice(0, 7) + '…' : node.name}
+                          <title>{node.name}</title>
+                          <circle cx={x} cy={y} r={18} fill={statusColor(node.status)} fillOpacity={0.15} stroke={statusColor(node.status)} strokeWidth={2} />
+                          <text x={x} y={y + 1} textAnchor="middle" dominantBaseline="central" className="fill-foreground text-[10px] font-bold" style={{ pointerEvents: 'none' }}>
+                            {node.name.slice(0, 2).toUpperCase()}
+                          </text>
+                          <text x={x} y={y + 32} textAnchor="middle" className="fill-foreground/80 text-[10px] font-medium" style={{ pointerEvents: 'none' }}>
+                            {label}
                           </text>
                         </g>
                       )

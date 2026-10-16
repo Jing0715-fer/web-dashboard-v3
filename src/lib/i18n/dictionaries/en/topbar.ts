@@ -32,6 +32,7 @@ export const topbar = {
   'topbar.appearance.accent': 'Accent color',
   'topbar.appearance.hint': 'Applies to buttons, tags, highlights and focus rings. Saved to this browser.',
   // ---- settings dropdown ----
+  'topbar.settings.label': 'Settings & tools',
   'topbar.settings.systemStatus': 'System Status',
   'topbar.settings.llmConfig': 'LLM Configuration',
   'topbar.settings.dependencyMap': 'Dependency Map',
