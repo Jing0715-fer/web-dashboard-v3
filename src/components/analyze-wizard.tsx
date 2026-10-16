@@ -6,7 +6,7 @@ import {
   Bot, Terminal, FileText, Search, CheckCircle2, XCircle, Loader2,
   Play, Zap, RefreshCw, Sparkles, Gauge, CircleDot, Save,
 } from 'lucide-react'
-import { AppDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody } from '@/components/app-dialog'
+import { AppDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody, AppDialogFooter } from '@/components/app-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -317,12 +317,14 @@ export function AnalyzeWizard({
       </AppDialogHeader>
 
       <AppDialogBody className="space-y-4">
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-          <Badge variant={status === 'running' ? 'secondary' : done ? 'default' : 'destructive'} className="text-[11px] h-5">
+        {/* quiet step header — status dot + meta, no loud badges (v1.31 R7) */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+            <span className={`h-1.5 w-1.5 rounded-full ${status === 'running' ? 'animate-pulse bg-sky-500' : done ? 'bg-emerald-500' : 'bg-red-500'}`} />
             {status === 'running' ? t('dlg.analyze.status.running') : done ? t('dlg.analyze.status.completed') : status === 'cancelled' ? t('dlg.analyze.status.cancelled') : t('dlg.analyze.status.failed')}
-          </Badge>
+          </span>
           {status === 'running' && !!view?.queuePosition && view.queuePosition > 0 && (
-            <Badge variant="outline" className="text-[11px] h-5 text-amber-600 dark:text-amber-400 border-amber-300 dark:border-amber-700/50">
+            <Badge variant="outline" className="h-5 border-amber-300 text-[11px] text-amber-600 dark:border-amber-700/50 dark:text-amber-400">
               {t('dlg.analyze.queued', { pos: view.queuePosition })}{view.queueLength ? ` / ${view.queueLength}` : ''}
             </Badge>
           )}
@@ -334,15 +336,15 @@ export function AnalyzeWizard({
         <div className="flex items-center gap-2.5">
           <Progress value={pct} className="h-1.5 flex-1" />
           {status === 'running' && (
-            <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums w-24 text-right truncate" title={t(est.label as Parameters<typeof t>[0])}>{t(est.label as Parameters<typeof t>[0])}</span>
+            <span className="w-24 shrink-0 truncate text-right text-[11px] tabular-nums text-muted-foreground" title={t(est.label as Parameters<typeof t>[0])}>{t(est.label as Parameters<typeof t>[0])}</span>
           )}
         </div>
 
         {/* live progress feed — keeps its own bounded scroll so the
             scrollRef autoscroll keeps working inside the body */}
-        <div ref={scrollRef} className="max-h-72 overflow-y-auto rounded-lg border bg-muted/30 p-3 space-y-1.5">
+        <div ref={scrollRef} className="max-h-72 space-y-1.5 overflow-y-auto rounded-xl border bg-muted/30 p-3.5">
           {progressItems.length === 0 && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 justify-center">
+            <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {t('dlg.analyze.startingAgent')}
             </div>
@@ -357,7 +359,7 @@ export function AnalyzeWizard({
                   {showDivider && (
                     <div className="flex items-center gap-2 pt-1.5" title={t('dlg.analyze.attemptDivider', { attempt: p.attempt })}>
                       <span className="h-px flex-1 bg-border" />
-                      <span className="text-[10px] font-medium text-muted-foreground/80 shrink-0">{t('dlg.analyze.attemptDivider', { attempt: p.attempt })}</span>
+                      <span className="shrink-0 text-[11px] font-medium text-muted-foreground/80">{t('dlg.analyze.attemptDivider', { attempt: p.attempt })}</span>
                       <span className="h-px flex-1 bg-border" />
                     </div>
                   )}
@@ -384,103 +386,104 @@ export function AnalyzeWizard({
 
         {/* error */}
         {(error || view?.error) && (
-          <div className="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3 text-xs text-red-600 dark:text-red-400 max-h-24 overflow-y-auto">
+          <div className="max-h-24 overflow-y-auto rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400">
             {error || view?.error}
           </div>
         )}
 
-        {/* result summary */}
+        {/* result summary — quiet card; emerald stays on the signal line only */}
         {done && view?.result && (
-          <div className="rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 p-3 space-y-2">
-            <div className="text-xs text-emerald-700 dark:text-emerald-300 flex items-start gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <div className="space-y-3 rounded-xl border bg-card p-4">
+            <div className="flex items-start gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{view.result.summary || t('dlg.analyze.summaryFallback')}</span>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {envs.map((e: any, i: number) => (
-                <div key={i} className="flex items-center gap-2 text-xs font-mono bg-background/60 rounded-md px-2 py-1.5">
-                  <Badge variant="outline" className="h-5 text-[10px] px-1.5">{e.name}</Badge>
-                  <span className="truncate flex-1">{e.cmd}</span>
+                <div key={i} className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2 font-mono text-xs">
+                  <Badge variant="outline" className="h-5 px-1.5 text-[11px]">{e.name}</Badge>
+                  <span className="flex-1 truncate">{e.cmd}</span>
                   <span className="text-muted-foreground">:{e.port}</span>
                 </div>
               ))}
             </div>
             {/* server-side auto-save status */}
             {autoPending && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground pt-1">
+              <div className="flex items-center gap-1.5 pt-0.5 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 {t('dlg.analyze.autoSaving')}
               </div>
             )}
             {autoSavedOk && (
-              <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300 pt-1">
+              <div className="flex items-center gap-1.5 pt-0.5 text-xs text-emerald-700 dark:text-emerald-300">
                 <Save className="h-3.5 w-3.5 shrink-0" />
                 {t('dlg.analyze.autoSavedLine', { count: autoOutcome?.applied ?? 0 })}
               </div>
             )}
             {autoOutcome && !autoOutcome.ok && (
-              <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 pt-1">
+              <div className="flex items-center gap-1.5 pt-0.5 text-xs text-amber-600 dark:text-amber-400">
                 <XCircle className="h-3.5 w-3.5 shrink-0" />
                 {t('dlg.analyze.autoSaveFailed')}
               </div>
             )}
           </div>
         )}
+      </AppDialogBody>
 
-        <div className="flex items-center gap-2 justify-end pt-1">
-          {status === 'running' && (
-            <>
-              <span className="text-[11px] text-muted-foreground mr-auto">{t('dlg.analyze.hint')}</span>
-              <Button variant="outline" size="sm" onClick={cancel}>{t('dlg.analyze.cancel')}</Button>
-            </>
-          )}
-          {/* server already saved — offer start + done, no save button needed */}
-          {done && autoSavedOk && (
-            <>
-              <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.analyze.done')}</Button>
-              {hasAutoEnvs && (
-                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={startFromAuto}>
-                  <Play className="h-3.5 w-3.5 mr-1.5" />
-                  {t('dlg.analyze.startNow')}
-                </Button>
-              )}
-            </>
-          )}
-          {/* auto-apply still working — nothing to click yet (bounded wait) */}
-          {done && autoPending && !manualFallback && (
-            <span className="text-[11px] text-muted-foreground mr-auto flex items-center gap-1.5">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              {t('dlg.analyze.autoSaving')}
-            </span>
-          )}
-          {/* manual fallback: auto-apply unavailable/failed/expired */}
-          {manualFallback && !applied && (
-            <>
-              <Button variant="outline" size="sm" onClick={() => apply(false)} disabled={applying}>
-                {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-                {t('dlg.analyze.saveOnly')}
-              </Button>
-              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => apply(true)} disabled={applying}>
-                {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
+      {/* actions — v1.31 footer strip; hint/status text sits left of the buttons */}
+      <AppDialogFooter className={status === 'running' || (done && autoPending && !manualFallback) ? 'sm:justify-between' : undefined}>
+        {status === 'running' && (
+          <>
+            <span className="text-[11px] text-muted-foreground">{t('dlg.analyze.hint')}</span>
+            <Button variant="outline" size="sm" onClick={cancel}>{t('dlg.analyze.cancel')}</Button>
+          </>
+        )}
+        {/* server already saved — offer start + done, no save button needed */}
+        {done && autoSavedOk && (
+          <>
+            <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />{t('dlg.analyze.done')}</Button>
+            {hasAutoEnvs && (
+              <Button size="sm" onClick={startFromAuto}>
+                <Play className="mr-1.5 h-3.5 w-3.5" />
                 {t('dlg.analyze.startNow')}
               </Button>
-            </>
-          )}
-          {applied && !autoSavedOk && (
-            <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />{t('dlg.analyze.done')}</Button>
-          )}
-          {failed && (
-            <>
-              {onRetry && (
-                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={onRetry}>
-                  <RefreshCw className="h-3.5 w-3.5 mr-1.5" />{t('dlg.analyze.retry')}
-                </Button>
-              )}
-              <Button size="sm" variant="outline" onClick={onClose}>{t('dlg.common.close')}</Button>
-            </>
-          )}
-        </div>
-      </AppDialogBody>
+            )}
+          </>
+        )}
+        {/* auto-apply still working — nothing to click yet (bounded wait) */}
+        {done && autoPending && !manualFallback && (
+          <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {t('dlg.analyze.autoSaving')}
+          </span>
+        )}
+        {/* manual fallback: auto-apply unavailable/failed/expired */}
+        {manualFallback && !applied && (
+          <>
+            <Button variant="outline" size="sm" onClick={() => apply(false)} disabled={applying}>
+              {applying ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              {t('dlg.analyze.saveOnly')}
+            </Button>
+            <Button size="sm" onClick={() => apply(true)} disabled={applying}>
+              {applying ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-1.5 h-3.5 w-3.5" />}
+              {t('dlg.analyze.startNow')}
+            </Button>
+          </>
+        )}
+        {applied && !autoSavedOk && (
+          <Button size="sm" variant="outline" onClick={onClose}><CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />{t('dlg.analyze.done')}</Button>
+        )}
+        {failed && (
+          <>
+            {onRetry && (
+              <Button size="sm" onClick={onRetry}>
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{t('dlg.analyze.retry')}
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={onClose}>{t('dlg.common.close')}</Button>
+          </>
+        )}
+      </AppDialogFooter>
     </AppDialog>
   )
 }

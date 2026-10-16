@@ -3,9 +3,9 @@
 import * as React from 'react'
 import { motion } from 'framer-motion'
 import {
-  PlugZap, Loader2, Copy, Check, RefreshCw, Terminal, QrCode, ChevronDown, MonitorSmartphone, CheckCircle2,
+  PlugZap, Loader2, Copy, Check, RefreshCw, Terminal, QrCode, ChevronDown, CheckCircle2,
 } from 'lucide-react'
-import { AppDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody } from '@/components/app-dialog'
+import { AppDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody, AppDialogSection, AppDialogFooter } from '@/components/app-dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { addToast } from '@/hooks/use-toast'
@@ -160,7 +160,7 @@ export function MeshPairingDialog({
         {pair && (
           <div className="space-y-4">
             {/* pairing code */}
-            <div className="flex items-center justify-center gap-3 py-3 rounded-xl border bg-muted/40">
+            <div className="flex items-center justify-center gap-3 rounded-xl border bg-muted/40 py-4">
               <QrCode className="h-8 w-8 text-muted-foreground/50" />
               <div className="text-center">
                 <div className="text-2xl font-mono font-bold tracking-[0.3em]">{pair.code}</div>
@@ -168,73 +168,73 @@ export function MeshPairingDialog({
               </div>
             </div>
 
-            {/* Primary: web UI steps on the other device */}
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <MonitorSmartphone className="h-3.5 w-3.5" />{t('dlg.meshPairing.webSteps')}
-              </div>
-              <ol className="space-y-2">
-                {[
-                  { step: 1, text: t('dlg.meshPairing.step1'), },
-                  { step: 2, text: t('dlg.meshPairing.step2'), },
-                  { step: 3, text: t('dlg.meshPairing.step3'), },
-                ].map(({ step, text }) => (
-                  <li key={step} className="flex items-start gap-2 text-xs text-foreground/90">
-                    <span className="flex h-4.5 w-4.5 min-w-[18px] items-center justify-center rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 text-[10px] font-bold mt-0.5">{step}</span>
-                    <span className="leading-5">{text}</span>
-                  </li>
-                ))}
-              </ol>
-              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] text-muted-foreground">{t('dlg.meshPairing.thisAddress')}</div>
-                  <code className="text-xs font-mono font-semibold">{lanDashboardUrl}</code>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => copy(lanDashboardUrl, 'url')}
-                  className="rounded-md p-1.5 hover:bg-muted transition-colors shrink-0"
-                  aria-label={t('dlg.meshPairing.copyAddress')}
-                >
-                  {copied === 'url' ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
-                </button>
-              </div>
-              {/* Multi-NIC machines: alternate addresses the auto-pick may have
-                  missed (e.g. the ranked pick was demoted wrongly). Clicking a
-                  chip switches the advertised address above. */}
-              {alternates.length > 0 && (
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-1">
-                    {alternates.map((c) => (
-                      <button
-                        key={c.address}
-                        type="button"
-                        onClick={() => setPickedIp(c.address)}
-                        title={c.interface}
-                        className="rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors bg-muted hover:bg-muted/70 text-muted-foreground dark:hover:bg-zinc-800"
-                      >
-                        {c.address}
-                      </button>
-                    ))}
+            {/* Primary: web UI steps on the other device — quiet section
+                header (v1.31 R1); step numbers are neutral chrome, not color */}
+            <AppDialogSection title={t('dlg.meshPairing.webSteps')}>
+              <div className="space-y-2.5">
+                <ol className="space-y-2">
+                  {[
+                    { step: 1, text: t('dlg.meshPairing.step1'), },
+                    { step: 2, text: t('dlg.meshPairing.step2'), },
+                    { step: 3, text: t('dlg.meshPairing.step3'), },
+                  ].map(({ step, text }) => (
+                    <li key={step} className="flex items-start gap-2.5 text-xs text-foreground/90">
+                      <span className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground">{step}</span>
+                      <span className="leading-5">{text}</span>
+                    </li>
+                  ))}
+                </ol>
+                <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] text-muted-foreground">{t('dlg.meshPairing.thisAddress')}</div>
+                    <code className="text-xs font-mono font-semibold">{lanDashboardUrl}</code>
                   </div>
-                  <p className="text-[10px] text-muted-foreground leading-4">{t('dlg.meshPairing.addressHint')}</p>
+                  <button
+                    type="button"
+                    onClick={() => copy(lanDashboardUrl, 'url')}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                    aria-label={t('dlg.meshPairing.copyAddress')}
+                  >
+                    {copied === 'url' ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
-              )}
-              {/* One join is enough — pairing is mutual. */}
-              <div className="flex items-start gap-1.5 rounded-lg border border-emerald-200/60 bg-emerald-50/50 dark:border-emerald-900/40 dark:bg-emerald-950/20 px-2.5 py-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
-                <p className="text-[11px] leading-4 text-emerald-700 dark:text-emerald-300">
-                  {t('dlg.meshPairing.mutualNote')}
-                </p>
+                {/* Multi-NIC machines: alternate addresses the auto-pick may have
+                    missed (e.g. the ranked pick was demoted wrongly). Clicking a
+                    chip switches the advertised address above. */}
+                {alternates.length > 0 && (
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {alternates.map((c) => (
+                        <button
+                          key={c.address}
+                          type="button"
+                          onClick={() => setPickedIp(c.address)}
+                          title={c.interface}
+                          className="inline-flex h-7 cursor-pointer items-center rounded-md border border-border/60 bg-card px-2 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                        >
+                          {c.address}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] leading-4 text-muted-foreground">{t('dlg.meshPairing.addressHint')}</p>
+                  </div>
+                )}
+                {/* One join is enough — pairing is mutual. */}
+                <div className="flex items-start gap-1.5 rounded-lg border border-emerald-200/60 bg-emerald-50/50 px-2.5 py-1.5 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                  <p className="text-[11px] leading-4 text-emerald-700 dark:text-emerald-300">
+                    {t('dlg.meshPairing.mutualNote')}
+                  </p>
+                </div>
               </div>
-            </div>
+            </AppDialogSection>
 
             {/* Secondary: CLI one-liner for agent-only devices */}
-            <div className="rounded-lg border border-dashed">
+            <div className="rounded-xl border border-dashed">
               <button
                 type="button"
                 onClick={() => setShowCli((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 <span className="flex items-center gap-1.5 font-medium">
                   <Terminal className="h-3.5 w-3.5" />{t('dlg.meshPairing.cliToggle')}
@@ -248,39 +248,39 @@ export function MeshPairingDialog({
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden"
                 >
-                  <div className="px-3 pb-3 space-y-2">
-                    <div className="relative rounded-lg border bg-muted/60 p-3 pr-10">
+                  <div className="space-y-2 px-4 pb-3.5">
+                    <div className="relative rounded-lg bg-muted/30 p-3 pr-12">
                       <code className="text-xs font-mono break-all leading-5">{lanCommand}</code>
                       <button
                         type="button"
                         onClick={() => copy(lanCommand, 'cmd')}
-                        className="absolute top-2.5 right-2.5 rounded-md p-1.5 hover:bg-muted transition-colors"
+                        className="absolute top-2.5 right-2.5 flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         aria-label={t('dlg.meshPairing.copyCommand')}
                       >
-                        {copied === 'cmd' ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5 text-muted-foreground" />}
+                        {copied === 'cmd' ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                       </button>
                     </div>
-                    <p className="text-[11px] text-muted-foreground leading-4">
+                    <p className="text-[11px] leading-4 text-muted-foreground">
                       {t('dlg.meshPairing.cliHint')}
                     </p>
                   </div>
                 </motion.div>
               )}
             </div>
-
-            <div className="flex items-center gap-2 justify-end pt-1">
-              <Button variant="outline" size="sm" onClick={generate} disabled={loading}>
-                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-                {t('dlg.meshPairing.regenerate')}
-              </Button>
-              <Button size="sm" onClick={onPaired}>
-                <PlugZap className="h-3.5 w-3.5 mr-1.5" />
-                {t('dlg.meshPairing.paired')}
-              </Button>
-            </div>
           </div>
         )}
       </AppDialogBody>
+
+      <AppDialogFooter>
+        <Button variant="outline" size="sm" onClick={generate} disabled={loading}>
+          <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+          {t('dlg.meshPairing.regenerate')}
+        </Button>
+        <Button size="sm" onClick={onPaired}>
+          <PlugZap className="mr-1.5 h-3.5 w-3.5" />
+          {t('dlg.meshPairing.paired')}
+        </Button>
+      </AppDialogFooter>
     </AppDialog>
   )
 }

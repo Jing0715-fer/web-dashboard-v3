@@ -531,9 +531,9 @@ function getHealthTrend(projectId: string, currentScore: number): HealthTrend {
 
 function HealthTrendIcon({ trend }: { trend: HealthTrend }) {
   const t = useT()
-  if (trend === 'up') return <span className="health-trend-icon inline-flex items-center text-emerald-500 text-[9px] leading-none ml-0.5" title={t('surf.trendUp')}>▲</span>
-  if (trend === 'down') return <span className="health-trend-icon inline-flex items-center text-red-400 text-[9px] leading-none ml-0.5" title={t('surf.trendDown')}>▼</span>
-  return <span className="health-trend-icon inline-flex items-center text-zinc-300 dark:text-zinc-600 text-[9px] leading-none ml-0.5" title={t('surf.trendStable')}>◆</span>
+  if (trend === 'up') return <span className="health-trend-icon inline-flex items-center text-emerald-500 text-[11px] leading-none ml-0.5" title={t('surf.trendUp')}>▲</span>
+  if (trend === 'down') return <span className="health-trend-icon inline-flex items-center text-red-400 text-[11px] leading-none ml-0.5" title={t('surf.trendDown')}>▼</span>
+  return <span className="health-trend-icon inline-flex items-center text-zinc-300 dark:text-zinc-600 text-[11px] leading-none ml-0.5" title={t('surf.trendStable')}>◆</span>
 }
 
 function healthStroke(score: number): string {
@@ -582,7 +582,7 @@ function SeverityGroup({ label, color, dot, count, children }: { label: string; 
     <div>
       <button type="button" className="flex items-center gap-1.5 w-full text-left cursor-pointer hover:bg-muted/30 rounded-md px-1 py-0.5 transition-colors" onClick={() => setCollapsed(!collapsed)}>
         <span className={`h-2 w-2 rounded-full shrink-0 ${dot}`} />
-        <span className={`text-[10px] font-semibold uppercase tracking-wider ${color}`}>{label}</span>
+        <span className={`text-[11px] font-semibold uppercase tracking-wider ${color}`}>{label}</span>
         <Badge variant="secondary" className="text-[8px] px-1 py-0 h-3.5">{count}</Badge>
         <div className="flex-1" />
         {collapsed ? <ChevronRight className="h-3 w-3 text-muted-foreground" /> : <ChevronDown className="h-3 w-3 text-muted-foreground" />}
@@ -676,7 +676,7 @@ function HealthScoreCircle({ score, size = 40 }: { score: number; size?: number 
   // Number is rendered as an HTML overlay (not rotated SVG text): flex centering
   // is pixel-exact regardless of font metrics — the old dominantBaseline="central"
   // + double-rotation approach landed 1-2.6px off-center depending on digit count.
-  const numClass = size <= 28 ? 'text-[10px]' : size >= 40 ? 'text-[13px]' : 'text-[11px]'
+  const numClass = size <= 28 ? 'text-[11px]' : size >= 40 ? 'text-[13px]' : 'text-[11px]'
 
   return (
     <span className="relative inline-flex shrink-0" style={{ width: size, height: size }} aria-label={t('surf.healthScore', { score: safeScore })}>
@@ -750,7 +750,7 @@ function HealthScoreHoverCard({
           </div>
           {/* Status breakdown bar */}
           <div className="space-y-1">
-            <span className="text-muted-foreground text-[10px]">{t('card.preview.statusBreakdown')}</span>
+            <span className="text-muted-foreground text-[11px]">{t('card.preview.statusBreakdown')}</span>
             <div className="h-2 rounded-full bg-muted overflow-hidden flex">
               {totalEnvs > 0 && runningEnvs > 0 && (
                 <div className="bg-emerald-500 h-full rounded-l-full transition-all" style={{ width: `${(runningEnvs / totalEnvs) * 100}%` }} />
@@ -759,7 +759,7 @@ function HealthScoreHoverCard({
                 <div className="bg-red-400 h-full rounded-r-full transition-all" style={{ width: `${((totalEnvs - runningEnvs) / totalEnvs) * 100}%` }} />
               )}
             </div>
-            <div className="flex items-center gap-3 text-[10px]">
+            <div className="flex items-center gap-3 text-[11px]">
               <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> {t('card.preview.runningCount', { count: runningEnvs })}</span>
               <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-red-400" /> {t('card.preview.stoppedCount', { count: totalEnvs - runningEnvs })}</span>
             </div>
@@ -833,11 +833,11 @@ function ProjectThumbStrip({
               <AlertTriangle className="h-3.5 w-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
               <div className="min-w-0 flex-1 leading-tight">
                 <div className="text-[11px] font-medium text-amber-700 dark:text-amber-400">{t('card.thumb.failedTitle')}</div>
-                <div className="text-[10px] text-amber-600/90 dark:text-amber-500/80 truncate" title={thumb.error || undefined}>{errHint}</div>
+                <div className="text-[11px] text-amber-600/90 dark:text-amber-500/80 truncate" title={thumb.error || undefined}>{errHint}</div>
               </div>
               {onCapture && (
                 <button type="button"
-                  className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-amber-300/70 dark:border-amber-700/60 bg-background/70 hover:bg-background text-amber-700 dark:text-amber-400 text-[10px] font-medium transition-colors cursor-pointer"
+                  className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md border border-amber-300/70 dark:border-amber-700/60 bg-background/70 hover:bg-background text-amber-700 dark:text-amber-400 text-[11px] font-medium transition-colors cursor-pointer"
                   onClick={(e) => { e.stopPropagation(); onCapture(project) }}
                 >
                   <RefreshCw className="h-3 w-3" />
@@ -863,12 +863,12 @@ function ProjectThumbStrip({
         {/* Hover overlay — meta line + re-capture button (local projects) */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/0 to-black/0 opacity-0 group-hover/thumb:opacity-100 transition-opacity pointer-events-none" />
         <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-1.5 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-          <span className="min-w-0 truncate text-[10px] text-zinc-100/90 font-medium tabular-nums drop-shadow-sm" title={thumb.error ? t('card.thumb.staleHint', { err: thumb.error.slice(0, 120) }) : undefined}>
+          <span className="min-w-0 truncate text-[11px] text-zinc-100/90 font-medium tabular-nums drop-shadow-sm" title={thumb.error ? t('card.thumb.staleHint', { err: thumb.error.slice(0, 120) }) : undefined}>
             {t('card.thumb.capturedAt', { time: formatTimeAgo(thumb.capturedAt, t) })} · {envLabel(thumb.envName)} · :{thumb.port}
           </span>
           {onCapture && (
             <button type="button"
-              className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/50 hover:bg-black/70 text-zinc-100 text-[10px] font-medium backdrop-blur-sm transition-colors cursor-pointer"
+              className="shrink-0 inline-flex items-center gap-1 h-6 px-2 rounded-md bg-black/50 hover:bg-black/70 text-zinc-100 text-[11px] font-medium backdrop-blur-sm transition-colors cursor-pointer"
               onClick={(e) => { e.stopPropagation(); onCapture(project) }}
               title={t('card.thumb.refresh')}
             >
@@ -878,7 +878,7 @@ function ProjectThumbStrip({
           )}
         </div>
         {capturing && (
-          <div className="absolute top-2 right-2 inline-flex items-center gap-1.5 h-6 px-2 rounded-full bg-black/55 text-zinc-100 text-[10px] font-medium backdrop-blur-sm">
+          <div className="absolute top-2 right-2 inline-flex items-center gap-1.5 h-6 px-2 rounded-full bg-black/55 text-zinc-100 text-[11px] font-medium backdrop-blur-sm">
             <Loader2 className="h-3 w-3 animate-spin" />
             {t('card.thumb.capturing')}
           </div>
@@ -1030,7 +1030,7 @@ function DashboardClockWidget() {
 
   // Render empty placeholder on SSR to avoid hydration mismatch
   return (
-    <span className="text-[10px] text-muted-foreground dark:text-zinc-400 font-mono tabular-nums">
+    <span className="text-[11px] text-muted-foreground dark:text-zinc-400 font-mono tabular-nums">
       {time ?? '--:--:--'}
     </span>
   )
@@ -1057,7 +1057,7 @@ function HermesBridgeToggle() {
 
   return (
     <span
-      className={`shrink-0 text-[9px] px-1.5 py-0.5 rounded-md font-semibold tracking-wide ${bridgeRunning ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 ring-1 ring-emerald-200/60 dark:ring-emerald-700/50' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400 ring-1 ring-zinc-200/50 dark:ring-zinc-700/40'}`}
+      className={`shrink-0 text-[11px] px-1.5 py-0.5 rounded-md font-semibold tracking-wide ${bridgeRunning ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 ring-1 ring-emerald-200/60 dark:ring-emerald-700/50' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-400 ring-1 ring-zinc-200/50 dark:ring-zinc-700/40'}`}
       title={`Hermes Bridge :3210 — ${bridgeRunning ? 'running' : 'stopped'}`}
     >
       Bridge
@@ -1132,7 +1132,7 @@ function EnvOpPending({ action, t }: { action: string; t?: I18nContextValue['t']
     : OP_PROGRESS_LABELS[action] ?? action
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap"
+      className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 whitespace-nowrap"
       title={t ? t('dlg.op.inProgressTitle', { op }) : `${OP_PROGRESS_LABELS[action] ?? action} in progress — please wait`}
     >
       <Loader2 className="h-3 w-3 animate-spin" />
@@ -1159,7 +1159,7 @@ function VersionBadge({ version, size = 'sm', deviceName, className = '' }: {
   return (
     <span
       title={tip}
-      className={`inline-flex items-center rounded-full border font-mono shrink-0 transition-colors ${isMd ? 'h-6 px-2 gap-1.5 text-[11px]' : 'h-[18px] px-1.5 gap-1 text-[10px]'} ${dirtyCount > 0
+      className={`inline-flex items-center rounded-full border font-mono shrink-0 transition-colors ${isMd ? 'h-6 px-2 gap-1.5 text-[11px]' : 'h-[18px] px-1.5 gap-1 text-[11px]'} ${dirtyCount > 0
         ? 'border-amber-300/70 dark:border-amber-500/35 bg-amber-50/80 dark:bg-amber-500/10'
         : 'border-zinc-200 dark:border-zinc-700/80 bg-zinc-50/90 dark:bg-zinc-800/60 hover:border-zinc-300 dark:hover:border-zinc-600'
         } ${className}`}
@@ -1168,9 +1168,9 @@ function VersionBadge({ version, size = 'sm', deviceName, className = '' }: {
       <span className={`font-sans font-medium truncate ${isMd ? 'max-w-[120px]' : 'max-w-[84px]'} text-zinc-600 dark:text-zinc-300`}>{branch}</span>
       <span className="opacity-40 shrink-0">@</span>
       <span className={`truncate ${isMd ? 'max-w-[76px]' : 'max-w-[60px]'} text-zinc-500 dark:text-zinc-400`}>{version.sha}</span>
-      {ago && <span className={`${isMd ? '' : 'hidden sm:inline'} font-sans text-[9px] leading-none opacity-60 shrink-0`}>{ago}</span>}
+      {ago && <span className={`${isMd ? '' : 'hidden sm:inline'} font-sans text-[11px] leading-none opacity-60 shrink-0`}>{ago}</span>}
       {dirtyCount > 0 && (isMd ? (
-        <span className="font-sans text-[10px] leading-none text-amber-600 dark:text-amber-400 shrink-0">{t('card.repo.dirtyCount', { count: dirtyCount })}</span>
+        <span className="font-sans text-[11px] leading-none text-amber-600 dark:text-amber-400 shrink-0">{t('card.repo.dirtyCount', { count: dirtyCount })}</span>
       ) : (
         <span aria-label={t('card.repo.dirtyCount', { count: dirtyCount })} title={t('card.repo.dirtyCount', { count: dirtyCount })} className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0" />
       ))}
@@ -1349,7 +1349,7 @@ function SortableProjectCardImpl({
             <div className="flex items-center gap-2">
               <span className="font-medium truncate">{highlightText(project.name, searchQuery)}</span>
               {isRemote && (
-                <span className="min-w-0 shrink inline-flex items-center gap-1 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700/70 text-zinc-500 dark:text-zinc-400 font-medium max-w-[220px]" title={project.deviceName || undefined}>
+                <span className="min-w-0 shrink inline-flex items-center gap-1 text-[11px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700/70 text-zinc-500 dark:text-zinc-400 font-medium max-w-[220px]" title={project.deviceName || undefined}>
                   <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${deviceOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
                   <span className="truncate min-w-0">{displayDeviceName(project.deviceName || '')}</span>
                 </span>
@@ -1365,14 +1365,14 @@ function SortableProjectCardImpl({
               {/* Repo chip lives on the path line (not the title row) so the
                   title row never overflows; one-click pull stays reachable. */}
               {project.repoUrl ? (
-                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[200px]" title={pulling ? t('card.repo.pulling') : `${sanitizeGitUrl(project.repoUrl)} · ${t('card.ctx.pullLatest')}${updateTooltip ? ` · ${updateTooltip}` : ''}`} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl ?? ""), "_blank", "noreferrer") }}>
+                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-zinc-200 dark:border-zinc-700/70 text-[11px] font-medium text-zinc-500 dark:text-zinc-400 hover:text-foreground dark:hover:text-zinc-200 hover:border-brand/40 hover:bg-brand-soft/40 transition-colors cursor-pointer max-w-[200px]" title={pulling ? t('card.repo.pulling') : `${sanitizeGitUrl(project.repoUrl)} · ${t('card.ctx.pullLatest')}${updateTooltip ? ` · ${updateTooltip}` : ''}`} onClick={(e) => { e.stopPropagation(); if (onPull) onPull(project); else window.open(sanitizeGitUrl(project.repoUrl ?? ""), "_blank", "noreferrer") }}>
                   {pulling ? <Loader2 className="h-3 w-3 animate-spin shrink-0" /> : <Github className="h-3 w-3 shrink-0" />}
                   {!pulling && updateHint && <span aria-label={t('card.repo.updateAvailable')} title={updateTooltip ?? undefined} className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />}
                   <span className="truncate">{repoShortLabel(project.repoUrl)}</span>
                   {!pulling && onPull && <GitPullRequest className="h-3 w-3 shrink-0 text-brand-strong dark:text-brand" />}
                 </button>
               ) : (
-                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 text-[10px] font-medium text-zinc-400 dark:text-zinc-500 hover:text-brand-strong dark:hover:text-brand hover:border-brand/45 hover:bg-brand-soft/40 transition-colors cursor-pointer" title={t('card.repo.connectTooltip')} onClick={(e) => { e.stopPropagation(); onEdit(project) }}>
+                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 text-[11px] font-medium text-zinc-400 dark:text-zinc-500 hover:text-brand-strong dark:hover:text-brand hover:border-brand/45 hover:bg-brand-soft/40 transition-colors cursor-pointer" title={t('card.repo.connectTooltip')} onClick={(e) => { e.stopPropagation(); onEdit(project) }}>
                   <Github className="h-3 w-3 shrink-0" />
                   <span className="hidden md:inline">{t('card.repo.connect')}</span>
                 </button>
@@ -1388,7 +1388,7 @@ function SortableProjectCardImpl({
           </div>
           <div className="hidden sm:flex items-center gap-1.5 justify-end max-w-[200px] overflow-hidden">
             {tags.slice(0, 3).map((tag) => (
-              <Badge key={tag} variant="secondary" className={`text-[10px] px-1.5 cursor-default shrink-0 whitespace-nowrap ${getTagColor(tag)}`}>{tag}</Badge>
+              <Badge key={tag} variant="secondary" className={`text-[11px] px-1.5 cursor-default shrink-0 whitespace-nowrap ${getTagColor(tag)}`}>{tag}</Badge>
             ))}
           </div>
           {/* List view: per-environment controls */}
@@ -1398,9 +1398,9 @@ function SortableProjectCardImpl({
                 title={env.pid ? t('card.envRowTitlePid', { env: envLabel(env.name), port: env.port, status: env.status, pid: env.pid }) : t('card.envRowTitle', { env: envLabel(env.name), port: env.port, status: env.status })}
               >
                 <AnimatedStatusDot status={env.status} />
-                {env.name === 'development' ? <span className="text-[10px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium shrink-0">dev</span> : env.name === 'production' ? <span className="text-[10px] leading-4 px-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium shrink-0">prod</span> : <span className="text-[10px] text-muted-foreground dark:text-zinc-300 max-w-[40px] truncate">{envLabel(env.name)}</span>}
-                {env.name === 'development' && env.status === 'running' && <span className="font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium shrink-0" title={t('card.hmrTitle')}>HMR</span>}
-                {env.name === 'production' && <span className="font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium shrink-0" title={t('card.buildTitle')}>Build</span>}
+                {env.name === 'development' ? <span className="text-[11px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium shrink-0">dev</span> : env.name === 'production' ? <span className="text-[11px] leading-4 px-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium shrink-0">prod</span> : <span className="text-[11px] text-muted-foreground dark:text-zinc-300 max-w-[40px] truncate">{envLabel(env.name)}</span>}
+                {env.name === 'development' && env.status === 'running' && <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 font-medium shrink-0" title={t('card.hmrTitle')}>HMR</span>}
+                {env.name === 'production' && <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 font-medium shrink-0" title={t('card.buildTitle')}>Build</span>}
                 {pendingOps[env.id] ? <EnvOpPending action={pendingOps[env.id]} t={t} /> : (<>
                 {env.status === 'running' && (
                   <a
@@ -1430,7 +1430,7 @@ function SortableProjectCardImpl({
               </div>
             ))}
             {(project.environments || []).length > 3 && (
-              <span className="text-[9px] text-muted-foreground">+{(project.environments || []).length - 3}</span>
+              <span className="text-[11px] text-muted-foreground">+{(project.environments || []).length - 3}</span>
             )}
           </div>
           <div className="flex items-center gap-0.5">
@@ -1589,11 +1589,11 @@ function SortableProjectCardImpl({
                   {/* Tags inline with the title — single row, clipped when narrow */}
                   <div className="flex items-center gap-1 min-w-0 shrink overflow-hidden max-w-[40%]">
                     {tags.map((tag) => (
-                      <Badge key={tag} variant="secondary" className={`text-[10px] px-1.5 py-0 rounded cursor-default shrink-0 whitespace-nowrap font-medium ${getTagColor(tag)}`}>{tag}</Badge>
+                      <Badge key={tag} variant="secondary" className={`text-[11px] px-1.5 py-0 rounded cursor-default shrink-0 whitespace-nowrap font-medium ${getTagColor(tag)}`}>{tag}</Badge>
                     ))}
                   </div>
                   {isRemote && (
-                    <span className="min-w-0 shrink inline-flex items-center gap-1 text-[10px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700/70 text-zinc-500 dark:text-zinc-400 font-medium max-w-[45%]" title={project.deviceName || undefined}>
+                    <span className="min-w-0 shrink inline-flex items-center gap-1 text-[11px] px-1.5 rounded border border-zinc-200 dark:border-zinc-700/70 text-zinc-500 dark:text-zinc-400 font-medium max-w-[45%]" title={project.deviceName || undefined}>
                       <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${deviceOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
                       <span className="truncate min-w-0">{displayDeviceName(project.deviceName || '')}</span>
                     </span>
@@ -1604,7 +1604,7 @@ function SortableProjectCardImpl({
                     {highlightText(project.path, searchQuery)}
                   </button>
                   {totalEnvs > 0 && (
-                    <span className="shrink-0 inline-flex items-center gap-0.5 text-[9px] px-1 py-0 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 tabular-nums">
+                    <span className="shrink-0 inline-flex items-center gap-0.5 text-[11px] px-1 py-0 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 tabular-nums">
                       <Layers className="h-2.5 w-2.5" />{totalEnvs}
                     </span>
                   )}
@@ -1650,13 +1650,13 @@ function SortableProjectCardImpl({
               >
                 <div className="flex items-center gap-1.5 min-w-0 shrink">
                   <AnimatedStatusDot status={env.status} />
-                  {env.name === 'development' ? <span className="shrink-0 text-[10px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium">dev</span> : env.name === 'production' ? <span className="shrink-0 text-[10px] leading-4 px-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium">prod</span> : <span className="text-muted-foreground dark:text-zinc-300 truncate max-w-[60px] text-[10px]">{envLabel(env.name)}</span>}
+                  {env.name === 'development' ? <span className="shrink-0 text-[11px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium">dev</span> : env.name === 'production' ? <span className="shrink-0 text-[11px] leading-4 px-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium">prod</span> : <span className="text-muted-foreground dark:text-zinc-300 truncate max-w-[60px] text-[11px]">{envLabel(env.name)}</span>}
                   {/* Hermes Bridge badge (only on Hermes Web dev env, inline with dev tag) */}
                   {project.name === 'Hermes Web' && env.name === 'development' && (
                     <HermesBridgeToggle />
                   )}
-                  {env.name === 'development' && env.status === 'running' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.hmrTitle')}>HMR</span>}
-                  {env.name === 'production' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.buildTitle')}>Build</span>}
+                  {env.name === 'development' && env.status === 'running' && <span className="shrink-0 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.hmrTitle')}>HMR</span>}
+                  {env.name === 'production' && <span className="shrink-0 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.buildTitle')}>Build</span>}
                 </div>
                 <div className="flex items-center gap-1 sm:gap-1 shrink-0">
                   {pendingOps[env.id] ? <EnvOpPending action={pendingOps[env.id]} t={t} /> : (<>
@@ -1706,9 +1706,9 @@ function SortableProjectCardImpl({
                       >
                         <div className="flex items-center gap-1.5 min-w-0 shrink">
                           <AnimatedStatusDot status={env.status} />
-                          {env.name === 'development' ? <span className="shrink-0 text-[10px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium">dev</span> : env.name === 'production' ? <span className="shrink-0 text-[10px] leading-4 px-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium">prod</span> : <span className="text-muted-foreground dark:text-zinc-300 truncate max-w-[60px] text-[10px]">{envLabel(env.name)}</span>}
-                          {env.name === 'development' && env.status === 'running' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.hmrTitle')}>HMR</span>}
-                          {env.name === 'production' && <span className="shrink-0 font-mono text-[9px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.buildTitle')}>Build</span>}
+                          {env.name === 'development' ? <span className="shrink-0 text-[11px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium">dev</span> : env.name === 'production' ? <span className="shrink-0 text-[11px] leading-4 px-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-medium">prod</span> : <span className="text-muted-foreground dark:text-zinc-300 truncate max-w-[60px] text-[11px]">{envLabel(env.name)}</span>}
+                          {env.name === 'development' && env.status === 'running' && <span className="shrink-0 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.hmrTitle')}>HMR</span>}
+                          {env.name === 'production' && <span className="shrink-0 font-mono text-[11px] text-zinc-500 dark:text-zinc-400 font-medium" title={t('card.buildTitle')}>Build</span>}
                         </div>
                         <div className="flex items-center gap-1 sm:gap-1 shrink-0">
                           {pendingOps[env.id] ? <EnvOpPending action={pendingOps[env.id]} t={t} /> : (<>
@@ -1738,7 +1738,7 @@ function SortableProjectCardImpl({
               )}
             </AnimatePresence>
             {!expanded && (project.environments || []).length > 3 && (
-              <p className="text-[10px] text-muted-foreground">{t('surf.moreEnvs', { count: (project.environments || []).length - 3 })}</p>
+              <p className="text-[11px] text-muted-foreground">{t('surf.moreEnvs', { count: (project.environments || []).length - 3 })}</p>
             )}
           </div>
 
@@ -1746,7 +1746,7 @@ function SortableProjectCardImpl({
           {needsExpand && (
             <button
               type="button"
-              className="mt-1 flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              className="mt-1 flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
               onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
             >
               {expanded ? <><ChevronUp className="h-3 w-3" />{t('surf.showLess')}</> : <><ChevronDown className="h-3 w-3" />{t('surf.showMore')}</>}
@@ -1767,7 +1767,7 @@ function SortableProjectCardImpl({
               {pulling ? <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-brand-strong dark:text-brand" /> : <Github className="h-3.5 w-3.5 shrink-0 text-zinc-600 dark:text-zinc-300 group-hover/repo:text-foreground dark:group-hover/repo:text-zinc-100 transition-colors" />}
               <span className="flex-1 min-w-0 truncate text-left font-mono text-[11px] text-zinc-600 dark:text-zinc-300 group-hover/repo:text-foreground dark:group-hover/repo:text-zinc-100 transition-colors">{repoShortLabel(project.repoUrl)}</span>
               {updateHint && (
-                <span className="shrink-0 inline-flex items-center gap-1 h-[18px] px-1.5 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-medium" title={updateTooltip ?? undefined} aria-label={t('card.repo.updateAvailable')}>
+                <span className="shrink-0 inline-flex items-center gap-1 h-[18px] px-1.5 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[11px] font-medium" title={updateTooltip ?? undefined} aria-label={t('card.repo.updateAvailable')}>
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                   <span className="hidden sm:inline">{t('card.repo.updateAvailable')}</span>
                   {updateHint.state !== 'differs' && typeof updateHint.behind === 'number' && updateHint.behind > 0 && <span className="tabular-nums">·{updateHint.behind}</span>}
@@ -1793,7 +1793,7 @@ function SortableProjectCardImpl({
               <span className={`h-1.5 w-1.5 rounded-full ${status === 'running' ? 'bg-emerald-500' : status === 'mixed' ? 'bg-amber-500' : 'bg-zinc-400 dark:bg-zinc-500'}`} />
               {t('card.preview.runningFraction', { running: runningEnvs, total: totalEnvs })}
             </Badge>
-            <span className="text-[10px] text-muted-foreground dark:text-zinc-400 hidden sm:inline" title={new Date(project.createdAt).toLocaleString()}>{formatTimeAgo(project.createdAt, t)}</span>
+            <span className="text-[11px] text-muted-foreground dark:text-zinc-400 hidden sm:inline" title={new Date(project.createdAt).toLocaleString()}>{formatTimeAgo(project.createdAt, t)}</span>
           </div>
           <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
             {(project.environments || []).some((e) => e.status === 'running') && (
@@ -1872,12 +1872,12 @@ function SortableProjectCardImpl({
         </ContextMenuTrigger>
         <ContextMenuContent className="min-w-[220px] p-1.5 text-sm">
           {/* Actions section */}
-          <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">{t('card.ctx.actions')}</div>
+          <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{t('card.ctx.actions')}</div>
           {(project.environments || []).some((e) => e.status === 'running') && (
-            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.openBrowser')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
+            <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { const port = (project.environments || []).find((e) => e.status === 'running')?.port; if (port) window.open(getOpenUrl(port), '_blank') }}><ExternalLink className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.openBrowser')} <kbd className="ml-auto text-[11px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
           )}
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
-          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">e</kbd></ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onSelect(project)}><Eye className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.viewDetails')} <kbd className="ml-auto text-[11px] text-muted-foreground bg-muted px-1 rounded">Enter</kbd></ContextMenuItem>
+          <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onEdit(project)}><Edit3 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.editProject')} <kbd className="ml-auto text-[11px] text-muted-foreground bg-muted px-1 rounded">e</kbd></ContextMenuItem>
           {project.repoUrl && onPull && (
             <ContextMenuItem disabled={pulling} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onPull(project)}>{pulling ? <Loader2 className="h-3.5 w-3.5 mr-2.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-2.5" />}{t('card.ctx.pullLatest')}</ContextMenuItem>
           )}
@@ -1889,18 +1889,18 @@ function SortableProjectCardImpl({
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { navigator.clipboard.writeText(project.path); addToast({ title: t('dlg.toast.pathCopied'), variant: 'success' }) }}><Clipboard className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.copyPath')}</ContextMenuItem>
           <ContextMenuSeparator />
           {/* Environment section */}
-          <div className="px-2 py-1 text-[9px] font-semibold text-muted-foreground uppercase tracking-wider">{t('card.ctx.environment')}</div>
+          <div className="px-2 py-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{t('card.ctx.environment')}</div>
           {(project.environments || []).every((e) => e.status !== 'running') && (
-            <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.startAll')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">s</kbd></ContextMenuItem>
+            <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).forEach((env) => onEnvAction(project.id, env.id, 'start')) }}><Play className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.startAll')} <kbd className="ml-auto text-[11px] text-muted-foreground bg-muted px-1 rounded">s</kbd></ContextMenuItem>
           )}
           {(project.environments || []).some((e) => e.status === 'running') && (
-            <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.stopAll')} <kbd className="ml-auto text-[9px] text-muted-foreground bg-muted px-1 rounded">x</kbd></ContextMenuItem>
+            <ContextMenuItem disabled={projectBusy} className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => { if (projectBusy) return; (project.environments || []).filter((e) => e.status === 'running').forEach((env) => onEnvAction(project.id, env.id, 'stop')) }}><Square className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.stopAll')} <kbd className="ml-auto text-[11px] text-muted-foreground bg-muted px-1 rounded">x</kbd></ContextMenuItem>
           )}
           <ContextMenuItem className="px-2.5 py-2 text-sm rounded-md hover:bg-accent transition-colors" onClick={() => onCompare?.(project)}><ArrowRightLeft className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.compare')}</ContextMenuItem>
           <ContextMenuSeparator />
           {/* Dangerous section */}
-          <div className="px-2 py-1 text-[9px] font-semibold text-red-500/60 uppercase tracking-wider">{t('card.ctx.dangerous')}</div>
-          <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.delete')} <kbd className="ml-auto text-[9px] text-red-400/60 bg-red-50 dark:bg-red-900/20 px-1 rounded">Del</kbd></ContextMenuItem>
+          <div className="px-2 py-1 text-[11px] font-semibold text-red-500/60 uppercase tracking-wider">{t('card.ctx.dangerous')}</div>
+          <ContextMenuItem variant="destructive" className="px-2.5 py-2 text-sm rounded-md" onClick={() => onDelete(project)}><Trash2 className="h-3.5 w-3.5 mr-2.5" />{t('card.ctx.delete')} <kbd className="ml-auto text-[11px] text-red-400/60 bg-red-50 dark:bg-red-900/20 px-1 rounded">Del</kbd></ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
     </div>
@@ -2013,7 +2013,7 @@ function CommandPalette({
             <X className="h-3.5 w-3.5" />
           </button>
         )}
-        <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground shrink-0">ESC</kbd>
+        <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[11px] font-medium text-muted-foreground shrink-0">ESC</kbd>
       </div>
       <AppDialogBody flush className="p-1">
           {filtered.length === 0 && (
@@ -2031,7 +2031,7 @@ function CommandPalette({
                   <item.icon className="h-4 w-4 text-muted-foreground shrink-0" />
                   <span className="truncate">{item.label}</span>
                   {'shortcut' in item && (item as { shortcut?: string }).shortcut && (
-                    <kbd className="ml-auto inline-flex h-5 min-w-8 select-none items-center justify-center text-[9px] text-muted-foreground bg-muted px-1.5 rounded border font-mono shrink-0">{(item as { shortcut: string }).shortcut}</kbd>
+                    <kbd className="ml-auto inline-flex h-5 min-w-8 select-none items-center justify-center text-[11px] text-muted-foreground bg-muted px-1.5 rounded border font-mono shrink-0">{(item as { shortcut: string }).shortcut}</kbd>
                   )}
                 </button>
               ))}
@@ -2093,7 +2093,7 @@ function KeyboardShortcutsDialog({ open, onClose }: { open: boolean; onClose: ()
               {sec.items.map((s) => (
                 <div key={s.keys + s.description} className="flex items-center justify-between py-1 gap-4">
                   <span className="text-sm">{s.description}</span>
-                  <kbd className="inline-flex h-5 min-w-8 items-center justify-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground shrink-0">{s.keys}</kbd>
+                  <kbd className="inline-flex h-5 min-w-8 items-center justify-center gap-1 rounded border bg-muted px-1.5 font-mono text-[11px] font-medium text-muted-foreground shrink-0">{s.keys}</kbd>
                 </div>
               ))}
             </div>
@@ -2133,13 +2133,13 @@ function NotificationDetailDialog({
         <AppDialogDescription>{notification.message}</AppDialogDescription>
       </AppDialogHeader>
       <AppDialogBody>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.type')}</span><Badge variant="outline" className="capitalize">{t(`dlg.notifDetail.type.${notification.type}` as Parameters<typeof t>[0])}</Badge></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.time')}</span><span>{new Date(notification.timestamp).toLocaleString()}</span></div>
+        <div className="divide-y rounded-xl border bg-card text-[13px]">
+          <div className="flex items-center justify-between px-4 py-2.5"><span className="text-muted-foreground">{t('dlg.notifDetail.type')}</span><Badge variant="outline" className="capitalize">{t(`dlg.notifDetail.type.${notification.type}` as Parameters<typeof t>[0])}</Badge></div>
+          <div className="flex items-center justify-between px-4 py-2.5"><span className="text-muted-foreground">{t('dlg.notifDetail.time')}</span><span className="tabular-nums">{new Date(notification.timestamp).toLocaleString()}</span></div>
           {notification.projectName && (
-            <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.project')}</span><span>{notification.projectName}</span></div>
+            <div className="flex items-center justify-between px-4 py-2.5"><span className="text-muted-foreground">{t('dlg.notifDetail.project')}</span><span className="truncate min-w-0 max-w-[60%] text-right" title={notification.projectName}>{notification.projectName}</span></div>
           )}
-          <div className="flex justify-between"><span className="text-muted-foreground">{t('dlg.notifDetail.status')}</span><Badge variant={notification.read ? 'secondary' : 'default'}>{notification.read ? t('dlg.notifDetail.read') : t('dlg.notifDetail.unread')}</Badge></div>
+          <div className="flex items-center justify-between px-4 py-2.5"><span className="text-muted-foreground">{t('dlg.notifDetail.status')}</span><Badge variant={notification.read ? 'secondary' : 'default'}>{notification.read ? t('dlg.notifDetail.read') : t('dlg.notifDetail.unread')}</Badge></div>
         </div>
       </AppDialogBody>
     </AppDialog>
@@ -2202,20 +2202,20 @@ function ProjectFormDialog({
                     key={label}
                     type="button"
                     onClick={() => { setName(tpl.name); setIcon(tpl.icon); setSelectedTags([...tpl.tags]); setDescription(tpl.description) }}
-                    className="flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all duration-150 hover:bg-accent/50 cursor-pointer border-border hover:border-muted-foreground/30"
+                    className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl border transition-all duration-150 hover:bg-accent/50 cursor-pointer border-border hover:border-muted-foreground/30"
                   >
                     <TplIcon className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-[10px] leading-tight text-muted-foreground">{label}</span>
+                    <span className="text-[11px] leading-none text-muted-foreground">{label}</span>
                   </button>
                 ))}
               </div>
             </div>
           )}
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <Label htmlFor="proj-name">{t('dlg.projectForm.name')}</Label>
             <Input id="proj-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('dlg.projectForm.namePlaceholder')} />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <Label htmlFor="proj-path">{t('dlg.projectForm.path')}</Label>
             {/* The PUT route never updates `path` (local branch) and agents
                 treat it as project identity — editing it here was silently
@@ -2230,19 +2230,19 @@ function ProjectFormDialog({
               className={mode === 'edit' ? 'font-mono text-xs' : ''}
             />
             {mode === 'edit' && (
-              <p className="text-[10px] text-muted-foreground">{t('dlg.projectForm.pathLocked')}</p>
+              <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.pathLocked')}</p>
             )}
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <Label htmlFor="proj-desc">{t('dlg.projectForm.description')}</Label>
             <Textarea id="proj-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('dlg.projectForm.descPlaceholder')} rows={2} />
           </div>
           {/* Git repository — powers one-click "Pull latest code" (local projects) */}
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <Label htmlFor="proj-repo" className="flex items-center gap-1.5">
               <Github className="h-3.5 w-3.5" />
               {t('dlg.projectForm.repoUrl')}
-              <span className="text-[10px] font-normal text-muted-foreground">{t('dlg.projectForm.repoUrlOptional')}</span>
+              <span className="text-[11px] font-normal text-muted-foreground">{t('dlg.projectForm.repoUrlOptional')}</span>
             </Label>
             <Input
               id="proj-repo"
@@ -2262,29 +2262,33 @@ function ProjectFormDialog({
               <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.repoUrlHint')}</p>
             )}
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <Label>{t('dlg.projectForm.icon')}</Label>
-            <div className="grid grid-cols-4 gap-2">
+            {/* v1.31: 8-wide grid (2 rows) replaces the 4-wide 4-row wall —
+             * same 16 icons, half the vertical space; selection reads as a
+             * quiet brand tint instead of the old double ring + glow. */}
+            <div className="grid grid-cols-8 gap-1.5">
               {Object.entries(ICON_MAP).map(([key, Ic]) => (
                 <button
                   key={key}
                   type="button"
                   onClick={() => setIcon(key)}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all duration-150 hover:bg-accent/50 cursor-pointer ${
+                  title={key.replace('-', ' ')}
+                  className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-all duration-150 hover:bg-accent/50 cursor-pointer ${
                     icon === key
-                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 ring-2 ring-emerald-500/30 shadow-sm shadow-emerald-500/20'
+                      ? 'border-brand bg-brand-soft/60 dark:bg-brand-soft'
                       : 'border-border hover:border-muted-foreground/30'
                   }`}
                 >
-                  <Ic className={`h-5 w-5 ${icon === key ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`} />
-                  <span className={`text-[10px] leading-tight ${icon === key ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-muted-foreground'}`}>
+                  <Ic className={`h-4 w-4 ${icon === key ? 'text-brand-strong' : 'text-muted-foreground'}`} />
+                  <span className={`text-[10px] leading-none ${icon === key ? 'text-brand-strong font-medium' : 'text-muted-foreground'}`}>
                     {key.replace('-', ' ')}
                   </span>
                 </button>
               ))}
             </div>
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <Label>{t('dlg.projectForm.tags')}</Label>
             <div className="flex flex-wrap gap-1.5">
               {TAG_OPTIONS.map((tag) => (
@@ -2325,7 +2329,7 @@ function ProjectFormDialog({
               </SelectContent>
             </Select>
             {mode === 'edit' && (
-              <p className="text-[10px] text-muted-foreground">{t('dlg.projectForm.deviceLocked')}</p>
+              <p className="text-[11px] text-muted-foreground">{t('dlg.projectForm.deviceLocked')}</p>
             )}
           </div>
         </form>
@@ -2469,7 +2473,7 @@ function CircularGauge({ value, size = 100, label, color = '#10b981' }: { value:
           }}
         >
           <span className="text-xl font-bold tabular-nums leading-none" style={{ color }}>{safeValue}</span>
-          <span className="text-[9px] text-muted-foreground font-medium leading-none mt-0.5">%</span>
+          <span className="text-[11px] text-muted-foreground font-medium leading-none mt-0.5">%</span>
         </div>
       </div>
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
@@ -2596,7 +2600,7 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
               <div className="flex items-center gap-2 mb-2">
                 <Server className="h-4 w-4 text-emerald-500" />
                 <span className="text-sm font-semibold">{t('dlg.systemMonitor.services')}</span>
-                <Badge variant="secondary" className="text-[10px] ml-auto">{t('dlg.systemMonitor.servicesCount', { count: runningServices.length })}</Badge>
+                <Badge variant="secondary" className="text-[11px] ml-auto">{t('dlg.systemMonitor.servicesCount', { count: runningServices.length })}</Badge>
               </div>
               <div className="space-y-1.5">
                 {runningServices.length === 0 && (
@@ -2607,7 +2611,7 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
                       <span className="font-medium truncate">{svc.name}</span>
-                      <span className="text-[9px] text-muted-foreground shrink-0">{svc.device}</span>
+                      <span className="text-[11px] text-muted-foreground shrink-0">{svc.device}</span>
                     </div>
                     <div className="flex items-center gap-3 text-muted-foreground shrink-0">
                       {svc.port > 0 && <span>:{svc.port}</span>}
@@ -2632,7 +2636,7 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
                   </div>
                   <Progress value={status.diskUsage?.percentage ?? 0} className="h-2" />
                 </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground">
+                <div className="flex justify-between text-[11px] text-muted-foreground">
                   <span>{t('dlg.systemMonitor.used', { used: status.diskUsage?.used ?? 0, total: status.diskUsage?.total ?? 0 })}</span>
                   <span>{t('dlg.systemMonitor.free', { count: status.diskUsage?.free ?? 0 })}</span>
                 </div>
@@ -2642,7 +2646,7 @@ function SystemMonitorDialog({ open, onClose }: { open: boolean; onClose: () => 
             {/* Footer */}
             <div className="flex items-center justify-between">
               <Button variant="outline" size="sm" onClick={fetchStatus}><RefreshCw className="h-3.5 w-3.5 mr-1" />{t('dlg.common.refresh')}</Button>
-              <span className="text-[10px] text-muted-foreground">{t('dlg.systemMonitor.lastChecked', { time: formatTimeAgo(status.lastChecked, t) })}</span>
+              <span className="text-[11px] text-muted-foreground">{t('dlg.systemMonitor.lastChecked', { time: formatTimeAgo(status.lastChecked, t) })}</span>
             </div>
           </div>
         ) : (
@@ -2787,7 +2791,7 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
         <AppDialogTitle className="flex items-center gap-2">
           <Network className="h-5 w-5 text-teal-600" />
           {t('ports.title')}
-          {rows && <Badge variant="secondary" className="text-[10px] ml-1">{t('ports.count', { count: rows.length })}</Badge>}
+          {rows && <Badge variant="secondary" className="text-[11px] ml-1">{t('ports.count', { count: rows.length })}</Badge>}
         </AppDialogTitle>
         <AppDialogDescription>{t('ports.desc')}</AppDialogDescription>
       </AppDialogHeader>
@@ -2818,7 +2822,7 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
               <TooltipContent className="max-w-xs">{t('ports.organizeTooltip')}</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <span className="hidden sm:inline-flex items-center gap-1 text-[10px] text-muted-foreground whitespace-nowrap">
+          <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-muted-foreground whitespace-nowrap">
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-60 animate-ping" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-500" />
@@ -2860,7 +2864,7 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
                       <td className="px-3 py-2 font-mono text-muted-foreground">{r.pid ?? '—'}</td>
                       <td className="px-3 py-2 max-w-[320px]">
                         <div className="truncate font-medium" title={r.command || r.processName}>{r.processName || t('ports.unknownProc')}</div>
-                        {r.command && <div className="truncate text-[10px] text-muted-foreground" title={r.command} dir="ltr">{r.command}</div>}
+                        {r.command && <div className="truncate text-[11px] text-muted-foreground" title={r.command} dir="ltr">{r.command}</div>}
                       </td>
                       <td className="px-3 py-2 hidden md:table-cell">
                         {r.owner ? (
@@ -2887,7 +2891,7 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
                             <span className="ml-1 hidden sm:inline">{t('ports.kill')}</span>
                           </Button>
                         ) : (
-                          <span className="text-[10px] text-muted-foreground">{t('ports.noPid')}</span>
+                          <span className="text-[11px] text-muted-foreground">{t('ports.noPid')}</span>
                         )}
                       </td>
                     </tr>
@@ -2899,7 +2903,7 @@ function PortsPanel({ open, onClose, onKilled }: { open: boolean; onClose: () =>
         </div>
 
       </AppDialogBody>
-      <AppDialogFooter className="text-[10px] text-muted-foreground sm:justify-between">
+      <AppDialogFooter className="text-[11px] text-muted-foreground sm:justify-between">
         <span>{t('ports.footerNote')}</span>
         <Button variant="outline" size="sm" onClick={onClose}>{t('dlg.common.close')}</Button>
       </AppDialogFooter>
@@ -2993,7 +2997,7 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
         <AppDialogTitle className="flex items-center gap-2">
           <ArrowRightLeft className="h-4 w-4 text-teal-600" />
           {t('ports.orgTitle')}
-          {totalChanges > 0 && <Badge variant="secondary" className="text-[10px] ml-1">{t('ports.orgChanges', { count: totalChanges })}</Badge>}
+          {totalChanges > 0 && <Badge variant="secondary" className="text-[11px] ml-1">{t('ports.orgChanges', { count: totalChanges })}</Badge>}
         </AppDialogTitle>
         <AppDialogDescription>{t('ports.orgDesc')}</AppDialogDescription>
       </AppDialogHeader>
@@ -3012,9 +3016,9 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
                   <span className={`text-xs font-semibold ${g.deviceId ? 'text-violet-600 dark:text-violet-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                     {g.deviceId ? t('ports.orgDevice', { name: g.deviceName || g.deviceId }) : t('ports.orgLocal')}
                   </span>
-                  {g.changes.length > 0 && <Badge variant="outline" className="text-[10px] px-1.5">{g.changes.length}</Badge>}
+                  {g.changes.length > 0 && <Badge variant="outline" className="text-[11px] px-1.5">{g.changes.length}</Badge>}
                   {g.keptProjects.length > 0 && (
-                    <span className="text-[10px] text-muted-foreground truncate">{t('ports.orgKept', { count: g.keptProjects.length })}</span>
+                    <span className="text-[11px] text-muted-foreground truncate">{t('ports.orgKept', { count: g.keptProjects.length })}</span>
                   )}
                 </div>
 
@@ -3036,7 +3040,7 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
                             <td className="px-2.5 py-1.5">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span className="truncate font-medium max-w-[140px]" title={c.projectName}>{c.projectName}</span>
-                                <span className="shrink-0 text-[9px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium uppercase">{c.kind === 'custom' ? c.envName : c.kind}</span>
+                                <span className="shrink-0 text-[11px] leading-4 px-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-medium uppercase">{c.kind === 'custom' ? c.envName : c.kind}</span>
                               </div>
                             </td>
                             <td className="px-2.5 py-1.5 whitespace-nowrap">
@@ -3046,11 +3050,11 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
                             </td>
                             <td className="px-2.5 py-1.5">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-medium text-amber-700 dark:text-amber-400 border-amber-300/60 dark:border-amber-500/30">
+                                <Badge variant="outline" className="text-[11px] px-1.5 py-0 font-medium text-amber-700 dark:text-amber-400 border-amber-300/60 dark:border-amber-500/30">
                                   {t((ORG_REASON_KEY[c.reason] || 'ports.orgReason.sequence') as Parameters<typeof t>[0])}
                                 </Badge>
                                 {c.running && (
-                                  <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-medium text-zinc-500 dark:text-zinc-400">{t('ports.orgRunningTag')}</Badge>
+                                  <Badge variant="outline" className="text-[11px] px-1.5 py-0 font-medium text-zinc-500 dark:text-zinc-400">{t('ports.orgRunningTag')}</Badge>
                                 )}
                               </div>
                             </td>
@@ -3062,7 +3066,7 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
                 )}
 
                 {g.warnings.map((w, i) => (
-                  <p key={i} className="text-[10px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5 pl-1">
+                  <p key={i} className="text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5 pl-1">
                     <AlertTriangle className="h-3 w-3 mt-px shrink-0" />{w}
                   </p>
                 ))}
@@ -3070,7 +3074,7 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
             ))
           )}
           {runningAffected > 0 && (
-            <p className="text-[10px] text-muted-foreground flex items-start gap-1.5">
+            <p className="text-[11px] text-muted-foreground flex items-start gap-1.5">
               <Info className="h-3 w-3 mt-px shrink-0" />
               {t('ports.orgRunning', { count: runningAffected })}
             </p>
@@ -3080,7 +3084,6 @@ function OrganizePortsDialog({ open, onClose, plan, onApplied }: {
       <AppDialogFooter>
         <AlertDialogCancel disabled={applying}>{t('dlg.common.cancel')}</AlertDialogCancel>
         <AlertDialogAction
-          className="bg-teal-600 hover:bg-teal-700 text-white"
           disabled={totalChanges === 0 || applying}
           onClick={(e) => { e.preventDefault(); apply() }}
         >
@@ -3307,16 +3310,16 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
                       carries the update" answer. A stale side branch shows
                       nothing to pull; the default branch shows ↓N behind. */}
                   {typeof b.behind === 'number' && b.behind > 0 && (
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border border-amber-300/70 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 font-medium tabular-nums" title={t('dlg.branch.behindTip', { count: b.behind, branch: b.name })}>↓{b.behind}</span>
+                    <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border border-amber-300/70 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 font-medium tabular-nums" title={t('dlg.branch.behindTip', { count: b.behind, branch: b.name })}>↓{b.behind}</span>
                   )}
                   {typeof b.ahead === 'number' && b.ahead > 0 && (
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border text-muted-foreground tabular-nums" title={t('dlg.branch.aheadTip', { count: b.ahead, branch: b.name })}>↑{b.ahead}</span>
+                    <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border text-muted-foreground tabular-nums" title={t('dlg.branch.aheadTip', { count: b.ahead, branch: b.name })}>↑{b.ahead}</span>
                   )}
                   {b.current && (
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium">{t('dlg.branch.current')}</span>
+                    <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border border-emerald-300/70 dark:border-emerald-500/40 bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-medium">{t('dlg.branch.current')}</span>
                   )}
                   {!b.current && b.remote && (
-                    <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full border text-muted-foreground">{t('dlg.branch.remoteOnly')}</span>
+                    <span className="shrink-0 text-[11px] px-1.5 py-0.5 rounded-full border text-muted-foreground">{t('dlg.branch.remoteOnly')}</span>
                   )}
                 </button>
               ))}
@@ -3332,7 +3335,7 @@ function BranchPickerDialog({ project, open, onClose, onSwitched, onPullFailure 
             <div className="flex items-center gap-2 pt-1">
               <Button
                 type="button"
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                className="flex-1"
                 disabled={!selected || switching || selected === currentBranch}
                 onClick={handleSwitch}
               >
@@ -3444,7 +3447,7 @@ function PullOptionCard({ icon: Icon, title, desc, badge, tone, busy, disabled, 
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold">{title}</span>
             {badge ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-white">{badge}</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">{badge}</span>
             ) : null}
           </div>
           <div className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{desc}</div>
@@ -3693,7 +3696,7 @@ function PullAIDiagnoseDialog({ req, diagnosis, busy, forceConfirm, onForceConfi
                     <span className={`text-xs font-semibold uppercase tracking-wide ${severityClass}`}>{t(`dlg.pullDiag.severity.${diagnosis.severity}`)}</span>
                     <span className="text-[11px] text-muted-foreground">{t('dlg.pullDiag.severityLabel')}</span>
                     {req.transient ? (
-                      <span className="ml-auto shrink-0 inline-flex items-center gap-1 h-5 px-1.5 rounded-full border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 text-[10px] font-medium text-amber-700 dark:text-amber-400" title={t('dlg.pullDiag.action.retryDesc')}>
+                      <span className="ml-auto shrink-0 inline-flex items-center gap-1 h-5 px-1.5 rounded-full border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 text-[11px] font-medium text-amber-700 dark:text-amber-400" title={t('dlg.pullDiag.action.retryDesc')}>
                         {t('dlg.pullDiag.transientChip')}
                       </span>
                     ) : null}
@@ -4095,7 +4098,7 @@ function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
                   {t('dlg.pullAgent.detailLog')}
                 </button>
                 {showLog && (
-                  <pre className="mt-1.5 rounded-md border bg-muted/40 px-3 py-2 max-h-40 overflow-y-auto text-[10px] leading-4 whitespace-pre-wrap break-all font-mono">
+                  <pre className="mt-1.5 rounded-md border bg-muted/40 px-3 py-2 max-h-40 overflow-y-auto text-[11px] leading-4 whitespace-pre-wrap break-all font-mono">
                     {result.output}
                   </pre>
                 )}
@@ -4223,7 +4226,7 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
             {row(t('dlg.selfUpdate.autoUpdate'), meta ? (meta.autoUpdate ? t('dlg.selfUpdate.autoOn') : t('dlg.selfUpdate.autoOff')) : '—')}
             {meta?.repoUrl ? row(t('dlg.selfUpdate.repo'), meta.repoUrl.replace(/^https?:\/\//, '')) : null}
             {status?.checkedAt ? (
-              <div className="text-[10px] text-muted-foreground/70 pt-0.5">{new Date(status.checkedAt).toLocaleString()}</div>
+              <div className="text-[11px] text-muted-foreground/70 pt-0.5">{new Date(status.checkedAt).toLocaleString()}</div>
             ) : null}
           </div>
 
@@ -4502,12 +4505,12 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
             )}
 
             {/* ---- Section: connection (provider / key / base URL) ---- */}
-            <section className="space-y-3.5 rounded-xl border border-border/70 bg-card/60 p-4 dark:bg-card/40">
+            <section className="space-y-3.5 rounded-xl border bg-muted/30 dark:bg-muted/20 p-4">
               <div className="flex items-center gap-2.5">
                 <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
                   <PlugZap className="h-4 w-4" />
                 </span>
-                <p className="text-xs font-semibold tracking-wide">{t('dlg.llm.sectionConnection')}</p>
+                <p className="text-[13px] font-semibold tracking-[-0.01em]">{t('dlg.llm.sectionConnection')}</p>
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">{t('dlg.llm.provider')}</Label>
@@ -4516,12 +4519,12 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                   <SelectContent className="max-h-72">
                     {catalog.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
-                        <span className="mr-2 inline-flex h-4 min-w-8 items-center justify-center rounded bg-emerald-500/10 px-1 font-mono text-[9px] font-bold text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{p.label}</span>
+                        <span className="mr-2 inline-flex h-4 min-w-8 items-center justify-center rounded bg-emerald-500/10 px-1 font-mono text-[10px] font-bold text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{p.label}</span>
                         {p.displayName}
                       </SelectItem>
                     ))}
                     <SelectItem value="custom">
-                      <span className="mr-2 inline-flex h-4 min-w-8 items-center justify-center rounded bg-muted px-1 font-mono text-[9px] font-bold text-muted-foreground">CU</span>
+                      <span className="mr-2 inline-flex h-4 min-w-8 items-center justify-center rounded bg-muted px-1 font-mono text-[10px] font-bold text-muted-foreground">CU</span>
                       {t('dlg.llm.custom')}
                     </SelectItem>
                   </SelectContent>
@@ -4574,13 +4577,13 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
             </section>
 
             {/* ---- Section: model ---- */}
-            <section className="space-y-3.5 rounded-xl border border-border/70 bg-card/60 p-4 dark:bg-card/40">
+            <section className="space-y-3.5 rounded-xl border bg-muted/30 dark:bg-muted/20 p-4">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400">
                     <Sparkles className="h-4 w-4" />
                   </span>
-                  <p className="text-xs font-semibold tracking-wide">{t('dlg.llm.sectionModel')}</p>
+                  <p className="text-[13px] font-semibold tracking-[-0.01em]">{t('dlg.llm.sectionModel')}</p>
                 </div>
                 <button
                   type="button"
@@ -4638,13 +4641,13 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                   analysis (dsh harness vs single API call), pull (deterministic
                   agent vs plain + AI diagnosis), auto-repair (legacy tool loop
                   vs. delegated agent CLI) ---- */}
-            <section className="space-y-3 rounded-xl border border-border/70 bg-card/60 p-4 dark:bg-card/40">
+            <section className="space-y-3.5 rounded-xl border bg-muted/30 dark:bg-muted/20 p-4">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2.5">
                   <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
                     <Zap className="h-4 w-4" />
                   </span>
-                  <p className="text-xs font-semibold tracking-wide">{t('dlg.llm.sectionEngines')}</p>
+                  <p className="text-[13px] font-semibold tracking-[-0.01em]">{t('dlg.llm.sectionEngines')}</p>
                 </div>
                 <button
                   type="button"
@@ -4794,8 +4797,8 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                             <span className="flex items-center gap-2">
                               <span>{c.label}</span>
                               {c.found
-                                ? <span className="rounded bg-emerald-500/10 px-1 py-px font-mono text-[9px] text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{c.version || '✓ installed'}</span>
-                                : <span className="text-[10px] text-muted-foreground">(not installed)</span>}
+                                ? <span className="rounded bg-emerald-500/10 px-1 py-px font-mono text-[11px] text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">{c.version || '✓ installed'}</span>
+                                : <span className="text-[11px] text-muted-foreground">(not installed)</span>}
                             </span>
                           </SelectItem>
                         ))}
@@ -5065,7 +5068,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
         renderedSteps.push(
           <div key={`rd-${s.round}-${i}`} className="flex items-center gap-2.5 py-2">
             <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
               {t('dlg.repair.round', { round: s.round, max: job.maxRounds })}
             </span>
             <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
@@ -5110,7 +5113,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
             <span className="flex items-center gap-2">
               {t('dlg.repair.title')}
               {job && (
-                <Badge variant={job.status === 'running' ? 'secondary' : job.status === 'success' ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
+                <Badge variant={job.status === 'running' ? 'secondary' : job.status === 'success' ? 'default' : 'destructive'} className="text-[11px] px-1.5 py-0">
                   {job.status === 'running' ? t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds }) : job.status === 'success' ? t('dlg.repair.statusSuccess') : t('dlg.repair.statusFailed')}
                 </Badge>
               )}
@@ -5175,7 +5178,7 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">{t('dlg.repair.approvalTitle')}</p>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[10px] text-amber-700 tabular-nums dark:bg-amber-900/50 dark:text-amber-300">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 font-mono text-[11px] text-amber-700 tabular-nums dark:bg-amber-900/50 dark:text-amber-300">
                         <Clock className="h-2.5 w-2.5" />{t('dlg.repair.autoDenyIn', { time: formatRepairCountdown(remaining) })}
                       </span>
                     </div>
@@ -5203,11 +5206,11 @@ function RepairDialog({ jobId, open, onOpenChange, onFinished, onApprovalNeeded,
                 <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
                 <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
-                <span className="ml-2 inline-flex items-center gap-1.5 font-mono text-[10px] text-zinc-500 dark:text-zinc-400">
+                <span className="ml-2 inline-flex items-center gap-1.5 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
                   <Terminal className="h-3 w-3" />{t('dlg.repair.logTitle')}
                 </span>
                 {isRunning && (
-                  <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500">
+                  <span className="ml-auto inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     {t('dlg.repair.statusRunning', { round: job.round, max: job.maxRounds })}
                   </span>
@@ -5356,7 +5359,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
             {btn.label}
           </button>
         ))}
-        <span className="text-[10px] text-muted-foreground ml-auto">{t('dlg.activity.eventsCount', { count: filteredActivity.length })}</span>
+        <span className="text-[11px] text-muted-foreground ml-auto">{t('dlg.activity.eventsCount', { count: filteredActivity.length })}</span>
       </div>
 
       {/* Grouped timeline */}
@@ -5366,7 +5369,7 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
           {groupedActivity.map((group) => (
             <div key={group.label}>
               <div className="relative pl-10 mb-2">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-zinc-400">{group.label}</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground dark:text-zinc-400">{group.label}</span>
               </div>
               <div className="space-y-2">
                 {group.events.map((event, idx) => {
@@ -5388,9 +5391,9 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
                       <div>
                         <p className="text-sm">{event.message}</p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <p className="text-[10px] text-muted-foreground">{formatTimeAgo(event.timestamp, t)}</p>
+                          <p className="text-[11px] text-muted-foreground">{formatTimeAgo(event.timestamp, t)}</p>
                           {meta && (
-                            <span className="text-[9px] px-1.5 py-0 rounded-full bg-muted/60 dark:bg-white/5 text-muted-foreground dark:text-zinc-400 font-medium">{meta}</span>
+                            <span className="text-[11px] px-1.5 py-0 rounded-full bg-muted/60 dark:bg-white/5 text-muted-foreground dark:text-zinc-400 font-medium">{meta}</span>
                           )}
                         </div>
                       </div>
@@ -5407,6 +5410,46 @@ function ActivityTimeline({ activity }: { activity: ActivityEvent[] }) {
 }
 
 // ======================== DETAIL SHEET ========================
+
+/* v1.31: shared anatomy for DetailSheet sections. Replaces the six ad-hoc
+ * "green bar + tiny bold h4" headers — every section used to shout with
+ * the same volume. One quiet uppercase micro-label now carries the group
+ * identity; optional `action` rides on the right (wrapped in its own
+ * stopPropagation layer so it never toggles the section); when `open` +
+ * `onToggle` are provided the header is collapsible (chevron + keyboard). */
+function DetailSection({
+  title, open, onToggle, action, children, className,
+}: {
+  title: React.ReactNode
+  open?: boolean
+  onToggle?: () => void
+  action?: React.ReactNode
+  children: React.ReactNode
+  className?: string
+}) {
+  const collapsible = typeof onToggle === 'function' && typeof open === 'boolean'
+  return (
+    <section className={`min-w-0 ${className ?? ''}`}>
+      <div
+        role={collapsible ? 'button' : undefined}
+        tabIndex={collapsible ? 0 : undefined}
+        className={`flex items-center gap-2.5 w-full text-left rounded-lg transition-colors ${collapsible ? 'cursor-pointer px-2 -mx-2 py-1 hover:bg-muted/50' : 'py-1'}`}
+        onClick={collapsible ? onToggle : undefined}
+        onKeyDown={collapsible ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle!() } } : undefined}
+      >
+        <h4 className="text-[11px] leading-4 font-semibold uppercase tracking-[0.1em] text-muted-foreground">{title}</h4>
+        <span className="flex-1" aria-hidden />
+        {action ? <div className="flex shrink-0 items-center" onClick={(e) => e.stopPropagation()}>{action}</div> : null}
+        {collapsible ? (
+          <span className="ml-1 text-muted-foreground/70">
+            {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </span>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  )
+}
 
 function DetailSheet({
   project, open, onClose, onEnvAction, lanIp, currentHost, onRefresh, devices, onOpenDeviceManagement, onReanalyze, onEdit, version, update, onSwitchBranch, onPullFailure, onRetryUpdateCheck, onAddEnv, onEditEnv
@@ -5862,61 +5905,80 @@ function DetailSheet({
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-xl overflow-hidden p-0 flex flex-col dark:bg-zinc-900/98 dark:border-l dark:border-zinc-800/60">
-        <SheetHeader className="px-4 pt-4 pb-2 border-b shrink-0 bg-brand-soft/50 dark:bg-brand-soft">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-brand-soft-strong">
+        {/* v1.31 identity block — larger icon chip, name + status chip on one
+         * line, mono path below. The old header crammed a 20px icon, 14px
+         * title and a loud full-width badge into one row; the new one gives
+         * the project identity room and moves status into a quiet dot chip. */}
+        <SheetHeader className="shrink-0 border-b px-5 pt-5 pb-4 sm:px-6">
+          <div className="flex items-start gap-4 pr-8 sm:pr-10">
+            <div className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-soft-strong ring-1 ring-inset ring-black/[0.03] dark:ring-white/[0.06]">
               <IconComp className="h-5 w-5 text-brand-strong" />
             </div>
-            <div className="flex-1 min-w-0">
-              <SheetTitle className="truncate">{project.name}</SheetTitle>
-              <SheetDescription className="truncate text-xs">{project.path}</SheetDescription>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                <SheetTitle className="truncate text-lg leading-7 font-semibold tracking-[-0.01em]">{project.name}</SheetTitle>
+                <span
+                  className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
+                    status === 'running'
+                      ? 'border-emerald-300/60 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-400'
+                      : 'border-zinc-300/70 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-400'
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${status === 'running' ? 'bg-emerald-500' : 'bg-zinc-400 dark:bg-zinc-500'}`} />
+                  {status === 'running' ? t('dlg.detail.statusRunning') : status === 'mixed' ? t('dlg.depGraph.mixed') : t('dlg.detail.statusStopped')}
+                </span>
+              </div>
+              <SheetDescription className="mt-1 truncate font-mono text-xs" title={project.path}>{project.path}</SheetDescription>
             </div>
-            <Badge variant={status === 'running' ? 'default' : 'secondary'} className={`shrink-0 ${status === 'running' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400' : ''}`}>
-              {status === 'running' ? t('dlg.detail.statusRunning') : status === 'mixed' ? t('dlg.depGraph.mixed') : t('dlg.detail.statusStopped')}
-            </Badge>
           </div>
         </SheetHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0 overflow-hidden">
-          <div className="border-b px-4 shrink-0">
-            <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-2">
-              <TabsTrigger value="overview" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabOverview')}</TabsTrigger>
-              <TabsTrigger value="environments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabEnvironments')}</TabsTrigger>
-              <TabsTrigger value="activity" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabActivity')}</TabsTrigger>
-              <TabsTrigger value="logs" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabLogs')}</TabsTrigger>
-              <TabsTrigger value="deployments" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabDeployments')}</TabsTrigger>
-              <TabsTrigger value="timeline" className="px-3 pb-1.5 pt-1 text-xs data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong dark:data-[state=active]:border-transparent rounded-full transition-colors">{t('dlg.detail.tabTimeline')}</TabsTrigger>
+          {/* v1.31 underline tabs — active tab carries a 2px brand bar that
+           * sits exactly on the strip's bottom hairline (after: pseudo on a
+           * full-height trigger). The old pill chips tinted every active tab
+           * with a soft green lozenge; the underline reads lighter and lets
+           * the content below own the color. Horizontal scroll keeps all 6
+           * tabs reachable on narrow viewports. */}
+          <div className="shrink-0 overflow-x-auto custom-scrollbar border-b px-5 sm:px-6">
+            <TabsList className="h-11 w-max min-w-full justify-start gap-5 bg-transparent p-0">
+              {([
+                ['overview', t('dlg.detail.tabOverview')],
+                ['environments', t('dlg.detail.tabEnvironments')],
+                ['activity', t('dlg.detail.tabActivity')],
+                ['logs', t('dlg.detail.tabLogs')],
+                ['deployments', t('dlg.detail.tabDeployments')],
+                ['timeline', t('dlg.detail.tabTimeline')],
+              ] as const).map(([value, label]) => (
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className="relative h-11 flex-none rounded-none px-1 text-[13px] leading-none text-muted-foreground transition-colors after:absolute after:inset-x-1.5 after:bottom-0 after:h-[2px] after:rounded-full after:bg-transparent after:transition-colors hover:text-foreground data-[state=active]:after:bg-brand data-[state=active]:bg-transparent data-[state=active]:font-medium data-[state=active]:shadow-none data-[state=active]:text-foreground dark:data-[state=active]:bg-transparent dark:data-[state=active]:text-foreground"
+                >
+                  {label}
+                </TabsTrigger>
+              ))}
             </TabsList>
           </div>
 
-          <TabsContent value="overview" className="p-4 space-y-3 mt-0 overflow-y-auto flex-1 min-h-0">
+          <TabsContent value="overview" className="px-5 py-4 sm:px-6 space-y-4 mt-0 overflow-y-auto flex-1 min-h-0">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="space-y-3"
+              className="space-y-4"
             >
             {/* Description - collapsible */}
-            <div>
-              <div
-                role="button"
-                tabIndex={0}
-                className="flex items-center gap-2 w-full text-left group/section cursor-pointer rounded-md hover:bg-muted/30 transition-colors px-1 -mx-1"
-                onClick={() => setDescCollapsed(!descCollapsed)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDescCollapsed(!descCollapsed) } }}
-              >
-                <div className="h-1 w-3 rounded-full bg-emerald-500" />
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1">{t('dlg.detail.description')}</h4>
-                <div className="flex-1" />
-                {!editingDescription && !descCollapsed && (
-                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); startEditingDescription() }}>
-                    <Edit3 className="h-2.5 w-2.5 mr-0.5" />{t('dlg.common.edit')}
-                  </Button>
-                )}
-                <span className="text-muted-foreground">
-                  {descCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                </span>
-              </div>
+            <DetailSection
+              title={t('dlg.detail.description')}
+              open={!descCollapsed}
+              onToggle={() => setDescCollapsed(!descCollapsed)}
+              action={!editingDescription && !descCollapsed ? (
+                <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground hover:text-foreground" onClick={startEditingDescription}>
+                  <Edit3 className="h-3 w-3" />{t('dlg.common.edit')}
+                </Button>
+              ) : undefined}
+            >
               <AnimatePresence initial={false}>
                 {!descCollapsed && (
                   <motion.div
@@ -5927,17 +5989,17 @@ function DetailSheet({
                     className="overflow-hidden"
                   >
                     {editingDescription ? (
-                      <div className="space-y-2">
+                      <div className="space-y-2.5">
                         <Textarea
                           value={descDraft}
                           onChange={(e) => setDescDraft(e.target.value)}
                           placeholder={t('dlg.detail.descPlaceholder')}
-                          className="text-sm min-h-[80px] resize-none"
+                          className="text-[13px] min-h-[96px] resize-none"
                           autoFocus
                         />
-                        <div className="flex items-center gap-1.5 justify-end">
-                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingDescription(false)} disabled={savingDesc}>{t('dlg.common.cancel')}</Button>
-                          <Button size="sm" className="h-6 text-xs bg-primary hover:bg-primary/90 text-primary-foreground" onClick={saveDescription} disabled={savingDesc}>
+                        <div className="flex items-center gap-2 justify-end">
+                          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setEditingDescription(false)} disabled={savingDesc}>{t('dlg.common.cancel')}</Button>
+                          <Button size="sm" className="h-7 text-xs" onClick={saveDescription} disabled={savingDesc}>
                             {savingDesc && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
                             {t('dlg.common.save')}
                           </Button>
@@ -5945,31 +6007,21 @@ function DetailSheet({
                       </div>
                     ) : (
                       project.description ? (
-                        <p className="text-sm">{project.description}</p>
+                        <p className="px-0.5 text-[13px] leading-relaxed">{project.description}</p>
                       ) : (
-                        <p className="text-sm text-muted-foreground italic">{t('dlg.detail.noDescription')}</p>
+                        <p className="px-0.5 text-[13px] text-muted-foreground italic">{t('dlg.detail.noDescription')}</p>
                       )
                     )}
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+            </DetailSection>
             {/* Device - collapsible */}
-            <div>
-              <div
-                role="button"
-                tabIndex={0}
-                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md hover:bg-muted/30 transition-colors px-1 -mx-1"
-                onClick={() => setDeviceCollapsed(!deviceCollapsed)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDeviceCollapsed(!deviceCollapsed) } }}
-              >
-                <div className="h-1 w-3 rounded-full bg-emerald-500" />
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">{t('dlg.detail.device')}</h4>
-                <div className="flex-1" />
-                <span className="text-muted-foreground">
-                  {deviceCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                </span>
-              </div>
+            <DetailSection
+              title={t('dlg.detail.device')}
+              open={!deviceCollapsed}
+              onToggle={() => setDeviceCollapsed(!deviceCollapsed)}
+            >
               <AnimatePresence initial={false}>
                 {!deviceCollapsed && (
                   <motion.div
@@ -5979,10 +6031,10 @@ function DetailSheet({
                     transition={{ duration: 0.2, ease: 'easeInOut' }}
                     className="overflow-hidden"
                   >
-                    <div className="p-2.5 rounded-lg border bg-muted/30">
+                    <div className="rounded-xl border bg-card p-4">
                       {project.deviceId && project.deviceName ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2.5">
                             <span className="relative flex h-2.5 w-2.5">
                               {project.deviceStatus === 'online' && (
                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
@@ -5990,7 +6042,7 @@ function DetailSheet({
                               <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${project.deviceStatus === 'online' ? 'bg-emerald-500' : 'bg-red-400'}`} />
                             </span>
                             <span className="text-sm font-medium">{project.deviceName}</span>
-                            <Badge variant="outline" className={`text-[9px] px-1.5 py-0 ${project.deviceStatus === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400'}`}>
+                            <Badge variant="outline" className={`text-[11px] px-2 py-0 ${project.deviceStatus === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400'}`}>
                               {project.deviceStatus === 'online' ? t('dlg.common.online') : t('dlg.common.offline')}
                             </Badge>
                           </div>
@@ -5998,7 +6050,7 @@ function DetailSheet({
                             const device = devices?.find((d) => d.id === project.deviceId)
                             if (!device) return null
                             return (
-                              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-5">
+                              <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground">
                                 <span>{t('dlg.detail.ipPort')}</span>
                                 <span className="font-mono text-foreground dark:text-zinc-200">{device.ip}:{device.port}</span>
                                 <span>{t('dlg.detail.lastSeen')}</span>
@@ -6007,20 +6059,20 @@ function DetailSheet({
                             )
                           })()}
                           <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" className="h-6 text-[10px]" onClick={() => { onOpenDeviceManagement?.(); onClose() }}>
-                              <ExternalLink className="h-2.5 w-2.5 mr-0.5" />{t('dlg.detail.goToDevice')}
+                            <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs" onClick={() => { onOpenDeviceManagement?.(); onClose() }}>
+                              <ExternalLink className="h-3.5 w-3.5" />{t('dlg.detail.goToDevice')}
                             </Button>
                           </div>
                         </div>
                       ) : (
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
+                        <div className="space-y-2.5">
+                          <div className="flex items-center gap-2.5">
                             <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                             <span className="text-sm font-medium">{t('dlg.detail.thisMachine')}</span>
-                            <Badge variant="outline" className="text-[9px] px-1.5 py-0 border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300">{t('dlg.detail.localBadge')}</Badge>
+                            <Badge variant="outline" className="text-[11px] px-2 py-0 border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300">{t('dlg.detail.localBadge')}</Badge>
                           </div>
                           {localNetworkInfo && (
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground pl-6">
+                            <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs text-muted-foreground pl-6.5">
                               <span>{t('dlg.detail.hostname')}</span><span className="font-mono text-foreground dark:text-zinc-200 truncate min-w-0" title={localNetworkInfo.hostname}>{localNetworkInfo.hostname}</span>
                               <span>{t('dlg.detail.platform')}</span><span className="font-mono text-foreground dark:text-zinc-200 truncate min-w-0">{localNetworkInfo.platform} {localNetworkInfo.arch}</span>
                               <span>{t('dlg.detail.cpuCores')}</span><span className="font-mono text-foreground dark:text-zinc-200">{localNetworkInfo.cpus}</span>
@@ -6032,38 +6084,26 @@ function DetailSheet({
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
+            </DetailSection>
             <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 rounded-lg border">
-                <div className="text-xs text-muted-foreground">{t('dlg.detail.path')}</div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <span className="text-sm font-mono truncate">{project.path}</span>
-                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => copyToClipboard(project.path, t('dlg.detail.path'))}><Copy className="h-3 w-3" /></Button>
+              <div className="rounded-xl border bg-card p-4">
+                <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{t('dlg.detail.path')}</div>
+                <div className="flex items-center gap-1 mt-1.5 min-w-0">
+                  <span className="text-[13px] font-mono truncate" title={project.path}>{project.path}</span>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => copyToClipboard(project.path, t('dlg.detail.path'))}><Copy className="h-3 w-3" /></Button>
                 </div>
               </div>
-              <div className="p-3 rounded-lg border">
-                <div className="text-xs text-muted-foreground">{t('dlg.detail.created')}</div>
-                <div className="text-sm mt-0.5">{new Date(project.createdAt).toLocaleDateString()}</div>
+              <div className="rounded-xl border bg-card p-4">
+                <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{t('dlg.detail.created')}</div>
+                <div className="text-[13px] mt-1.5 tabular-nums">{new Date(project.createdAt).toLocaleDateString()}</div>
               </div>
             </div>
             {/* Git repository — one-click pull (local projects) */}
-            <div>
-              <div
-                role="button"
-                tabIndex={0}
-                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md hover:bg-muted/30 transition-colors px-1 -mx-1"
-                onClick={() => setRepoCollapsed(!repoCollapsed)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setRepoCollapsed(!repoCollapsed) } }}
-              >
-                <div className="h-1 w-3 rounded-full bg-emerald-500" />
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">
-                  {t('dlg.detail.gitRepo')}{repoCollapsed && project.repoUrl ? <Github className="inline h-3 w-3 ml-1.5 -mt-0.5" /> : null}
-                </h4>
-                <div className="flex-1" />
-                <span className="text-muted-foreground">
-                  {repoCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                </span>
-              </div>
+            <DetailSection
+              title={<span className="inline-flex items-center gap-1.5">{t('dlg.detail.gitRepo')}{repoCollapsed && project.repoUrl ? <Github className="h-3 w-3 -mt-0.5" /> : null}</span>}
+              open={!repoCollapsed}
+              onToggle={() => setRepoCollapsed(!repoCollapsed)}
+            >
               <AnimatePresence initial={false}>
                 {!repoCollapsed && (
                   <motion.div
@@ -6073,9 +6113,9 @@ function DetailSheet({
                     transition={{ duration: 0.2, ease: 'easeInOut' }}
                     className="overflow-hidden"
                   >
-                    <div className="p-2.5 rounded-lg border bg-muted/30">
+                    <div className="rounded-xl border bg-card p-4">
                       {project.repoUrl ? (
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           <div className="flex items-center gap-2 min-w-0">
                             <Github className="h-4 w-4 shrink-0 text-foreground dark:text-zinc-200" />
                             <a
@@ -6087,8 +6127,8 @@ function DetailSheet({
                             >
                               {sanitizeGitUrl(project.repoUrl).replace(/^https?:\/\/(www\.)?/, '')}
                             </a>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => copyToClipboard(sanitizeGitUrl(project.repoUrl!), t('dlg.detail.gitRepo'))}><Copy className="h-3.5 w-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={() => window.open(sanitizeGitUrl(project.repoUrl ?? ""), "_blank", "noreferrer")}><ExternalLink className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => copyToClipboard(sanitizeGitUrl(project.repoUrl!), t('dlg.detail.gitRepo'))}><Copy className="h-3.5 w-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => window.open(sanitizeGitUrl(project.repoUrl ?? ""), "_blank", "noreferrer")}><ExternalLink className="h-3.5 w-3.5" /></Button>
                           </div>
                           {(version && version.sha) || detailUpdateHint ? (
                             <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
@@ -6139,23 +6179,23 @@ function DetailSheet({
                           <div className="flex items-center gap-2">
                             <Button
                               size="sm"
-                              className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                              className="h-8 gap-1.5 text-xs"
                               onClick={handlePull}
                               disabled={pulling}
                             >
-                              {pulling ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5 mr-1.5" />}
+                              {pulling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitPullRequest className="h-3.5 w-3.5" />}
                               {pulling ? t('dlg.detail.pulling') : t('dlg.detail.pullLatest')}
                             </Button>
                             {onSwitchBranch && (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 text-xs"
+                                className="h-8 gap-1.5 text-xs"
                                 onClick={() => onSwitchBranch(project)}
                                 disabled={pulling}
                                 title={version?.branch ? `${version.branch} → ?` : t('dlg.detail.switchBranch')}
                               >
-                                <GitBranch className="h-3.5 w-3.5 mr-1.5" />
+                                <GitBranch className="h-3.5 w-3.5" />
                                 {version?.branch || t('dlg.detail.switchBranch')}
                               </Button>
                             )}
@@ -6176,7 +6216,7 @@ function DetailSheet({
                             /* v1.25: "already up to date" on a stale side branch
                                while the default branch moved on — the pull can
                                never bring the latest code; offer the switch. */
-                            <div className="flex items-center gap-3 flex-wrap rounded-lg border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-3.5 py-3">
+                            <div className="flex items-center gap-3 flex-wrap rounded-xl border border-amber-300/70 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/20 px-4 py-3">
                               <GitBranch className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
                               <span className="text-xs text-amber-800 dark:text-amber-300 flex-1 min-w-[200px]">
                                 {pullNewerOnDefaultNote(pullResult, t)}
@@ -6185,17 +6225,17 @@ function DetailSheet({
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 text-xs shrink-0"
+                                className="h-8 gap-1.5 text-xs shrink-0"
                                 onClick={() => onSwitchBranch?.(project)}
                                 disabled={pulling}
                               >
-                                <GitBranch className="h-3.5 w-3.5 mr-1.5" />
+                                <GitBranch className="h-3.5 w-3.5" />
                                 {t('dlg.detail.switchToBranchAction', { branch: String(pullResult.newerOnDefault?.branch || pullResult.remoteDiffers?.branch || '') })}
                               </Button>
                             </div>
                           )}
                           {pullResult?.ok && !pullResult.upToDate && pullResult.output && (
-                            <pre className="text-[10px] font-mono text-muted-foreground whitespace-pre-wrap max-h-24 overflow-y-auto rounded-md bg-background/60 border px-2 py-1.5">{pullResult.output.slice(0, 1500)}</pre>
+                            <pre className="text-[11px] font-mono text-muted-foreground whitespace-pre-wrap max-h-24 overflow-y-auto custom-scrollbar rounded-lg bg-muted/40 border px-3 py-2">{pullResult.output.slice(0, 1500)}</pre>
                           )}
                         </div>
                       ) : (
@@ -6203,12 +6243,12 @@ function DetailSheet({
                            note: one click opens the edit dialog where the Git
                            Repository field lives (works for remote projects
                            too — the URL is stored on the dashboard side). */
-                        <div className="flex items-center gap-3 flex-wrap rounded-lg border border-dashed border-zinc-300 dark:border-zinc-600 px-3.5 py-3">
+                        <div className="flex items-center gap-3 flex-wrap rounded-xl border border-dashed border-zinc-300 dark:border-zinc-600 px-4 py-3.5">
                           <Github className="h-4 w-4 shrink-0 text-muted-foreground" />
                           <span className="text-xs text-muted-foreground flex-1 min-w-[180px]">
                             {t('dlg.detail.noRepoHint')}
                           </span>
-                          <Button size="sm" className="h-7 text-xs gap-1.5" onClick={() => onEdit?.(project)}>
+                          <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => onEdit?.(project)}>
                             <Github className="h-3.5 w-3.5" />
                             {t('dlg.detail.connectRepo')}
                           </Button>
@@ -6218,29 +6258,17 @@ function DetailSheet({
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
-            <div>
-              <div
-                role="button"
-                tabIndex={0}
-                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md hover:bg-muted/30 transition-colors px-1 -mx-1"
-                onClick={() => setTagsCollapsed(!tagsCollapsed)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTagsCollapsed(!tagsCollapsed) } }}
-              >
-                <div className="h-1 w-3 rounded-full bg-emerald-500" />
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">
-                  {t('dlg.detail.tags')}{tagsCollapsed && tags.length > 0 ? ` (${tags.length})` : ''}
-                </h4>
-                <div className="flex-1" />
-                {!editingTags && !tagsCollapsed && (
-                  <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground" onClick={(e) => { e.stopPropagation(); startEditingTags() }}>
-                    <Edit3 className="h-2.5 w-2.5 mr-0.5" />{t('dlg.common.edit')}
-                  </Button>
-                )}
-                <span className="text-muted-foreground">
-                  {tagsCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                </span>
-              </div>
+            </DetailSection>
+            <DetailSection
+              title={<span>{t('dlg.detail.tags')}{tagsCollapsed && tags.length > 0 ? ` (${tags.length})` : ''}</span>}
+              open={!tagsCollapsed}
+              onToggle={() => setTagsCollapsed(!tagsCollapsed)}
+              action={!editingTags && !tagsCollapsed ? (
+                <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground hover:text-foreground" onClick={startEditingTags}>
+                  <Edit3 className="h-3 w-3" />{t('dlg.common.edit')}
+                </Button>
+              ) : undefined}
+            >
               <AnimatePresence initial={false}>
                 {!tagsCollapsed && (
                   <motion.div
@@ -6265,41 +6293,41 @@ function DetailSheet({
                         </div>
                         <Popover open={tagSearchOpen} onOpenChange={setTagSearchOpen}>
                           <PopoverTrigger asChild>
-                            <Button variant="outline" size="sm" className="h-6 text-[10px] w-full justify-start">
-                              <Tag className="h-2.5 w-2.5 mr-1" />{t('dlg.detail.addTag')}
+                            <Button variant="outline" size="sm" className="h-8 w-full justify-start text-xs">
+                              <Tag className="h-3.5 w-3.5" />{t('dlg.detail.addTag')}
                             </Button>
                           </PopoverTrigger>
-                          <PopoverContent className="w-56 p-2" align="start">
+                          <PopoverContent className="w-60 p-2.5" align="start">
                             <Input
                               placeholder={t('dlg.detail.searchTags')}
                               value={tagSearchQuery}
                               onChange={(e) => setTagSearchQuery(e.target.value)}
-                              className="h-7 text-xs mb-1.5"
+                              className="h-8 text-xs mb-2"
                               autoFocus
                             />
-                            <div className="max-h-40 overflow-y-auto space-y-0.5">
+                            <div className="max-h-40 overflow-y-auto custom-scrollbar space-y-1">
                               {TAG_OPTIONS
                                 .filter((t) => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) && !tagDraft.includes(t.name))
                                 .map((tag) => (
                                   <button
                                     key={tag.name}
                                     type="button"
-                                    className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-md hover:bg-accent transition-colors text-left"
+                                    className="flex items-center gap-2.5 w-full px-2.5 py-1.5 text-xs rounded-md hover:bg-accent transition-colors text-left"
                                     onClick={() => addTag(tag.name)}
                                   >
-                                    <Badge variant="secondary" className={`text-[9px] px-1.5 py-0 cursor-default ${tag.color}`}>{tag.name}</Badge>
+                                    <Badge variant="secondary" className={`text-[11px] px-2 py-0 cursor-default ${tag.color}`}>{tag.name}</Badge>
                                   </button>
                                 ))
                               }
                               {TAG_OPTIONS.filter((t) => t.name.toLowerCase().includes(tagSearchQuery.toLowerCase()) && !tagDraft.includes(t.name)).length === 0 && (
-                                <p className="text-[10px] text-muted-foreground text-center py-2">{t('dlg.detail.noMoreTags')}</p>
+                                <p className="text-[11px] text-muted-foreground text-center py-2">{t('dlg.detail.noMoreTags')}</p>
                               )}
                             </div>
                           </PopoverContent>
                         </Popover>
-                        <div className="flex items-center gap-1.5 justify-end">
-                          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setEditingTags(false)} disabled={savingTags}>{t('dlg.common.cancel')}</Button>
-                          <Button size="sm" className="h-6 text-xs bg-primary hover:bg-primary/90 text-primary-foreground" onClick={saveTags} disabled={savingTags}>
+                        <div className="flex items-center gap-2 justify-end">
+                          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setEditingTags(false)} disabled={savingTags}>{t('dlg.common.cancel')}</Button>
+                          <Button size="sm" className="h-7 text-xs" onClick={saveTags} disabled={savingTags}>
                             {savingTags && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
                             {t('dlg.common.save')}
                           </Button>
@@ -6315,23 +6343,26 @@ function DetailSheet({
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
-            {/* Project Notes (Session 13) */}
-            <div className="rounded-lg border bg-muted/20 overflow-hidden">
+            </DetailSection>
+            {/* Project Notes (Session 13) — v1.31: card treatment aligned with
+             * the rest of the panel (rounded-xl border bg-card), quiet header
+             * (the amber icon + bold title read louder than the note content
+             * itself), and the amber save button becomes a standard primary. */}
+            <div className="rounded-xl border bg-card overflow-hidden">
               <div
                 role="button"
                 tabIndex={0}
-                className="flex items-center justify-between w-full p-3 hover:bg-accent/50 transition-colors"
+                className="flex items-center justify-between w-full px-4 py-3 hover:bg-accent/50 transition-colors"
                 onClick={() => setEditingNotes(!editingNotes)}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditingNotes(!editingNotes) } }}
               >
-                <div className="flex items-center gap-2">
-                  <Edit3 className="h-3.5 w-3.5 text-amber-500" />
-                  <h4 className="text-sm font-semibold">{t('dlg.detail.notes')}</h4>
+                <div className="flex items-center gap-2.5">
+                  <Edit3 className="h-3.5 w-3.5 text-muted-foreground" />
+                  <h4 className="text-[13px] font-semibold">{t('dlg.detail.notes')}</h4>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   {projectNotes && (
-                    <Badge variant="secondary" className="text-[9px] bg-amber-100/60 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                    <Badge variant="secondary" className="text-[11px] px-2 py-0">
                       {t('dlg.detail.chars', { count: projectNotes.length })}
                     </Badge>
                   )}
@@ -6347,19 +6378,19 @@ function DetailSheet({
                     transition={{ duration: 0.2 }}
                     className="overflow-hidden"
                   >
-                    <div className="p-3 pt-0 space-y-2">
+                    <div className="px-4 pb-4 space-y-2.5">
                       <Textarea
                         value={notesDraft}
                         onChange={(e) => setNotesDraft(e.target.value)}
                         placeholder={t('dlg.detail.notesPlaceholder')}
-                        className="min-h-[80px] text-xs resize-y"
+                        className="min-h-[96px] text-[13px] resize-y"
                       />
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground">{t('dlg.detail.characters', { count: notesDraft.length })}</span>
-                        <div className="flex gap-1.5">
-                          <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => { setNotesDraft(projectNotes); setEditingNotes(false) }}>{t('dlg.common.cancel')}</Button>
-                          <Button size="sm" className="h-6 text-[10px] bg-amber-600 hover:bg-amber-700 text-white" onClick={handleSaveNotes} disabled={savingNotes}>
-                            {savingNotes && <Loader2 className="h-2.5 w-2.5 mr-1 animate-spin" />}
+                        <span className="text-[11px] text-muted-foreground">{t('dlg.detail.characters', { count: notesDraft.length })}</span>
+                        <div className="flex gap-2">
+                          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setNotesDraft(projectNotes); setEditingNotes(false) }}>{t('dlg.common.cancel')}</Button>
+                          <Button size="sm" className="h-7 text-xs" onClick={handleSaveNotes} disabled={savingNotes}>
+                            {savingNotes && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
                             {t('dlg.detail.saveNotes')}
                           </Button>
                         </div>
@@ -6369,49 +6400,37 @@ function DetailSheet({
                 )}
               </AnimatePresence>
               {!editingNotes && projectNotes && (
-                <div className="px-3 pb-3 pt-0">
-                  <p className="text-xs text-muted-foreground whitespace-pre-wrap line-clamp-3">{projectNotes}</p>
+                <div className="px-4 pb-4 pt-0">
+                  <p className="text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap line-clamp-3">{projectNotes}</p>
                 </div>
               )}
               {!editingNotes && !projectNotes && (
-                <div className="px-3 pb-3 pt-0">
-                  <p className="text-[10px] text-muted-foreground/60 italic">{t('dlg.detail.noNotes')}</p>
+                <div className="px-4 pb-4 pt-0">
+                  <p className="text-[11px] text-muted-foreground/60 italic">{t('dlg.detail.noNotes')}</p>
                 </div>
               )}
             </div>
-            <div>
-              <div
-                role="button"
-                tabIndex={0}
-                className="flex items-center gap-2 w-full text-left cursor-pointer rounded-md hover:bg-muted/30 transition-colors px-1 -mx-1"
-                onClick={() => setEnvSummaryCollapsed(!envSummaryCollapsed)}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEnvSummaryCollapsed(!envSummaryCollapsed) } }}
-              >
-                <div className="h-1 w-3 rounded-full bg-emerald-500" />
-                <h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">
-                  {t('dlg.detail.envSummary')}{envSummaryCollapsed && envs.length > 0 ? ` (${envs.length})` : ''}
-                </h4>
-                <div className="flex-1" />
-                {!envSummaryCollapsed && (
-                  <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() => { const ports = envs.map((e) => String(e.port)).join(', '); navigator.clipboard.writeText(ports); toast({ title: t('dlg.detail.portsCopied'), description: ports, variant: 'success' }) }}
-                      title={t('dlg.detail.copyAllPortsTitle')}
-                    ><Copy className="h-2.5 w-2.5" />{t('dlg.detail.copyAllPorts')}</button>
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                      onClick={() => { envs.filter((e) => e.status === 'running').forEach((env) => { let url: string; if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) { url = `/api/proxy/${env.port}/` } else { const host = currentHost || 'localhost'; url = `http://${host}:${env.port}` } window.open(url, '_blank') }) }}
-                      title={t('dlg.detail.openAllRunningTitle')}
-                    ><ExternalLink className="h-2.5 w-2.5" />{t('dlg.detail.openAllRunning')}</button>
-                  </div>
-                )}
-                <span className="text-muted-foreground">
-                  {envSummaryCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                </span>
-              </div>
+            <DetailSection
+              title={<span>{t('dlg.detail.envSummary')}{envSummaryCollapsed && envs.length > 0 ? ` (${envs.length})` : ''}</span>}
+              open={!envSummaryCollapsed}
+              onToggle={() => setEnvSummaryCollapsed(!envSummaryCollapsed)}
+              action={!envSummaryCollapsed ? (
+                <>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-md bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => { const ports = envs.map((e) => String(e.port)).join(', '); navigator.clipboard.writeText(ports); toast({ title: t('dlg.detail.portsCopied'), description: ports, variant: 'success' }) }}
+                    title={t('dlg.detail.copyAllPortsTitle')}
+                  ><Copy className="h-3 w-3" />{t('dlg.detail.copyAllPorts')}</button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-md bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => { envs.filter((e) => e.status === 'running').forEach((env) => { let url: string; if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && !currentHost.startsWith('192.168.') && !currentHost.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(currentHost)) { url = `/api/proxy/${env.port}/` } else { const host = currentHost || 'localhost'; url = `http://${host}:${env.port}` } window.open(url, '_blank') }) }}
+                    title={t('dlg.detail.openAllRunningTitle')}
+                  ><ExternalLink className="h-3 w-3" />{t('dlg.detail.openAllRunning')}</button>
+                </>
+              ) : undefined}
+            >
               <AnimatePresence initial={false}>
                 {!envSummaryCollapsed && (
                   <motion.div
@@ -6421,16 +6440,16 @@ function DetailSheet({
                     transition={{ duration: 0.2, ease: 'easeInOut' }}
                     className="overflow-hidden"
                   >
-                    <div className="space-y-1">
+                    <div className="divide-y rounded-xl border bg-card">
                       {envs.map((env) => (
-                        <div key={env.id} className="flex items-center justify-between p-2 rounded border text-sm">
-                          <div className="flex items-center gap-2">
+                        <div key={env.id} className="flex items-center justify-between px-4 py-2.5 text-[13px]">
+                          <div className="flex items-center gap-2.5">
                             <span className={`h-2 w-2 rounded-full ${env.status === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                            <span>{env.name}</span>
+                            <span className="font-medium">{env.name}</span>
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
                             <button className="font-mono hover:text-foreground transition-colors" onClick={() => copyToClipboard(String(env.port), `:${env.port}`)}>:{env.port}</button>
-                            {env.pid && <span>PID {env.pid}</span>}
+                            {env.pid && <span className="tabular-nums">PID {env.pid}</span>}
                             {env.status === 'running' && (
                               <a
                                 href={(() => {
@@ -6455,111 +6474,117 @@ function DetailSheet({
                   </motion.div>
                 )}
               </AnimatePresence>
-            </div>
-            {/* Access URLs Section */}
+            </DetailSection>
+            {/* Access URLs Section — v1.31: unified card anatomy, 11px label
+             * column, 24px copy icons (the old 14px targets were below any
+             * reasonable tap size). */}
             {envs.some((e) => e.status === 'running') && (
-              <div>
-                <div className="flex items-center gap-2"><div className="h-1 w-3 rounded-full bg-emerald-500" /><h4 className="text-xs font-semibold text-muted-foreground dark:text-zinc-200 mb-1.5">{t('dlg.detail.accessUrls')}</h4></div>
-                <div className="space-y-1.5">
+              <DetailSection title={t('dlg.detail.accessUrls')}>
+                <div className="space-y-2">
                   {envs.filter((e) => e.status === 'running').map((env) => {
                     const envName = env.name === 'development' ? 'dev' : env.name === 'production' ? 'prod' : env.name
                     return (
-                      <div key={env.id} className="p-2.5 rounded-lg border bg-muted/30 space-y-1.5">
-                        <div className="flex items-center gap-1.5">
+                      <div key={env.id} className="rounded-xl border bg-card p-4 space-y-2.5">
+                        <div className="flex items-center gap-2">
                           <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                          <span className="text-xs font-medium">{envName}</span>
-                          <span className="text-[10px] text-muted-foreground font-mono">:{env.port}</span>
+                          <span className="text-[13px] font-medium">{envName}</span>
+                          <span className="text-[11px] text-muted-foreground font-mono">:{env.port}</span>
                         </div>
-                        <div className="space-y-1 pl-3.5">
+                        <div className="space-y-1.5 pl-4">
                           {/* Localhost */}
-                          <div className="flex items-center gap-1.5 text-xs">
-                            <span className="text-[9px] text-muted-foreground w-10 shrink-0">{t('dlg.detail.local')}</span>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-[11px] text-muted-foreground w-12 shrink-0">{t('dlg.detail.local')}</span>
                             <a href={`http://localhost:${env.port}`} target="_blank" rel="noopener noreferrer" className="text-emerald-600 dark:text-emerald-400 hover:underline font-mono truncate">http://localhost:{env.port}</a>
-                            <button type="button" className="shrink-0 h-3.5 w-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground" onClick={() => copyToClipboard(`http://localhost:${env.port}`, t('dlg.detail.urlCopied'))}><Copy className="h-2.5 w-2.5" /></button>
+                            <button type="button" className="shrink-0 h-6 w-6 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors" onClick={() => copyToClipboard(`http://localhost:${env.port}`, t('dlg.detail.urlCopied'))}><Copy className="h-3 w-3" /></button>
                           </div>
                           {/* LAN */}
                           {lanIp && (
-                            <div className="flex items-center gap-1.5 text-xs">
-                              <span className="text-[9px] text-muted-foreground w-10 shrink-0">{t('dlg.detail.lan')}</span>
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="text-[11px] text-muted-foreground w-12 shrink-0">{t('dlg.detail.lan')}</span>
                               <a href={`http://${lanIp}:${env.port}`} target="_blank" rel="noopener noreferrer" className="text-emerald-600 dark:text-emerald-400 hover:underline font-mono truncate">http://{lanIp}:{env.port}</a>
-                              <button type="button" className="shrink-0 h-3.5 w-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground" onClick={() => copyToClipboard(`http://${lanIp}:${env.port}`, t('dlg.detail.urlCopied'))}><Copy className="h-2.5 w-2.5" /></button>
+                              <button type="button" className="shrink-0 h-6 w-6 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors" onClick={() => copyToClipboard(`http://${lanIp}:${env.port}`, t('dlg.detail.urlCopied'))}><Copy className="h-3 w-3" /></button>
                             </div>
                           )}
                           {/* Proxy (ngrok) */}
-                          <div className="flex items-center gap-1.5 text-xs">
-                            <span className="text-[9px] text-muted-foreground w-10 shrink-0">{t('dlg.detail.proxy')}</span>
+                          <div className="flex items-center gap-2 text-xs">
+                            <span className="text-[11px] text-muted-foreground w-12 shrink-0">{t('dlg.detail.proxy')}</span>
                             <a href={`/api/proxy/${env.port}/`} target="_blank" rel="noopener noreferrer" className="text-teal-600 dark:text-teal-400 hover:underline font-mono truncate">/api/proxy/{env.port}/</a>
-                            <button type="button" className="shrink-0 h-3.5 w-3.5 inline-flex items-center justify-center text-muted-foreground hover:text-foreground" onClick={() => { const url = `${window.location.origin}/api/proxy/${env.port}/`; copyToClipboard(url, t('dlg.detail.proxyUrlCopied')) }}><Copy className="h-2.5 w-2.5" /></button>
-                            <span className="text-[9px] text-muted-foreground italic">{t('dlg.detail.viaNgrok')}</span>
+                            <button type="button" className="shrink-0 h-6 w-6 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors" onClick={() => { const url = `${window.location.origin}/api/proxy/${env.port}/`; copyToClipboard(url, t('dlg.detail.proxyUrlCopied')) }}><Copy className="h-3 w-3" /></button>
+                            <span className="text-[11px] text-muted-foreground/80 italic">{t('dlg.detail.viaNgrok')}</span>
                           </div>
                         </div>
                       </div>
                     )
                   })}
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-1.5">
-                  <Link2 className="h-3 w-3 inline mr-0.5" />
+                <p className="text-[11px] leading-relaxed text-muted-foreground mt-2">
+                  <Link2 className="h-3 w-3 inline mr-1 -mt-0.5" />
                   {t('dlg.detail.proxyNote')}
                 </p>
-              </div>
+              </DetailSection>
             )}
-            <Button variant="outline" size="sm" onClick={runHealthCheck} className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white border-0">
-              <Activity className="h-3.5 w-3.5 mr-1" /> {t('dlg.detail.runHealthCheck')}
+            {/* v1.31: the health-check CTA was a full-width emerald→teal gradient
+             * slab — the single loudest element in the whole sheet. It is now a
+             * calm full-width outline button with a brand-tinted icon. */}
+            <Button variant="outline" size="sm" onClick={runHealthCheck} className="h-9 w-full gap-2 text-[13px]">
+              <Activity className="h-4 w-4 text-brand-strong" /> {t('dlg.detail.runHealthCheck')}
             </Button>
             {healthResult && (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2.5">
                   <Badge variant={healthResult.overallStatus === 'healthy' ? 'default' : 'destructive'} className={healthResult.overallStatus === 'healthy' ? 'bg-emerald-100 text-emerald-800' : ''}>
                     {healthResult.overallStatus === 'healthy' ? t('dlg.detail.statusHealthy') : t('dlg.detail.statusUnhealthy')}
                   </Badge>
-                  <span className="text-xs text-muted-foreground">{new Date(healthResult.checkedAt).toLocaleTimeString()}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">{new Date(healthResult.checkedAt).toLocaleTimeString()}</span>
                 </div>
+                <div className="divide-y rounded-xl border bg-card">
                 {healthResult.results.map((r) => (
-                  <div key={r.port} className="flex items-center justify-between p-2 rounded border text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className={r.status === 'healthy' ? 'text-emerald-500' : 'text-red-500'}>:{r.port}</span>
+                  <div key={r.port} className="flex items-center justify-between px-4 py-2.5 text-xs">
+                    <div className="flex items-center gap-2.5">
+                      <span className={`font-mono ${r.status === 'healthy' ? 'text-emerald-500' : 'text-red-500'}`}>:{r.port}</span>
                       <span className="capitalize">{r.status === 'healthy' ? t('dlg.detail.statusHealthy') : t('dlg.detail.statusUnhealthy')}</span>
                     </div>
-                    <span className="text-muted-foreground">{r.responseTime}ms</span>
+                    <span className="text-muted-foreground tabular-nums">{r.responseTime}ms</span>
                   </div>
                 ))}
+                </div>
               </div>
             )}
             </motion.div>
           </TabsContent>
 
-          <TabsContent value="environments" className="p-4 space-y-3 mt-0 overflow-y-auto flex-1 min-h-0">
+          <TabsContent value="environments" className="px-5 py-4 sm:px-6 space-y-4 mt-0 overflow-y-auto flex-1 min-h-0">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="space-y-3"
+              className="space-y-4"
             >
             {/* ======================== ENVIRONMENT QUICK ACTIONS BAR (Session 11) ======================== */}
             {envs.length > 0 && (
-              <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-3 px-4 pt-3 pb-2 bg-background/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-border/30 dark:border-zinc-700/30">
-                <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="sticky top-0 z-10 -mx-5 sm:-mx-6 -mt-4 mb-4 px-5 sm:px-6 pt-3 pb-2.5 bg-background/80 dark:bg-zinc-900/80 backdrop-blur-md border-b border-border/40 dark:border-zinc-700/40">
+                <div className="flex items-center gap-2 flex-wrap">
                   {envs.filter((e) => e.status !== 'running').length > 0 && (
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { envs.filter((e) => e.status !== 'running').forEach((e) => onEnvAction(project.id, e.id, 'start')) }}>
-                      <Play className="h-3 w-3 mr-1 text-emerald-500" />{t('dlg.detail.startAllStopped', { count: envs.filter((e) => e.status !== 'running').length })}
+                    <Button size="sm" variant="outline" className="h-7 gap-1.5 text-[11px] px-2.5" onClick={() => { envs.filter((e) => e.status !== 'running').forEach((e) => onEnvAction(project.id, e.id, 'start')) }}>
+                      <Play className="h-3.5 w-3.5 text-emerald-500" />{t('dlg.detail.startAllStopped', { count: envs.filter((e) => e.status !== 'running').length })}
                     </Button>
                   )}
                   {envs.filter((e) => e.status === 'running').length > 0 && (
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { envs.filter((e) => e.status === 'running').forEach((e) => onEnvAction(project.id, e.id, 'stop')) }}>
-                      <Square className="h-3 w-3 mr-1 text-red-500" />{t('dlg.detail.stopAllRunning', { count: envs.filter((e) => e.status === 'running').length })}
+                    <Button size="sm" variant="outline" className="h-7 gap-1.5 text-[11px] px-2.5" onClick={() => { envs.filter((e) => e.status === 'running').forEach((e) => onEnvAction(project.id, e.id, 'stop')) }}>
+                      <Square className="h-3.5 w-3.5 text-red-500" />{t('dlg.detail.stopAllRunning', { count: envs.filter((e) => e.status === 'running').length })}
                     </Button>
                   )}
                   {envs.some((e) => e.status === 'running') && (
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { envs.forEach((e) => { if (e.status === 'running') onEnvAction(project.id, e.id, 'restart') }) }}>
-                      <RotateCw className="h-3 w-3 mr-1 text-amber-500" />{t('dlg.detail.restartAll', { count: envs.filter((e) => e.status === 'running').length })}
+                    <Button size="sm" variant="outline" className="h-7 gap-1.5 text-[11px] px-2.5" onClick={() => { envs.forEach((e) => { if (e.status === 'running') onEnvAction(project.id, e.id, 'restart') }) }}>
+                      <RotateCw className="h-3.5 w-3.5 text-amber-500" />{t('dlg.detail.restartAll', { count: envs.filter((e) => e.status === 'running').length })}
                     </Button>
                   )}
-                  <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => { const ports = envs.map((e) => `:${e.port}`).join(', '); navigator.clipboard.writeText(ports); toast({ title: t('dlg.detail.portsCopied'), description: ports, variant: 'success' }) }}>
-                    <Copy className="h-3 w-3 mr-1 text-teal-500" />{t('dlg.detail.copyPorts')}
+                  <Button size="sm" variant="outline" className="h-7 gap-1.5 text-[11px] px-2.5" onClick={() => { const ports = envs.map((e) => `:${e.port}`).join(', '); navigator.clipboard.writeText(ports); toast({ title: t('dlg.detail.portsCopied'), description: ports, variant: 'success' }) }}>
+                    <Copy className="h-3.5 w-3.5 text-teal-500" />{t('dlg.detail.copyPorts')}
                   </Button>
                   {project && onAddEnv && (
-                    <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" onClick={() => onAddEnv(project.id)}>
-                      <Plus className="h-3 w-3 mr-1 text-emerald-500" />{t('dlg.detail.addEnvManually')}
+                    <Button size="sm" variant="outline" className="h-7 gap-1.5 text-[11px] px-2.5" onClick={() => onAddEnv(project.id)}>
+                      <Plus className="h-3.5 w-3.5 text-emerald-500" />{t('dlg.detail.addEnvManually')}
                     </Button>
                   )}
                 </div>
@@ -6569,20 +6594,20 @@ function DetailSheet({
               const envVars = parseEnvVars(env.envVars)
               const isExpanded = expandedEnv === env.id
               return (
-                <div key={env.id} className={`rounded-lg border shadow-sm hover:shadow-md transition-shadow ${env.status === 'running' ? 'border-emerald-200 dark:border-emerald-800/40' : 'border-muted'}`}>
-                  <div className="flex items-center justify-between p-3">
-                    <div className="flex items-center gap-2">
+                <div key={env.id} className={`rounded-xl border transition-colors ${env.status === 'running' ? 'border-emerald-200/80 dark:border-emerald-800/40 bg-card' : 'border-border bg-card'}`}>
+                  <div className="flex items-center justify-between px-4 py-3">
+                    <div className="flex items-center gap-2.5">
                       <span className={`h-2 w-2 rounded-full shrink-0 ${env.status === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
-                      <span className="font-medium text-sm">{env.name}</span>
+                      <span className="font-medium text-[13px]">{env.name}</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1">
                       {editingPort === env.id ? (
                         <div className="flex items-center gap-1">
                           <Input
                             type="number"
                             value={portValue}
                             onChange={(e) => setPortValue(e.target.value)}
-                            className="h-6 w-16 text-xs font-mono"
+                            className="h-7 w-20 text-xs font-mono"
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') savePort(env.id, parseInt(portValue))
@@ -6593,14 +6618,14 @@ function DetailSheet({
                         </div>
                       ) : (
                         <button
-                          className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors px-1 rounded"
+                          className="font-mono text-xs text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded-md hover:bg-muted/60"
                           onClick={() => { setEditingPort(env.id); setPortValue(String(env.port)) }}
                           title={t('dlg.detail.editPortTitle')}
                         >
                           :{env.port}
                         </button>
                       )}
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => copyToClipboard(`:${env.port}`, `:${env.port}`)}><Copy className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyToClipboard(`:${env.port}`, `:${env.port}`)}><Copy className="h-3 w-3" /></Button>
                       {env.status === 'running' ? (
                         <>
                           <TooltipProvider><Tooltip><TooltipTrigger asChild><a
@@ -6614,22 +6639,22 @@ function DetailSheet({
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                            className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer text-emerald-500 dark:text-emerald-400"
-                          ><ExternalLink className="h-3 w-3" /></a></TooltipTrigger><TooltipContent>{t('dlg.detail.openBrowser')}</TooltipContent></Tooltip></TooltipProvider>
-                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-red-500" onClick={() => onEnvAction(project.id, env.id, 'stop')}><Square className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.stop')}</TooltipContent></Tooltip></TooltipProvider>
-                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-amber-500" onClick={() => onEnvAction(project.id, env.id, 'restart')}><RotateCw className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.restart')}</TooltipContent></Tooltip></TooltipProvider>
+                            className="inline-flex items-center justify-center rounded-md h-7 w-7 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 cursor-pointer text-emerald-500 dark:text-emerald-400"
+                          ><ExternalLink className="h-3.5 w-3.5" /></a></TooltipTrigger><TooltipContent>{t('dlg.detail.openBrowser')}</TooltipContent></Tooltip></TooltipProvider>
+                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-red-500" onClick={() => onEnvAction(project.id, env.id, 'stop')}><Square className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.stop')}</TooltipContent></Tooltip></TooltipProvider>
+                          <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-amber-500" onClick={() => onEnvAction(project.id, env.id, 'restart')}><RotateCw className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.restart')}</TooltipContent></Tooltip></TooltipProvider>
                         </>
                       ) : (
-                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-emerald-500" onClick={() => onEnvAction(project.id, env.id, 'start')}><Play className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.run')}</TooltipContent></Tooltip></TooltipProvider>
+                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-emerald-500" onClick={() => onEnvAction(project.id, env.id, 'start')}><Play className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.run')}</TooltipContent></Tooltip></TooltipProvider>
                       )}
                       {env.name !== 'development' && (
-                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-teal-500" onClick={() => onEnvAction(project.id, env.id, 'rebuild')}><Hammer className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.rebuild')}</TooltipContent></Tooltip></TooltipProvider>
+                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" className="inline-flex items-center justify-center rounded-md h-7 w-7 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-teal-500" onClick={() => onEnvAction(project.id, env.id, 'rebuild')}><Hammer className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('dlg.detail.rebuild')}</TooltipContent></Tooltip></TooltipProvider>
                       )}
                       {onEditEnv && (
-                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" aria-label={t('dlg.common.edit')} className="inline-flex items-center justify-center rounded-md h-6 w-6 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-muted-foreground" onClick={() => onEditEnv(env)}><Edit3 className="h-3 w-3" /></button></TooltipTrigger><TooltipContent>{t('dlg.common.edit')}</TooltipContent></Tooltip></TooltipProvider>
+                        <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" aria-label={t('dlg.common.edit')} className="inline-flex items-center justify-center rounded-md h-7 w-7 hover:bg-accent dark:hover:bg-white/10 cursor-pointer text-muted-foreground" onClick={() => onEditEnv(env)}><Edit3 className="h-3.5 w-3.5" /></button></TooltipTrigger><TooltipContent>{t('dlg.common.edit')}</TooltipContent></Tooltip></TooltipProvider>
                       )}
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setExpandedEnv(isExpanded ? null : env.id)}>
-                        <ChevronRight className={`h-3 w-3 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setExpandedEnv(isExpanded ? null : env.id)}>
+                        <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
                       </Button>
                     </div>
                   </div>
@@ -6638,33 +6663,33 @@ function DetailSheet({
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      className="border-t px-3 pb-3 pt-2 space-y-2"
+                      className="border-t px-4 pb-4 pt-3 space-y-3"
                     >
-                      <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
                         <div><span className="text-muted-foreground">{t('dlg.detail.command')}</span> <span className="font-mono">{env.cmd}</span></div>
                         <div><span className="text-muted-foreground">{t('dlg.detail.pid')}</span> {env.pid || 'N/A'}</div>
                         <div><span className="text-muted-foreground">{t('dlg.detail.status')}</span> <span className={env.status === 'running' ? 'text-emerald-600' : 'text-red-500'}>{env.status === 'running' ? t('dlg.detail.statusRunning') : t('dlg.detail.statusStopped')}</span></div>
                         <div><span className="text-muted-foreground">{t('dlg.detail.createdAt')}</span> {new Date(env.createdAt).toLocaleDateString()}</div>
                       </div>
                       <div>
-                        <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center justify-between mb-1.5">
                           <div className="text-xs text-muted-foreground">{t('dlg.detail.envVars')}</div>
                           {editingEnvVars !== env.id ? (
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-5 text-[10px] px-1.5 gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
+                              className="h-7 gap-1.5 px-2 text-[11px] text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
                               onClick={() => startEditingEnvVars(env.id, env.envVars)}
                             >
-                              <Edit3 className="h-2.5 w-2.5" />
+                              <Edit3 className="h-3 w-3" />
                               {t('dlg.common.edit')}
                             </Button>
                           ) : (
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1.5">
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-5 text-[10px] px-1.5 text-muted-foreground"
+                                className="h-7 px-2 text-[11px] text-muted-foreground"
                                 onClick={() => setEditingEnvVars(null)}
                                 disabled={savingEnvVars}
                               >
@@ -6673,41 +6698,41 @@ function DetailSheet({
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-5 text-[10px] px-1.5 gap-1 text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
+                                className="h-7 gap-1.5 px-2 text-[11px] text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300"
                                 onClick={() => saveEnvVars(env.id)}
                                 disabled={savingEnvVars}
                               >
-                                {savingEnvVars ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
+                                {savingEnvVars ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
                                 {t('dlg.common.save')}
                               </Button>
                             </div>
                           )}
                         </div>
                         {editingEnvVars === env.id ? (
-                          <div className="rounded bg-muted/50 p-2 space-y-1.5 max-h-48 overflow-y-auto">
+                          <div className="rounded-lg bg-muted/40 p-2.5 space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
                             {Object.entries(envVarDraft).map(([k, v]) => (
-                              <div key={k} className="flex items-center gap-1.5 text-xs">
+                              <div key={k} className="flex items-center gap-2 text-xs">
                                 <Input
                                   value={k}
                                   onChange={(e) => updateEnvVarKey(k, e.target.value)}
-                                  className="h-6 text-xs font-mono flex-1 min-w-0 bg-background"
+                                  className="h-7 text-xs font-mono flex-1 min-w-0 bg-background"
                                   placeholder="KEY"
                                 />
                                 <span className="text-muted-foreground shrink-0">=</span>
                                 <Input
                                   value={v}
                                   onChange={(e) => updateEnvVarValue(k, e.target.value)}
-                                  className="h-6 text-xs font-mono flex-1 min-w-0 bg-background"
+                                  className="h-7 text-xs font-mono flex-1 min-w-0 bg-background"
                                   placeholder="value"
                                 />
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-5 w-5 shrink-0 text-red-400 hover:text-red-600"
+                                  className="h-7 w-7 shrink-0 text-red-400 hover:text-red-600"
                                   onClick={() => removeEnvVarPair(k)}
                                   disabled={savingEnvVars}
                                 >
-                                  <Trash2 className="h-2.5 w-2.5" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
                               </div>
                             ))}
@@ -6715,11 +6740,11 @@ function DetailSheet({
                               <div className="text-xs text-muted-foreground text-center py-1">{t('dlg.detail.noVars')}</div>
                             )}
                             {/* Add new pair */}
-                            <div className="flex items-center gap-1.5 text-xs pt-1 border-t border-border/30">
+                            <div className="flex items-center gap-2 text-xs pt-2 border-t border-border/40">
                               <Input
                                 value={newEnvKey}
                                 onChange={(e) => setNewEnvKey(e.target.value)}
-                                className="h-6 text-xs font-mono flex-1 min-w-0 bg-background"
+                                className="h-7 text-xs font-mono flex-1 min-w-0 bg-background"
                                 placeholder="NEW_KEY"
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter' && newEnvKey.trim()) addEnvVarPair()
@@ -6730,7 +6755,7 @@ function DetailSheet({
                               <Input
                                 value={newEnvValue}
                                 onChange={(e) => setNewEnvValue(e.target.value)}
-                                className="h-6 text-xs font-mono flex-1 min-w-0 bg-background"
+                                className="h-7 text-xs font-mono flex-1 min-w-0 bg-background"
                                 placeholder="value"
                                 onKeyDown={(e) => {
                                   if (e.key === 'Enter' && newEnvKey.trim()) addEnvVarPair()
@@ -6740,46 +6765,46 @@ function DetailSheet({
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-5 w-5 shrink-0 text-emerald-500 hover:text-emerald-700"
+                                className="h-7 w-7 shrink-0 text-emerald-500 hover:text-emerald-700"
                                 onClick={addEnvVarPair}
                                 disabled={savingEnvVars || !newEnvKey.trim()}
                               >
-                                <Plus className="h-2.5 w-2.5" />
+                                <Plus className="h-3.5 w-3.5" />
                               </Button>
                             </div>
                           </div>
                         ) : (
-                          <div className="rounded bg-muted/50 p-2 space-y-1 max-h-32 overflow-y-auto">
+                          <div className="rounded-lg bg-muted/40 p-2.5 space-y-1.5 max-h-32 overflow-y-auto custom-scrollbar">
                             {Object.entries(envVars).length > 0 ? Object.entries(envVars).map(([k, v]) => (
                               <div key={k} className="flex items-center gap-2 text-xs font-mono">
                                 <span className="text-emerald-600 dark:text-emerald-400">{k}</span>
                                 <span className="text-muted-foreground">=</span>
                                 <span className="text-foreground">{v}</span>
-                                <Button variant="ghost" size="icon" className="h-4 w-4 ml-auto" onClick={() => copyToClipboard(`${k}=${v}`, k)}><Copy className="h-2.5 w-2.5" /></Button>
+                                <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto" onClick={() => copyToClipboard(`${k}=${v}`, k)}><Copy className="h-3 w-3" /></Button>
                               </div>
                             )) : <span className="text-xs text-muted-foreground">{t('dlg.detail.noVarsSet')}</span>}
                           </div>
                         )}
                       </div>
                       {/* Resource Usage Bars */}
-                      <div className="px-1 pb-1 space-y-1.5">
+                      <div className="px-1 pb-1 space-y-2">
                         {(() => {
                           const cpuPercent = env.status === 'running' ? ((parseInt(env.id.replace(/\D/g, '') || '1') * 7) % 40 + 10) : 0
                           const memPercent = env.status === 'running' ? ((parseInt(env.id.replace(/\D/g, '') || '1') * 13) % 30 + 20) : 0
                           return (
                             <>
-                              <div className="flex items-center justify-between text-[10px]">
+                              <div className="flex items-center justify-between text-[11px]">
                                 <span className="text-muted-foreground">CPU</span>
-                                <span className="font-medium">{cpuPercent}%</span>
+                                <span className="font-medium tabular-nums">{cpuPercent}%</span>
                               </div>
-                              <div className="h-1 rounded-full bg-muted overflow-hidden">
+                              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                                 <div className={`h-full rounded-full transition-all ${env.status === 'running' ? 'bg-emerald-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} style={{ width: `${cpuPercent}%` }} />
                               </div>
-                              <div className="flex items-center justify-between text-[10px]">
+                              <div className="flex items-center justify-between text-[11px]">
                                 <span className="text-muted-foreground">{t('dlg.detail.memory')}</span>
-                                <span className="font-medium">{memPercent}%</span>
+                                <span className="font-medium tabular-nums">{memPercent}%</span>
                               </div>
-                              <div className="h-1 rounded-full bg-muted overflow-hidden">
+                              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
                                 <div className={`h-full rounded-full transition-all ${env.status === 'running' ? 'bg-teal-500' : 'bg-zinc-300 dark:bg-zinc-600'}`} style={{ width: `${memPercent}%` }} />
                               </div>
                             </>
@@ -6825,7 +6850,7 @@ function DetailSheet({
             </motion.div>
           </TabsContent>
 
-          <TabsContent value="activity" className="p-4 mt-0 overflow-y-auto flex-1 min-h-0">
+          <TabsContent value="activity" className="px-5 py-4 sm:px-6 mt-0 overflow-y-auto flex-1 min-h-0">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -6839,7 +6864,7 @@ function DetailSheet({
             </motion.div>
           </TabsContent>
 
-          <TabsContent value="logs" className="p-4 mt-0 overflow-y-auto flex-1 min-h-0">
+          <TabsContent value="logs" className="px-5 py-4 sm:px-6 mt-0 overflow-y-auto flex-1 min-h-0">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -6851,20 +6876,20 @@ function DetailSheet({
               <div className="space-y-2">
                 {/* Log filter toolbar */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5">
                     {(['all', 'error', 'warn', 'info', 'debug'] as const).map((level) => (
                       <button
                         key={level}
                         type="button"
                         onClick={() => setLogLevelFilter(level)}
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
                           logLevelFilter === level
                             ? (level === 'error' ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 ring-1 ring-red-300 dark:ring-red-700/50'
                               : level === 'warn' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-700/50'
                               : level === 'info' ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300 ring-1 ring-cyan-300 dark:ring-cyan-700/50'
                               : level === 'debug' ? 'bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-300 ring-1 ring-slate-300 dark:ring-slate-600/50'
                               : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 ring-1 ring-emerald-300 dark:ring-emerald-700/50')
-                            : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                            : 'bg-muted/60 text-muted-foreground hover:bg-muted'
                         }`}
                       >
                         {t(`dlg.detail.logLevel.${level}` as Parameters<typeof t>[0])}
@@ -6872,16 +6897,16 @@ function DetailSheet({
                     ))}
                   </div>
                   {logEnvNames.length > 0 && (
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       {['all', ...logEnvNames].map((env) => (
                         <button
                           key={env}
                           type="button"
                           onClick={() => setLogEnvFilter(env)}
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+                          className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
                             logEnvFilter === env
                               ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300 ring-1 ring-teal-300 dark:ring-teal-700/50'
-                              : 'bg-muted/50 text-muted-foreground hover:bg-muted'
+                              : 'bg-muted/60 text-muted-foreground hover:bg-muted'
                           }`}
                         >
                           {env === 'all' ? t('dlg.detail.allEnvs') : env}
@@ -6892,29 +6917,29 @@ function DetailSheet({
                   {(() => {
                     const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (logEnvFilter === 'all' || log.envName === logEnvFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
                     return (
-                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4">{t('dlg.detail.logsCount', { count: filtered.length })}</Badge>
+                      <Badge variant="secondary" className="text-[11px] px-2 py-0 h-5">{t('dlg.detail.logsCount', { count: filtered.length })}</Badge>
                     )
                   })()}
                   <div className="flex-1" />
                   <div className="relative">
-                    <Search className="h-3 w-3 absolute left-1.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       value={logSearchQuery}
                       onChange={(e) => setLogSearchQuery(e.target.value)}
                       placeholder={t('dlg.detail.searchLogs')}
-                      className="h-6 text-[10px] pl-6 w-32"
+                      className="h-7 text-[11px] pl-8 w-40"
                     />
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[9px] text-muted-foreground">{t('dlg.detail.autoScroll')}</span>
-                    <Switch checked={logAutoScroll} onCheckedChange={setLogAutoScroll} className="scale-75" />
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-muted-foreground">{t('dlg.detail.autoScroll')}</span>
+                    <Switch checked={logAutoScroll} onCheckedChange={setLogAutoScroll} className="scale-[0.85]" />
                   </div>
-                  <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => {
+                  <TooltipProvider><Tooltip><TooltipTrigger asChild><Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
                     const filtered = logs.filter((log) => (logLevelFilter === 'all' || log.level === logLevelFilter) && (logEnvFilter === 'all' || log.envName === logEnvFilter) && (!logSearchQuery || log.message.toLowerCase().includes(logSearchQuery.toLowerCase())))
                     const text = filtered.map((log) => `[${log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—'}] [${log.level.toUpperCase()}] ${log.source}: ${log.message}`).join('\n')
                     navigator.clipboard.writeText(text)
                     toast({ title: t('dlg.detail.logsCopied'), variant: 'success' })
-                  }}><Copy className="h-3 w-3" /></Button></TooltipTrigger><TooltipContent>{t('dlg.detail.copyLogs')}</TooltipContent></Tooltip></TooltipProvider>
+                  }}><Copy className="h-3.5 w-3.5" /></Button></TooltipTrigger><TooltipContent>{t('dlg.detail.copyLogs')}</TooltipContent></Tooltip></TooltipProvider>
                 </div>
                 {/* Log entries — real process output streamed from each environment's log file */}
                 <div className="rounded-lg bg-zinc-950 dark:bg-zinc-950 border border-zinc-800 overflow-hidden shadow-inner">
@@ -6927,7 +6952,7 @@ function DetailSheet({
                             <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
                               <Terminal className="h-6 w-6 mb-2 opacity-40" />
                               <p className="text-xs">{t('dlg.detail.noProcessLogs')}</p>
-                              <p className="text-[10px] mt-1 text-zinc-600">{t('dlg.detail.noProcessLogsHint')}</p>
+                              <p className="text-[11px] mt-1 text-zinc-600">{t('dlg.detail.noProcessLogsHint')}</p>
                             </div>
                           )
                         }
@@ -6935,7 +6960,7 @@ function DetailSheet({
                           <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
                             <Filter className="h-6 w-6 mb-2 opacity-40" />
                             <p className="text-xs">{t('dlg.detail.noLogsFound')}</p>
-                            {(logLevelFilter !== 'all' || logEnvFilter !== 'all' || logSearchQuery) && <p className="text-[10px] mt-1">{t('dlg.detail.adjustFilters')}</p>}
+                            {(logLevelFilter !== 'all' || logEnvFilter !== 'all' || logSearchQuery) && <p className="text-[11px] mt-1">{t('dlg.detail.adjustFilters')}</p>}
                           </div>
                         )
                       }
@@ -6957,7 +6982,7 @@ function DetailSheet({
           </TabsContent>
 
           {/* ======================== DEPLOYMENTS TAB — real rebuild/repair history ======================== */}
-          <TabsContent value="deployments" className="p-4 mt-0 overflow-y-auto flex-1 min-h-0">
+          <TabsContent value="deployments" className="px-5 py-4 sm:px-6 mt-0 overflow-y-auto flex-1 min-h-0">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
@@ -6968,11 +6993,11 @@ function DetailSheet({
                   <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-emerald-600" /></div>
                 ) : (
                   <>
-                    <div className="flex items-center gap-2">
-                      <GitBranch className="h-4 w-4 text-rose-500" />
+                    <div className="flex items-center gap-2.5">
+                      <GitBranch className="h-4 w-4 text-muted-foreground" />
                       <span className="text-sm font-semibold">{t('dlg.detail.buildRepairHistory')}</span>
-                      <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{opsEvents.length}</Badge>
-                      <span className="ml-auto text-[10px] text-muted-foreground">{t('dlg.detail.opsHint')}</span>
+                      <Badge variant="secondary" className="text-[11px] px-2 py-0">{opsEvents.length}</Badge>
+                      <span className="ml-auto text-[11px] text-muted-foreground">{t('dlg.detail.opsHint')}</span>
                     </div>
 
                     {opsEvents.length === 0 ? (
@@ -6998,23 +7023,23 @@ function DetailSheet({
                               }`}>
                                 {failed ? <XCircle className="h-3 w-3 text-red-600 dark:text-red-400" /> : <CheckCircle2 className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />}
                               </div>
-                              <div className="rounded-lg border bg-muted/20 px-3 py-2">
+                              <div className="rounded-xl border bg-card px-4 py-3">
                                 <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2 min-w-0">
+                                  <div className="flex items-center gap-2.5 min-w-0">
                                     <span className="font-mono text-xs font-bold shrink-0">{kindLabel}</span>
-                                    {envName && <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0">{envName}</Badge>}
-                                    <Badge variant="outline" className={`text-[9px] px-1.5 py-0 shrink-0 ${
+                                    {envName && <Badge variant="outline" className="text-[11px] px-2 py-0 shrink-0">{envName}</Badge>}
+                                    <Badge variant="outline" className={`text-[11px] px-2 py-0 shrink-0 ${
                                       failed ? 'border-red-300 text-red-700 dark:border-red-600 dark:text-red-300'
                                       : 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300'
                                     }`}>{failed ? t('dlg.detail.failed') : t('dlg.detail.success')}</Badge>
                                   </div>
-                                  <span className="text-[10px] text-muted-foreground shrink-0">{formatTimeAgo(ev.timestamp, t)}</span>
+                                  <span className="text-[11px] text-muted-foreground shrink-0">{formatTimeAgo(ev.timestamp, t)}</span>
                                 </div>
-                                <p className="text-[11px] text-muted-foreground mt-1">{ev.message}</p>
+                                <p className="text-xs leading-relaxed text-muted-foreground mt-1.5">{ev.message}</p>
                                 {(durMs != null || detail) && (
-                                  <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground min-w-0">
+                                  <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground min-w-0">
                                     {durMs != null && (
-                                      <span className="flex items-center gap-0.5 shrink-0"><Clock className="h-2.5 w-2.5" />{(durMs / 1000).toFixed(1)}s</span>
+                                      <span className="flex items-center gap-1 shrink-0 tabular-nums"><Clock className="h-3 w-3" />{(durMs / 1000).toFixed(1)}s</span>
                                     )}
                                     {detail && (
                                       <span className="truncate" title={detail}>{detail}</span>
@@ -7032,7 +7057,7 @@ function DetailSheet({
               </div>
             </motion.div>
           </TabsContent>
-          <TabsContent value="timeline" className="p-4 mt-0 overflow-y-auto flex-1 min-h-0">
+          <TabsContent value="timeline" className="px-5 py-4 sm:px-6 mt-0 overflow-y-auto flex-1 min-h-0">
             <ProjectStatusTimeline project={project} />
           </TabsContent>
         </Tabs>
@@ -7157,12 +7182,12 @@ function ProjectStatusTimeline({ project }: { project: Project }) {
         <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-cyan-500" />
           <span className="text-sm font-semibold">{t('dlg.timeline.title')}</span>
-          <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{timelineEvents.length}</Badge>
+          <Badge variant="secondary" className="text-[11px] px-1.5 py-0">{timelineEvents.length}</Badge>
         </div>
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 text-[10px] text-muted-foreground"
+          className="h-6 text-[11px] text-muted-foreground"
           onClick={() => {
             const sample = generateSampleTimeline(project)
             setTimelineEvents(sample)
@@ -7195,15 +7220,15 @@ function ProjectStatusTimeline({ project }: { project: Project }) {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
                       <span className={`text-xs font-semibold ${label.className}`}>{label.text}</span>
-                      <span className="text-[10px] text-muted-foreground">·</span>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-[11px] text-muted-foreground">·</span>
+                      <span className="text-[11px] text-muted-foreground">
                         {envLabel(event.envName)}
                         <span className="font-mono ml-0.5">:{event.envPort}</span>
                       </span>
                     </div>
-                    <span className="text-[10px] text-muted-foreground shrink-0">{formatTimeAgo(event.timestamp, t)}</span>
+                    <span className="text-[11px] text-muted-foreground shrink-0">{formatTimeAgo(event.timestamp, t)}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/70">
+                  <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-muted-foreground/70">
                     <span className="flex items-center gap-0.5">
                       <span className={`h-1.5 w-1.5 rounded-full ${event.oldStatus === 'running' ? 'bg-emerald-500' : 'bg-red-400'}`} />
                       {event.oldStatus === 'running' ? t('dlg.detail.statusRunning') : t('dlg.detail.statusStopped')}
@@ -7347,12 +7372,12 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
             <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
               <div className={`h-full rounded-full transition-all duration-500 ${healthRatio >= 80 ? 'bg-emerald-500' : healthRatio >= 50 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${healthRatio}%` }} />
             </div>
-            <span className="text-[10px] text-muted-foreground">{healthRatio}%</span>
+            <span className="text-[11px] text-muted-foreground">{healthRatio}%</span>
           </div>
           <span className="text-muted-foreground dark:text-zinc-400 hidden sm:inline">·</span>
           <span className="dark:text-zinc-300 font-medium">{t('surf.projectsCount', { count: projects.length })}</span>
           {filteredCount !== projects.length && (
-            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">{t('surf.showing', { shown: filteredCount, total: projects.length })}</span>
+            <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">{t('surf.showing', { shown: filteredCount, total: projects.length })}</span>
           )}
           <span className="text-muted-foreground dark:text-zinc-400 hidden sm:inline">·</span>
           <span className="hidden sm:inline-flex items-center gap-1 text-muted-foreground dark:text-zinc-400">
@@ -7364,17 +7389,17 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
         </div>
         <div className="flex items-center gap-1.5">
           {/* Network status indicator */}
-          <span className={`hidden md:inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full ${isOnline ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400' : 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'}`}>
+          <span className={`hidden md:inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full ${isOnline ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400' : 'bg-red-50 dark:bg-red-900/20 text-red-500 dark:text-red-400'}`}>
             <Wifi className="h-2.5 w-2.5" />
             {isOnline ? t('surf.connected') : t('dlg.common.offline')}
           </span>
           {/* Current time */}
-          <span className="hidden md:inline-flex items-center gap-1 text-[10px] text-muted-foreground dark:text-zinc-400 tabular-nums">
+          <span className="hidden md:inline-flex items-center gap-1 text-[11px] text-muted-foreground dark:text-zinc-400 tabular-nums">
             <Clock className="h-2.5 w-2.5" />
             {currentTime ?? '--:--'}
           </span>
           {/* Keyboard shortcut hints */}
-          <div className="hidden lg:flex items-center gap-1.5 text-[10px] text-muted-foreground dark:text-zinc-400">
+          <div className="hidden lg:flex items-center gap-1.5 text-[11px] text-muted-foreground dark:text-zinc-400">
             <kbd className="px-1 py-0.5 rounded bg-muted/60 dark:bg-zinc-800/60 border border-border/30 dark:border-zinc-700/30 font-mono">⌘K</kbd>
             <span>{t('surf.kbdSearch')}</span>
             <span className="mx-0.5">·</span>
@@ -7395,7 +7420,7 @@ function EnhancedFooter({ projects, filteredCount, onOpenDevices, devices, onOpe
             <Plug className="h-3.5 w-3.5" />
             <span className="font-medium text-xs">{t('surf.devices')}</span>
             {totalDevices > 0 && (
-              <span className="text-[9px] px-1 py-0 rounded-full bg-brand-soft-strong text-brand-strong font-semibold">{onlineDevices}/{totalDevices}</span>
+              <span className="text-[11px] px-1 py-0 rounded-full bg-brand-soft-strong text-brand-strong font-semibold">{onlineDevices}/{totalDevices}</span>
             )}
           </button>
           <button className="flex items-center gap-1.5 hover:text-foreground transition-colors px-2.5 sm:px-3 py-1.5 rounded-md bg-brand-soft text-brand-strong hover:bg-brand-soft-strong ring-1 ring-brand/25 dark:ring-brand/20 active:scale-95 font-medium" onClick={onOpenSystemMonitor}>
@@ -7505,8 +7530,8 @@ function DeviceManagementPanel({
               <SheetTitle>{t('dlg.devicePanel.title')}</SheetTitle>
               <SheetDescription className="text-xs">{t('dlg.devicePanel.desc')}</SheetDescription>
             </div>
-            <Button size="sm" onClick={onAdd} className="bg-teal-600 hover:bg-teal-700 text-white h-7 text-xs shrink-0">
-              <Plus className="h-3 w-3 mr-1" />{t('dlg.devicePanel.addDevice')}
+            <Button size="sm" onClick={onAdd} className="h-8 gap-1.5 text-xs shrink-0">
+              <Plus className="h-3.5 w-3.5" />{t('dlg.devicePanel.addDevice')}
             </Button>
           </div>
           {/* Action toolbar — wraps on narrow screens instead of overlapping
@@ -7536,15 +7561,15 @@ function DeviceManagementPanel({
             <div className="grid grid-cols-3 gap-3">
               <div className="text-center">
                 <div className="text-lg font-bold dark:text-zinc-100">{devices.length}</div>
-                <div className="text-[10px] text-muted-foreground dark:text-zinc-400 font-medium">{t('dlg.devicePanel.total')}</div>
+                <div className="text-[11px] text-muted-foreground dark:text-zinc-400 font-medium">{t('dlg.devicePanel.total')}</div>
               </div>
               <div className="text-center">
                 <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{onlineCount}</div>
-                <div className="text-[10px] text-emerald-600/70 dark:text-emerald-400/60 font-medium">{t('dlg.common.online')}</div>
+                <div className="text-[11px] text-emerald-600/70 dark:text-emerald-400/60 font-medium">{t('dlg.common.online')}</div>
               </div>
               <div className="text-center">
                 <div className="text-lg font-bold text-red-500 dark:text-red-400">{offlineCount}</div>
-                <div className="text-[10px] text-red-500/70 dark:text-red-400/60 font-medium">{t('dlg.common.offline')}</div>
+                <div className="text-[11px] text-red-500/70 dark:text-red-400/60 font-medium">{t('dlg.common.offline')}</div>
               </div>
             </div>
           </div>
@@ -7582,7 +7607,7 @@ function DeviceManagementPanel({
                     * data out every 60s, so it's genuinely online with fresh
                     * projects even though a direct probe fails. */}
                   {device.status === 'online' && !!device.pushedAt && Date.now() - device.pushedAt < 120_000 && (
-                    <Badge variant="outline" className="text-[9px] shrink-0 border-cyan-300 text-cyan-700 bg-cyan-50 dark:border-cyan-700 dark:text-cyan-300 dark:bg-cyan-900/20" title={t('dlg.devicePanel.pushBadgeHint')}>
+                    <Badge variant="outline" className="text-[11px] shrink-0 border-cyan-300 text-cyan-700 bg-cyan-50 dark:border-cyan-700 dark:text-cyan-300 dark:bg-cyan-900/20" title={t('dlg.devicePanel.pushBadgeHint')}>
                       <Radio className="h-2.5 w-2.5 mr-0.5" />{t('dlg.devicePanel.pushBadge')}
                     </Badge>
                   )}
@@ -7592,7 +7617,7 @@ function DeviceManagementPanel({
                     * pull "too old", one-way project visibility and other
                     * confusing symptoms — surface it AT the device. */}
                   {device.agentOutdated && (
-                    <Badge variant="outline" className="text-[9px] shrink-0 border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:bg-amber-900/20" title={t('dlg.devicePanel.agentOutdatedHint', { why: device.agentWhy || '?' })}>
+                    <Badge variant="outline" className="text-[11px] shrink-0 border-amber-300 text-amber-700 bg-amber-50 dark:border-amber-600 dark:text-amber-300 dark:bg-amber-900/20" title={t('dlg.devicePanel.agentOutdatedHint', { why: device.agentWhy || '?' })}>
                       <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />{device.agentVersion ? `agent v${device.agentVersion} · ` : ''}{t('dlg.devicePanel.agentOutdated')}
                     </Badge>
                   )}
@@ -7603,11 +7628,11 @@ function DeviceManagementPanel({
                     * a relative .env DATABASE_URL, which Prisma resolves
                     * against prisma/ instead of the repo root). */}
                   {device.agentDashboardDb === false && (
-                    <Badge variant="outline" className="text-[9px] shrink-0 border-orange-300 text-orange-700 bg-orange-50 dark:border-orange-600 dark:text-orange-300 dark:bg-orange-900/20" title={device.agentDashboardDbPath ? t('dlg.devicePanel.noDashDbHintWithPath', { path: device.agentDashboardDbPath }) : t('dlg.devicePanel.noDashDbHint')}>
+                    <Badge variant="outline" className="text-[11px] shrink-0 border-orange-300 text-orange-700 bg-orange-50 dark:border-orange-600 dark:text-orange-300 dark:bg-orange-900/20" title={device.agentDashboardDbPath ? t('dlg.devicePanel.noDashDbHintWithPath', { path: device.agentDashboardDbPath }) : t('dlg.devicePanel.noDashDbHint')}>
                       <Database className="h-2.5 w-2.5 mr-0.5" />{t('dlg.devicePanel.noDashDb')}
                     </Badge>
                   )}
-                  <Badge variant="outline" className={`text-[9px] ml-auto shrink-0 ${device.status === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20' : device.status === 'error' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}>
+                  <Badge variant="outline" className={`text-[11px] ml-auto shrink-0 ${device.status === 'online' ? 'border-emerald-300 text-emerald-700 dark:border-emerald-600 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20' : device.status === 'error' ? 'border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20' : 'border-red-300 text-red-600 dark:border-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20'}`}>
                     {device.status === 'online' ? t('dlg.common.online') : device.status === 'error' ? t('dlg.devicePanel.statusError') : t('dlg.common.offline')}
                   </Badge>
                 </div>
@@ -7633,7 +7658,7 @@ function DeviceManagementPanel({
                     {/* Running agent version (neutral, from the health probe;
                       * the amber outdated badge above flags stale ones). */}
                     {device.agentVersion && !device.agentOutdated && (
-                      <span className="ml-auto font-mono text-[9px] text-muted-foreground/70 dark:text-zinc-500" title={t('dlg.devicePanel.agentVersionHint')}>v{device.agentVersion}</span>
+                      <span className="ml-auto font-mono text-[11px] text-muted-foreground/70 dark:text-zinc-500" title={t('dlg.devicePanel.agentVersionHint')}>v{device.agentVersion}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 col-span-2">
@@ -7646,7 +7671,7 @@ function DeviceManagementPanel({
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: 'auto' }}
-                    className={`text-[10px] px-2 py-1 rounded-md ${
+                    className={`text-[11px] px-2 py-1 rounded-md ${
                       testResults[device.id]!.success
                         ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300'
                         : !!device.pushedAt && Date.now() - device.pushedAt < 120_000
@@ -7841,7 +7866,7 @@ function DeviceFormDialog({
         </AppDialogBody>
         <AppDialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>{t('dlg.common.cancel')}</Button>
-          <Button type="submit" disabled={!name.trim() || !ip.trim()} className="bg-teal-600 hover:bg-teal-700 text-white">
+          <Button type="submit" disabled={!name.trim() || !ip.trim()}>
             {mode === 'add' ? t('dlg.deviceForm.addBtn') : t('dlg.deviceForm.updateBtn')}
           </Button>
         </AppDialogFooter>
@@ -10590,7 +10615,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     <CircleDot className="mr-2 h-3.5 w-3.5 text-red-400 fill-red-400" />
                   )}
                   <span className="truncate">{device.name}</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">{device.ip}:{device.port}</span>
+                  <span className="ml-auto text-[11px] text-muted-foreground">{device.ip}:{device.port}</span>
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />
@@ -10613,7 +10638,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               onBlur={() => { setTimeout(() => setSearchDropdownOpen(false), 200) }}
               className="pl-9 h-9 text-sm rounded-full bg-muted/40 border border-border/30 focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:border-brand/50 focus-visible:bg-background transition-all duration-200 placeholder:text-muted-foreground/70 dark:placeholder:text-zinc-400"
             />
-            <kbd className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center pointer-events-none px-1.5 py-0.5 text-[9px] text-muted-foreground dark:text-zinc-400 bg-muted dark:bg-zinc-800 rounded border border-border/50 dark:border-zinc-700/50 font-mono">⌘K</kbd>
+            <kbd className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center pointer-events-none px-1.5 py-0.5 text-[11px] text-muted-foreground dark:text-zinc-400 bg-muted dark:bg-zinc-800 rounded border border-border/50 dark:border-zinc-700/50 font-mono">⌘K</kbd>
             {/* Search results dropdown */}
             {searchDropdownOpen && searchResults.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-popover border rounded-lg shadow-lg z-50 overflow-hidden">
@@ -10631,7 +10656,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         <div className="font-medium truncate">{highlightText(p.name, searchQuery)}</div>
                         <div className="text-xs text-muted-foreground dark:text-zinc-400 truncate">{highlightText(p.path, searchQuery)}</div>
                       </div>
-                      <span className="text-[10px] text-muted-foreground shrink-0">{t('topbar.search.envs', { count: p.environments.length })}</span>
+                      <span className="text-[11px] text-muted-foreground shrink-0">{t('topbar.search.envs', { count: p.environments.length })}</span>
                     </button>
                   )
                 })}
@@ -10653,7 +10678,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                       initial={{ scale: 0.3 }}
                       animate={{ scale: [0.3, 1.2, 1] }}
                       transition={{ duration: 0.4, ease: 'easeOut' }}
-                      className="absolute -top-1 -right-1 min-h-[18px] min-w-[18px] rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-bold px-1 shadow-lg shadow-red-500/30 notif-badge-pulse"
+                      className="absolute -top-1 -right-1 min-h-[18px] min-w-[18px] rounded-full bg-red-500 text-white text-[11px] flex items-center justify-center font-bold px-1 shadow-lg shadow-red-500/30 notif-badge-pulse"
                     >
                       {unreadNotifs > 99 ? '99+' : unreadNotifs}
                     </motion.span>
@@ -10711,7 +10736,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               {!notif.read && <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 400, damping: 20 }} className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />}
                             </div>
                             <p className="text-xs leading-snug text-muted-foreground line-clamp-2">{notif.message}</p>
-                            <p className="text-[10px] text-muted-foreground/70 mt-1 flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{formatTimeAgo(notif.timestamp, t)}</p>
+                            <p className="text-[11px] text-muted-foreground/70 mt-1 flex items-center gap-1"><Clock className="h-2.5 w-2.5" />{formatTimeAgo(notif.timestamp, t)}</p>
                           </div>
                         </motion.button>
                       )
@@ -10763,7 +10788,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   >
                     {selfCheckBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Github className="h-4 w-4" />}
                     {isUpdateHint(selfStatus) && (
-                      <span className="absolute -top-1 -right-1 min-h-[16px] min-w-[16px] rounded-full bg-emerald-500 text-white text-[9px] flex items-center justify-center font-bold px-1 shadow-lg shadow-emerald-500/30">
+                      <span className="absolute -top-1 -right-1 min-h-[16px] min-w-[16px] rounded-full bg-emerald-500 text-white text-[11px] flex items-center justify-center font-bold px-1 shadow-lg shadow-emerald-500/30">
                         {selfStatus?.behind ?? '!'}
                       </span>
                     )}
@@ -10847,7 +10872,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           {/* Filters + Batch select */}
           <div className="flex items-center gap-2 flex-wrap">
             {/* Updated timestamp */}
-            <span className="text-[9px] text-muted-foreground dark:text-zinc-400 tabular-nums hidden sm:inline-flex items-center gap-1 shrink-0">
+            <span className="text-[11px] text-muted-foreground dark:text-zinc-400 tabular-nums hidden sm:inline-flex items-center gap-1 shrink-0">
               {loading && <Loader2 className="h-3 w-3 animate-spin text-brand" />}
               {t('topbar.updated')} {formatTimeAgo(lastRefreshed, t)}
             </span>
@@ -10953,13 +10978,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               {/* Filter indicator pills */}
               <AnimatePresence>
               {filterStatus !== 'all' && (
-                <motion.button key="filter-status" type="button" onClick={() => setFilterStatus('all')} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                <motion.button key="filter-status" type="button" onClick={() => setFilterStatus('all')} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
                   initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
                   {filterStatus} <X className="h-2.5 w-2.5" />
                 </motion.button>
               )}
               {filterTags.length > 0 && filterTags.map(tag => (
-                <motion.button key={`tag-${tag}`} type="button" onClick={() => setFilterTags(prev => prev.filter(t => t !== tag))} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                <motion.button key={`tag-${tag}`} type="button" onClick={() => setFilterTags(prev => prev.filter(t => t !== tag))} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
                   initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
                   {tag} <X className="h-2.5 w-2.5" />
                 </motion.button>
@@ -10972,14 +10997,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   <AnimatePresence>
                   {activeFilters.map((f, i) => (
                     <motion.div key={f.label} initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}>
-                    <Badge variant="secondary" className="text-[10px] gap-1 pr-0.5">
+                    <Badge variant="secondary" className="text-[11px] gap-1 pr-0.5">
                       {f.label}
                       <button onClick={f.onRemove} className="p-0.5 hover:bg-muted rounded"><X className="h-2.5 w-2.5" /></button>
                     </Badge>
                     </motion.div>
                   ))}
                   </AnimatePresence>
-                  <Button variant="ghost" size="sm" className="h-5 text-[10px] text-muted-foreground" onClick={() => { setFilterStatus('all'); setFilterTags([]); setSearchQuery('') }}>
+                  <Button variant="ghost" size="sm" className="h-5 text-[11px] text-muted-foreground" onClick={() => { setFilterStatus('all'); setFilterTags([]); setSearchQuery('') }}>
                     {t('surf.clear')}
                   </Button>
                 </div>
@@ -10989,7 +11014,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             {/* Active filter count badge */}
             {(() => {
               const count = (filterStatus !== 'all' ? 1 : 0) + filterTags.length + (sortBy !== 'port' ? 1 : 0) + (groupBy !== 'none' ? 1 : 0)
-              return count > 0 ? <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-semibold tabular-nums">{t('surf.activeCount', { count })}</span> : null
+              return count > 0 ? <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 font-semibold tabular-nums">{t('surf.activeCount', { count })}</span> : null
             })()}
             {/* Batch mode toggle — always right-aligned */}
             <label className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-xs font-medium gap-1.5 shrink-0 h-7 px-2.5 transition-colors cursor-pointer border ${
@@ -11009,31 +11034,31 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   </svg>
                 )}
               </span>
-              <span className="text-[10px] text-muted-foreground">{batchMode ? t('dlg.common.cancel') : t('surf.batchToggle')}</span>
+              <span className="text-[11px] text-muted-foreground">{batchMode ? t('dlg.common.cancel') : t('surf.batchToggle')}</span>
             </label>
           </div>
           {/* Active Filter Chips (Session 13) */}
           {(filterStatus !== 'all' || filterTags.length > 0 || searchQuery) && (
             <div className="flex items-center gap-1 flex-wrap mt-1.5">
               {searchQuery && (
-                <Badge variant="secondary" className="text-[10px] gap-1 pr-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 ring-1 ring-emerald-200/50 dark:ring-emerald-800/30">
+                <Badge variant="secondary" className="text-[11px] gap-1 pr-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 ring-1 ring-emerald-200/50 dark:ring-emerald-800/30">
                   {t('surf.filterChipSearch', { value: searchQuery })}
                   <button type="button" onClick={() => setSearchQuery('')} className="ml-0.5 p-0.5 rounded hover:bg-emerald-200/50 dark:hover:bg-emerald-800/30"><X className="h-2.5 w-2.5" /></button>
                 </Badge>
               )}
               {filterStatus !== 'all' && (
-                <Badge variant="secondary" className="text-[10px] gap-1 pr-1 bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300 ring-1 ring-cyan-200/50 dark:ring-cyan-800/30">
+                <Badge variant="secondary" className="text-[11px] gap-1 pr-1 bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300 ring-1 ring-cyan-200/50 dark:ring-cyan-800/30">
                   {t('surf.filterChipStatus', { value: t(`surf.${filterStatus}` as Parameters<typeof t>[0]) })}
                   <button type="button" onClick={() => setFilterStatus('all')} className="ml-0.5 p-0.5 rounded hover:bg-cyan-200/50 dark:hover:bg-cyan-800/30"><X className="h-2.5 w-2.5" /></button>
                 </Badge>
               )}
               {filterTags.map((tag) => (
-                <Badge key={tag} variant="secondary" className={`text-[10px] gap-1 pr-1 ${getTagColor(tag)}`}>
+                <Badge key={tag} variant="secondary" className={`text-[11px] gap-1 pr-1 ${getTagColor(tag)}`}>
                   {tag}
                   <button type="button" onClick={() => setFilterTags((prev) => prev.filter((t) => t !== tag))} className="ml-0.5 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10"><X className="h-2.5 w-2.5" /></button>
                 </Badge>
               ))}
-              <button type="button" onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterTags([]) }} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
+              <button type="button" onClick={() => { setSearchQuery(''); setFilterStatus('all'); setFilterTags([]) }} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2">
                 {t('surf.clearAll')}
               </button>
             </div>
@@ -11055,7 +11080,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <div className="flex items-center gap-3">
                 <Checkbox checked={selectedIds.size === filteredProjects.length && filteredProjects.length > 0} onCheckedChange={toggleSelectAll} />
                 <span className="text-sm font-semibold">{selectedIds.size} <span className="font-normal text-muted-foreground">{t('surf.batchSelected')}</span></span>
-                <Button variant="ghost" size="sm" className="h-6 text-[10px] text-muted-foreground hover:text-foreground" onClick={toggleSelectAll}>
+                <Button variant="ghost" size="sm" className="h-6 text-[11px] text-muted-foreground hover:text-foreground" onClick={toggleSelectAll}>
                   {selectedIds.size === filteredProjects.length && filteredProjects.length > 0 ? t('surf.deselectAll') : t('surf.selectAll')}
                 </Button>
               </div>
@@ -11090,7 +11115,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   {selectedIds.size}
                 </div>
                 <span className="text-sm font-semibold text-brand-strong">{t('dlg.batch.selected')}</span>
-                <Button variant="ghost" size="sm" className="h-6 text-[10px] text-brand-strong hover:text-brand-strong hover:bg-brand-soft" onClick={toggleSelectAll}>
+                <Button variant="ghost" size="sm" className="h-6 text-[11px] text-brand-strong hover:text-brand-strong hover:bg-brand-soft" onClick={toggleSelectAll}>
                   {selectedIds.size === filteredProjects.length && filteredProjects.length > 0 ? t('dlg.batch.deselectAll') : t('dlg.batch.selectAll')}
                 </Button>
               </div>
@@ -11126,7 +11151,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             transition={{ duration: 0.3, delay: 0.2 }}
             className="mb-4 flex items-center gap-2 flex-wrap"
           >
-            <div className="flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
               <Zap className="h-3 w-3 text-brand" />
               Quick Launch
             </div>
@@ -11146,7 +11171,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     <span className="max-w-[80px] truncate">{env.projectName}</span>
                     <span className="text-zinc-300 dark:text-zinc-600">·</span>
                     <span className="truncate max-w-[50px]">{env.envName}</span>
-                    <span className="text-[9px] font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">:{env.port}</span>
+                    <span className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 tabular-nums">:{env.port}</span>
                     <ExternalLink className="h-2.5 w-2.5 text-zinc-500 dark:text-zinc-400" />
                   </a>
                 )
@@ -11171,7 +11196,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   <Activity className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                 </div>
                 <span className="text-xs font-semibold text-foreground dark:text-zinc-200">{t('surf.recentActivity')}</span>
-                <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{globalActivity.length}</Badge>
+                <Badge variant="secondary" className="text-[11px] px-1.5 py-0">{globalActivity.length}</Badge>
               </div>
               <button type="button" onClick={() => setActivityFeedVisible(false)} className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
                 <X className="h-3 w-3" />
@@ -11197,7 +11222,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     </div>
                     <div className="min-w-0">
                       <p className="text-[11px] font-medium truncate max-w-[240px]">{event.message}</p>
-                      <p className="text-[10px] text-muted-foreground">{formatTimeAgo(event.timestamp, t)}</p>
+                      <p className="text-[11px] text-muted-foreground">{formatTimeAgo(event.timestamp, t)}</p>
                     </div>
                   </motion.div>
                 )
@@ -11252,7 +11277,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         <div className="flex h-7 w-7 items-center justify-center rounded-md border border-brand/25 bg-brand-soft shadow-xs">
                           <card.icon className="h-3.5 w-3.5 text-brand-strong" />
                         </div>
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80 dark:text-zinc-400">{card.label}</span>
+                        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 dark:text-zinc-400">{card.label}</span>
                       </div>
                       <div className="flex items-end justify-between">
                         <div className="flex items-center gap-1">
@@ -11324,9 +11349,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         )}
                       </div>
                       <div className="mt-1 flex items-center gap-1">
-                        <span className="text-[10px] text-muted-foreground dark:text-zinc-400">{card.sub}</span>
+                        <span className="text-[11px] text-muted-foreground dark:text-zinc-400">{card.sub}</span>
                         {card.trend && (
-                          <span className="text-[9px] font-medium text-brand-strong bg-brand-soft px-1 py-0 rounded-full">{card.trend}</span>
+                          <span className="text-[11px] font-medium text-brand-strong bg-brand-soft px-1 py-0 rounded-full">{card.trend}</span>
                         )}
                       </div>
                     </motion.div>
@@ -11348,7 +11373,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800">
                     <Pin className="h-3.5 w-3.5 text-zinc-600 dark:text-zinc-300 fill-current" />
                     <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{t('surf.pinned')}</span>
-                    <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
+                    <Badge variant="secondary" className="text-[11px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
                       {filteredProjects.filter((p) => starredIds.has(p.id)).length}
                     </Badge>
                   </div>
@@ -11363,7 +11388,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                           <div className="col-span-full">
                             <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-gradient-to-r from-muted/60 via-muted/30 to-transparent dark:from-white/5 dark:via-white/3 dark:to-transparent border border-border/40 dark:border-zinc-700/30 border-l-2 border-l-brand/50 shadow-xs">
                               <Badge variant="secondary" className={`text-xs px-2.5 py-0.5 ${group.tagColor}`}>{group.tagName}</Badge>
-                              <Badge variant="secondary" className="text-[10px] bg-muted/60">{group.projects.length}</Badge>
+                              <Badge variant="secondary" className="text-[11px] bg-muted/60">{group.projects.length}</Badge>
                             </div>
                           </div>
                           {group.projects.map((project, idx) => (
@@ -11417,7 +11442,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                                 <Monitor className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                               </div>
                               <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{t('surf.thisMachine')}</span>
-                              <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{deviceGroupedProjects.localProjects.length}</Badge>
+                              <Badge variant="secondary" className="text-[11px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{deviceGroupedProjects.localProjects.length}</Badge>
                             </div>
                           </div>
                           {deviceGroupedProjects.localProjects.map((project, idx) => (
@@ -11469,8 +11494,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               </div>
                               <AnimatedStatusDot status={group.device?.status === 'online' ? 'running' : 'offline'} size="md" />
                               <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{group.device?.name ?? t('surf.unknownDevice')}</span>
-                              <span className="text-[10px] text-muted-foreground font-mono">{group.device?.ip}:{group.device?.port}</span>
-                              <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{group.projects.length}</Badge>
+                              <span className="text-[11px] text-muted-foreground font-mono">{group.device?.ip}:{group.device?.port}</span>
+                              <Badge variant="secondary" className="text-[11px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{group.projects.length}</Badge>
                             </div>
                           </div>
                           {group.projects.map((project, idx) => (
@@ -11559,7 +11584,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         <React.Fragment key={group.tagName}>
                           <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-gradient-to-r from-muted/60 via-muted/30 to-transparent dark:from-white/5 dark:via-white/3 dark:to-transparent border border-border/40 dark:border-zinc-700/30">
                             <Badge variant="secondary" className={`text-xs px-2.5 py-0.5 ${group.tagColor}`}>{group.tagName}</Badge>
-                            <Badge variant="secondary" className="text-[10px] bg-muted/60">{group.projects.length}</Badge>
+                            <Badge variant="secondary" className="text-[11px] bg-muted/60">{group.projects.length}</Badge>
                           </div>
                           {group.projects.map((project, idx) => (
                             <SortableProjectCard
@@ -11611,7 +11636,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               <Monitor className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
                             </div>
                             <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{t('surf.thisMachine')}</span>
-                            <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{deviceGroupedProjects.localProjects.length}</Badge>
+                            <Badge variant="secondary" className="text-[11px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{deviceGroupedProjects.localProjects.length}</Badge>
                           </div>
                           {deviceGroupedProjects.localProjects.map((project, idx) => (
                             <SortableProjectCard
@@ -11661,8 +11686,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                             </div>
                             <AnimatedStatusDot status={group.device?.status === 'online' ? 'running' : 'offline'} size="md" />
                             <span className="text-sm font-semibold text-foreground dark:text-zinc-200">{group.device?.name ?? t('surf.unknownDevice')}</span>
-                            <span className="text-[10px] text-muted-foreground font-mono">{group.device?.ip}:{group.device?.port}</span>
-                            <Badge variant="secondary" className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{group.projects.length}</Badge>
+                            <span className="text-[11px] text-muted-foreground font-mono">{group.device?.ip}:{group.device?.port}</span>
+                            <Badge variant="secondary" className="text-[11px] bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">{group.projects.length}</Badge>
                           </div>
                           {group.projects.map((project, idx) => (
                             <SortableProjectCard
@@ -11775,7 +11800,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         <AppDialogHeader title={t('dlg.rebuildConfirm.title', { name: rebuildConfirmProject?.name ?? '' })} description={t('dlg.rebuildConfirm.desc', { count: rebuildConfirmProject?.environments?.filter((e) => e.name !== 'development').length ?? 0 })} />
         <AppDialogFooter>
           <AlertDialogCancel>{t('dlg.common.cancel')}</AlertDialogCancel>
-          <AlertDialogAction onClick={() => { if (rebuildConfirmProject) { handleRebuildProject(rebuildConfirmProject.id); setRebuildConfirmProject(null) } }} className="bg-teal-600 text-white hover:bg-teal-700">
+          <AlertDialogAction onClick={() => { if (rebuildConfirmProject) { handleRebuildProject(rebuildConfirmProject.id); setRebuildConfirmProject(null) } }} >
             {t('dlg.rebuildConfirm.action')}
           </AlertDialogAction>
         </AppDialogFooter>
@@ -11811,7 +11836,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <Monitor className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <div>
                 <div className="text-sm font-medium">{t('dlg.move.thisMachine')}</div>
-                <div className="text-[10px] text-muted-foreground">{t('dlg.move.backToLocal')}</div>
+                <div className="text-[11px] text-muted-foreground">{t('dlg.move.backToLocal')}</div>
               </div>
             </button>
             {devices.map((device) => (
@@ -11824,9 +11849,9 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <Server className={`h-4 w-4 shrink-0 ${device.status === 'online' ? 'text-emerald-500' : 'text-red-400'}`} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium truncate">{device.name}</div>
-                  <div className="text-[10px] text-muted-foreground font-mono">{device.ip}:{device.port}</div>
+                  <div className="text-[11px] text-muted-foreground font-mono">{device.ip}:{device.port}</div>
                 </div>
-                <span className={`text-[9px] px-1.5 py-0.5 rounded-full shrink-0 ${device.status === 'online' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>{device.status === 'online' ? t('dlg.common.online') : t('dlg.common.offline')}</span>
+                <span className={`text-[11px] px-1.5 py-0.5 rounded-full shrink-0 ${device.status === 'online' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'}`}>{device.status === 'online' ? t('dlg.common.online') : t('dlg.common.offline')}</span>
               </button>
             ))}
           </div>
@@ -12176,7 +12201,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                       return (
                         <g key={ei}>
                           <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" className="text-muted-foreground/30" strokeWidth={1.5} strokeDasharray="4 4" />
-                          <text x={mx} y={my - 4} textAnchor="middle" className="fill-muted-foreground text-[9px]">{edge.tag}</text>
+                          <text x={mx} y={my - 4} textAnchor="middle" className="fill-muted-foreground text-[11px]">{edge.tag}</text>
                         </g>
                       )
                     })}
@@ -12191,10 +12216,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                         <g key={ni}>
                           <title>{node.name}</title>
                           <circle cx={x} cy={y} r={18} fill={statusColor(node.status)} fillOpacity={0.15} stroke={statusColor(node.status)} strokeWidth={2} />
-                          <text x={x} y={y + 1} textAnchor="middle" dominantBaseline="central" className="fill-foreground text-[10px] font-bold" style={{ pointerEvents: 'none' }}>
+                          <text x={x} y={y + 1} textAnchor="middle" dominantBaseline="central" className="fill-foreground text-[11px] font-bold" style={{ pointerEvents: 'none' }}>
                             {node.name.slice(0, 2).toUpperCase()}
                           </text>
-                          <text x={x} y={y + 32} textAnchor="middle" className="fill-foreground/80 text-[10px] font-medium" style={{ pointerEvents: 'none' }}>
+                          <text x={x} y={y + 32} textAnchor="middle" className="fill-foreground/80 text-[11px] font-medium" style={{ pointerEvents: 'none' }}>
                             {label}
                           </text>
                         </g>
@@ -12202,7 +12227,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     })}
                   </svg>
                   {/* Legend */}
-                  <div className="flex items-center gap-4 justify-center text-[10px] text-muted-foreground pb-2">
+                  <div className="flex items-center gap-4 justify-center text-[11px] text-muted-foreground pb-2">
                     <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> {t('dlg.depGraph.running')}</span>
                     <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-amber-500" /> {t('dlg.depGraph.mixed')}</span>
                     <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /> {t('dlg.depGraph.stopped')}</span>
@@ -12235,7 +12260,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 {Array.from(selectedIds).map((id) => {
                   const p = projects.find((proj) => proj.id === id)
                   return p ? (
-                    <Badge key={id} variant="secondary" className="text-[10px]">{p.name}</Badge>
+                    <Badge key={id} variant="secondary" className="text-[11px]">{p.name}</Badge>
                   ) : null
                 })}
               </div>
@@ -12247,7 +12272,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <Button type="button" size="sm" variant={batchTagMode === 'add' ? 'default' : 'outline'} className={batchTagMode === 'add' ? 'bg-primary hover:bg-primary/90 text-primary-foreground' : ''} onClick={() => setBatchTagMode('add')}>{t('dlg.batchTag.add')}</Button>
                 <Button type="button" size="sm" variant={batchTagMode === 'replace' ? 'default' : 'outline'} className={batchTagMode === 'replace' ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''} onClick={() => setBatchTagMode('replace')}>{t('dlg.batchTag.replace')}</Button>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1">
+              <p className="text-[11px] text-muted-foreground mt-1">
                 {batchTagMode === 'add' ? t('dlg.batchTag.addHint') : t('dlg.batchTag.replaceHint')}
               </p>
             </div>
@@ -12266,7 +12291,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                           else setBatchTagDraft((prev) => prev.filter((t) => t !== tag.name))
                         }}
                       />
-                      <Badge variant="secondary" className={`text-[10px] ${tag.color}`}>{tag.name}</Badge>
+                      <Badge variant="secondary" className={`text-[11px] ${tag.color}`}>{tag.name}</Badge>
                     </label>
                   )
                 })}
@@ -12321,7 +12346,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 onChange={(e) => setHealthAlertThreshold(parseInt(e.target.value, 10))}
                 className="w-full h-2 rounded-full appearance-none cursor-pointer bg-muted accent-amber-500"
               />
-              <div className="flex justify-between text-[10px] text-muted-foreground">
+              <div className="flex justify-between text-[11px] text-muted-foreground">
                 <span>{t('dlg.health.moreAlerts')}</span>
                 <span>{t('dlg.health.fewerAlerts')}</span>
               </div>
@@ -12335,7 +12360,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <Progress value={dashboardStats.healthScore} className="h-2" />
               <div className="flex items-center gap-1.5">
                 <span className={`h-2 w-2 rounded-full ${dashboardStats.healthScore <= healthAlertThreshold ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-[11px] text-muted-foreground">
                   {dashboardStats.healthScore <= healthAlertThreshold ? t('dlg.health.belowThreshold') : t('dlg.health.aboveThreshold')}
                 </span>
               </div>
@@ -12345,7 +12370,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <div className="flex items-center justify-between">
                 <Label className="text-xs text-muted-foreground">{t('dlg.health.projectStatus')}</Label>
                 {alertsAcknowledged && (
-                  <Button variant="ghost" size="sm" className="h-5 text-[9px] px-1.5 btn-micro-click" onClick={() => { setAlertsAcknowledged(false); localStorage.setItem('dashboard-alerts-acknowledged', 'false') }}>{t('dlg.health.showAlerts')}</Button>
+                  <Button variant="ghost" size="sm" className="h-5 text-[11px] px-1.5 btn-micro-click" onClick={() => { setAlertsAcknowledged(false); localStorage.setItem('dashboard-alerts-acknowledged', 'false') }}>{t('dlg.health.showAlerts')}</Button>
                 )}
               </div>
               <div className="max-h-52 overflow-y-auto space-y-2 custom-scrollbar">
@@ -12420,7 +12445,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                       <div className="h-2 rounded bg-muted-foreground/20" />
                       <div className="h-2 rounded bg-muted-foreground/10 w-3/4" />
                     </div>
-                    <span className="text-[10px] font-medium">{t(`dlg.customize.${density}` as Parameters<typeof t>[0])}</span>
+                    <span className="text-[11px] font-medium">{t(`dlg.customize.${density}` as Parameters<typeof t>[0])}</span>
                   </button>
                 ))}
               </div>
@@ -12540,13 +12565,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                     </thead>
                     <tbody className="divide-y divide-border/50">
                       {[
-                        { label: t('dlg.compare.status'), a: getProjectStatus(compareProjectA), b: getProjectStatus(compareProjectB), render: (v: string) => <Badge variant="secondary" className={`text-[10px] ${v === 'running' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : v === 'mixed' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>{t(`surf.${v}` as Parameters<typeof t>[0])}</Badge> },
+                        { label: t('dlg.compare.status'), a: getProjectStatus(compareProjectA), b: getProjectStatus(compareProjectB), render: (v: string) => <Badge variant="secondary" className={`text-[11px] ${v === 'running' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300' : v === 'mixed' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'}`}>{t(`surf.${v}` as Parameters<typeof t>[0])}</Badge> },
                         { label: t('dlg.compare.health'), a: calculateHealthScore(compareProjectA), b: calculateHealthScore(compareProjectB), render: (v: number) => <span className={`font-bold ${healthColor(v)}`}>{v}%</span> },
                         { label: t('dlg.compare.environments'), a: (compareProjectA.environments || []).length, b: (compareProjectB.environments || []).length, render: (v: number) => <span>{v}</span> },
                         { label: t('dlg.compare.running'), a: (compareProjectA.environments || []).filter((e) => e.status === 'running').length, b: (compareProjectB.environments || []).filter((e) => e.status === 'running').length, render: (v: number) => <span className="text-emerald-600 dark:text-emerald-400">{v}</span> },
                         { label: t('dlg.compare.stopped'), a: (compareProjectA.environments || []).filter((e) => e.status !== 'running').length, b: (compareProjectB.environments || []).filter((e) => e.status !== 'running').length, render: (v: number) => <span className="text-red-500">{v}</span> },
                         { label: t('dlg.compare.tags'), a: parseTags(compareProjectA.tags), b: parseTags(compareProjectB.tags), render: (v: string[]) => <div className="flex flex-wrap gap-0.5">{v.map((t) => <Badge key={t} variant="secondary" className={`text-[8px] px-1 py-0 ${getTagColor(t)}`}>{t}</Badge>)}</div> },
-                        { label: t('dlg.compare.path'), a: compareProjectA.path, b: compareProjectB.path, render: (v: string) => <span className="font-mono text-[10px] truncate max-w-[180px] inline-block">{v}</span> },
+                        { label: t('dlg.compare.path'), a: compareProjectA.path, b: compareProjectB.path, render: (v: string) => <span className="font-mono text-[11px] truncate max-w-[180px] inline-block">{v}</span> },
                         { label: t('dlg.compare.device'), a: compareProjectA.deviceName || t('dlg.compare.local'), b: compareProjectB.deviceName || t('dlg.compare.local'), render: (v: string) => <span>{v}</span> },
                         { label: t('dlg.compare.description'), a: compareProjectA.description || '—', b: compareProjectB.description || '—', render: (v: string) => <span className="truncate max-w-[180px] inline-block">{v}</span> },
                       ].map(({ label, a, b, render }) => (
@@ -12611,8 +12636,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                   >
                     <div className="text-lg mb-1">{p.icon}</div>
                     <div className="text-sm font-semibold">{p.label}</div>
-                    <div className="text-[10px] text-muted-foreground">{p.desc}</div>
-                    {p.active && <Badge className="mt-1.5 text-[9px] bg-teal-600 text-white">{t('dlg.agentDeploy.recommended')}</Badge>}
+                    <div className="text-[11px] text-muted-foreground">{p.desc}</div>
+                    {p.active && <Badge className="mt-1.5 text-[11px] bg-teal-600 text-white">{t('dlg.agentDeploy.recommended')}</Badge>}
                   </button>
                 ))}
               </div>
@@ -12630,7 +12655,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               {/* Step 1 */}
               <div className="rounded-lg border bg-muted/20 dark:bg-zinc-800/20 p-4 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[10px] font-bold shrink-0">1</span>
+                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[11px] font-bold shrink-0">1</span>
                   <span className="text-sm font-medium">{t('dlg.agentDeploy.step1')}</span>
                 </div>
                 <p className="text-xs text-muted-foreground pl-7">
@@ -12650,7 +12675,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               {/* Step 2 */}
               <div className="rounded-lg border bg-muted/20 dark:bg-zinc-800/20 p-4 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[10px] font-bold shrink-0">2</span>
+                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[11px] font-bold shrink-0">2</span>
                   <span className="text-sm font-medium">{t('dlg.agentDeploy.step2')}</span>
                 </div>
                 <p className="text-xs text-muted-foreground pl-7">{t('dlg.agentDeploy.step2Desc')}</p>
@@ -12669,14 +12694,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               {/* Step 3 */}
               <div className="rounded-lg border bg-muted/20 dark:bg-zinc-800/20 p-4 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[10px] font-bold shrink-0">3</span>
+                  <span className="inline-flex items-center justify-center h-5 w-5 rounded-full bg-teal-600 text-white text-[11px] font-bold shrink-0">3</span>
                   <span className="text-sm font-medium">{t('dlg.agentDeploy.step3')}</span>
                 </div>
                 <p className="text-xs text-muted-foreground pl-7">
                   {t('dlg.agentDeploy.step3Desc')}
                 </p>
                 <div className="pl-7 mt-1.5">
-                  <Button size="sm" className="h-7 text-xs bg-teal-600 hover:bg-teal-700 text-white gap-1.5" onClick={() => {
+                  <Button size="sm" className="h-8 gap-1.5 text-xs" onClick={() => {
                     setAgentDeployGuideOpen(false)
                     setTimeout(() => setAddDeviceFormOpen(true), 300)
                   }}>
@@ -12704,12 +12729,12 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                       <Terminal className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                     </div>
                     <span className="text-sm font-semibold">{t('dlg.agentDeploy.simple')}</span>
-                    <Badge variant="secondary" className="text-[9px] bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">{t('dlg.agentDeploy.easiest')}</Badge>
+                    <Badge variant="secondary" className="text-[11px] bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">{t('dlg.agentDeploy.easiest')}</Badge>
                   </div>
                   <ol className="text-xs text-muted-foreground space-y-1 pl-6 list-decimal">
                     <li>{t('dlg.agentDeploy.m1s1Before')} <a href="https://nodejs.org" target="_blank" rel="noopener" className="text-teal-600 dark:text-teal-400 underline underline-offset-2">Node.js 18+</a></li>
                     <li>{t('dlg.agentDeploy.m1s2')}</li>
-                    <li>{t('dlg.agentDeploy.m1s3Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">start.bat</code></li>
+                    <li>{t('dlg.agentDeploy.m1s3Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[11px] font-mono">start.bat</code></li>
                     <li>{t('dlg.agentDeploy.m1s4')}</li>
                   </ol>
                 </div>
@@ -12721,15 +12746,15 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                       <Monitor className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
                     </div>
                     <span className="text-sm font-semibold">{t('dlg.agentDeploy.exe')}</span>
-                    <Badge variant="secondary" className="text-[9px] bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">{t('dlg.agentDeploy.professional')}</Badge>
+                    <Badge variant="secondary" className="text-[11px] bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">{t('dlg.agentDeploy.professional')}</Badge>
                   </div>
                   <ol className="text-xs text-muted-foreground space-y-1 pl-6 list-decimal">
-                    <li>{t('dlg.agentDeploy.m2s1Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">build-installer.bat</code></li>
-                    <li>{t('dlg.agentDeploy.m2s2Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">dashboard-agent-setup.exe</code></li>
+                    <li>{t('dlg.agentDeploy.m2s1Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[11px] font-mono">build-installer.bat</code></li>
+                    <li>{t('dlg.agentDeploy.m2s2Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[11px] font-mono">dashboard-agent-setup.exe</code></li>
                     <li>{t('dlg.agentDeploy.m2s3')}</li>
                     <li>{t('dlg.agentDeploy.m2s4')}</li>
                   </ol>
-                  <p className="text-[10px] text-amber-600 dark:text-amber-400 pl-6">{t('dlg.agentDeploy.innoWarn')}</p>
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 pl-6">{t('dlg.agentDeploy.innoWarn')}</p>
                 </div>
 
                 {/* Method 3: Windows Service */}
@@ -12739,13 +12764,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                       <Shield className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
                     </div>
                     <span className="text-sm font-semibold">{t('dlg.agentDeploy.service')}</span>
-                    <Badge variant="secondary" className="text-[9px] bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{t('dlg.agentDeploy.production')}</Badge>
+                    <Badge variant="secondary" className="text-[11px] bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{t('dlg.agentDeploy.production')}</Badge>
                   </div>
                   <ol className="text-xs text-muted-foreground space-y-1 pl-6 list-decimal">
                     <li>{t('dlg.agentDeploy.m3s1')}</li>
-                    <li>{t('dlg.agentDeploy.m3s2Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">.\install-service.ps1 -Port 3100</code></li>
+                    <li>{t('dlg.agentDeploy.m3s2Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[11px] font-mono">.\install-service.ps1 -Port 3100</code></li>
                     <li>{t('dlg.agentDeploy.m3s3')}</li>
-                    <li>{t('dlg.agentDeploy.m3s4Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">Start-Service DashboardAgent</code></li>
+                    <li>{t('dlg.agentDeploy.m3s4Before')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[11px] font-mono">Start-Service DashboardAgent</code></li>
                   </ol>
                 </div>
               </div>
@@ -12833,7 +12858,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <Hammer className="h-4 w-4 text-orange-500" />
                 {t('dlg.agentDeploy.buildExe')}
               </h4>
-              <p className="text-xs text-muted-foreground">{t('dlg.agentDeploy.buildExeBefore')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[10px] font-mono">pkg</code>{t('dlg.agentDeploy.buildExeAfter')}</p>
+              <p className="text-xs text-muted-foreground">{t('dlg.agentDeploy.buildExeBefore')} <code className="px-1 py-0.5 rounded bg-muted dark:bg-zinc-700 text-[11px] font-mono">pkg</code>{t('dlg.agentDeploy.buildExeAfter')}</p>
               <div className="rounded-md bg-zinc-900 dark:bg-zinc-950 p-3 font-mono text-xs text-zinc-300 overflow-x-auto">
                 <div className="text-zinc-500">{t('dlg.agentDeploy.pkgInstall')}</div>
                 <div className="text-zinc-300">npm install -g pkg</div>
@@ -12841,13 +12866,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                 <div className="text-zinc-300">npm run build:exe</div>
                 <div className="text-zinc-500 mt-2">{t('dlg.agentDeploy.pkgOutput')}</div>
               </div>
-              <p className="text-[10px] text-amber-600 dark:text-amber-400">{t('dlg.agentDeploy.buildExeWarn')}</p>
+              <p className="text-[11px] text-amber-600 dark:text-amber-400">{t('dlg.agentDeploy.buildExeWarn')}</p>
             </div>
         </AppDialogBody>
 
         <AppDialogFooter>
           <div className="flex items-center justify-between w-full">
-            <span className="text-[10px] text-muted-foreground">{t('dlg.agentDeploy.packageLocationBefore')} <code className="font-mono">mini-services/agent-windows/</code></span>
+            <span className="text-[11px] text-muted-foreground">{t('dlg.agentDeploy.packageLocationBefore')} <code className="font-mono">mini-services/agent-windows/</code></span>
             <Button variant="outline" onClick={() => setAgentDeployGuideOpen(false)}>{t('dlg.common.close')}</Button>
           </div>
         </AppDialogFooter>

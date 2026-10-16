@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useTheme } from 'next-themes'
 import { Palette, Sun, Moon, Monitor, Check } from 'lucide-react'
+import { AppDialogSection } from '@/components/app-dialog'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
@@ -84,63 +85,70 @@ export function ThemeCustomizer() {
           <span className="sr-only">{t('topbar.appearance.customize')}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-60 p-3" sideOffset={8}>
-        <p className="text-[11px] font-medium text-muted-foreground mb-2">{t('topbar.appearance.title')}</p>
-        <div className="grid grid-cols-3 gap-1 mb-4" role="radiogroup" aria-label={t('topbar.appearance.title')}>
-          {MODES.map((m) => {
-            const modeLabel = m.id === 'light' ? t('topbar.appearance.light') : m.id === 'dark' ? t('topbar.appearance.dark') : t('topbar.appearance.system')
-            const active = mounted && theme === m.id
-            return (
-              <button
-                key={m.id}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onClick={() => setTheme(m.id)}
-                className={cn(
-                  'inline-flex flex-col items-center gap-1 rounded-md border px-2 py-1.5 text-[11px] font-medium cursor-pointer transition-colors',
-                  active
-                    ? 'border-brand/40 bg-brand-soft text-brand-strong'
-                    : 'border-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                )}
-              >
-                <m.icon className="h-3.5 w-3.5" />
-                {modeLabel}
-              </button>
-            )
-          })}
+      {/* v1.31 "Clear": quiet AppDialogSection headers replace the ad-hoc
+          bold labels — the swatches and mode buttons are the foreground. */}
+      <PopoverContent align="end" className="w-64 p-3" sideOffset={8}>
+        <div className="space-y-4">
+          <AppDialogSection title={t('topbar.appearance.title')} divider={false}>
+            <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label={t('topbar.appearance.title')}>
+              {MODES.map((m) => {
+                const modeLabel = m.id === 'light' ? t('topbar.appearance.light') : m.id === 'dark' ? t('topbar.appearance.dark') : t('topbar.appearance.system')
+                const active = mounted && theme === m.id
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setTheme(m.id)}
+                    className={cn(
+                      'flex h-14 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border text-[11px] font-medium transition-colors',
+                      active
+                        ? 'border-brand/40 bg-brand-soft text-brand-strong'
+                        : 'border-border/60 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                    )}
+                  >
+                    <m.icon className="size-4" />
+                    {modeLabel}
+                  </button>
+                )
+              })}
+            </div>
+          </AppDialogSection>
+          <AppDialogSection title={t('topbar.appearance.accent')} divider={false}>
+            {/* v1.29: grid-cols-4 — the old flex-wrap put 6 swatches on row one
+                and 2 on row two, reading as broken. v1.31: size-8 swatches,
+                centered, ring on selected. */}
+            <div className="grid grid-cols-4 justify-items-center gap-2.5" role="radiogroup" aria-label={t('topbar.appearance.accent')}>
+              {ACCENT_PRESETS.map((a) => {
+                const active = accent === a.id
+                const swatch = mounted ? (resolvedTheme === 'dark' ? a.dark : a.light) : a.light
+                const accentLabel = t(`accent.${a.id}` as Parameters<typeof t>[0])
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    title={accentLabel}
+                    onClick={() => setAccent(a.id)}
+                    className={cn(
+                      'relative flex size-8 cursor-pointer items-center justify-center rounded-full transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      active ? 'ring-2 ring-offset-2 ring-offset-popover' : 'ring-1 ring-border',
+                    )}
+                    style={{ backgroundColor: swatch, ...(active ? { '--tw-ring-color': swatch } as React.CSSProperties : {}) }}
+                  >
+                    {active && <Check className="size-4 text-white drop-shadow" />}
+                    <span className="sr-only">{accentLabel}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </AppDialogSection>
+          <p className="border-t border-border/60 pt-3 text-[11px] leading-relaxed text-muted-foreground">
+            {t('topbar.appearance.hint')}
+          </p>
         </div>
-        <p className="text-[11px] font-medium text-muted-foreground mb-2">{t('topbar.appearance.accent')}</p>
-        {/* v1.29: grid-cols-4 — the old flex-wrap put 6 swatches on row one
-            and 2 on row two, reading as broken. */}
-        <div className="grid grid-cols-4 justify-items-center gap-2" role="radiogroup" aria-label={t('topbar.appearance.accent')}>
-          {ACCENT_PRESETS.map((a) => {
-            const active = accent === a.id
-            const swatch = mounted ? (resolvedTheme === 'dark' ? a.dark : a.light) : a.light
-            const accentLabel = t(`accent.${a.id}` as Parameters<typeof t>[0])
-            return (
-              <button
-                key={a.id}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                title={accentLabel}
-                onClick={() => setAccent(a.id)}
-                className={cn(
-                  'relative h-7 w-7 rounded-full cursor-pointer transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  active ? 'ring-2 ring-offset-2 ring-offset-popover' : 'ring-1 ring-border'
-                )}
-                style={{ backgroundColor: swatch, ...(active ? { '--tw-ring-color': swatch } as React.CSSProperties : {}) }}
-              >
-                {active && <Check className="absolute inset-0 m-auto h-3.5 w-3.5 text-white drop-shadow" />}
-                <span className="sr-only">{accentLabel}</span>
-              </button>
-            )
-          })}
-        </div>
-        <p className="mt-3 text-[10px] text-muted-foreground leading-relaxed">
-          {t('topbar.appearance.hint')}
-        </p>
       </PopoverContent>
     </Popover>
   )

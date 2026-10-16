@@ -197,14 +197,14 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
         <div className="pt-3 flex items-center gap-2 flex-wrap">
           {isAdmin && (
             <Tabs value={scope} onValueChange={(v) => setScope(v as 'mine' | 'all')}>
-              <TabsList className="h-7 p-0.5">
-                <TabsTrigger value="mine" className="h-6 px-2.5 text-xs">{t('sessions.myScope')}</TabsTrigger>
-                <TabsTrigger value="all" className="h-6 px-2.5 text-xs">{t('sessions.allScope')}</TabsTrigger>
+              <TabsList className="h-8 p-1">
+                <TabsTrigger value="mine" className="h-6 px-3 text-xs">{t('sessions.myScope')}</TabsTrigger>
+                <TabsTrigger value="all" className="h-6 px-3 text-xs">{t('sessions.allScope')}</TabsTrigger>
               </TabsList>
             </Tabs>
           )}
           {sessions && (
-            <Badge variant="secondary" className="text-[10px] font-medium">
+            <Badge variant="secondary" className="text-[11px] font-medium">
               {t('sessions.count', { count: list.length })}
             </Badge>
           )}
@@ -267,10 +267,11 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
             </Button>
           </div>
         )}
+        {/* v1.31 R5: skeleton rows mirror the divided-list anatomy below */}
         {!loadError && loading && sessions === null && (
-          <div className="space-y-2.5 pt-1">
+          <div className="divide-y rounded-xl border bg-card">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="flex items-center gap-3 rounded-lg border border-border/60 p-3">
+              <div key={i} className="flex items-center gap-3 px-4 py-3">
                 <Skeleton className="h-9 w-9 rounded-lg" />
                 <div className="flex-1 space-y-1.5">
                   <Skeleton className="h-4 w-40" />
@@ -286,8 +287,10 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
             {t(scope === 'all' ? 'sessions.emptyAll' : 'sessions.empty')}
           </div>
         )}
+        {/* v1.31 R5: one divided list container — rows px-4 py-3, current
+            session marked by a soft brand tint instead of its own card */}
         {!loadError && sessions !== null && list.length > 0 && (
-          <div className="space-y-2.5 pt-1">
+          <div className="divide-y rounded-xl border bg-card">
             {list.map((s) => {
               const DeviceIcon = DEVICE_ICONS[s.deviceType] ?? Laptop
               const deviceLabel = t(`sessions.device.${s.deviceType === 'unknown' ? 'unknown' : s.deviceType}` as Parameters<I18nContextValue['t']>[0])
@@ -295,10 +298,8 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
                 <div
                   key={s.id}
                   className={cn(
-                    'flex items-center gap-3 rounded-lg border p-3 transition-colors',
-                    s.current
-                      ? 'border-brand/40 bg-brand-soft/50'
-                      : 'border-border/60 hover:border-border',
+                    'flex items-center gap-3 px-4 py-3 transition-colors',
+                    s.current ? 'bg-brand-soft/40' : 'hover:bg-muted/40',
                   )}
                 >
                   <div className={cn(
@@ -315,7 +316,7 @@ export function SessionsDialog({ open, onOpenChange, onForceLogout, isAdmin = fa
                         {s.browser} · {s.os}
                       </p>
                       {s.current && (
-                        <Badge className="bg-brand-soft text-brand-strong border border-brand/30 text-[10px] px-1.5 py-0">
+                        <Badge className="border border-brand/30 bg-brand-soft px-1.5 py-0 text-[11px] text-brand-strong">
                           {t('sessions.current')}
                         </Badge>
                       )}

@@ -59,25 +59,27 @@ function UserAvatar({ user, className = 'h-9 w-9 text-xs' }: { user: PublicUser;
   )
 }
 
+/** v1.31 R7 — quiet dot+text status chips instead of full-bg badges;
+ *  semantic colors stay (amber=pending, emerald=approved, red=rejected). */
 function StatusBadge({ status }: { status: PublicUser['status'] }) {
   const t = useT()
   if (status === 'pending') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200/80 bg-amber-50/80 dark:border-amber-900/60 dark:bg-amber-950/40 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
-        <Clock className="h-3 w-3" />{t('dlg.userMgmt.filter.pending')}
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{t('dlg.userMgmt.filter.pending')}
       </span>
     )
   }
   if (status === 'approved') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200/80 bg-emerald-50/80 dark:border-emerald-900/60 dark:bg-emerald-950/40 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
-        <CheckCircle2 className="h-3 w-3" />{t('dlg.userMgmt.filter.approved')}
+      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{t('dlg.userMgmt.filter.approved')}
       </span>
     )
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-red-200/80 bg-red-50/80 dark:border-red-900/60 dark:bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:text-red-400">
-      <XCircle className="h-3 w-3" />{t('dlg.userMgmt.filter.rejected')}
+    <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-red-600 dark:text-red-400">
+      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />{t('dlg.userMgmt.filter.rejected')}
     </span>
   )
 }
@@ -85,7 +87,7 @@ function StatusBadge({ status }: { status: PublicUser['status'] }) {
 function ProviderBadge({ provider }: { provider: PublicUser['provider'] }) {
   const t = useT()
   return (
-    <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+    <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
       {provider === 'google' ? t('dlg.userMgmt.provider.google') : t('dlg.userMgmt.provider.email')}
     </span>
   )
@@ -393,21 +395,23 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
 
       <AppDialogBody>
         <Tabs value={tab} onValueChange={(v) => setTab(v as 'users' | 'google' | 'network')}>
-          <TabsList className="h-9 w-full justify-start bg-transparent p-0 gap-2 mb-4">
-            <TabsTrigger value="users" className="px-3.5 py-1 text-xs border border-border/60 bg-background data-[state=active]:border-transparent data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">
+          {/* v1.31: unified segmented tabs — same shadcn anatomy as the rest
+              of the system (the old hand-rolled pills had drifted). */}
+          <TabsList className="h-9 w-full justify-start gap-1 p-1">
+            <TabsTrigger value="users" className="gap-1.5 px-3 text-xs">
               {t('dlg.userMgmt.users')}
               {counts.pending > 0 && (
-                <span className="ml-1.5 inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">{counts.pending > 9 ? '9+' : counts.pending}</span>
+                <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-100 px-1 text-[11px] font-bold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400">{counts.pending > 9 ? '9+' : counts.pending}</span>
               )}
             </TabsTrigger>
-            <TabsTrigger value="google" className="px-3.5 py-1 text-xs border border-border/60 bg-background data-[state=active]:border-transparent data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('dlg.userMgmt.google')}</TabsTrigger>
-            <TabsTrigger value="network" className="px-3.5 py-1 text-xs border border-border/60 bg-background data-[state=active]:border-transparent data-[state=active]:shadow-none data-[state=active]:bg-brand-soft data-[state=active]:text-brand-strong dark:data-[state=active]:bg-brand-soft dark:data-[state=active]:text-brand-strong rounded-full transition-colors">{t('dlg.userMgmt.gitNetwork')}</TabsTrigger>
+            <TabsTrigger value="google" className="px-3 text-xs">{t('dlg.userMgmt.google')}</TabsTrigger>
+            <TabsTrigger value="network" className="px-3 text-xs">{t('dlg.userMgmt.gitNetwork')}</TabsTrigger>
           </TabsList>
 
           {/* ==================== USERS TAB ==================== */}
           {tab === 'users' && (
-            <div className="space-y-3">
-              {/* Filter chips */}
+            <div className="space-y-4">
+              {/* Filter chips — v1.31 R7: quiet token-colored chips, counts muted */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 {filterChips.map((chip) => {
                   const active = filter === chip.id
@@ -416,12 +420,12 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                       key={chip.id}
                       type="button"
                       onClick={() => setFilter(chip.id)}
-                      className={`inline-flex items-center gap-1.5 rounded-md border h-7 px-2.5 text-xs font-medium cursor-pointer transition-colors ${active
-                        ? 'border-brand/50 bg-brand-soft text-brand-strong'
-                        : 'border-zinc-200 dark:border-zinc-700 bg-card shadow-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/60'}`}
+                      className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium cursor-pointer transition-colors ${active
+                        ? 'border-brand/40 bg-brand-soft text-brand-strong'
+                        : 'border-border/60 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`}
                     >
                       {chip.label}
-                      <span className={`text-[10px] tabular-nums ${active ? 'text-brand-strong/80' : 'text-muted-foreground/70'}`}>{chip.count}</span>
+                      <span className={`text-[11px] tabular-nums ${active ? 'text-brand-strong/80' : 'text-muted-foreground/70'}`}>{chip.count}</span>
                     </button>
                   )
                 })}
@@ -445,14 +449,15 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                   </p>
                 </div>
               ) : (
-                <ul className="space-y-2">
+                /* v1.31 R5: one divided list container — rows px-4 py-3 */
+                <ul className="divide-y rounded-xl border bg-card">
                   {filtered.map((u) => {
                     const isSelf = currentUser?.id === u.id
                     const busy = busyId === u.id
                     return (
                       <li
                         key={u.id}
-                        className={`rounded-lg border border-border/60 bg-card p-3 flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_118px_102px_minmax(0,132px)_auto] md:items-center gap-2.5 md:gap-3 transition-opacity ${busy ? 'opacity-60' : ''}`}
+                        className={`px-4 py-3 flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_118px_102px_minmax(0,132px)_auto] md:items-center gap-2.5 md:gap-3 transition-opacity ${busy ? 'opacity-60' : ''}`}
                       >
                         {/* Identity */}
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -461,7 +466,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="text-sm font-medium truncate max-w-[160px] sm:max-w-[220px]">{u.name}</p>
                               {isSelf && (
-                                <span className="inline-flex items-center rounded-full border border-brand/40 bg-brand-soft px-1.5 py-0.5 text-[10px] font-semibold text-brand-strong">{t('dlg.userMgmt.you')}</span>
+                                <span className="inline-flex items-center rounded-full border border-brand/40 bg-brand-soft px-1.5 py-0.5 text-[11px] font-semibold text-brand-strong">{t('dlg.userMgmt.you')}</span>
                               )}
                               <ProviderBadge provider={u.provider} />
                             </div>
@@ -518,7 +523,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                                 size="sm"
                                 onClick={() => void handleApprove(u)}
                                 disabled={busy}
-                                className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                                className="h-8 px-3 text-xs"
                               >
                                 <CheckCircle2 className="h-3.5 w-3.5 mr-1" />{t('dlg.userMgmt.approve')}
                               </Button>
@@ -571,9 +576,9 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
           {/* ==================== GOOGLE SIGN-IN TAB ==================== */}
           {tab === 'google' && (
             <div className="space-y-4">
-              {/* Status card */}
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-3.5 flex items-start gap-3">
-                <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${configured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+              {/* Status card — quiet nested block (v1.31 R5/R7) */}
+              <div className="flex items-start gap-3 rounded-xl border bg-muted/30 p-4">
+                <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${configured ? 'bg-emerald-500' : 'bg-amber-500'}`} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium flex items-center gap-2 flex-wrap">
                     {configured ? t('dlg.userMgmt.configured') : t('dlg.userMgmt.notConfigured')}
@@ -590,11 +595,11 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
               </div>
 
               {/* Redirect URI */}
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 <Label className="text-xs">{t('dlg.userMgmt.redirectUri')}</Label>
-                <div className="rounded-md bg-zinc-900 dark:bg-zinc-950 border border-zinc-800 dark:border-zinc-800 p-2.5 flex items-center gap-2">
+                <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 p-2.5 dark:bg-zinc-950 dark:border-zinc-800">
                   <code className="flex-1 min-w-0 font-mono text-xs text-zinc-300 truncate">{redirectUri || t('dlg.userMgmt.redirectNA')}</code>
-                  <Button type="button" variant="outline" size="sm" onClick={() => copyToClipboard(redirectUri)} disabled={!redirectUri} className="h-7 px-2.5 text-xs shrink-0 bg-transparent border-zinc-700 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
+                  <Button type="button" variant="outline" size="sm" onClick={() => copyToClipboard(redirectUri)} disabled={!redirectUri} className="h-7 shrink-0 border-zinc-700 bg-transparent px-2.5 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100">
                     <Copy className="h-3 w-3 mr-1" />{t('dlg.common.copy')}
                   </Button>
                 </div>
@@ -609,8 +614,8 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
               </ol>
 
               {/* Form */}
-              <div className="space-y-3.5 rounded-lg border border-border/60 bg-card p-3.5">
-                <div className="space-y-1.5">
+              <div className="space-y-4 rounded-xl border bg-card p-4">
+                <div className="space-y-2">
                   <Label htmlFor="google-client-id" className="text-xs">{t('dlg.userMgmt.clientId')}</Label>
                   {configured && maskedClient && (
                     <p className="text-[11px] text-muted-foreground">
@@ -628,7 +633,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                     className="h-10 font-mono text-xs"
                   />
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label htmlFor="google-client-secret" className="text-xs">{t('dlg.userMgmt.clientSecret')}</Label>
                   <Input
                     id="google-client-secret"
@@ -648,7 +653,7 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                   </div>
                 )}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Button type="button" onClick={() => void handleSaveGoogle()} disabled={savingGoogle} className="h-10 px-5 text-sm bg-primary hover:bg-primary/90 text-primary-foreground">
+                  <Button type="button" onClick={() => void handleSaveGoogle()} disabled={savingGoogle} className="h-10 px-5 text-sm">
                     {savingGoogle && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                     {savingGoogle ? t('dlg.userMgmt.saving') : t('dlg.userMgmt.save')}
                   </Button>
@@ -671,10 +676,8 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
           {/* ==================== GIT NETWORK TAB (v1.27) ==================== */}
           {tab === 'network' && (
             <div className="space-y-4">
-              {/* Status card */}
-              <div className={`flex items-start gap-3 rounded-lg border p-3.5 ${gitProxyConfigured
-                ? 'border-emerald-200/80 bg-emerald-50/50 dark:border-emerald-900/50 dark:bg-emerald-950/20'
-                : 'border-amber-200/80 bg-amber-50/50 dark:border-amber-900/50 dark:bg-amber-950/20'}`}>
+              {/* Status card — quiet neutral block; the icon carries the state color */}
+              <div className="flex items-start gap-3 rounded-xl border bg-muted/30 p-4">
                 {gitProxyConfigured
                   ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
                   : <WifiOff className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />}
@@ -694,8 +697,8 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
               </div>
 
               {/* Form */}
-              <div className="space-y-3.5 rounded-lg border border-border/60 bg-card p-3.5">
-                <div className="space-y-1.5">
+              <div className="space-y-4 rounded-xl border bg-card p-4">
+                <div className="space-y-2">
                   <Label htmlFor="git-proxy-url" className="text-xs">{t('dlg.userMgmt.gitProxyUrl')}</Label>
                   <Input
                     id="git-proxy-url"
@@ -746,9 +749,9 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
                 )}
               </div>
 
-              {/* What this affects */}
-              <div className="rounded-lg border border-border/60 bg-muted/30 p-3.5">
-                <p className="text-xs font-medium mb-1.5">{t('dlg.userMgmt.gitProxyAffects')}</p>
+              {/* What this affects — quiet nested block with a receding label */}
+              <div className="rounded-xl border bg-muted/30 p-4">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">{t('dlg.userMgmt.gitProxyAffects')}</p>
                 <ul className="space-y-1 text-xs text-muted-foreground leading-relaxed">
                   <li>· {t('dlg.userMgmt.gitProxyAffect1')}</li>
                   <li>· {t('dlg.userMgmt.gitProxyAffect2')}</li>
@@ -763,8 +766,8 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
       {/* ---------- Reject reason dialog ---------- */}
       <AppDialog open={!!rejectTarget} onOpenChange={(v) => { if (!v) { setRejectTarget(null); setRejectReason('') } }} size="md">
         <AppDialogHeader icon={XCircle} title={t('dlg.userMgmt.rejectTitle')} description={rejectTarget ? t('dlg.userMgmt.rejectDesc', { name: rejectTarget.name, email: rejectTarget.email }) : ''} />
-        <AppDialogBody className="space-y-4">
-          <div className="space-y-1.5">
+        <AppDialogBody>
+          <div className="space-y-2">
             <Label htmlFor="reject-reason">{t('dlg.userMgmt.reason')}</Label>
             <Textarea
               id="reject-reason"
@@ -777,14 +780,14 @@ export function UserManagementDialog({ open, onClose, onPendingChange }: UserMan
             />
             <p className="text-[11px] text-muted-foreground text-right tabular-nums">{rejectReason.length}/200</p>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => { setRejectTarget(null); setRejectReason('') }} disabled={rejectBusy} className="h-10">{t('dlg.common.cancel')}</Button>
-            <Button type="button" onClick={() => void handleRejectConfirm()} disabled={rejectBusy} className="h-10 bg-red-600 hover:bg-red-700 text-white">
-              {rejectBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {t('dlg.userMgmt.reject')}
-            </Button>
-          </div>
         </AppDialogBody>
+        <AppDialogFooter>
+          <Button type="button" variant="outline" onClick={() => { setRejectTarget(null); setRejectReason('') }} disabled={rejectBusy} className="h-10">{t('dlg.common.cancel')}</Button>
+          <Button type="button" onClick={() => void handleRejectConfirm()} disabled={rejectBusy} className="h-10 bg-red-600 hover:bg-red-700 text-white">
+            {rejectBusy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {t('dlg.userMgmt.reject')}
+          </Button>
+        </AppDialogFooter>
       </AppDialog>
 
       {/* ---------- Delete confirm ---------- */}

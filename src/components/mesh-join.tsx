@@ -2,11 +2,10 @@
 
 import * as React from 'react'
 import {
-  PlugZap, Loader2, Globe, KeyRound, Server, CheckCircle2, AlertTriangle, RefreshCw, Play, Wifi,
+  PlugZap, Loader2, CheckCircle2, AlertTriangle, RefreshCw, Play, Wifi,
 } from 'lucide-react'
-import { AppDialog, AppDialogHeader, AppDialogBody } from '@/components/app-dialog'
+import { AppDialog, AppDialogHeader, AppDialogBody, AppDialogSection, AppDialogFooter } from '@/components/app-dialog'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { addToast } from '@/hooks/use-toast'
@@ -226,25 +225,27 @@ export function JoinMeshDialog({
     <AppDialog open onOpenChange={(o) => { if (!o) onClose() }} size="md">
       <AppDialogHeader icon={PlugZap} title={t('dlg.meshJoin.title')} description={t('dlg.meshJoin.desc')} />
 
-      <AppDialogBody>
-        <div className="space-y-4">
-          {/* Target dashboard URL */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs flex items-center gap-1.5">
-                <Globe className="h-3.5 w-3.5 text-muted-foreground" />{t('dlg.meshJoin.target')}
-              </Label>
-              <button
-                type="button"
-                onClick={checkTarget}
-                disabled={checking || !/^https?:\/\/.+/i.test(target.trim())}
-                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors"
-              >
-                {checking
-                  ? <><Loader2 className="h-3 w-3 animate-spin" />{t('dlg.meshJoin.checking')}</>
-                  : <><Wifi className="h-3 w-3" />{t('dlg.meshJoin.checkTarget')}</>}
-              </button>
-            </div>
+      {/* v1.31 "Clear" — quiet AppDialogSection headers; the fields and the
+          live agent state are the foreground. No colored buttons, no loud
+          badges: status is a dot+text chip (R7), primary actions use bg-primary (R2). */}
+      <AppDialogBody className="space-y-5">
+        {/* Target dashboard URL — the "test connection" link rides the section action slot */}
+        <AppDialogSection
+          title={t('dlg.meshJoin.target')}
+          action={
+            <button
+              type="button"
+              onClick={checkTarget}
+              disabled={checking || !/^https?:\/\/.+/i.test(target.trim())}
+              className="inline-flex h-7 items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+            >
+              {checking
+                ? <><Loader2 className="h-3 w-3 animate-spin" />{t('dlg.meshJoin.checking')}</>
+                : <><Wifi className="h-3 w-3" />{t('dlg.meshJoin.checkTarget')}</>}
+            </button>
+          }
+        >
+          <div className="space-y-2">
             <Input
               value={target}
               onChange={(e) => { setTarget(e.target.value); setCheckResult(null) }}
@@ -256,51 +257,49 @@ export function JoinMeshDialog({
             {(checking || checkResult) && (
               <div className="text-[11px] leading-4">
                 {checking ? (
-                  <span className="flex items-center text-muted-foreground"><Loader2 className="h-3 w-3 mr-1 animate-spin" />{t('dlg.meshJoin.checking')}</span>
+                  <span className="flex items-center text-muted-foreground"><Loader2 className="mr-1 h-3 w-3 animate-spin" />{t('dlg.meshJoin.checking')}</span>
                 ) : checkResult?.reachable && checkResult?.dashboard ? (
-                  <span className="flex items-center text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="h-3 w-3 mr-1 shrink-0" />{t('dlg.meshJoin.checkOk', { host: checkResult?.host ?? '' })}</span>
+                  <span className="flex items-center text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="mr-1 h-3 w-3 shrink-0" />{t('dlg.meshJoin.checkOk', { host: checkResult?.host ?? '' })}</span>
                 ) : checkResult?.reachable ? (
-                  <span className="flex items-center text-amber-600 dark:text-amber-400"><AlertTriangle className="h-3 w-3 mr-1 shrink-0" />{t('dlg.meshJoin.checkNotDashboard')}</span>
+                  <span className="flex items-center text-amber-600 dark:text-amber-400"><AlertTriangle className="mr-1 h-3 w-3 shrink-0" />{t('dlg.meshJoin.checkNotDashboard')}</span>
                 ) : (
-                  <span className="flex items-start text-red-600 dark:text-red-400"><AlertTriangle className="h-3 w-3 mr-1 mt-0.5 shrink-0" />{reasonText(checkResult?.reason)}</span>
+                  <span className="flex items-start text-red-600 dark:text-red-400"><AlertTriangle className="mr-1 mt-0.5 h-3 w-3 shrink-0" />{reasonText(checkResult?.reason)}</span>
                 )}
               </div>
             )}
             <p className="text-[11px] text-muted-foreground">{t('dlg.meshJoin.targetHint')}</p>
           </div>
+        </AppDialogSection>
 
-          {/* Pairing code */}
-          <div className="space-y-1.5">
-            <Label className="text-xs flex items-center gap-1.5">
-              <KeyRound className="h-3.5 w-3.5 text-muted-foreground" />{t('dlg.meshJoin.code')}
-            </Label>
-            <Input
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="A30C00F1"
-              maxLength={8}
-              className="h-9 text-base font-mono font-bold tracking-[0.25em] uppercase"
-            />
-          </div>
+        {/* Pairing code */}
+        <AppDialogSection title={t('dlg.meshJoin.code')}>
+          <Input
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            placeholder="A30C00F1"
+            maxLength={8}
+            className="h-9 text-base font-mono font-bold tracking-[0.25em] uppercase"
+          />
+        </AppDialogSection>
 
-          {/* Local agent status */}
-          <div className="rounded-xl border bg-muted/30 p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium flex items-center gap-1.5">
-                <Server className="h-3.5 w-3.5 text-muted-foreground" />{t('dlg.meshJoin.localAgent')}
+        {/* Local agent status — the chip rides the section action slot */}
+        <AppDialogSection
+          title={t('dlg.meshJoin.localAgent')}
+          action={
+            agentLoading ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" />{t('dlg.meshJoin.detecting')}</span>
+            ) : agentReady ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{t('dlg.meshJoin.running', { port: agent?.port ?? '' })}
               </span>
-              {agentLoading ? (
-                <Badge variant="secondary" className="text-[10px] h-5"><Loader2 className="h-3 w-3 animate-spin mr-1" />{t('dlg.meshJoin.detecting')}</Badge>
-              ) : agentReady ? (
-                <Badge className="text-[10px] h-5 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                  <CheckCircle2 className="h-3 w-3 mr-1" />{t('dlg.meshJoin.running', { port: agent?.port ?? '' })}
-                </Badge>
-              ) : (
-                <Badge variant="destructive" className="text-[10px] h-5">
-                  <AlertTriangle className="h-3 w-3 mr-1" />{agent ? t('dlg.meshJoin.notRunning') : t('dlg.meshJoin.notDetected')}
-                </Badge>
-              )}
-            </div>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-red-600 dark:text-red-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-red-500" />{agent ? t('dlg.meshJoin.notRunning') : t('dlg.meshJoin.notDetected')}
+              </span>
+            )
+          }
+        >
+          <div className="space-y-3 rounded-xl bg-muted/30 p-4">
             {agent && (
               <div className="space-y-1">
                 <p className="text-[11px] text-muted-foreground">
@@ -318,40 +317,40 @@ export function JoinMeshDialog({
                 <p className="text-[11px] text-amber-600 dark:text-amber-400">
                   {t('dlg.meshJoin.agentAutoStart')}
                 </p>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   <Button
                     variant="default"
                     size="sm"
-                    className="h-6 text-[11px] px-2 bg-teal-600 hover:bg-teal-700 text-white"
+                    className="h-7 px-2.5 text-[11px]"
                     onClick={handleStartAgent}
                     disabled={startingAgent || agentLoading}
                   >
                     {startingAgent
-                      ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />{t('dlg.meshJoin.startingAgent')}</>
-                      : <><Play className="h-3 w-3 mr-1" />{t('dlg.meshJoin.startAgent')}</>}
+                      ? <><Loader2 className="mr-1 h-3 w-3 animate-spin" />{t('dlg.meshJoin.startingAgent')}</>
+                      : <><Play className="mr-1 h-3 w-3" />{t('dlg.meshJoin.startAgent')}</>}
                   </Button>
-                  <Button variant="ghost" size="sm" className="h-6 text-[11px] px-2" onClick={loadAgent} disabled={agentLoading}>
-                    <RefreshCw className={`h-3 w-3 mr-1 ${agentLoading ? 'animate-spin' : ''}`} />{t('dlg.meshJoin.retry')}
+                  <Button variant="ghost" size="sm" className="h-7 px-2.5 text-[11px]" onClick={loadAgent} disabled={agentLoading}>
+                    <RefreshCw className={`mr-1 h-3 w-3 ${agentLoading ? 'animate-spin' : ''}`} />{t('dlg.meshJoin.retry')}
                   </Button>
-                  <Button variant="outline" size="sm" className="h-6 text-[11px] px-2" onClick={() => setManualMode((v) => !v)}>
+                  <Button variant="outline" size="sm" className="h-7 px-2.5 text-[11px]" onClick={() => setManualMode((v) => !v)}>
                     {manualMode ? t('dlg.meshJoin.cancelManual') : t('dlg.meshJoin.manual')}
                   </Button>
                 </div>
               </div>
             )}
             {manualMode && (
-              <div className="space-y-2 pt-1">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
+              <div className="space-y-3 border-t border-border/60 pt-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
                     <Label className="text-[11px]">{t('dlg.meshJoin.agentPort')}</Label>
                     <Input value={manualPort} onChange={(e) => setManualPort(e.target.value.replace(/\D/g, ''))} placeholder="3100" className="h-8 text-xs font-mono" />
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <Label className="text-[11px]">{t('dlg.meshJoin.agentKey')}</Label>
                     <Input value={manualKey} onChange={(e) => setManualKey(e.target.value)} placeholder={t('dlg.meshJoin.keyPlaceholder')} className="h-8 text-xs font-mono" />
                   </div>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <Label className="text-[11px]">{t('dlg.meshJoin.advertisedIp')}</Label>
                   <Input
                     value={manualIp}
@@ -361,16 +360,16 @@ export function JoinMeshDialog({
                     inputMode="numeric"
                   />
                   {ips.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                       {ips.map((c) => (
                         <button
                           key={c}
                           type="button"
                           onClick={() => setManualIp(c)}
-                          className={`rounded px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                          className={`inline-flex h-7 items-center rounded-md border px-2 font-mono text-[11px] transition-colors cursor-pointer ${
                             manualIp === c
-                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300'
-                              : 'bg-muted hover:bg-muted/70 text-muted-foreground dark:hover:bg-zinc-800'
+                              ? 'border-brand/40 bg-brand-soft text-brand-strong'
+                              : 'border-border/60 bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground'
                           }`}
                         >
                           {c}
@@ -378,20 +377,20 @@ export function JoinMeshDialog({
                       ))}
                     </div>
                   )}
-                  <p className="text-[10px] text-muted-foreground">{t('dlg.meshJoin.advertisedIpHint')}</p>
+                  <p className="text-[11px] text-muted-foreground">{t('dlg.meshJoin.advertisedIpHint')}</p>
                 </div>
               </div>
             )}
           </div>
-
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <Button variant="outline" size="sm" onClick={onClose} disabled={joining}>{t('dlg.common.cancel')}</Button>
-            <Button size="sm" className="bg-teal-600 hover:bg-teal-700 text-white" onClick={handleJoin} disabled={!canJoin}>
-              {joining ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />{t('dlg.meshJoin.joining')}</> : <><PlugZap className="h-3.5 w-3.5 mr-1.5" />{t('dlg.meshJoin.join')}</>}
-            </Button>
-          </div>
-        </div>
+        </AppDialogSection>
       </AppDialogBody>
+
+      <AppDialogFooter>
+        <Button variant="outline" size="sm" onClick={onClose} disabled={joining}>{t('dlg.common.cancel')}</Button>
+        <Button size="sm" onClick={handleJoin} disabled={!canJoin}>
+          {joining ? <><Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />{t('dlg.meshJoin.joining')}</> : <><PlugZap className="mr-1.5 h-3.5 w-3.5" />{t('dlg.meshJoin.join')}</>}
+        </Button>
+      </AppDialogFooter>
     </AppDialog>
   )
 }
