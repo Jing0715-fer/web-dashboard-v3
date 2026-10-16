@@ -7949,14 +7949,11 @@ function DeviceManagementPanel({
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-lg overflow-hidden p-0 flex flex-col dark:bg-zinc-900/98 dark:border-l dark:border-zinc-800/60">
-        <SheetHeader className="px-4 pt-4 pb-3 border-b shrink-0">
+        <SheetHeader className="px-4 pt-4 pb-4 border-b shrink-0 gap-0">
           {/* Title row — icon + title/description + ONE primary action.
-           * The remaining actions live in the wrap-friendly toolbar below:
-           * 4 buttons in this row used to squeeze the title to 0px on narrow
-           * screens and push "Add Device" off-viewport. pr-14 keeps the row
-           * clear of the Sheet's floating close (✕) zone (right 14→46px,
-           * v1.33) — they used to overlap on the same spot. */}
-          <div className="flex items-center gap-2 pr-14">
+           * pr-14 keeps the row clear of the Sheet's floating close (✕) zone
+           * (right 14→46px, v1.33) — they used to overlap on the same spot. */}
+          <div className="flex items-center gap-2.5 pr-14">
             <div className="p-1.5 rounded-lg bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/15 ring-1 ring-teal-200/50 dark:ring-teal-800/30 shrink-0">
               <Plug className="h-5 w-5 text-teal-600 dark:text-teal-400" />
             </div>
@@ -7968,43 +7965,86 @@ function DeviceManagementPanel({
               <Plus className="h-3.5 w-3.5" />{t('dlg.devicePanel.addDevice')}
             </Button>
           </div>
-          {/* Action toolbar — wraps on narrow screens instead of overlapping
-           * the header text. One instance of each action (no duplicates: the
-           * empty state below no longer repeats them). v1.29: unified neutral
-           * outline style — the actions keep their color identity via the
-           * icon only (was: 4 differently-colored button variants). */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-1">
-            <Button variant="outline" size="sm" onClick={onOpenPairing} className="h-7 text-xs">
-              <PlugZap className="h-3 w-3 mr-1 text-orange-500" />{t('dlg.devicePanel.pair')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={onOpenJoin} className="h-7 text-xs">
-              <MonitorSmartphone className="h-3 w-3 mr-1 text-cyan-500" />{t('dlg.devicePanel.join')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={onOpenDeployGuide} className="h-7 text-xs">
-              <Download className="h-3 w-3 mr-1 text-teal-500" />{t('dlg.devicePanel.deploy')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={onOpenRemoteProject} className="h-7 text-xs">
-              <Plus className="h-3 w-3 mr-1 text-teal-500" />{t('dlg.devicePanel.addRemote')}
-            </Button>
+          {/* Quick actions — v1.34: the four wrap-prone outline chips (one
+           * carried a huge parenthesised label that broke the row rhythm on
+           * every narrow sheet) become a stable 2×2 tile grid: icon tile +
+           * short label + muted hint, each action same-sized, never wrapping,
+           * hover-lift feedback. Same four handlers as before. */}
+          <div className="grid grid-cols-2 gap-2 pt-3">
+            <button
+              type="button"
+              onClick={onOpenPairing}
+              className="group flex items-center gap-2.5 rounded-xl border border-border/70 bg-card px-3 py-2 text-left transition-all hover:border-muted-foreground/25 hover:bg-muted/40 hover:shadow-sm hover:-translate-y-px active:translate-y-0"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05] ring-1 ring-inset ring-foreground/[0.06] transition-colors group-hover:bg-foreground/[0.08]">
+                <PlugZap className="size-4 text-orange-600 dark:text-orange-400" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-medium leading-4">{t('dlg.devicePanel.pair')}</span>
+                <span className="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{t('dlg.devicePanel.actionHint.pair')}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenJoin}
+              className="group flex items-center gap-2.5 rounded-xl border border-border/70 bg-card px-3 py-2 text-left transition-all hover:border-muted-foreground/25 hover:bg-muted/40 hover:shadow-sm hover:-translate-y-px active:translate-y-0"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05] ring-1 ring-inset ring-foreground/[0.06] transition-colors group-hover:bg-foreground/[0.08]">
+                <MonitorSmartphone className="size-4 text-cyan-600 dark:text-cyan-400" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-medium leading-4">{t('dlg.devicePanel.join')}</span>
+                <span className="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{t('dlg.devicePanel.actionHint.join')}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenDeployGuide}
+              className="group flex items-center gap-2.5 rounded-xl border border-border/70 bg-card px-3 py-2 text-left transition-all hover:border-muted-foreground/25 hover:bg-muted/40 hover:shadow-sm hover:-translate-y-px active:translate-y-0"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05] ring-1 ring-inset ring-foreground/[0.06] transition-colors group-hover:bg-foreground/[0.08]">
+                <Download className="size-4 text-teal-600 dark:text-teal-400" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-medium leading-4">{t('dlg.devicePanel.deploy')}</span>
+                <span className="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{t('dlg.devicePanel.actionHint.deploy')}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenRemoteProject}
+              className="group flex items-center gap-2.5 rounded-xl border border-border/70 bg-card px-3 py-2 text-left transition-all hover:border-muted-foreground/25 hover:bg-muted/40 hover:shadow-sm hover:-translate-y-px active:translate-y-0"
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05] ring-1 ring-inset ring-foreground/[0.06] transition-colors group-hover:bg-foreground/[0.08]">
+                <Globe className="size-4 text-sky-600 dark:text-sky-400" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-medium leading-4">{t('dlg.devicePanel.addRemoteShort')}</span>
+                <span className="mt-0.5 block truncate text-[11px] leading-4 text-muted-foreground">{t('dlg.devicePanel.actionHint.addRemote')}</span>
+              </span>
+            </button>
           </div>
         </SheetHeader>
 
-        {/* Device Stats Bar */}
+        {/* Device stats — v1.34: compact single-line dot segments replace the
+         * three big centered numbers (was a 3-col grid eating ~72px of header
+         * height before any device card appeared). */}
         {devices.length > 0 && (
-          <div className="px-4 py-3 border-b bg-muted/20 dark:bg-zinc-800/20">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="text-center">
-                <div className="text-lg font-bold dark:text-zinc-100">{devices.length}</div>
-                <div className="text-[11px] text-muted-foreground dark:text-zinc-400 font-medium">{t('dlg.devicePanel.total')}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{onlineCount}</div>
-                <div className="text-[11px] text-emerald-600/70 dark:text-emerald-400/60 font-medium">{t('dlg.common.online')}</div>
-              </div>
-              <div className="text-center">
-                <div className="text-lg font-bold text-red-500 dark:text-red-400">{offlineCount}</div>
-                <div className="text-[11px] text-red-500/70 dark:text-red-400/60 font-medium">{t('dlg.common.offline')}</div>
-              </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-4 py-2.5 border-b bg-muted/25 dark:bg-zinc-800/20">
+            <div className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full bg-zinc-400 dark:bg-zinc-500" aria-hidden />
+              <span className="text-sm font-semibold tabular-nums leading-none">{devices.length}</span>
+              <span className="text-[11px] leading-none text-muted-foreground">{t('dlg.devicePanel.total')}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full bg-emerald-500" aria-hidden />
+              <span className="text-sm font-semibold tabular-nums leading-none text-emerald-600 dark:text-emerald-400">{onlineCount}</span>
+              <span className="text-[11px] leading-none text-muted-foreground">{t('dlg.common.online')}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full bg-red-400 dark:bg-red-500" aria-hidden />
+              <span className="text-sm font-semibold tabular-nums leading-none text-red-500 dark:text-red-400">{offlineCount}</span>
+              <span className="text-[11px] leading-none text-muted-foreground">{t('dlg.common.offline')}</span>
             </div>
           </div>
         )}
@@ -8121,38 +8161,55 @@ function DeviceManagementPanel({
                     }
                   </motion.div>
                 )}
-                <div className="flex items-center gap-1.5 pt-1">
-                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1 min-w-0" onClick={() => onEdit(device)}>
-                    <Edit3 className="h-3 w-3 mr-1" />{t('dlg.common.edit')}
+                {/* Per-device actions — v1.34: quiet ghost chips (icon +
+                  * label, 32px hit height) replace the five equal-width
+                  * outline buttons that squeezed into one cramped row. Delete
+                  * moves to a right-aligned icon button with a tooltip;
+                  * Restart only carries the amber tint when this card
+                  * actually shows the "Agent outdated" badge (was: always
+                  * amber). All handlers, disabled and spinner logic unchanged. */}
+                <div className="flex items-center gap-1 pt-1">
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => onEdit(device)}>
+                    <Edit3 className="size-3.5" />{t('dlg.common.edit')}
                   </Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1 min-w-0" onClick={() => handleTestConnection(device)} disabled={testingIds.has(device.id)}>
-                    {testingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Zap className="h-3 w-3 mr-1" />}
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => handleTestConnection(device)} disabled={testingIds.has(device.id)}>
+                    {testingIds.has(device.id) ? <Loader2 className="size-3.5 animate-spin" /> : <Zap className="size-3.5" />}
                     {t('dlg.devicePanel.test')}
                   </Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs flex-1 min-w-0" onClick={() => handleHealthCheck(device.id)} disabled={healthCheckingIds.has(device.id)}>
-                    {healthCheckingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Activity className="h-3 w-3 mr-1" />}
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => handleHealthCheck(device.id)} disabled={healthCheckingIds.has(device.id)}>
+                    {healthCheckingIds.has(device.id) ? <Loader2 className="size-3.5 animate-spin" /> : <Activity className="size-3.5" />}
                     {t('dlg.devicePanel.health')}
                   </Button>
                   {/* Restart the AGENT process on that machine — the fix for
                     * stale-agent symptoms after a git pull (pull hot-reloads
-                    * the dashboard, not the spawned agent). Amber = do this
-                    * whenever the card shows the "Agent outdated" badge. */}
+                    * the dashboard, not the spawned agent). Amber only while
+                    * the card shows the "Agent outdated" badge. */}
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    className="h-7 text-xs flex-1 min-w-0 border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/20"
+                    className={`h-8 gap-1.5 px-2.5 text-xs ${
+                      device.agentOutdated
+                        ? 'text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 hover:text-amber-700 dark:hover:text-amber-300'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
                     onClick={() => handleRestartAgent(device)}
                     disabled={restartingIds.has(device.id)}
                     title={t('dlg.devicePanel.restartHint')}
                   >
-                    {restartingIds.has(device.id) ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RotateCw className="h-3 w-3 mr-1" />}
+                    {restartingIds.has(device.id) ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCw className="size-3.5" />}
                     {t('dlg.devicePanel.restart')}
                   </Button>
                   {/* Delete confirm: AppAlertDialog is controlled — the trash button
                     * flips the mirrored state; the dialog below only opens for the
                     * matching device row (same per-row rendering as the old trigger). */}
-                  <Button variant="outline" size="sm" className="h-7 text-xs text-destructive hover:bg-red-50 dark:hover:bg-red-900/20 px-2" onClick={() => setDeleteConfirmDevice(device)}>
-                    <Trash2 className="h-3 w-3" />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-8 w-8 p-0 text-muted-foreground hover:bg-red-500/10 hover:text-destructive dark:hover:bg-red-900/25"
+                    onClick={() => setDeleteConfirmDevice(device)}
+                    title={t('dlg.common.delete')}
+                  >
+                    <Trash2 className="size-3.5" />
                   </Button>
                   <AppAlertDialog open={deleteConfirmDevice?.id === device.id} onOpenChange={(v) => !v && setDeleteConfirmDevice(null)} size="lg">
                     <AppDialogHeader title={t('dlg.devicePanel.deleteTitle', { name: device.name })} description={t('dlg.devicePanel.deleteDesc')} />
