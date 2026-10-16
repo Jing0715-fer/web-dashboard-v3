@@ -23,7 +23,7 @@ import {
   EyeOff, KeyRound, Sparkles, Radio,
   ShieldAlert, ShieldCheck, ShieldX, Minimize2,
   UserPlus, Github, GitPullRequest,
-  Archive, Minus, Camera, WifiOff,
+  Archive, Minus, Camera, WifiOff, Stethoscope,
   FolderPlus, Pencil, BrainCircuit, Braces, Palette, Image as ImageIcon, Check, FileWarning,
 } from 'lucide-react'
 
@@ -4559,7 +4559,7 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
   )
 }
 
-function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onClose: () => void; onEnginesSaved?: (e: { analysisMode: 'agent' | 'legacy' | 'cli'; pullMode: 'legacy' | 'agent' | 'cli' }) => void }) {
+function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onClose: () => void; onEnginesSaved?: (e: { analysisMode: 'legacy' | 'cli'; pullMode: 'legacy' | 'cli' }) => void }) {
   const t = useT()
   const [provider, setProvider] = React.useState('zai')
   const [apiKey, setApiKey] = React.useState('')
@@ -4581,13 +4581,15 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
   const [loadError, setLoadError] = React.useState('')
   // ---- auto-repair engine (legacy tool loop vs. delegated agent CLI) ----
   const [repairMode, setRepairMode] = React.useState<'legacy' | 'cli'>('legacy')
-  // v1.28: per-feature engines — analysis (dsh harness vs single API call)
-  // and pull (deterministic agent vs plain pull + AI diagnosis).
-  // v1.34: + 'cli' — delegate to a local agent CLI (same CLI selection as
-  // the repair engine). The user asked for exactly this: 解析环境 / 代码拉取
-  // 可分别选择内置工具循环或委托本机 agent CLI.
-  const [analysisMode, setAnalysisMode] = React.useState<'agent' | 'legacy' | 'cli'>('agent')
-  const [pullMode, setPullMode] = React.useState<'legacy' | 'agent' | 'cli'>('legacy')
+  // v1.36 cascade model — every feature runs built-in rules FIRST (no LLM:
+  // package.json rules for analysis, plain start/restart for repair, plain
+  // git pull for pull) and only escalates to an LLM on failure. The two
+  // flags below pick that intervention's METHOD per feature, binary:
+  //   'legacy' — built-in engine (analysis: fast call → harness escalation;
+  //              repair: inspect/probe/patch tool loop; pull: AI diagnosis)
+  //   'cli'    — delegate to a local agent CLI (shared CLI preference)
+  const [analysisMode, setAnalysisMode] = React.useState<'legacy' | 'cli'>('legacy')
+  const [pullMode, setPullMode] = React.useState<'legacy' | 'cli'>('legacy')
   // Select value: 'auto' | a known CLI id | 'custom' (template below).
   // 'auto' is a sentinel for "" — Radix Select forbids empty-string item values.
   const [repairCli, setRepairCli] = React.useState('auto')
@@ -4687,8 +4689,8 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
             setBaseUrl(data.baseUrl || '')
             setModel(data.model || '')
             setRepairMode(data.repairMode === 'cli' ? 'cli' : 'legacy')
-            setAnalysisMode(data.analysisMode === 'legacy' ? 'legacy' : data.analysisMode === 'cli' ? 'cli' : 'agent')
-            setPullMode(data.pullMode === 'agent' ? 'agent' : data.pullMode === 'cli' ? 'cli' : 'legacy')
+            setAnalysisMode(data.analysisMode === 'cli' ? 'cli' : 'legacy')
+            setPullMode(data.pullMode === 'cli' ? 'cli' : 'legacy')
             const savedCli: string = data.repairCli || ''
             if (savedCli.startsWith('custom:')) {
               setRepairCli('custom')
@@ -4787,18 +4789,17 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
 
   const isZai = provider === 'zai'
 
-  // v1.34: per-executor hints for the feature-engine cards (analysis /
-  // pull). One line per selected state, shown under each tri-state picker.
+  // v1.36: one dynamic hint line per cascade card, keyed to the selected
+  // LLM intervention method (binary legacy|cli).
   const analysisHint = analysisMode === 'cli'
     ? t('dlg.llm.engineAnalysisCliHint')
-    : analysisMode === 'agent'
-      ? t('dlg.llm.engineAnalysisAgentHint')
-      : t('dlg.llm.engineAnalysisLegacyHint')
+    : t('dlg.llm.engineAnalysisBuiltinHint')
   const pullHint = pullMode === 'cli'
     ? t('dlg.llm.enginePullCliHint')
-    : pullMode === 'agent'
-      ? t('dlg.llm.enginePullAgentHint')
-      : t('dlg.llm.enginePullLegacyHint')
+    : t('dlg.llm.enginePullBuiltinHint')
+  const repairHint = repairMode === 'cli'
+    ? t('dlg.llm.repairModeCliDesc', { rounds: 2, minutes: REPAIR_CLI_ROUND_TIMEOUT_MIN })
+    : t('dlg.llm.repairModeLegacyDesc')
 
   return (
     <AppDialog open={open} onOpenChange={(v) => !v && onClose()} size="xl">
@@ -4991,15 +4992,22 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
 
             <AppDialogDivider />
 
-            {/* ---- Section: feature engines (v1.28, redesigned v1.34).
-                  The v1.28 wording ("智能体 vs API 直连") mixed up DEPTH
-                  (harness loop vs single call) with EXECUTOR — the user
-                  actually wants each feature to pick its own executor:
-                  内置工具循环 / 快速直连 / 委托本机 Agent CLI. v1.34 renders
-                  one card per feature with a tri-state picker + a live
-                  hint line (and kills the duplicated button groups the
-                  v1.33-era merge accidentally left behind). ---- */}
-            <AppDialogSection icon={Zap} label={t('dlg.llm.sectionEngines')}>
+            {/* ---- Section: execution strategy (v1.36 cascade redesign).
+                  Every feature follows the SAME two-stage logic the user
+                  asked for: ① try built-in rules first — ZERO LLM tokens
+                  (package.json rule analysis / plain start-restart / plain
+                  git pull); ② only on failure does an LLM intervene, and
+                  each feature independently picks the intervention method:
+                  built-in engine (legacy) or a delegated local agent CLI.
+                  The old tri-state pickers collapse — the harness loop and
+                  the fast call become one "built-in" engine (fast call
+                  first, deep-loop escalation), and the plain pull is
+                  always stage ① rather than a selectable mode. ---- */}
+            <AppDialogSection icon={Zap} label={t('dlg.llm.sectionStrategy')}>
+              <p className="flex items-start gap-1.5 rounded-lg border border-dashed border-border/70 bg-muted/30 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+                <Zap className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500/70" />
+                <span>{t('dlg.llm.strategyIntro')}</span>
+              </p>
 
               {/* ---- Feature card: environment analysis ---- */}
               <div className="rounded-xl border bg-card p-3.5">
@@ -5012,56 +5020,135 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                     <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.engineAnalysisDesc')}</p>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2" role="group" aria-label={t('dlg.llm.engineAnalysis')}>
-                  <button
-                    type="button"
-                    aria-pressed={analysisMode === 'agent'}
-                    onClick={() => setAnalysisMode('agent')}
-                    className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-all cursor-pointer ${analysisMode === 'agent'
-                      ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
-                      : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
-                  >
-                    <span className={`flex h-6 w-6 items-center justify-center rounded-md ${analysisMode === 'agent' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
-                      <RefreshCw className="size-3" />
-                    </span>
-                    <span className={`text-[11px] font-medium leading-none ${analysisMode === 'agent' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                      {t('dlg.llm.engineAnalysisLoopBtn')}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={analysisMode === 'legacy'}
-                    onClick={() => setAnalysisMode('legacy')}
-                    className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-all cursor-pointer ${analysisMode === 'legacy'
-                      ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
-                      : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
-                  >
-                    <span className={`flex h-6 w-6 items-center justify-center rounded-md ${analysisMode === 'legacy' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
-                      <Zap className="size-3" />
-                    </span>
-                    <span className={`text-[11px] font-medium leading-none ${analysisMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                      {t('dlg.llm.engineAnalysisFastBtn')}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={analysisMode === 'cli'}
-                    onClick={() => setAnalysisMode('cli')}
-                    className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-all cursor-pointer ${analysisMode === 'cli'
-                      ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
-                      : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
-                  >
-                    <span className={`flex h-6 w-6 items-center justify-center rounded-md ${analysisMode === 'cli' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
-                      <Terminal className="size-3" />
-                    </span>
-                    <span className={`text-[11px] font-medium leading-none ${analysisMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                      {t('dlg.llm.engineCliBtn')}
-                    </span>
-                  </button>
+                {/* stage ① — automatic built-in rules, ZERO LLM tokens */}
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-2">
+                  <span className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">1</span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium leading-none">{t('dlg.llm.stageAuto')}</p>
+                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.engineAnalysisStage1')}</p>
+                  </div>
+                </div>
+                {/* stage ② — LLM intervention, binary method picker */}
+                <div className="mt-2">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-violet-500/15 text-[10px] font-bold text-violet-600 dark:text-violet-400">2</span>
+                    {t('dlg.llm.stageLlm')}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('dlg.llm.engineAnalysis')}>
+                    <button
+                      type="button"
+                      aria-pressed={analysisMode === 'legacy'}
+                      onClick={() => setAnalysisMode('legacy')}
+                      className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-all cursor-pointer ${analysisMode === 'legacy'
+                        ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                        : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                    >
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${analysisMode === 'legacy' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+                        <Bot className="size-3" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className={`block text-[11px] font-medium leading-none ${analysisMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                          {t('dlg.llm.engineBuiltinBtn')}
+                        </span>
+                        <span className="mt-1 block text-[10.5px] leading-snug text-muted-foreground">{t('dlg.llm.engineAnalysisBuiltinDesc')}</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={analysisMode === 'cli'}
+                      onClick={() => setAnalysisMode('cli')}
+                      className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-all cursor-pointer ${analysisMode === 'cli'
+                        ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                        : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                    >
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${analysisMode === 'cli' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+                        <Terminal className="size-3" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className={`block text-[11px] font-medium leading-none ${analysisMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                          {t('dlg.llm.engineCliBtn')}
+                        </span>
+                        <span className="mt-1 block text-[10.5px] leading-snug text-muted-foreground">{t('dlg.llm.engineCliDesc')}</span>
+                      </span>
+                    </button>
+                  </div>
                 </div>
                 <p className="mt-2.5 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
                   <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500/70" />
                   <span>{analysisHint}</span>
+                </p>
+              </div>
+
+              {/* ---- Feature card: environment repair. This engine ALREADY
+                  cascaded (plain start/restart/rebuild first, LLM only on
+                  failure) — the card just makes the logic visible. ---- */}
+              <div className="rounded-xl border bg-card p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400">
+                    <Wrench className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium">{t('dlg.llm.engineRepair')}</p>
+                    <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.engineRepairDesc')}</p>
+                  </div>
+                </div>
+                {/* stage ① — the configured command itself, ZERO LLM tokens */}
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-2">
+                  <span className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">1</span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium leading-none">{t('dlg.llm.stageAuto')}</p>
+                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.engineRepairStage1')}</p>
+                  </div>
+                </div>
+                {/* stage ② — LLM repair method (the former repair-engine
+                    section's legacy|cli pair, unchanged semantics) */}
+                <div className="mt-2">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-violet-500/15 text-[10px] font-bold text-violet-600 dark:text-violet-400">2</span>
+                    {t('dlg.llm.stageRepairLlm')}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('dlg.llm.engineRepair')}>
+                    <button
+                      type="button"
+                      aria-pressed={repairMode === 'legacy'}
+                      onClick={() => setRepairMode('legacy')}
+                      className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-all cursor-pointer ${repairMode === 'legacy'
+                        ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                        : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                    >
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${repairMode === 'legacy' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+                        <Bot className="size-3" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className={`block text-[11px] font-medium leading-none ${repairMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                          {t('dlg.llm.repairModeLegacy')}
+                        </span>
+                        <span className="mt-1 block text-[10.5px] leading-snug text-muted-foreground">{t('dlg.llm.engineRepairBuiltinDesc')}</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={repairMode === 'cli'}
+                      onClick={() => setRepairMode('cli')}
+                      className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-all cursor-pointer ${repairMode === 'cli'
+                        ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                        : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                    >
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${repairMode === 'cli' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+                        <Terminal className="size-3" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className={`block text-[11px] font-medium leading-none ${repairMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                          {t('dlg.llm.engineCliBtn')}
+                        </span>
+                        <span className="mt-1 block text-[10.5px] leading-snug text-muted-foreground">{t('dlg.llm.engineRepairCliDesc')}</span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-2.5 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
+                  <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500/70" />
+                  <span>{repairHint}</span>
                 </p>
               </div>
 
@@ -5076,52 +5163,61 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                     <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.enginePullDesc')}</p>
                   </div>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2" role="group" aria-label={t('dlg.llm.enginePull')}>
-                  <button
-                    type="button"
-                    aria-pressed={pullMode === 'agent'}
-                    onClick={() => setPullMode('agent')}
-                    className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-all cursor-pointer ${pullMode === 'agent'
-                      ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
-                      : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
-                  >
-                    <span className={`flex h-6 w-6 items-center justify-center rounded-md ${pullMode === 'agent' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
-                      <Bot className="size-3" />
-                    </span>
-                    <span className={`text-[11px] font-medium leading-none ${pullMode === 'agent' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                      {t('dlg.llm.enginePullAgentBtn')}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={pullMode === 'legacy'}
-                    onClick={() => setPullMode('legacy')}
-                    className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-all cursor-pointer ${pullMode === 'legacy'
-                      ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
-                      : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
-                  >
-                    <span className={`flex h-6 w-6 items-center justify-center rounded-md ${pullMode === 'legacy' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
-                      <GitPullRequest className="size-3" />
-                    </span>
-                    <span className={`text-[11px] font-medium leading-none ${pullMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                      {t('dlg.llm.enginePullLegacyBtn')}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={pullMode === 'cli'}
-                    onClick={() => setPullMode('cli')}
-                    className={`flex flex-col items-center gap-1.5 rounded-lg border px-2 py-2.5 transition-all cursor-pointer ${pullMode === 'cli'
-                      ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
-                      : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
-                  >
-                    <span className={`flex h-6 w-6 items-center justify-center rounded-md ${pullMode === 'cli' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
-                      <Terminal className="size-3" />
-                    </span>
-                    <span className={`text-[11px] font-medium leading-none ${pullMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                      {t('dlg.llm.engineCliBtn')}
-                    </span>
-                  </button>
+                {/* stage ① — plain git pull, ZERO LLM tokens (always first
+                    since v1.36; the former 'agent' upfront takeover mode is
+                    gone — the deterministic agent remains an in-dialog
+                    action of the built-in diagnosis path) */}
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-2.5 py-2">
+                  <span className="mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">1</span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium leading-none">{t('dlg.llm.stageAuto')}</p>
+                    <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.enginePullStage1')}</p>
+                  </div>
+                </div>
+                {/* stage ② — LLM intervention on pull failure, binary */}
+                <div className="mt-2">
+                  <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-violet-500/15 text-[10px] font-bold text-violet-600 dark:text-violet-400">2</span>
+                    {t('dlg.llm.stageLlm')}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('dlg.llm.enginePull')}>
+                    <button
+                      type="button"
+                      aria-pressed={pullMode === 'legacy'}
+                      onClick={() => setPullMode('legacy')}
+                      className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-all cursor-pointer ${pullMode === 'legacy'
+                        ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                        : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                    >
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${pullMode === 'legacy' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+                        <Stethoscope className="size-3" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className={`block text-[11px] font-medium leading-none ${pullMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                          {t('dlg.llm.enginePullBuiltinBtn')}
+                        </span>
+                        <span className="mt-1 block text-[10.5px] leading-snug text-muted-foreground">{t('dlg.llm.enginePullBuiltinDesc')}</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={pullMode === 'cli'}
+                      onClick={() => setPullMode('cli')}
+                      className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-all cursor-pointer ${pullMode === 'cli'
+                        ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
+                        : 'border-border/70 bg-background/40 hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
+                    >
+                      <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${pullMode === 'cli' ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400' : 'bg-muted/60 text-muted-foreground'}`}>
+                        <Terminal className="size-3" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className={`block text-[11px] font-medium leading-none ${pullMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
+                          {t('dlg.llm.engineCliBtn')}
+                        </span>
+                        <span className="mt-1 block text-[10.5px] leading-snug text-muted-foreground">{t('dlg.llm.engineCliDesc')}</span>
+                      </span>
+                    </button>
+                  </div>
                 </div>
                 <p className="mt-2.5 flex items-start gap-1.5 text-[11px] leading-snug text-muted-foreground">
                   <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500/70" />
@@ -5129,22 +5225,18 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                 </p>
               </div>
 
-              {/* The 'cli' executor shares the repair engine's CLI catalog +
-                  detection — say so next to the picker that uses it. */}
-              <p className="flex items-start gap-1.5 rounded-lg border border-dashed border-border/70 bg-muted/30 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
-                <Terminal className="mt-0.5 h-3 w-3 shrink-0 text-violet-500/70" />
-                <span>{t('dlg.llm.engineCliSharedNote')}</span>
-              </p>
-
             </AppDialogSection>
 
             <AppDialogDivider />
 
-            {/* ---- Section: auto-repair engine (legacy tool loop vs. delegated
-                  agent CLI) — the detect action powers the CLI tiles below ---- */}
+            {/* ---- Section: Agent CLI preference (v1.36). Shared by every
+                  feature whose LLM intervention method is 'cli' — 环境修复 /
+                  解析环境 / 代码拉取 all delegate through this single catalog,
+                  detector and custom-template channel. Always visible: it is
+                  a global preference now, not a repair-engine sub-setting. ---- */}
             <AppDialogSection
-              icon={Wrench}
-              label={t('dlg.llm.sectionRepair')}
+              icon={Terminal}
+              label={t('dlg.llm.sectionCli')}
               action={
                 <button
                   type="button"
@@ -5157,60 +5249,15 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                 </button>
               }
             >
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setRepairMode('legacy')}
-                  aria-pressed={repairMode === 'legacy'}
-                  className={`relative rounded-xl border p-3 text-left transition-all cursor-pointer ${repairMode === 'legacy'
-                    ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
-                    : 'border-border bg-card hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
-                >
-                  {repairMode === 'legacy' && (
-                    <span className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
-                      <Check className="size-3" />
-                    </span>
-                  )}
-                  <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'legacy' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                    <Bot className="h-3.5 w-3.5" />
-                    {t('dlg.llm.repairModeLegacy')}
-                  </span>
-                  <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
-                    {t('dlg.llm.repairModeLegacyDesc')}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRepairMode('cli')}
-                  aria-pressed={repairMode === 'cli'}
-                  className={`relative rounded-xl border p-3 text-left transition-all cursor-pointer ${repairMode === 'cli'
-                    ? 'border-emerald-500/40 bg-emerald-500/[0.06] ring-1 ring-emerald-500/40 dark:bg-emerald-500/10'
-                    : 'border-border bg-card hover:-translate-y-px hover:border-muted-foreground/30 hover:shadow-sm'}`}
-                >
-                  {repairMode === 'cli' && (
-                    <span className="absolute -right-1.5 -top-1.5 grid size-4 place-items-center rounded-full bg-emerald-500 text-white">
-                      <Check className="size-3" />
-                    </span>
-                  )}
-                  <span className={`flex items-center gap-1.5 text-xs font-semibold ${repairMode === 'cli' ? 'text-emerald-700 dark:text-emerald-300' : 'text-foreground'}`}>
-                    <Terminal className="h-3.5 w-3.5" />
-                    {t('dlg.llm.repairModeCli')}
-                  </span>
-                  <span className="mt-1.5 block text-[11px] leading-snug text-muted-foreground">
-                    {t('dlg.llm.repairModeCliDesc', { rounds: 2, minutes: REPAIR_CLI_ROUND_TIMEOUT_MIN })}
-                  </span>
-                </button>
-              </div>
+              <div className="space-y-2.5">
                 {detectNote && (
                   <p className={`flex items-start gap-1.5 text-[11px] leading-snug ${detectedClis.some((c) => c.found) ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
                     {detectedClis.some((c) => c.found) && <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />}
                     <span>{detectNote}</span>
                   </p>
                 )}
-                {repairMode === 'cli' && (
-                  <div className="space-y-2.5">
-                    <Label className="text-[13px] font-medium">{t('dlg.llm.repairCli')}</Label>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                       <button
                         type="button"
                         aria-pressed={repairCli === 'auto'}
@@ -5304,8 +5351,8 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                       />
                     )}
                     <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.repairCliHint')}</p>
-                  </div>
-                )}
+                </div>
+              </div>
             </AppDialogSection>
           </div>
         )}
@@ -8635,11 +8682,14 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [systemMonitorOpen, setSystemMonitorOpen] = React.useState(false)
   const [portsPanelOpen, setPortsPanelOpen] = React.useState(false)
   const [llmOpen, setLlmOpen] = React.useState(false)
-  // v1.28: per-feature engines loaded from the LLM config row — analysis
-  // (dsh harness vs legacy API) and pull (agent vs plain+diagnosis). The
+  // Per-feature LLM intervention flags loaded from the LLM config row — the
   // dashboard reads them once on mount (and again after the LLM config
-  // dialog saves) so each feature routes to its configured engine.
-  const [llmEngines, setLlmEngines] = React.useState<{ analysisMode: 'agent' | 'legacy' | 'cli'; pullMode: 'legacy' | 'agent' | 'cli' }>({ analysisMode: 'agent', pullMode: 'legacy' })
+  // dialog saves) so each cascade escalates to its configured method.
+  // v1.36 cascade model: per-feature LLM intervention method, binary
+  // 'legacy' (built-in engine) | 'cli' (delegated local agent CLI). The
+  // stage-① built-in rules (package.json analysis / plain start / plain
+  // pull) run ALWAYS and are not configurable — they cost zero LLM tokens.
+  const [llmEngines, setLlmEngines] = React.useState<{ analysisMode: 'legacy' | 'cli'; pullMode: 'legacy' | 'cli' }>({ analysisMode: 'legacy', pullMode: 'legacy' })
   // Switch-branch picker (branch detect + checkout + pull) — opened from
   // card context menus and the detail sheet's git block.
   const [branchPickerProject, setBranchPickerProject] = React.useState<Project | null>(null)
@@ -9104,7 +9154,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
   // v1.28: read the per-feature engine flags (analysisMode / pullMode) from
   // the LLM config row. Silent-failure on purpose — a stalled config API must
-  // not block the dashboard; the defaults (analysis: agent, pull: legacy)
+  // not block the dashboard; the defaults (both 'legacy' = built-in engine)
   // simply stay in effect until the next successful read.
   const fetchLlmEngines = React.useCallback(async () => {
     try {
@@ -9113,8 +9163,8 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       const data = await res.json()
       if (!data || data.error) return
       setLlmEngines({
-        analysisMode: data.analysisMode === 'legacy' ? 'legacy' : data.analysisMode === 'cli' ? 'cli' : 'agent',
-        pullMode: data.pullMode === 'agent' ? 'agent' : data.pullMode === 'cli' ? 'cli' : 'legacy',
+        analysisMode: data.analysisMode === 'cli' ? 'cli' : 'legacy',
+        pullMode: data.pullMode === 'cli' ? 'cli' : 'legacy',
       })
     } catch { /* keep current values */ }
   }, [])
@@ -9615,14 +9665,16 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     setProjectFormOpen(true)
   }, [])
 
-  // v1.28: analysisMode=legacy — one direct LLM call through the classic
-  // analyze route (?replace=true wipes and regenerates the environments).
-  // No dsh harness, no dependency install, no start-command verification:
-  // the fast path for users whose network/model makes the agent loop time
-  // out. Mirrors the remote-project flow: start toast → POST → result
-  // toast (env list) → refresh.
-  const runLegacyAnalysis = React.useCallback(async (projectId: string, name: string) => {
-    toast({ title: t('dlg.toast.legacyAnalyzing'), description: name })
+  // v1.36 stage-② 'legacy' workhorse — one direct LLM call through the
+  // classic analyze route (?replace=true wipes and regenerates the
+  // environments). No dsh harness, no dependency install, no start-command
+  // verification: the fast, always-available built-in call. Returns TRUE
+  // when the call produced at least one environment so the cascade runner
+  // knows whether to escalate to the deep harness loop; with
+  // opts.escalating set, the failure toast is suppressed (the escalation
+  // toast replaces it).
+  const runLegacyAnalysis = React.useCallback(async (projectId: string, name: string, opts?: { escalating?: boolean }) => {
+    if (!opts?.escalating) toast({ title: t('dlg.toast.legacyAnalyzing'), description: name })
     try {
       const res = await fetch(`/api/projects/${projectId}/analyze?replace=true`, {
         method: 'POST',
@@ -9631,20 +9683,26 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       if (res.ok) {
         const data = await res.json()
         const envs: Array<{ name?: string; port?: number }> = Array.isArray(data?.project?.environments) ? data.project.environments : []
+        if (envs.length === 0) {
+          // No valid environments — a failure for cascade purposes, but the
+          // server still answered; report (unless escalating) and return false.
+          if (!opts?.escalating) toast({ title: t('dlg.toast.noEnvsGenerated'), variant: 'default' })
+          return false
+        }
         toast({
           title: t('dlg.toast.legacyAnalyzed', { count: envs.length }),
-          description: envs.length > 0
-            ? t('dlg.toast.envsCreatedDesc', { count: envs.length, list: envs.map((e) => `${e.name ?? '?'} (:${e.port ?? '?'})`).join(', ').slice(0, 300) })
-            : t('dlg.toast.noEnvsGenerated'),
+          description: t('dlg.toast.envsCreatedDesc', { count: envs.length, list: envs.map((e) => `${e.name ?? '?'} (:${e.port ?? '?'})`).join(', ').slice(0, 300) }),
           variant: 'success',
         })
         fetchProjects()
-      } else {
-        const err = await res.json().catch(() => ({}))
-        toast({ title: t('dlg.toast.legacyAnalyzeFailed'), description: summarizeError(err?.error), variant: 'destructive' })
+        return true
       }
+      const err = await res.json().catch(() => ({}))
+      if (!opts?.escalating) toast({ title: t('dlg.toast.legacyAnalyzeFailed'), description: summarizeError(err?.error), variant: 'destructive' })
+      return false
     } catch (e: any) {
-      toast({ title: t('dlg.toast.legacyAnalyzeFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
+      if (!opts?.escalating) toast({ title: t('dlg.toast.legacyAnalyzeFailed'), description: summarizeError(e?.message) || t('dlg.common.networkError'), variant: 'destructive' })
+      return false
     }
   }, [toast, t, fetchProjects])
 
@@ -9692,22 +9750,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // Launch a deepseek-harness analysis session (in-process engine, no
   // separate service) for a local project and open the live-progress wizard.
   // The agent installs deps, generates the startup command and auto-debugs
-  // it until the service boots.
+  // it until the service boots. v1.36: this is the DEEP tier of the built-in
+  // 'legacy' intervention (fast call first, harness escalation) plus the
+  // wizard's own retry action — the engine-mode branching lives in
+  // runEnvAnalysis above the cascade.
   const startHarnessAnalysis = React.useCallback(async (projectId: string, name: string, path: string) => {
-    // v1.28: analysisMode=legacy — skip the dsh harness entirely and run
-    // the single-call analyze route instead (fast, no verification loop).
-    if (llmEngines.analysisMode === 'legacy') {
-      await runLegacyAnalysis(projectId, name)
-      return
-    }
-    // v1.34: analysisMode=cli — delegate the whole analysis to a local agent
-    // CLI (the user's explicit ask: each feature picks its own executor —
-    // built-in tool loop or the local agent CLI). Misses degrade to the
-    // legacy single call inside runCliAnalysis.
-    if (llmEngines.analysisMode === 'cli') {
-      await runCliAnalysis(projectId, name)
-      return
-    }
     // Immediate feedback: this POST previously showed NOTHING until a
     // response arrived — a slow/hung server left the click looking dead
     // ("re-fetch env 没有反应" symptom).
@@ -9743,7 +9790,61 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } catch (e: any) {
       toast({ title: t('dlg.toast.analysisStartFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
     }
-  }, [projects, toast, t, llmEngines, runLegacyAnalysis, runCliAnalysis])
+  }, [projects, toast, t, addToast])
+
+  // v1.36 — THE analysis cascade the user asked for: every environment
+  // analysis (project-create auto-run, "Re-fetch Environments", remote-flow
+  // local branch) goes through here.
+  //   ① built-in rules (analyze-rules route) — deterministic package.json /
+  //      lockfile / framework / port analysis, ZERO LLM tokens. Standard
+  //      Node projects finish here.
+  //   ② LLM intervention, only when the rules bail out — method per the
+  //      saved analysisMode: 'legacy' built-in engine (fast direct call
+  //      first; if THAT fails, automatic escalation into the deep harness
+  //      tool loop with its live wizard) or 'cli' delegated local agent CLI
+  //      (which itself falls back to the built-in fast call on a miss, so
+  //      the user is never left without an engine).
+  const runEnvAnalysis = React.useCallback(async (projectId: string, name: string, path: string) => {
+    // ---- stage ①: deterministic rules, no LLM ----
+    toast({ title: t('dlg.toast.rulesAnalyzing'), description: name })
+    try {
+      const res = await fetch(`/api/projects/${projectId}/analyze-rules?replace=true`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(30_000),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data?.ok) {
+        const envs: Array<{ name?: string; port?: number }> = Array.isArray(data?.analysis?.environments) ? data.analysis.environments : []
+        toast({
+          title: t('dlg.toast.rulesAnalyzed', { count: envs.length }),
+          description: t('dlg.toast.envsCreatedDesc', { count: envs.length, list: envs.map((e) => `${e.name ?? '?'} (:${e.port ?? '?'})`).join(', ').slice(0, 300) }),
+          variant: 'success',
+        })
+        fetchProjects()
+        return
+      }
+      // Rules bailed out — say WHY, then hand over to the configured LLM.
+      toast({
+        title: t('dlg.toast.rulesFallback'),
+        description: `${String(data?.reason || summarizeError(data?.error) || '').slice(0, 200)} → ${llmEngines.analysisMode === 'cli' ? t('dlg.llm.engineCliBtn') : t('dlg.llm.engineBuiltinBtn')}`,
+      })
+    } catch {
+      // Route unreachable (network / server stall) — treat as a rules miss.
+      toast({ title: t('dlg.toast.rulesFallback'), description: t('dlg.common.networkError') })
+    }
+    // ---- stage ②: LLM intervention per configured method ----
+    if (llmEngines.analysisMode === 'cli') {
+      await runCliAnalysis(projectId, name)
+      return
+    }
+    const fastOk = await runLegacyAnalysis(projectId, name, { escalating: true })
+    if (!fastOk) {
+      // Fast call failed (LLM unreachable / no valid envs) — escalate to
+      // the deep built-in tool loop; the wizard opens with live progress.
+      toast({ title: t('dlg.toast.escalateDeepAnalysis'), description: name })
+      await startHarnessAnalysis(projectId, name, path)
+    }
+  }, [toast, t, fetchProjects, llmEngines, runCliAnalysis, runLegacyAnalysis, startHarnessAnalysis])
 
   const handleProjectSubmit = React.useCallback(async (data: { name: string; path: string; description: string; icon: string; tags: string[]; deviceId: string | null; repoUrl?: string }) => {
     try {
@@ -9759,10 +9860,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
           toast({ title: t('dlg.toast.projectCreated'), variant: 'success' })
           addAutoNotification('success', t('dlg.notif.projectCreatedTitle'), t('dlg.notif.projectCreatedDesc', { name: data.name }), data.name)
 
-          // Local projects → deepseek-harness analyzes, installs deps,
-          // generates and VERIFIES the startup command (auto-debug until success).
+          // Local projects → v1.36 cascade: built-in rules first (no LLM),
+          // LLM intervention only when the rules bail out (configured
+          // method: built-in engine with deep-loop escalation / agent CLI).
           if (newProjectId && !data.deviceId) {
-            startHarnessAnalysis(newProjectId, data.name, data.path)
+            runEnvAnalysis(newProjectId, data.name, data.path)
           }
 
           fetchProjects()
@@ -9800,7 +9902,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     } catch {
       toast({ title: t('dlg.toast.opFailed'), variant: 'destructive' })
     }
-  }, [projectFormMode, editingProject, toast, fetchProjects, startHarnessAnalysis])
+  }, [projectFormMode, editingProject, toast, fetchProjects, runEnvAnalysis, addAutoNotification, t])
 
   const handleDeleteProject = React.useCallback(async (id: string) => {
     try {
@@ -9875,10 +9977,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         toast({ title: t('dlg.toast.refetchFailed'), description: e?.message || t('dlg.common.networkError'), variant: 'destructive' })
       }
     } else {
-      // Local project → deepseek-harness full auto-debug analyze
-      startHarnessAnalysis(project.id, project.name, project.path)
+      // Local project → v1.36 cascade (rules → LLM intervention)
+      runEnvAnalysis(project.id, project.name, project.path)
     }
-  }, [toast, fetchProjects, devices, startHarnessAnalysis])
+  }, [toast, fetchProjects, devices, runEnvAnalysis])
 
   // Pull blocked by local changes → shared conflict dialog (v1.17). Called
   // from all three pull surfaces (card row, detail sheet, branch picker).
@@ -10347,23 +10449,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
     setPullingProjectIds((prev) => new Set(prev).add(project.id))
     toast({ title: branch ? t('dlg.branch.switching') : t('dlg.detail.pulling'), description: branch ? `${project.name} → ${branch}` : sanitizeGitUrl(project.repoUrl) })
     try {
-      // v1.28: local projects with pullMode=agent hand the WHOLE loop to the
-      // deterministic pull agent (backup → fetch ladder → sync → restore →
-      // verify) — its SSE timeline dialog takes over and manages its own
-      // completion toasts; the finally below still clears the in-flight id.
-      // Remote projects always go through the plain proxy pull below.
-      if (!project.deviceId && llmEngines.pullMode === 'agent') {
-        await runAgentPull(project, branch)
-        return
-      }
-      // v1.34: local projects with pullMode=cli delegate the whole sync to a
-      // local agent CLI. A structured miss (no CLI / spawn failure / no-op)
-      // returns false here — then FALL THROUGH to the plain pull below so
-      // the user still gets the AI-diagnosis ladder, never a dead end.
-      if (!project.deviceId && llmEngines.pullMode === 'cli') {
-        const handled = await runCliPull(project, branch)
-        if (handled) return
-      }
+      // ---- v1.36 cascade stage ①: plain git pull, ZERO LLM tokens. It is
+      // ALWAYS first now — the former pullMode 'agent' upfront takeover is
+      // gone (the deterministic agent remains an action inside the built-in
+      // diagnosis dialog), and 'cli' delegates only AFTER the plain pull
+      // fails. Remote projects proxy through the device agent below.
       const res = await fetch(`/api/projects/${project.id}/pull`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -10384,9 +10474,17 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         fetchProjectVersions()
         fetchProjectUpdates({ refresh: true })
       } else if (data?.conflict && (Array.isArray(data.modified) || Array.isArray(data.untracked))) {
-        // Local changes block the pull — route to the AI diagnosis flow
-        // (v1.19; falls back to the shared v1.17 conflict dialog when the
-        // LLM is unavailable) instead of a dead-end error toast.
+        // ---- stage ②: the plain pull is blocked by local changes. The
+        // configured intervention runs here: pullMode=cli hands the whole
+        // repair (safeguard → resolve → sync → restore, HEAD-verified) to a
+        // local agent CLI; a structured miss (no CLI / spawn failure)
+        // returns false and falls through to the built-in AI diagnosis
+        // (v1.19; which itself falls back to the v1.17 conflict dialog
+        // when the LLM is unavailable) — never a dead end.
+        if (!project.deviceId && llmEngines.pullMode === 'cli') {
+          const handled = await runCliPull(project, branch)
+          if (handled) return
+        }
         openPullDiagnosis(project, branch, data)
       } else {
         const detail = data?.detail ? ` — ${String(data.detail).slice(0, 200)}` : ''
@@ -10407,7 +10505,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
         // v1.19: route non-conflict failures through the AI diagnosis too —
         // EXCEPT when the upgrade hint already told the user exactly what to
         // do (diagnosing "your agent is old" through the LLM adds nothing).
+        // v1.36: with pullMode=cli the configured intervention runs FIRST
+        // (same delegation as the conflict branch); a miss falls through.
         if (!upgrade && (errMsg || data?.detail)) {
+          if (!project.deviceId && llmEngines.pullMode === 'cli') {
+            const handled = await runCliPull(project, branch)
+            if (handled) return
+          }
           openPullDiagnosis(project, branch, { error: errMsg, detail: String(data?.detail || ''), transient: !!data?.transient })
         }
       }
@@ -10417,7 +10521,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       pullingProjectIdsRef.current.delete(project.id)
       setPullingProjectIds((prev) => { const next = new Set(prev); next.delete(project.id); return next })
     }
-  }, [toast, fetchProjects, fetchProjectVersions, fetchProjectUpdates, openPullDiagnosis, t, llmEngines, runAgentPull, runCliPull])
+  }, [toast, fetchProjects, fetchProjectVersions, fetchProjectUpdates, openPullDiagnosis, t, llmEngines, runCliPull])
 
   // The AI diagnosis dialog's chosen action (user-confirmed in the dialog;
   // 'force' only arrives here AFTER the in-dialog second confirmation).

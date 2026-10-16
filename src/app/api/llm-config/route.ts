@@ -66,11 +66,17 @@ export async function GET(req: Request) {
       model: config.model,
       repairMode: config.repairMode || 'legacy',
       repairCli: config.repairCli || '',
-      // v1.34: tri-state engines — analysis agent(harness loop)|legacy(single
-      // call)|cli(delegated agent CLI); pull legacy(plain+diagnosis)|agent(
-      // deterministic resolver)|cli(delegated agent CLI).
-      analysisMode: config.analysisMode === 'legacy' ? 'legacy' : config.analysisMode === 'cli' ? 'cli' : 'agent',
-      pullMode: config.pullMode === 'agent' ? 'agent' : config.pullMode === 'cli' ? 'cli' : 'legacy',
+      // v1.36: every feature follows the same two-stage cascade — built-in
+      // rules first (no LLM), then an LLM intervention whose METHOD is a
+      // per-feature binary: 'legacy' (built-in engine) | 'cli' (delegated
+      // local agent CLI). The v1.28–v1.35 tri-states collapse: analysis
+      // 'agent' (harness) and 'legacy' (single call) merge into the single
+      // built-in 'legacy' (fast call first, harness escalation);
+      // pull 'agent' (upfront agent takeover) folds into 'legacy' (plain
+      // pull is now ALWAYS stage 1, the deterministic agent remains an
+      // in-dialog action).
+      analysisMode: config.analysisMode === 'cli' ? 'cli' : 'legacy',
+      pullMode: config.pullMode === 'cli' ? 'cli' : 'legacy',
       updatedAt: config.updatedAt,
       catalog: publicCatalog(),
     })
@@ -108,10 +114,9 @@ export async function PUT(request: Request) {
         ...(model !== undefined && { model }),
         ...(repairMode !== undefined && { repairMode: repairMode === 'cli' ? 'cli' : 'legacy' }),
         ...(repairCli !== undefined && { repairCli: normalizeRepairCli(repairCli) }),
-        // v1.28 per-feature engines; v1.34 adds the 'cli' tri-state (delegated
-        // agent CLI, shared with the repair engine's CLI selection).
-        ...(analysisMode !== undefined && { analysisMode: analysisMode === 'legacy' ? 'legacy' : analysisMode === 'cli' ? 'cli' : 'agent' }),
-        ...(pullMode !== undefined && { pullMode: pullMode === 'agent' ? 'agent' : pullMode === 'cli' ? 'cli' : 'legacy' }),
+        // v1.36 cascade model: binary LLM intervention per feature (see GET).
+        ...(analysisMode !== undefined && { analysisMode: analysisMode === 'cli' ? 'cli' : 'legacy' }),
+        ...(pullMode !== undefined && { pullMode: pullMode === 'cli' ? 'cli' : 'legacy' }),
       },
       create: {
         id: 'default',
@@ -121,8 +126,8 @@ export async function PUT(request: Request) {
         model: model || '',
         repairMode: repairMode === 'cli' ? 'cli' : 'legacy',
         repairCli: normalizeRepairCli(repairCli),
-        analysisMode: analysisMode === 'legacy' ? 'legacy' : analysisMode === 'cli' ? 'cli' : 'agent',
-        pullMode: pullMode === 'agent' ? 'agent' : pullMode === 'cli' ? 'cli' : 'legacy',
+        analysisMode: analysisMode === 'cli' ? 'cli' : 'legacy',
+        pullMode: pullMode === 'cli' ? 'cli' : 'legacy',
       },
     })
 
@@ -141,8 +146,8 @@ export async function PUT(request: Request) {
       model: config.model,
       repairMode: config.repairMode || 'legacy',
       repairCli: config.repairCli || '',
-      analysisMode: config.analysisMode === 'legacy' ? 'legacy' : config.analysisMode === 'cli' ? 'cli' : 'agent',
-      pullMode: config.pullMode === 'agent' ? 'agent' : config.pullMode === 'cli' ? 'cli' : 'legacy',
+      analysisMode: config.analysisMode === 'cli' ? 'cli' : 'legacy',
+      pullMode: config.pullMode === 'cli' ? 'cli' : 'legacy',
       updatedAt: config.updatedAt,
     })
   } catch (error) {

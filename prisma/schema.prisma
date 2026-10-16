@@ -142,21 +142,22 @@ model LlmConfig {
   // 'custom:<template>' where the template must contain {promptFile}
   // (relative) or {promptFileAbs} (absolute) as the task-file placeholder.
   repairCli  String   @default("")
-  // ---- v1.28: per-feature engine selection ----
-  // Environment-analysis engine (the "解析环境" action):
-  //   'agent'  — deepseek-harness (dsh): agentic loop, installs deps,
-  //              verifies the startup command by actually running it
-  //              (best result quality; needs dsh + can be slow on
-  //              cold-started machines)
-  //   'legacy' — single-shot callLLM analysis (fast, works everywhere,
-  //              no command verification)
-  analysisMode String @default("agent")
-  // Git pull engine:
-  //   'legacy' — plain git pull + AI diagnosis on failure (asks the user
-  //              how to resolve conflicts)
-  //   'agent'  — deterministic pull agent: backup local changes → fetch
-  //              (with the v1.27 network strategy ladder) → sync → restore
-  //              with auto conflict-resolution → verify. Zero interaction.
+  // ---- v1.36 cascade model: per-feature LLM INTERVENTION method ----
+  // Every feature runs built-in rules FIRST (zero LLM tokens: package.json
+  // rule analysis / plain start-restart / plain git pull) and only escalates
+  // to an LLM on failure. These flags pick that intervention's method:
+  //   'legacy' — built-in engine (analysis: fast direct call with automatic
+  //              escalation into the dsh harness tool loop; repair: the
+  //              inspect/probe/patch tool loop; pull: AI diagnosis)
+  //   'cli'    — delegate to a local agent CLI (shared CLI preference)
+  // (v1.28–v1.35 tri-states collapsed: analysis 'agent'/'legacy' both read
+  //  back as 'legacy'; pull 'agent' reads back as 'legacy' — the plain pull
+  //  is always stage ① now, the deterministic agent stays an in-dialog
+  //  action of the built-in diagnosis.)
+  analysisMode String @default("legacy")
+  // Code pull — LLM intervention when the plain git pull fails:
+  //   'legacy' — AI diagnosis (root cause + retry/agent/stash/force options)
+  //   'cli'    — delegate the repair+sync to a local agent CLI
   pullMode     String @default("legacy")
   updatedAt DateTime @updatedAt
 }
