@@ -8186,7 +8186,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   })
   const [healthAlertsOpen, setHealthAlertsOpen] = React.useState(false)
   const [cardDensity, setCardDensity] = React.useState<'compact' | 'comfortable' | 'spacious'>(() => {
-    try { const v = localStorage.getItem('dashboard-card-density'); return v === 'compact' || v === 'spacious' ? v : 'compact' } catch { return 'compact' }
+    // v1.30 bugfix: 'comfortable' was missing from this whitelist, so the
+    // DEFAULT density could never survive a reload — it silently fell back to
+    // 'compact' and the persist-effect below wrote that back to storage.
+    try { const v = localStorage.getItem('dashboard-card-density'); return v === 'compact' || v === 'comfortable' || v === 'spacious' ? v : 'comfortable' } catch { return 'comfortable' }
   })
   const [visibleStats, setVisibleStats] = React.useState<Set<string>>(() => {
     try { const v = localStorage.getItem('dashboard-visible-stats'); return v ? new Set(JSON.parse(v)) : new Set(['totalProjects', 'environments', 'devices', 'healthScore']) } catch { return new Set(['totalProjects', 'environments', 'devices', 'healthScore']) }
