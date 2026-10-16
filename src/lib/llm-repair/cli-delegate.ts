@@ -100,8 +100,10 @@ export interface CliSpec {
   /** Build the shell command. `exe` is the CONCRETE executable — the bare
    * bin name when resolved from PATH, or the absolute path when resolved
    * from a probe location (installers that never touch the service PATH).
-   * All commands run with cwd = project root; templates embed it quoted. */
-  buildCommand: (exe: string) => CliInvocation;
+   * All commands run with cwd = project root; templates embed it quoted.
+   * `taskFile` (v1.34) is the dotfile name the invocation must read — repair,
+   * analysis and pull delegation each pass their own. */
+  buildCommand: (exe: string, taskFile: string) => CliInvocation;
   /** Extra absolute-path candidates probed when `bin` is not on PATH —
    * covers installers that never touch a background service's PATH:
    * Claude's native installer (~/.local/bin), bun/npm globals, Homebrew.
@@ -111,7 +113,12 @@ export interface CliSpec {
   note?: string;
 }
 
-const READ_TASK_ARG = `Read and execute the repair task file ${TASK_FILE_NAME} in the current directory, then perform the fix autonomously.`;
+/** v1.34: the reference-prompt argument for argv CLIs. Parameterized by task
+ * file — repair, analysis and pull delegation each carry their own dotfile
+ * (see cli-session.ts), so the shared catalog must never hardcode one name. */
+function readTaskArg(taskFile: string): string {
+  return `Read and execute the task file ${taskFile} in the current directory, then perform the task autonomously.`;
+}
 
 /** `cat` on Unix, `type` on Windows — reads the task file into the CLI's
  * stdin through a shell-level pipe (spawn stdin is 'ignore', but the SHELL
@@ -163,14 +170,14 @@ export const CLI_SPECS: CliSpec[] = [
     bin: 'claude',
     priority: 1,
     probePaths: claudeCliProbePaths,
-    buildCommand: (exe) => ({
+    buildCommand: (exe, taskFile) => ({
       // -p = headless print mode; prompt arrives via stdin pipe.
       // --output-format json → final envelope (result / is_error / num_turns).
-      primary: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}" -p --output-format json --max-turns 60 --dangerously-skip-permissions`,
+      primary: `${pipeRead()} ${taskFile} | "${exe}" -p --output-format json --max-turns 60 --dangerously-skip-permissions`,
       // Some installs gate the bypass flag behind an acceptance prompt —
       // retry once with the default permission mode (edits still auto-apply
       // in -p mode; unpermitted bash just fails per-command).
-      fallback: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}" -p --output-format json --max-turns 60`,
+      fallback: `${pipeRead()} ${taskFile} | "${exe}" -p --output-format json --max-turns 60`,
     }),
   },
   {
@@ -180,14 +187,14 @@ export const CLI_SPECS: CliSpec[] = [
     priority: 1.5,
     probePaths: claudeCliProbePaths,
     note: '桌面应用无法无人值守运行 — 委托修复实际经由 claude CLI 执行（未检出 CLI 时自动回退内置引擎）',
-    buildCommand: (exe) => ({
+    buildCommand: (exe, taskFile) => ({
       // Identical to the Claude Code invocation: when this engine is chosen,
       // repair is delegated through the claude CLI (the desktop app cannot
       // be driven headless). resolveRepairCli only resolves this spec when
       // that CLI actually exists — otherwise it returns null and the
       // orchestrator falls back to the legacy engine with a logged warning.
-      primary: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}" -p --output-format json --max-turns 60 --dangerously-skip-permissions`,
-      fallback: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}" -p --output-format json --max-turns 60`,
+      primary: `${pipeRead()} ${taskFile} | "${exe}" -p --output-format json --max-turns 60 --dangerously-skip-permissions`,
+      fallback: `${pipeRead()} ${taskFile} | "${exe}" -p --output-format json --max-turns 60`,
     }),
   },
   {
@@ -195,9 +202,9 @@ export const CLI_SPECS: CliSpec[] = [
     label: 'Codex CLI',
     bin: 'codex',
     priority: 2,
-    buildCommand: (exe) => ({
-      primary: `"${exe}" exec --dangerously-bypass-approvals-and-sandbox "${READ_TASK_ARG}"`,
-      fallback: `"${exe}" exec --full-auto "${READ_TASK_ARG}"`,
+    buildCommand: (exe, taskFile) => ({
+      primary: `"${exe}" exec --dangerously-bypass-approvals-and-sandbox "${readTaskArg(taskFile)}"`,
+      fallback: `"${exe}" exec --full-auto "${readTaskArg(taskFile)}"`,
     }),
   },
   {
@@ -205,10 +212,10 @@ export const CLI_SPECS: CliSpec[] = [
     label: 'Gemini CLI',
     bin: 'gemini',
     priority: 3,
-    buildCommand: (exe) => ({
+    buildCommand: (exe, taskFile) => ({
       // Non-interactive: gemini reads piped stdin as the prompt.
-      primary: `${pipeRead()} ${TASK_FILE_NAME} | "${exe}"`,
-      fallback: `"${exe}" "${READ_TASK_ARG}"`,
+      primary: `${pipeRead()} ${taskFile} | "${exe}"`,
+      fallback: `"${exe}" "${readTaskArg(taskFile)}"`,
     }),
   },
   {
@@ -216,8 +223,8 @@ export const CLI_SPECS: CliSpec[] = [
     label: 'OpenCode',
     bin: 'opencode',
     priority: 4,
-    buildCommand: (exe) => ({
-      primary: `"${exe}" run "${READ_TASK_ARG}"`,
+    buildCommand: (exe, taskFile) => ({
+      primary: `"${exe}" run "${readTaskArg(taskFile)}"`,
     }),
   },
   {
@@ -228,9 +235,9 @@ export const CLI_SPECS: CliSpec[] = [
     // Hermes CLI flags vary across forks/installers; the reference-prompt
     // form below is the common denominator. If your build differs, use a
     // custom:template with {promptFile} instead (see resolveRepairCli).
-    buildCommand: (exe) => ({
-      primary: `"${exe}" exec --auto-approve "${READ_TASK_ARG}"`,
-      fallback: `"${exe}" "${READ_TASK_ARG}"`,
+    buildCommand: (exe, taskFile) => ({
+      primary: `"${exe}" exec --auto-approve "${readTaskArg(taskFile)}"`,
+      fallback: `"${exe}" "${readTaskArg(taskFile)}"`,
     }),
   },
 ];
@@ -240,7 +247,7 @@ export interface ResolvedCli {
   label: string;
   /** Concrete executable — bare bin name (PATH) or absolute path (probe). */
   exe: string;
-  buildCommand: (exe: string) => CliInvocation;
+  buildCommand: (exe: string, taskFile: string) => CliInvocation;
 }
 
 // ============================= detection =============================
@@ -395,7 +402,7 @@ export async function resolveRepairCli(prefRaw: string): Promise<ResolvedCli | n
       : spec;
     const exeInfo = await resolveCliExe(targetSpec);
     if (!exeInfo) return null;
-    return { id: spec.id, label: spec.label, exe: exeInfo.exe, buildCommand: spec.buildCommand };
+    return { id: spec.id, label: spec.label, exe: exeInfo.exe, buildCommand: (exe, taskFile) => spec.buildCommand(exe, taskFile) };
   };
   const specs = [...CLI_SPECS].sort((a, b) => a.priority - b.priority);
   if (!pref) {
@@ -411,8 +418,10 @@ export async function resolveRepairCli(prefRaw: string): Promise<ResolvedCli | n
 }
 
 /** Substitute the task-file placeholders in a custom template. Raw paths —
- * the admin controls their own quoting in the template. */
-function expandCustomTemplate(template: string, promptRel: string, promptAbs: string): string {
+ * the admin controls their own quoting in the template.
+ * v1.34: exported for cli-session.ts (analysis/pull delegation run through
+ * custom templates exactly like repair does). */
+export function expandCustomTemplate(template: string, promptRel: string, promptAbs: string): string {
   return template
     .replaceAll('{promptFileAbs}', promptAbs)
     .replaceAll('{promptFile}', promptRel);
@@ -515,7 +524,9 @@ async function gitReviewLines(projectPath: string): Promise<string> {
 
 // ============================= transcript =============================
 
-function saveTranscript(jobId: string, round: number, cmd: string, text: string): string {
+/** v1.34: exported for cli-session.ts — all delegations share the same
+ * transcript archive directory and naming scheme. */
+export function saveTranscript(jobId: string, round: number, cmd: string, text: string): string {
   try {
     const dir = TRANSCRIPT_DIR();
     mkdirSync(dir, { recursive: true });
@@ -530,8 +541,10 @@ function saveTranscript(jobId: string, round: number, cmd: string, text: string)
 /** Best-effort summary from a CLI's final output — Claude Code's JSON
  * envelope ({"result": "...", "is_error": false}) is the only structured
  * shape we know; everything else just gets its tail shown. Tolerates prose
- * lines around the JSON (CLIs often print progress before the envelope). */
-function parseCliSummary(stdout: string): string {
+ * lines around the JSON (CLIs often print progress before the envelope).
+ * v1.34: exported for cli-session.ts — the summary extractor is engine-
+ * agnostic (any CLI whose final output embeds a JSON envelope). */
+export function parseCliSummary(stdout: string): string {
   const raw = (stdout || '').trim();
   if (!raw) return '';
   let obj: any = null;
@@ -611,8 +624,10 @@ export async function runCliRepair(
 
       // ---- 2. invoke headless (with compatibility fallback) ----
       // buildCommand receives the CONCRETE exe (bare name from PATH, or the
-      // absolute probe-resolved path for off-PATH installs).
-      let invocation = cli.buildCommand(cli.exe);
+      // absolute probe-resolved path for off-PATH installs) and the repair
+      // task dotfile name (v1.34 parameterization — other delegations pass
+      // their own dotfile through the same catalog).
+      let invocation = cli.buildCommand(cli.exe, TASK_FILE_NAME);
       // custom templates carry {promptFile} / {promptFileAbs} placeholders
       if (cli.id === 'custom') {
         invocation = { primary: expandCustomTemplate(invocation.primary, promptRel, promptAbs) };

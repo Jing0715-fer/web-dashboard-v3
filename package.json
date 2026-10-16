@@ -1,9 +1,9 @@
 {
   "name": "nextjs_tailwind_shadcn_ts",
-  "version": "1.34.0",
+  "version": "1.35.0",
   "private": true,
   "scripts": {
-    "predev": "bun install || echo '[predev] bun install skipped (offline or bun unavailable) \u2014 run it manually if you see module-not-found errors' && prisma generate && prisma db push",
+    "predev": "bun install || echo '[predev] bun install skipped (offline or bun unavailable) — run it manually if you see module-not-found errors' && prisma generate && prisma db push",
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "dev:win": "next dev -p 3000",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",

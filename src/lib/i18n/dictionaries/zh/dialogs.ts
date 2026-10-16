@@ -242,21 +242,28 @@ export const dialogs = {
   'dlg.llm.repairNoneDetected': '未检测到任何 Agent CLI — 保存后仍为该模式，但修复时会自动回退 legacy',
   'dlg.llm.repairDetectedCount': '检测到 {count} 个已安装 CLI',
   'dlg.llm.cliNote.claudeDesktop': '桌面应用无法无人值守运行 — 委托修复实际经由 claude CLI 执行（未检出 CLI 时自动回退内置引擎）',
-  // ---- Per-feature engines (v1.28): analysis & pull pick their own engine ----
+  // ---- Per-feature engines (v1.28; v1.34 executor redesign): analysis &
+  // pull each pick their own EXECUTOR — built-in tool loop / fast direct
+  // call / delegated local Agent CLI. The old "智能体 vs API 直连" wording
+  // confused depth with executor and is gone. ----
   'dlg.llm.sectionEngines': '功能引擎',
   'dlg.llm.sectionRepair': '修复引擎',
   'dlg.llm.engineAnalysis': '解析环境',
-  'dlg.llm.engineAnalysisDesc': '分析项目目录并生成启动配置的方式',
-  'dlg.llm.engineAgentBtn': '智能体',
-  'dlg.llm.engineLegacyBtn': 'API 直连',
-  'dlg.llm.engineAnalysisAgentHint': 'deepseek-harness 全流程：安装依赖、验证启动命令（慢但质量高）',
+  'dlg.llm.engineAnalysisDesc': '解析项目目录并生成启动配置的执行引擎',
+  'dlg.llm.engineAnalysisLoopBtn': '内置循环',
+  'dlg.llm.engineAnalysisFastBtn': '快速直连',
+  'dlg.llm.engineCliBtn': 'Agent CLI',
+  'dlg.llm.engineAnalysisAgentHint': '内置工具循环：安装依赖、验证启动命令（慢但质量高）',
   'dlg.llm.engineAnalysisLegacyHint': '单次 LLM 调用直接生成（快，不验证命令）',
+  'dlg.llm.engineAnalysisCliHint': '委托本机 Agent CLI 解析项目并输出配置；未检出 CLI 或输出无效时自动回退快速直连',
   'dlg.llm.enginePull': '代码拉取',
   'dlg.llm.enginePullDesc': 'git pull 及本地改动冲突的处理方式',
-  'dlg.llm.enginePullAgentBtn': '智能体拉取',
+  'dlg.llm.enginePullAgentBtn': '内置智能体',
   'dlg.llm.enginePullLegacyBtn': '普通拉取',
   'dlg.llm.enginePullAgentHint': '自动备份→同步→恢复，全自动零交互（网络不佳时更稳）',
   'dlg.llm.enginePullLegacyHint': '普通 git pull，失败时 AI 诊断并给出选项',
+  'dlg.llm.enginePullCliHint': '委托本机 Agent CLI 处理拉取与冲突（备份→同步→恢复）；失败时自动回退普通拉取',
+  'dlg.llm.engineCliSharedNote': '「Agent CLI」与下方修复引擎共用同一套 CLI 检测与选择（auto / Claude / Codex / 自定义模板）',
 
   // ---- LLM 自动修复对话框 ----
   'dlg.repair.title': 'AI 自动修复',
@@ -1162,6 +1169,12 @@ export const dialogs = {
   'dlg.toast.legacyAnalyzing': '正在分析项目（单次 LLM）…',
   'dlg.toast.legacyAnalyzed': '解析完成，生成 {count} 个环境',
   'dlg.toast.legacyAnalyzeFailed': '解析失败',
+  // v1.34: analysisMode=cli（委托本机 Agent CLI 解析）
+  'dlg.toast.cliAnalyzing': 'Agent CLI 解析中…',
+  'dlg.toast.cliAnalyzed': 'CLI 解析完成：生成 {count} 个环境',
+  'dlg.toast.cliAnalysisFallback': 'CLI 解析不可用，自动回退快速直连',
+  'dlg.toast.cliPulling': 'Agent CLI 拉取中…',
+  'dlg.toast.cliPullFallback': 'CLI 拉取不可用，回退普通拉取',
   'dlg.toast.refetchFailed': '重新获取失败',
   'dlg.toast.agentReturned': 'Agent 返回 {status}',
   'dlg.toast.exportedCsv': '已导出为 CSV',
