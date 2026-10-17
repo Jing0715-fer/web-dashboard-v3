@@ -1344,6 +1344,15 @@ export const dialogs = {
   'card.thumb.hintPortNotReady': '页面在 90 秒内未应答——请确认环境确实在提供服务后重试',
   'card.thumb.failedTitle': '预览截取失败',
   'card.thumb.retry': '重试',
+  // ---- v1.37 缩略图放大查看（lightbox）----
+  'card.thumb.viewLarge': '查看大图',
+  'card.thumb.viewLargeHint': '点击查看可缩放的清晰大图',
+  'card.thumb.fit': '适应屏幕',
+  'card.thumb.actual': '原始尺寸',
+  'card.thumb.zoomFitTitle': '切换为适应屏幕',
+  'card.thumb.zoomActualTitle': '切换为原始尺寸 (100%)',
+  'card.thumb.openLive': '打开实时页面',
+  'card.thumb.download': '下载截图',
 
   'card.chipStart': '启动',
   'card.chipStop': '停止',

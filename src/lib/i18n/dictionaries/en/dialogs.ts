@@ -1351,6 +1351,15 @@ export const dialogs = {
   'card.thumb.hintPortNotReady': 'The page did not answer within 90 s — make sure the environment is really serving, then retry',
   'card.thumb.failedTitle': 'Preview capture failed',
   'card.thumb.retry': 'Retry',
+  // ---- v1.37 thumbnail zoom lightbox ----
+  'card.thumb.viewLarge': 'View larger',
+  'card.thumb.viewLargeHint': 'Click for a zoomable full-size view',
+  'card.thumb.fit': 'Fit to screen',
+  'card.thumb.actual': 'Actual size',
+  'card.thumb.zoomFitTitle': 'Switch to fit-to-screen',
+  'card.thumb.zoomActualTitle': 'Switch to actual size (100%)',
+  'card.thumb.openLive': 'Open live page',
+  'card.thumb.download': 'Download screenshot',
 
   'card.chipStart': 'Start',
   'card.chipStop': 'Stop',

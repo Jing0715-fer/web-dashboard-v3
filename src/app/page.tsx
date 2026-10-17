@@ -21,7 +21,7 @@ import {
   SearchX,
   Cloud, Container, Wrench, Building, House, Box,
   EyeOff, KeyRound, Sparkles, Radio,
-  ShieldAlert, ShieldCheck, ShieldX, Minimize2,
+  ShieldAlert, ShieldCheck, ShieldX, Minimize2, Maximize2, ZoomIn,
   UserPlus, Github, GitPullRequest,
   Archive, Minus, Camera, WifiOff, Stethoscope,
   FolderPlus, Pencil, BrainCircuit, Braces, Palette, Image as ImageIcon, Check, FileWarning,
@@ -41,6 +41,7 @@ import { Button } from '@/components/ui/button'
 import { CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { AlertDialogAction, AlertDialogCancel } from '@/components/ui/alert-dialog'
 import { AppDialog, AppAlertDialog, AppDialogHeader, AppDialogTitle, AppDialogDescription, AppDialogBody, AppDialogFooter, AppDialogSection, AppDialogDivider } from '@/components/app-dialog'
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -780,6 +781,16 @@ function HealthScoreHoverCard({
 // Real screenshot of a project's running page, captured automatically when
 // an environment starts (headless Chromium server-side — see lib/thumbnail.ts).
 
+/** v1.37: opens the thumbnail zoom lightbox from anywhere in the card tree
+ *  (grid strip, hover preview, list-view chip) without prop-drilling
+ *  through the memoized cards and the 8 grid call-sites. The context value
+ *  is a stable identity, so consuming components never re-render from zoom
+ *  state churn. */
+const ThumbZoomContext = React.createContext<((p: Project) => void) | null>(null)
+/** Non-null by construction: the provider always wraps the dashboard, the
+ *  ?? fallback only satisfies TS for renders outside it (none today). */
+const useThumbZoom = (): ((p: Project) => void) => React.useContext(ThumbZoomContext) ?? (() => {})
+
 /** Full-bleed thumbnail strip for grid cards: latest screenshot, capturing
  *  spinner, or a placeholder that explains how to get a preview. Local and
  *  remote projects render identically (v1.24 — remote captures go through
@@ -789,7 +800,12 @@ function HealthScoreHoverCard({
  *  full 16:10 aspect — at card width the uncropped screenshot made cards
  *  ~220px taller than their text content. The image keeps object-top so the
  *  page header (the informative part) stays in frame; the full screenshot
- *  remains available in the hover card and the detail sheet. */
+ *  remains available in the hover card and the detail sheet.
+ *
+ *  v1.37: the strip itself is now a zoom button — at ~25% display scale the
+ *  crop can only answer "is it running / is it the right app", never "what
+ *  does the page say". Click opens the full-size lightbox (see
+ *  ThumbZoomLightbox below) — zero extra resting card space. */
 function ProjectThumbStrip({
   project, capturing, onCapture, density = 'comfortable',
 }: {
@@ -799,6 +815,7 @@ function ProjectThumbStrip({
   density?: 'compact' | 'comfortable' | 'spacious'
 }) {
   const t = useT()
+  const zoomOpen = useThumbZoom()
   const thumb = project.thumbnail
   // Screenshot strip heights per density (compact / comfortable / spacious).
   const imgH = density === 'compact' ? 'h-24' : density === 'spacious' ? 'h-40' : 'h-32'
@@ -853,14 +870,30 @@ function ProjectThumbStrip({
     return (
       <div className="relative shrink-0 border-b border-zinc-100 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900 group/thumb overflow-hidden">
         {/* Real screenshot of the running page (object-top: page headers are
-            the most informative part of a 16:10 crop). */}
-        <img
-          src={thumb.url}
-          alt={t('card.thumb.alt', { name: project.name })}
-          loading="lazy"
-          decoding="async"
-          className={`w-full ${imgH} object-cover object-top`}
-        />
+            the most informative part of a 16:10 crop). v1.37: wrapped in a
+            zoom button — click opens the readable full-size view. */}
+        <button
+          type="button"
+          className="block w-full cursor-zoom-in"
+          title={t('card.thumb.viewLargeHint')}
+          aria-label={t('card.thumb.viewLarge')}
+          onClick={(e) => { e.stopPropagation(); zoomOpen(project) }}
+        >
+          <img
+            src={thumb.url}
+            alt={t('card.thumb.alt', { name: project.name })}
+            loading="lazy"
+            decoding="async"
+            className={`w-full ${imgH} object-cover object-top`}
+          />
+        </button>
+        {/* Hover affordance — magnifier pill so click-to-zoom is discoverable
+            without trying. Top-LEFT on purpose: the capturing badge owns the
+            top-right corner. */}
+        <span className="pointer-events-none absolute top-2 left-2 inline-flex items-center gap-1 h-6 px-2 rounded-full bg-black/55 text-zinc-100 text-[11px] font-medium backdrop-blur-sm opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+          <Maximize2 className="h-3 w-3" />
+          {t('card.thumb.viewLarge')}
+        </span>
         {/* Hover overlay — meta line + re-capture button (local projects) */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/0 to-black/0 opacity-0 group-hover/thumb:opacity-100 transition-opacity pointer-events-none" />
         <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-1.5 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
@@ -906,6 +939,155 @@ function ProjectThumbStrip({
   )
 }
 
+// ======================== THUMBNAIL ZOOM LIGHTBOX (v1.37) ========================
+
+/** Smart open-URL for the lightbox — same logic as the card's getOpenUrl
+ *  (remote device IP / external-access proxy path / direct host URL), made
+ *  module-level because the lightbox lives outside the card component. */
+function thumbOpenUrl(project: Project, port: number): string {
+  if (project.deviceId) {
+    const deviceIp = (project as any).deviceIp || (project as any).ip || 'localhost'
+    return `http://${deviceIp}:${port}`
+  }
+  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+  if (host && host !== 'localhost' && host !== '127.0.0.1' && !host.startsWith('192.168.') && !host.startsWith('10.') && !/^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
+    return `/api/proxy/${port}/`
+  }
+  return `http://${host}:${port}`
+}
+
+/** Full-size screenshot viewer. The card strip shows the 1280×800 capture at
+ *  ~25% scale — enough to tell "is it running / is it the right app", never
+ *  enough to read the page. This lightbox is where the same JPEG becomes
+ *  legible: fit-to-screen by default (2-4× the card width), one click to
+ *  100% natural size with scroll panning. Takes zero resting card space.
+ *
+ *  Deliberately NOT an AppDialog: image viewers want a near-fullscreen dark
+ *  stage rather than the form-dialog size scale (≤920px) — but it follows
+ *  the same shell rules (v1.33: content reserves the close-✕ zone). */
+function ThumbZoomLightbox({
+  project, onClose, onCapture,
+}: {
+  project: Project | null
+  onClose: () => void
+  onCapture: (p: Project) => void
+}) {
+  const t = useT()
+  const [actual, setActual] = React.useState(false)
+  const thumb = project?.thumbnail
+  const hasImage = !!thumb?.file
+  // Back to fit mode whenever a different screenshot comes into view (also
+  // after an in-place re-capture — the fresh URL is a new "view").
+  React.useEffect(() => { setActual(false) }, [thumb?.url])
+
+  const envName = thumb
+    ? (thumb.envName === 'development' ? 'dev' : thumb.envName === 'production' ? 'prod' : thumb.envName)
+    : ''
+  // The "open live page" action only makes sense if the captured env is
+  // actually serving right now.
+  const envRunning = !!(project?.environments || []).find((e) => e.id === thumb?.envId && e.status === 'running')
+
+  return (
+    <Dialog open={hasImage} onOpenChange={(o) => { if (!o) onClose() }}>
+      <DialogContent
+        // Dark stage in BOTH themes — photo-lightbox convention; contrast of
+        // the screenshot is what matters. The trailing [&>*] selectors
+        // recolor the built-in close ✕ for the dark surface.
+        className="flex flex-col gap-0 overflow-hidden p-0 border-zinc-800 bg-zinc-950 text-zinc-100 sm:max-w-[min(1280px,calc(100vw-2rem))] [&>[data-slot=dialog-close]]:text-zinc-400 [&>[data-slot=dialog-close]]:hover:bg-white/10 [&>[data-slot=dialog-close]]:hover:text-zinc-50"
+      >
+        {thumb && hasImage && (
+          <>
+            {/* Meta bar — pr-14 reserves the built-in close-✕ zone (v1.33). */}
+            <div className="flex items-center gap-2.5 h-12 px-4 pr-14 border-b border-white/10 shrink-0">
+              <Camera className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+              <DialogTitle className="text-sm font-semibold text-zinc-100 truncate min-w-0 shrink">{project?.name}</DialogTitle>
+              <span className="flex items-center gap-1.5 shrink-0 text-[11px] text-zinc-400 tabular-nums">
+                <span className="px-1.5 h-5 inline-flex items-center rounded bg-white/10 text-zinc-300 font-medium">{envName}</span>
+                <span className="font-mono">:{thumb.port}</span>
+                <span>·</span>
+                <span className="whitespace-nowrap">{t('card.thumb.capturedAt', { time: formatTimeAgo(thumb.capturedAt, t) })}</span>
+                <span className="hidden sm:inline">·</span>
+                <span className="hidden sm:inline whitespace-nowrap">{Math.max(1, Math.round(thumb.bytes / 1024))} KB</span>
+                {thumb.error && (
+                  <span title={t('card.thumb.staleHint', { err: thumb.error.slice(0, 120) })} className="inline-flex">
+                    <AlertTriangle className="h-3 w-3 text-amber-400" />
+                  </span>
+                )}
+              </span>
+            </div>
+            <DialogDescription className="sr-only">{t('card.thumb.viewLargeHint')}</DialogDescription>
+
+            {/* Image stage — fit (centered, contained) ↔ actual (natural
+                1280px, scrollable pan). Click anywhere on the image toggles. */}
+            <div className={`relative flex-1 min-h-0 bg-black ${actual ? 'overflow-auto' : 'overflow-hidden flex items-center justify-center'}`}>
+              <img
+                src={thumb.url}
+                alt={t('card.thumb.alt', { name: project?.name ?? '' })}
+                decoding="async"
+                onClick={() => setActual((a) => !a)}
+                title={actual ? t('card.thumb.zoomFitTitle') : t('card.thumb.zoomActualTitle')}
+                className={actual
+                  ? 'block w-auto h-auto max-w-none cursor-zoom-out'
+                  : 'w-auto h-auto max-h-full max-w-full object-contain cursor-zoom-in'}
+              />
+              {project?.thumbCapturing && (
+                <span className="absolute top-2 left-2 inline-flex items-center gap-1.5 h-6 px-2 rounded-full bg-black/60 text-zinc-100 text-[11px] font-medium backdrop-blur-sm">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {t('card.thumb.capturing')}
+                </span>
+              )}
+            </div>
+
+            {/* Toolbar — centered, icon-first (labels hide on very small
+                screens so the row never wraps). */}
+            <div className="flex items-center justify-center gap-1 h-12 px-3 border-t border-white/10 shrink-0">
+              <button type="button"
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-[12px] font-medium text-zinc-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                onClick={() => setActual((a) => !a)}
+                title={actual ? t('card.thumb.zoomFitTitle') : t('card.thumb.zoomActualTitle')}
+              >
+                {actual ? <Minimize2 className="h-3.5 w-3.5" /> : <ZoomIn className="h-3.5 w-3.5" />}
+                <span className="hidden sm:inline">{actual ? t('card.thumb.fit') : t('card.thumb.actual')}</span>
+              </button>
+              <span className="w-px h-5 bg-white/10 mx-1" />
+              <button type="button"
+                disabled={!!project?.thumbCapturing}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-[12px] font-medium text-zinc-300 hover:text-white hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+                onClick={() => { if (project) onCapture(project) }}
+                title={t('card.thumb.refresh')}
+              >
+                {project?.thumbCapturing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                <span className="hidden sm:inline">{t('card.thumb.refreshShort')}</span>
+              </button>
+              <a
+                href={thumb.url}
+                download={`${project?.name ?? 'preview'}-preview.jpg`}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-[12px] font-medium text-zinc-300 hover:text-white hover:bg-white/10 transition-colors no-underline"
+                title={t('card.thumb.download')}
+              >
+                <Download className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{t('card.thumb.download')}</span>
+              </a>
+              {envRunning && (
+                <a
+                  href={thumbOpenUrl(project, thumb.port)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-[12px] font-medium text-zinc-300 hover:text-white hover:bg-white/10 transition-colors no-underline"
+                  title={t('card.thumb.openLive')}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{t('card.thumb.openLive')}</span>
+                </a>
+              )}
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // ======================== PROJECT QUICK PREVIEW HOVER CARD ========================
 
 function ProjectQuickPreview({
@@ -915,6 +1097,7 @@ function ProjectQuickPreview({
   children: React.ReactNode
 }) {
   const t = useT()
+  const zoomOpen = useThumbZoom()
   const [open, setOpen] = React.useState(false)
   const hoverTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const health = calculateHealthScore(project)
@@ -946,7 +1129,9 @@ function ProjectQuickPreview({
         // z-40: a hover preview must never cover dialogs/sheets (z-50) — the
         // quick-preview portal mounts at the end of <body>, so at equal z-index
         // it would paint on top of an open DetailSheet and swallow its clicks.
-        className="z-40 w-72 p-0 overflow-hidden"
+        // v1.37: widened w-72 → w-80/sm:w-96 — the hover peek used to be
+        // NARROWER than the card itself, which defeated its purpose.
+        className="z-40 w-80 sm:w-96 p-0 overflow-hidden"
         onMouseEnter={() => { if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current); setOpen(true) }}
         onMouseLeave={handleMouseLeave}
       >
@@ -962,15 +1147,25 @@ function ProjectQuickPreview({
           </div>
         </div>
         {/* Live preview (v1.22) — the same real screenshot the card shows,
-            enlarged inside the hover card. */}
-        {project.thumbnail && (
-          <img
-            src={project.thumbnail.url}
-            alt={t('card.thumb.alt', { name: project.name })}
-            loading="lazy"
-            decoding="async"
-            className="w-full aspect-[16/10] object-cover object-top border-b border-border/60 bg-zinc-100 dark:bg-zinc-900"
-          />
+            enlarged inside the hover card. v1.37: full 16:10 image (no crop)
+            and click-to-zoom into the lightbox for a readable view. Guarded
+            on .file: a failed-capture placeholder row has no image to show. */}
+        {project.thumbnail?.file && (
+          <button
+            type="button"
+            className="block w-full cursor-zoom-in group/qimg"
+            title={t('card.thumb.viewLargeHint')}
+            aria-label={t('card.thumb.viewLarge')}
+            onClick={() => zoomOpen(project)}
+          >
+            <img
+              src={project.thumbnail.url}
+              alt={t('card.thumb.alt', { name: project.name })}
+              loading="lazy"
+              decoding="async"
+              className="w-full aspect-[16/10] object-cover object-top border-b border-border/60 bg-zinc-100 dark:bg-zinc-900 transition-transform duration-300 group-hover/qimg:scale-[1.02]"
+            />
+          </button>
         )}
         <div className="p-3 space-y-2.5">
           {project.description && (
@@ -1233,6 +1428,7 @@ function SortableProjectCardImpl({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: project.id })
   const t = useT()
+  const zoomOpenList = useThumbZoom()
   const [expanded, setExpanded] = React.useState(false)
   const needsExpand = (project.environments || []).length > 3
   const style = {
@@ -1336,15 +1532,25 @@ function SortableProjectCardImpl({
           <div className="flex h-7 w-7 items-center justify-center rounded-md border border-brand/25 bg-brand-soft shadow-xs shrink-0">
             <IconComp className="h-3.5 w-3.5 text-brand-strong" />
           </div>
-          {/* Live preview chip (v1.22) — latest real screenshot, compact */}
-          {project.thumbnail && (
-            <img
-              src={project.thumbnail.url}
-              alt={t('card.thumb.alt', { name: project.name })}
-              loading="lazy"
-              decoding="async"
-              className="hidden sm:block h-9 w-14 rounded-md object-cover object-top border border-zinc-200 dark:border-zinc-700 shrink-0"
-            />
+          {/* Live preview chip (v1.22) — latest real screenshot, compact.
+              v1.37: clickable — the 56×36 chip is decorative on its own;
+              one click opens the readable full-size lightbox. */}
+          {project.thumbnail?.file && (
+            <button
+              type="button"
+              className="hidden sm:block shrink-0 rounded-md cursor-zoom-in hover:ring-2 hover:ring-brand/50 transition-all"
+              title={t('card.thumb.viewLargeHint')}
+              aria-label={t('card.thumb.viewLarge')}
+              onClick={(e) => { e.stopPropagation(); zoomOpenList(project) }}
+            >
+              <img
+                src={project.thumbnail.url}
+                alt={t('card.thumb.alt', { name: project.name })}
+                loading="lazy"
+                decoding="async"
+                className="h-9 w-14 rounded-md object-cover object-top border border-zinc-200 dark:border-zinc-700"
+              />
+            </button>
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -8826,6 +9032,13 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const [agentDeployGuideOpen, setAgentDeployGuideOpen] = React.useState(false)
   const [moveProjectDialog, setMoveProjectDialog] = React.useState<Project | null>(null)
   const [errorDialog, setErrorDialog] = React.useState<{ title: string; detail: string } | null>(null)
+  // v1.37: thumbnail zoom lightbox — opened from the card strip / hover
+  // preview / list chip via ThumbZoomContext. Holds the project ID (not the
+  // object) so an in-place re-capture (fetchProjects refresh) streams the
+  // fresh screenshot URL into the open lightbox.
+  const [thumbZoomId, setThumbZoomId] = React.useState<string | null>(null)
+  const openThumbZoom = React.useCallback((p: Project) => setThumbZoomId(p.id), [])
+  const thumbZoomProject = thumbZoomId ? projects.find((p) => p.id === thumbZoomId) ?? null : null
   // Session 11 states
   const [depGraphOpen, setDepGraphOpen] = React.useState(false)
   const [batchTagEditorOpen, setBatchTagEditorOpen] = React.useState(false)
@@ -11361,6 +11574,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   }, [filterStatus, filterTags, searchQuery, selectedDeviceId, devices, t])
 
   return (
+    <ThumbZoomContext.Provider value={openThumbZoom}>
     <div className="min-h-screen flex flex-col">
       {/* Layer-0 canvas: brand wash + fading dot grid, fixed behind all content */}
       <div className="page-backdrop" aria-hidden="true" />
@@ -13680,11 +13894,21 @@ function DashboardInner({ session }: { session: DashboardSession }) {
       />
       <ChangePasswordDialog open={changePwOpen} onClose={() => setChangePwOpen(false)} />
 
+      {/* v1.37: full-size screenshot viewer — opened from the card strip /
+          hover preview / list chip (ThumbZoomContext). Derived live from the
+          projects list so re-captures refresh the open view. */}
+      <ThumbZoomLightbox
+        project={thumbZoomProject}
+        onClose={() => setThumbZoomId(null)}
+        onCapture={handleCaptureThumbnail}
+      />
+
       {/* NOTE: toasts are rendered ONCE by the <Toaster /> mounted in the
           root layout — this page used to render a second custom toast list
           (same useToast store) which made every notification appear twice
           in two different styles. */}
     </div>
+    </ThumbZoomContext.Provider>
   )
 }
 
