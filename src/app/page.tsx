@@ -11672,8 +11672,60 @@ function DashboardInner({ session }: { session: DashboardSession }) {
             )}
           </div>
 
-          {/* Actions: [utility group] [separator] [primary action] */}
+          {/* Actions (v1.38 order): [view & status] | [appearance & config] |
+              [project actions] [account] — left → right: view toggle (bound
+              to the content below) → github update → bell (badged status
+              group) · sep · theme/lang/palette trio + settings hub · sep ·
+              remote pull + primary add · avatar terminal at the far edge. */}
           <div className="flex items-center gap-1 ml-auto">
+            {/* View toggle — ONE segmented control (grid | list), not two floating buttons */}
+            <div className="hidden sm:flex items-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-card/60 dark:bg-zinc-900/60 p-0.5 gap-0.5">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild><button type="button" aria-label={t('topbar.view.grid')} aria-pressed={viewMode === 'grid'} className={`inline-flex items-center justify-center rounded-[5px] h-6 w-8 cursor-pointer transition-colors ${viewMode === 'grid' ? 'bg-secondary text-secondary-foreground shadow-xs' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground active:scale-95'}`} onClick={() => setViewMode('grid')}>
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                  </button></TooltipTrigger>
+                  <TooltipContent>{t('topbar.view.grid')}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild><button type="button" aria-label={t('topbar.view.list')} aria-pressed={viewMode === 'list'} className={`inline-flex items-center justify-center rounded-[5px] h-6 w-8 cursor-pointer transition-colors ${viewMode === 'list' ? 'bg-secondary text-secondary-foreground shadow-xs' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground active:scale-95'}`} onClick={() => setViewMode('list')}>
+                    <List className="h-3.5 w-3.5" />
+                  </button></TooltipTrigger>
+                  <TooltipContent>{t('topbar.view.list')}</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+
+            {/* Dashboard self-update (v1.21): GitHub version check + one-click
+                update for the dashboard ITSELF — same hint semantics as the
+                project pills (emerald dot + behind-count badge when behind). */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t('dlg.selfUpdate.tooltip')}
+                    onClick={() => { setSelfUpdateOpen(true); fetchSelfUpdate({ refresh: true }) }}
+                    className={`inline-flex items-center justify-center rounded-md h-8 w-8 cursor-pointer relative transition-all duration-150 active:scale-95 ${
+                      isUpdateHint(selfStatus)
+                        ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                        : 'hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground'
+                    }`}
+                  >
+                    {selfCheckBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Github className="h-4 w-4" />}
+                    {isUpdateHint(selfStatus) && (
+                      <span className="absolute -top-1 -right-1 min-h-[16px] min-w-[16px] rounded-full bg-emerald-500 text-white text-[11px] flex items-center justify-center font-bold px-1 shadow-lg shadow-emerald-500/30">
+                        {selfStatus?.behind ?? '!'}
+                      </span>
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t('dlg.selfUpdate.tooltip')}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
             {/* Notifications */}
             <Popover>
               <PopoverTrigger asChild>
@@ -11756,66 +11808,11 @@ function DashboardInner({ session }: { session: DashboardSession }) {
 
             <Separator orientation="vertical" className="h-5 mx-0.5" />
 
-            {/* View toggle — ONE segmented control (grid | list), not two floating buttons */}
-            <div className="hidden sm:flex items-center rounded-md border border-zinc-200 dark:border-zinc-700 bg-card/60 dark:bg-zinc-900/60 p-0.5 gap-0.5">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild><button type="button" aria-label={t('topbar.view.grid')} aria-pressed={viewMode === 'grid'} className={`inline-flex items-center justify-center rounded-[5px] h-6 w-8 cursor-pointer transition-colors ${viewMode === 'grid' ? 'bg-secondary text-secondary-foreground shadow-xs' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground active:scale-95'}`} onClick={() => setViewMode('grid')}>
-                    <LayoutGrid className="h-3.5 w-3.5" />
-                  </button></TooltipTrigger>
-                  <TooltipContent>{t('topbar.view.grid')}</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild><button type="button" aria-label={t('topbar.view.list')} aria-pressed={viewMode === 'list'} className={`inline-flex items-center justify-center rounded-[5px] h-6 w-8 cursor-pointer transition-colors ${viewMode === 'list' ? 'bg-secondary text-secondary-foreground shadow-xs' : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground active:scale-95'}`} onClick={() => setViewMode('list')}>
-                    <List className="h-3.5 w-3.5" />
-                  </button></TooltipTrigger>
-                  <TooltipContent>{t('topbar.view.list')}</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-
-            <Separator orientation="vertical" className="h-5 mx-0.5 hidden sm:block" />
-
-            {/* Dashboard self-update (v1.21): GitHub version check + one-click
-                update for the dashboard ITSELF — same hint semantics as the
-                project pills (emerald dot + behind-count badge when behind). */}
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t('dlg.selfUpdate.tooltip')}
-                    onClick={() => { setSelfUpdateOpen(true); fetchSelfUpdate({ refresh: true }) }}
-                    className={`inline-flex items-center justify-center rounded-md h-8 w-8 cursor-pointer relative transition-all duration-150 active:scale-95 ${
-                      isUpdateHint(selfStatus)
-                        ? 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
-                        : 'hover:bg-accent dark:hover:bg-white/10 hover:text-accent-foreground'
-                    }`}
-                  >
-                    {selfCheckBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Github className="h-4 w-4" />}
-                    {isUpdateHint(selfStatus) && (
-                      <span className="absolute -top-1 -right-1 min-h-[16px] min-w-[16px] rounded-full bg-emerald-500 text-white text-[11px] flex items-center justify-center font-bold px-1 shadow-lg shadow-emerald-500/30">
-                        {selfStatus?.behind ?? '!'}
-                      </span>
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t('dlg.selfUpdate.tooltip')}</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-
+            {/* Appearance & locale trio (v1.38 regroup): theme, language,
+                palette — quick preferences live together, clear of identity. */}
             <ThemeToggle />
             {/* Standalone language switcher (task 17) — the only language control */}
             <LanguageToggle />
-            <UserMenu
-              user={session.user}
-              onLogout={session.logout}
-              pendingCount={session.user.role === 'admin' ? adminPendingCount : 0}
-              onOpenUserManagement={() => setUserMgmtOpen(true)}
-              onOpenChangePassword={() => setChangePwOpen(true)}
-            />
             <ThemeCustomizer />
 
             {/* Settings dropdown: Gateway, LLM, Export, Sync */}
@@ -11859,10 +11856,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* Separator between utility group and primary action */}
+            {/* Separator: preferences & config | project actions */}
             <Separator orientation="vertical" className="h-5 mx-1.5" />
 
-            {/* Primary action */}
+            {/* Project source actions: remote pull (secondary) + local add (primary CTA) */}
             <TooltipProvider><Tooltip><TooltipTrigger asChild><button type="button" aria-label={devices.length === 0 ? t('topbar.remoteProject.noDevice') : t('topbar.remoteProject.tooltip')} onClick={() => setRemoteProjectOpen(true)} disabled={devices.length === 0} className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
               <MonitorSmartphone className="h-4 w-4" />
             </button></TooltipTrigger><TooltipContent>{devices.length === 0 ? t('topbar.remoteProject.noDevice') : t('topbar.remoteProject.tooltip')}</TooltipContent></Tooltip></TooltipProvider>
@@ -11870,6 +11867,16 @@ function DashboardInner({ session }: { session: DashboardSession }) {
               <Plus className="h-3.5 w-3.5 mr-1" />
               <span className="hidden sm:inline">{t('topbar.addProject')}</span>
             </Button>
+
+            {/* Account — terminal position (v1.38): the avatar closes the
+                toolbar at the far right edge (universal header convention). */}
+            <UserMenu
+              user={session.user}
+              onLogout={session.logout}
+              pendingCount={session.user.role === 'admin' ? adminPendingCount : 0}
+              onOpenUserManagement={() => setUserMgmtOpen(true)}
+              onOpenChangePassword={() => setChangePwOpen(true)}
+            />
           </div>
         </div>
       </header>
