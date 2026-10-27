@@ -31,8 +31,11 @@ const execFileAsync = (file: string, args: string[], opts: any = {}): Promise<{ 
  * themselves". Three cooperating pieces:
  *
  *   L1 (this file, dashboard side)
- *     - probeSelfUpdate(): is THIS repo behind its origin? (ls-remote, no
- *       network-heavy fetch of objects, TTL-cached 5 min)
+ *     - probeSelfUpdate(): is THIS repo behind its origin? (v1.41 verdict
+ *       ladder: ls-remote + local rev-parse decide, equal shas = current
+ *       with ZERO fetch; `git fetch` (45s budget) only refines the behind
+ *       count and an offline fallback counts from local objects. Success
+ *       TTL-cached 5 min, error probes only 60s.)
  *     - autoPullIfSafe(): when behind AND the working tree is clean AND the
  *       checkout sits on the remote's default branch AND the ops.autoUpdate
  *       setting is ON (default) → `git pull --ff-only`. In dev mode the
@@ -65,6 +68,14 @@ const execFileAsync = (file: string, args: string[], opts: any = {}): Promise<{ 
 const GIT_TIMEOUT = 20_000;
 /** How often the supervisor may actually hit the network for ls-remote. */
 const PROBE_TTL_MS = 5 * 60 * 1000;
+/** v1.41: FAILURE probes are negative-cached for only 60s (was 5 min) — a
+ *  transient ls-remote failure must not blind the supervisor and the agent
+ *  heartbeat signal for a full cycle. */
+const PROBE_ERROR_TTL_MS = 60 * 1000;
+/** v1.41: object-download budget (was 20s). The verdict no longer depends
+ *  on the fetch succeeding (offline fallback below), so slow links get more
+ *  headroom before the behind count degrades to null. */
+const FETCH_TIMEOUT = 45_000;
 /** Minimum spacing between two REAL auto-pull attempts (failure backoff). */
 const PULL_MIN_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -166,6 +177,36 @@ async function localHead(): Promise<string | null> {
   }
 }
 
+/** v1.41: is `sha` present in THIS repo's object store as a commit?
+ *  (`cat-file -e <sha>^{commit}` — purely local, no network.) */
+async function commitKnown(sha: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['cat-file', '-e', `${sha}^{commit}`], {
+      timeout: GIT_TIMEOUT, maxBuffer: 64 * 1024,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** v1.41: exact behind count from LOCAL objects only — the offline fallback
+ *  when the fetch died. Anchored on the sha ls-remote REPORTED, never on
+ *  the possibly-stale origin/<branch> tracking ref. Null when the remote
+ *  tip is not in the local object store (count unknowable offline). */
+async function localBehindCount(localSha: string, remoteSha: string): Promise<number | null> {
+  if (!(await commitKnown(remoteSha))) return null;
+  try {
+    const { stdout } = await execFileAsync(
+      'git', ['rev-list', '--count', `${localSha}..${remoteSha}`],
+      { timeout: GIT_TIMEOUT, maxBuffer: 64 * 1024 },
+    );
+    return parseInt(stdout.trim(), 10) || 0;
+  } catch {
+    return null;
+  }
+}
+
 /** Remote default branch + HEAD sha in one ls-remote round trip. */
 async function lsRemoteOrigin(
   url: string,
@@ -212,22 +253,25 @@ export async function probeSelfUpdate(force = false): Promise<SelfUpdateStatus> 
     }
     let behind: number | null = null;
     if (localSha) {
-      try {
-        // `git fetch origin <branch>` updates remote-tracking refs only (the
-        // exact pre-step `git pull` runs — safe by construction), then
-        // rev-list gives an exact behind count. Transient network flakes
-        // are auto-retried inside (v1.18).
-        await execGitNetwork(
-          [...await netProxyArgs(), 'fetch', '--quiet', 'origin', remote.branch || 'HEAD'],
-          { timeout: GIT_TIMEOUT, maxBuffer: 1024 * 512 },
-        );
-        const { stdout } = await execFileAsync(
-          'git', ['rev-list', '--count', `HEAD..origin/${remote.branch}`],
-          { timeout: GIT_TIMEOUT, maxBuffer: 64 * 1024 },
-        );
-        behind = parseInt(stdout.trim(), 10) || 0;
-      } catch {
-        behind = null;
+      if (localSha === remote.sha) {
+        // v1.41 sha-first: equal HEADs = current with ZERO fetch — the
+        // steady state must never pay for object downloads at all.
+        behind = 0;
+      } else {
+        // v1.41: the remote tip differs — `git fetch origin <branch>` (the
+        // exact pre-step `git pull` runs, safe by construction) now serves
+        // ONLY to refine the behind count, under the raised 45s budget.
+        // Transient network flakes are auto-retried inside (v1.18). On
+        // failure localBehindCount falls back to LOCAL objects, anchored
+        // on the sha ls-remote reported (never the possibly-stale
+        // origin/<branch> tracking ref).
+        try {
+          await execGitNetwork(
+            [...await netProxyArgs(), 'fetch', '--quiet', 'origin', remote.branch || 'HEAD'],
+            { timeout: FETCH_TIMEOUT, maxBuffer: 1024 * 512 },
+          );
+        } catch { /* offline fallback below */ }
+        behind = await localBehindCount(localSha, remote.sha);
       }
     }
     return {
@@ -242,7 +286,9 @@ export async function probeSelfUpdate(force = false): Promise<SelfUpdateStatus> 
 
   try {
     const value = await probeInFlight;
-    cached = { value, expires: Date.now() + PROBE_TTL_MS };
+    // v1.41: error probes negative-cache 60s only — success keeps 5 min.
+    const ttl = value.error ? PROBE_ERROR_TTL_MS : PROBE_TTL_MS;
+    cached = { value, expires: Date.now() + ttl };
     return value;
   } finally {
     probeInFlight = null;
@@ -303,6 +349,10 @@ export async function autoPullIfSafe(): Promise<AutoPullResult> {
     }
     if (status.localSha === status.remoteSha) return no('already up to date');
     if (status.behind === null) return no('behind-count unknown (fetch failed)');
+    // v1.41: behind = 0 with differing shas means ahead or diverged — a
+    // pull can only no-op or fail, so skip before touching the tree (the
+    // offline fallback can now compute 0 from local objects).
+    if (status.behind === 0) return no('not behind (local ahead or diverged)');
 
     // Branch guard: only fast-forward the DEFAULT branch. A user who checked
     // out a feature branch on this machine owns the checkout — no auto-pull.

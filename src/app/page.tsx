@@ -205,7 +205,9 @@ interface ProjectVersion {
 }
 
 /** Remote-repo freshness from /api/projects/updates (see lib/git-update-check.ts).
- *  'behind'/'diverged'/'differs' → the card shows an "update available" hint. */
+ *  'behind'/'diverged'/'differs' → the card shows an "update available" hint;
+ *  v1.41: 'unknown' (check failed) shows a dashed amber "check unavailable"
+ *  chip with a retry affordance instead of silently hiding the hint. */
 interface RepoUpdateStatus {
   state: 'current' | 'behind' | 'ahead' | 'diverged' | 'differs' | 'unknown'
   behind: number | null
@@ -1380,7 +1382,7 @@ function SortableProjectCardImpl({
   starred, onToggleStar, lanIp, currentHost, index = 0,
   batchMode = false, onDuplicate, onMoveToDevice, devices, onHover,
   focused = false, cardDensity = 'comfortable', onCompare, pinOrder, onReanalyze,
-  pendingOps = {}, onPull, pulling = false, version, update, onSwitchBranch, onCaptureThumb,
+  pendingOps = {}, onPull, pulling = false, version, update, onRetryUpdateCheck, onSwitchBranch, onCaptureThumb,
 }: {
   project: Project
   viewMode: ViewMode
@@ -1421,6 +1423,9 @@ function SortableProjectCardImpl({
   /** Remote-repo freshness from /api/projects/updates — non-null hint states
    *  (behind / diverged / differs) render an "update available" pill. */
   update?: RepoUpdateStatus | null
+  /** v1.41: re-run the batch update check (?refresh=1) — the dashed amber
+   *  "check unavailable" chip's retry affordance on grid + list cards. */
+  onRetryUpdateCheck?: () => void
   pendingOps?: Record<string, string>
   /** Capture / re-capture the live preview thumbnail (local projects with a
    *  running env). v1.22. */
@@ -1466,10 +1471,20 @@ function SortableProjectCardImpl({
   const updateHint = isUpdateHint(update) ? update! : null
   const updateTooltip = updateHint
     ? updateHint.state === 'behind'
-      ? t('card.repo.behindTip', { count: updateHint.behind ?? 0 })
+      ? updateHint.behind == null
+        ? t('card.repo.behindTipUnknown')
+        : t('card.repo.behindTip', { count: updateHint.behind ?? 0 })
       : updateHint.state === 'diverged'
         ? t('card.repo.divergedTip', { ahead: updateHint.ahead ?? 0, behind: updateHint.behind ?? 0 })
         : t('card.repo.differsTip', { remote: updateHint.remoteSha ?? '?' })
+    : null
+
+  // v1.41: a FAILED check is visible on the card as a dashed amber chip with
+  // the error + a click-to-retry affordance (?refresh=1) — "sometimes updates
+  // are not detected" must not degrade to silent nothing.
+  const updateUnknown = !!update && update.state === 'unknown'
+  const unknownTooltip = updateUnknown
+    ? [String(update?.error || '').slice(0, 200), t('card.repo.checkRetry')].filter(Boolean).join(' — ')
     : null
 
   const envLabel = (name: string) => name === 'development' ? 'dev' : name === 'production' ? 'prod' : name
@@ -1582,6 +1597,14 @@ function SortableProjectCardImpl({
                 <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 text-[11px] font-medium text-zinc-400 dark:text-zinc-500 hover:text-brand-strong dark:hover:text-brand hover:border-brand/45 hover:bg-brand-soft/40 transition-colors cursor-pointer" title={t('card.repo.connectTooltip')} onClick={(e) => { e.stopPropagation(); onEdit(project) }}>
                   <Github className="h-3 w-3 shrink-0" />
                   <span className="hidden md:inline">{t('card.repo.connect')}</span>
+                </button>
+              )}
+              {/* v1.41: check FAILED — dashed amber chip instead of silently
+                  hiding the hint; click retries the batch check (?refresh=1). */}
+              {updateUnknown && (
+                <button type="button" className="shrink-0 inline-flex items-center gap-1 h-6 px-1.5 rounded-md border border-dashed border-amber-300/80 dark:border-amber-700/60 bg-amber-50/70 dark:bg-amber-950/25 text-[11px] font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors cursor-pointer" title={unknownTooltip ?? undefined} onClick={(e) => { e.stopPropagation(); onRetryUpdateCheck?.() }}>
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  <span className="hidden md:inline">{t('card.repo.checkUnavailable')}</span>
                 </button>
               )}
               {/* List-view version badge — same lozenge as the grid card,
@@ -1978,6 +2001,23 @@ function SortableProjectCardImpl({
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
                   <span className="hidden sm:inline">{t('card.repo.updateAvailable')}</span>
                   {updateHint.state !== 'differs' && typeof updateHint.behind === 'number' && updateHint.behind > 0 && <span className="tabular-nums">·{updateHint.behind}</span>}
+                </span>
+              )}
+              {/* v1.41: check FAILED — dashed amber chip with the error and a
+                  click-to-retry affordance. The pull row is a <button>, so a
+                  nested <button> would be invalid HTML — role="button" span. */}
+              {updateUnknown && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={t('card.repo.checkUnavailable')}
+                  className="shrink-0 inline-flex items-center gap-1 h-[18px] px-1.5 rounded-full border border-dashed border-amber-300/80 dark:border-amber-700/60 bg-amber-50/70 dark:bg-amber-950/25 text-amber-700 dark:text-amber-400 text-[11px] font-medium cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+                  title={unknownTooltip ?? undefined}
+                  onClick={(e) => { e.stopPropagation(); onRetryUpdateCheck?.() }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onRetryUpdateCheck?.() } }}
+                >
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  <span className="hidden sm:inline">{t('card.repo.checkUnavailable')}</span>
                 </span>
               )}
               {version && version.sha && (
@@ -4692,7 +4732,7 @@ function SelfUpdateDialog({ open, onClose, status, meta, busy, onCheck, onUpdate
       case 'current':
         return { icon: <CheckCircle2 className="h-4 w-4 shrink-0" />, cls: 'border-emerald-300/60 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300', text: t('dlg.selfUpdate.current') }
       case 'behind':
-        return { icon: <Download className="h-4 w-4 shrink-0" />, cls: 'border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300', text: t('dlg.selfUpdate.behind', { count: status.behind ?? 1 }) }
+        return { icon: <Download className="h-4 w-4 shrink-0" />, cls: 'border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300', text: status.behind == null ? t('dlg.selfUpdate.behindUnknown') : t('dlg.selfUpdate.behind', { count: status.behind }) }
       case 'diverged':
         return { icon: <GitBranch className="h-4 w-4 shrink-0" />, cls: 'border-amber-300/60 dark:border-amber-900/60 bg-amber-50/60 dark:bg-amber-950/20 text-amber-700 dark:text-amber-300', text: t('dlg.selfUpdate.diverged', { ahead: status.ahead ?? 0, behind: status.behind ?? 0 }) }
       case 'ahead':
@@ -6637,7 +6677,9 @@ function DetailSheet({
   const detailUpdateHint = isUpdateHint(update) ? update! : null
   const detailUpdateTooltip = detailUpdateHint
     ? detailUpdateHint.state === 'behind'
-      ? t('card.repo.behindTip', { count: detailUpdateHint.behind ?? 0 })
+      ? detailUpdateHint.behind == null
+        ? t('card.repo.behindTipUnknown')
+        : t('card.repo.behindTip', { count: detailUpdateHint.behind ?? 0 })
       : detailUpdateHint.state === 'diverged'
         ? t('card.repo.divergedTip', { ahead: detailUpdateHint.ahead ?? 0, behind: detailUpdateHint.behind ?? 0 })
         : t('card.repo.differsTip', { remote: detailUpdateHint.remoteSha ?? '?' })
@@ -9590,21 +9632,30 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   // One batch request for ALL projects; cards surface an "update available"
   // pill for behind / diverged / differs. Runs after the versions load and
   // then every 10 minutes (paused while the tab is hidden). A toast fires
-  // only the FIRST time each project's update is detected per session.
+  // only the FIRST time each project's update is detected per session,
+  // keyed by project + remote SHA (v1.41: a NEW push re-notifies).
   const [projectUpdates, setProjectUpdates] = React.useState<Record<string, RepoUpdateStatus | null>>({})
-  const notifiedUpdateIdsRef = React.useRef<Set<string>>(new Set())
+  // v1.41: dedup key = projectId + ':' + remoteSha — the old once-per-
+  // session-per-project toast swallowed a second push entirely, reinforcing
+  // the "sometimes works, sometimes not" feeling.
+  const notifiedUpdateKeysRef = React.useRef<Set<string>>(new Set())
   const fetchProjectUpdates = React.useCallback(async (opts?: { refresh?: boolean }) => {
     try {
-      const res = await fetch(`/api/projects/updates${opts?.refresh ? '?refresh=1' : ''}`)
+      // v1.41: hard client-side cap (120s) — a hung updates batch must not
+      // stall the 10-min poll cadence forever.
+      const res = await fetch(`/api/projects/updates${opts?.refresh ? '?refresh=1' : ''}`, { signal: AbortSignal.timeout(120_000) })
       if (!res.ok) return
       const data = await res.json()
       const updates: Record<string, RepoUpdateStatus | null> = data.updates ?? {}
       setProjectUpdates(updates)
-      const fresh = Object.entries(updates).filter(
-        ([id, u]) => isUpdateHint(u) && !notifiedUpdateIdsRef.current.has(id),
-      )
+      const fresh = Object.entries(updates).filter(([id, u]) => {
+        if (!isUpdateHint(u)) return false
+        const key = `${id}:${u?.remoteSha ?? ''}`
+        if (notifiedUpdateKeysRef.current.has(key)) return false
+        notifiedUpdateKeysRef.current.add(key)
+        return true
+      })
       if (fresh.length > 0) {
-        for (const [id] of fresh) notifiedUpdateIdsRef.current.add(id)
         const names = fresh
           .map(([id]) => projectsRef.current.find((p) => p.id === id)?.name)
           .filter((n): n is string => !!n)
@@ -9626,13 +9677,18 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   const fetchSelfUpdate = React.useCallback(async (opts?: { refresh?: boolean }) => {
     setSelfCheckBusy(true)
     try {
-      const res = await fetch(`/api/self-update${opts?.refresh ? '?refresh=1' : ''}`)
+      const res = await fetch(`/api/self-update${opts?.refresh ? '?refresh=1' : ''}`, { signal: AbortSignal.timeout(120_000) })
       if (!res.ok) return
       const data = await res.json()
       setSelfStatus(data.status ?? null)
       setSelfMeta(data.meta ?? null)
     } catch { /* best-effort */ } finally { setSelfCheckBusy(false) }
   }, [])
+
+  // v1.41: stable callback for the cards' "check unavailable" retry chip —
+  // fires the batch update check with ?refresh=1 (bypasses the server-side
+  // negative cache). Identity-stable so React.memo'd cards don't re-render.
+  const retryProjectUpdateCheck = React.useCallback(() => { void fetchProjectUpdates({ refresh: true }) }, [fetchProjectUpdates])
 
   const fetchNotifications = React.useCallback(async () => {
     try {
@@ -9812,8 +9868,10 @@ function DashboardInner({ session }: { session: DashboardSession }) {
   }, []) // Initial load only
 
   // Auto update check — every 10 minutes, paused while the tab is hidden.
-  // Server-side results are cached 5 min, so an open dashboard triggers at
-  // most one ls-remote+fetch per repo per ~10 min even with several tabs.
+  // Server-side results are cached 5 min (failures only 60s — v1.41), so an
+  // open dashboard triggers at most one ls-remote (+fetch when not current)
+  // per repo per ~10 min even with several tabs. Failed checks now surface
+  // as the dashed amber chip on cards instead of hiding the update hint.
   React.useEffect(() => {
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
@@ -12840,7 +12898,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onPull={handlePullProject}
                               onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
-                              update={projectUpdates[project.id]}
+                              update={projectUpdates[project.id]} onRetryUpdateCheck={retryProjectUpdateCheck}
                             />
                           ))}
                         </React.Fragment>
@@ -12894,7 +12952,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onPull={handlePullProject}
                               onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
-                              update={projectUpdates[project.id]}
+                              update={projectUpdates[project.id]} onRetryUpdateCheck={retryProjectUpdateCheck}
                             />
                           ))}
                         </>
@@ -12946,7 +13004,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onPull={handlePullProject}
                               onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
-                              update={projectUpdates[project.id]}
+                              update={projectUpdates[project.id]} onRetryUpdateCheck={retryProjectUpdateCheck}
                             />
                           ))}
                         </React.Fragment>
@@ -12986,7 +13044,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onPull={handlePullProject}
                               onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
-                              update={projectUpdates[project.id]}
+                              update={projectUpdates[project.id]} onRetryUpdateCheck={retryProjectUpdateCheck}
                       />
                     ))
                   )}
@@ -13035,7 +13093,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onPull={handlePullProject}
                               onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
-                              update={projectUpdates[project.id]}
+                              update={projectUpdates[project.id]} onRetryUpdateCheck={retryProjectUpdateCheck}
                             />
                           ))}
                         </React.Fragment>
@@ -13087,7 +13145,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onPull={handlePullProject}
                               onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
-                              update={projectUpdates[project.id]}
+                              update={projectUpdates[project.id]} onRetryUpdateCheck={retryProjectUpdateCheck}
                             />
                           ))}
                         </>
@@ -13138,7 +13196,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onPull={handlePullProject}
                               onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
-                              update={projectUpdates[project.id]}
+                              update={projectUpdates[project.id]} onRetryUpdateCheck={retryProjectUpdateCheck}
                             />
                           ))}
                         </React.Fragment>
@@ -13179,7 +13237,7 @@ function DashboardInner({ session }: { session: DashboardSession }) {
                               onPull={handlePullProject}
                               onSwitchBranch={setBranchPickerProject}
                               version={projectVersions[project.id]}
-                              update={projectUpdates[project.id]}
+                              update={projectUpdates[project.id]} onRetryUpdateCheck={retryProjectUpdateCheck}
                       />
                     ))
                   )}

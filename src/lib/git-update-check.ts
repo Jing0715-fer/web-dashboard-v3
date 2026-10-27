@@ -14,10 +14,20 @@ const execFileAsync = (file: string, args: string[], opts: any = {}): Promise<{ 
   execFileRawAsync(file, args, { windowsHide: true, ...opts }) as unknown as Promise<{ stdout: string; stderr: string }>;
 
 const GIT_TIMEOUT = 20000;
+/** v1.41: budget for the OBJECT-DOWNLOAD step (`git fetch`). The verdict
+ *  ladder below never blocks the verdict on this — fetch only refines the
+ *  behind COUNT — so a slow link / large push gets 45s (was 20s) before the
+ *  offline fallback (local objects) takes over. */
+const FETCH_TIMEOUT = 45000;
 /** Cached check results — the UI polls every 10 min, so a 5 min TTL keeps
  *  github.com / gitlab.com request volume at one ls-remote+fetch per repo
  *  per 5 minutes even with several dashboards tabs open. */
 const CACHE_TTL_MS = 5 * 60 * 1000;
+/** v1.41: FAILURE ('unknown') results are negative-cached for only 60s (was
+ *  the full 5 min). The old TTL + the 10-min UI poll meant one network
+ *  hiccup could hide the update notice for 10+ minutes — "no error, but no
+ *  new version shown". With 60s the next poll cycle already retries. */
+const UNKNOWN_CACHE_TTL_MS = 60 * 1000;
 
 /** v1.27: the git network config (proxy) for this process — read once per
  *  check cycle, applied to every network call below via -c args so nothing
@@ -41,8 +51,9 @@ async function netArgs(): Promise<string[]> {
  *                 SHA differs from the remote HEAD; direction is unknowable
  *                 without the repo, so the hint is worded neutrally
  *  - 'unknown'  — check failed (no repoUrl, offline remote, private repo,
- *                 legacy agent …). Never surfaced as an error — the card
- *                 simply hides the hint.
+ *                 legacy agent …). v1.41: no longer hidden silently — the
+ *                 card surfaces a dashed amber "update check unavailable"
+ *                 chip carrying the error and a click-to-retry affordance.
  */
 export interface RepoUpdateStatus {
   state: 'current' | 'behind' | 'ahead' | 'diverged' | 'differs' | 'unknown';
@@ -131,14 +142,54 @@ async function lsRemoteHead(repoUrl: string): Promise<{ sha: string; branch: str
   return { sha, branch };
 }
 
+/** Local HEAD sha of the checkout at `path` — null when unborn (fresh repo
+ *  without commits) or unreadable. Purely local, no network. */
+async function revParseHead(path: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', path, 'rev-parse', 'HEAD'], {
+      timeout: GIT_TIMEOUT, maxBuffer: 64 * 1024,
+    });
+    const sha = stdout.trim();
+    return /^[0-9a-f]{40}$/i.test(sha) ? sha : null;
+  } catch {
+    return null;
+  }
+}
+
+/** v1.41: is `sha` present in the local object store as a commit?
+ *  (`cat-file -e <sha>^{commit}` — purely local, no network.) */
+async function commitKnown(path: string, sha: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['-C', path, 'cat-file', '-e', `${sha}^{commit}`], {
+      timeout: GIT_TIMEOUT, maxBuffer: 64 * 1024,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Precise behind/ahead counts for a LOCAL project:
+ * Precise freshness verdict for a LOCAL project — the v1.41 "verdict ladder".
  *
- *  1. ls-remote → default branch + remote HEAD
- *  2. `git fetch <repoUrl> <branch>` — updates FETCH_HEAD only; the working
- *     tree, index and local branches are never touched (this is the exact
- *     step `git pull` runs before merging, so it is safe by construction)
- *  3. rev-list --count HEAD..FETCH_HEAD (behind) / FETCH_HEAD..HEAD (ahead)
+ * The version VERDICT (current / behind / ahead / diverged) must never depend
+ * on downloading objects. The old flow ran `git fetch` BEFORE counting, so a
+ * slow link or a large push killed the fetch (20s budget) and collapsed the
+ * whole check to 'unknown' — the card silently hid the update pill and the
+ * user just saw "no new version, no error". The ladder decides instead:
+ *
+ *  1. `git ls-remote --symref` → remote HEAD sha + default branch — ONE
+ *     small request, no objects.
+ *  2. local `rev-parse HEAD`; equal shas ⇒ 'current' with ZERO fetch.
+ *  3. remote tip already in the local object store (`cat-file -e`) ⇒ exact
+ *     ahead/behind via `rev-list` between the two SHAs — fully offline.
+ *  4. otherwise `git fetch` (budget 45s) runs ONLY to refine the count; on
+ *     failure the check still returns the best local verdict:
+ *       - tip missing from the local store ⇒ NECESSARILY behind
+ *         (behind = null count — never a fake 'current'/'ahead').
+ *  5. rev-list always anchors on the sha ls-remote REPORTED — FETCH_HEAD is
+ *     never read (a concurrent pull rewrites it mid-check) and origin/<branch>
+ *     is never trusted (a possibly stale tracking ref).
  *
  * Never throws — failures return state 'unknown' with a masked error.
  */
@@ -169,35 +220,59 @@ async function computeLocalStatus(path: string, repoUrl: string): Promise<RepoUp
     return unknown('remote reported an invalid branch name', remoteSha);
   }
 
-  // Fetch the remote's default branch tip into FETCH_HEAD. Falling back to
-  // the literal 'HEAD' ref covers servers that don't answer --symref.
+  // ---- Ladder step 2: SHA-first comparison. Equal shas ⇒ 'current' with
+  // ZERO fetch — the common steady state never pays for object downloads.
+  const localSha = await revParseHead(path);
+  if (localSha && localSha === head.sha) {
+    return {
+      state: 'current', behind: 0, ahead: 0, remoteSha, branch: head.branch,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  // ---- Ladder step 4: fetch ONLY refines the counts. The shas differ, so
+  // the remote tip is newer from local's perspective — download its objects
+  // under the raised 45s budget. Failure is NON-FATAL: the ladder below
+  // still returns a verdict from local objects alone.
   try {
     await execGitNetwork(
       [...await netArgs(), '-C', path, 'fetch', '--quiet', '--no-tags', repoUrl, head.branch || 'HEAD'],
-      { timeout: GIT_TIMEOUT, maxBuffer: 1024 * 512 },
+      { timeout: FETCH_TIMEOUT, maxBuffer: 1024 * 512 },
     );
-  } catch (e: any) {
-    return unknown(maskCreds(`fetch failed: ${e?.stderr || e?.message || e}`), remoteSha);
+  } catch { /* offline fallback below — the verdict never depended on this */ }
+
+  // ---- Ladder steps 3+5: exact counts from local objects, anchored on the
+  // sha ls-remote reported (never FETCH_HEAD, never origin/<branch>).
+  if (localSha && (await commitKnown(path, head.sha))) {
+    try {
+      const [behindOut, aheadOut] = await Promise.all([
+        execFileAsync('git', ['-C', path, 'rev-list', '--count', `${localSha}..${head.sha}`], {
+          timeout: GIT_TIMEOUT, maxBuffer: 64 * 1024,
+        }),
+        execFileAsync('git', ['-C', path, 'rev-list', '--count', `${head.sha}..${localSha}`], {
+          timeout: GIT_TIMEOUT, maxBuffer: 64 * 1024,
+        }),
+      ]);
+      const behind = parseInt(behindOut.stdout.trim(), 10) || 0;
+      const ahead = parseInt(aheadOut.stdout.trim(), 10) || 0;
+      const state: RepoUpdateStatus['state'] =
+        behind > 0 && ahead > 0 ? 'diverged' : behind > 0 ? 'behind' : ahead > 0 ? 'ahead' : 'current';
+      return { state, behind, ahead, remoteSha, branch: head.branch, checkedAt: new Date().toISOString() };
+    } catch (e: any) {
+      // Objects present but rev-list failed (corrupt store, unborn HEAD…).
+      return unknown(maskCreds(`rev-list failed: ${e?.message || e}`), remoteSha, head.branch);
+    }
   }
 
-  try {
-    const [behindOut, aheadOut] = await Promise.all([
-      execFileAsync('git', ['-C', path, 'rev-list', '--count', 'HEAD..FETCH_HEAD'], {
-        timeout: GIT_TIMEOUT, maxBuffer: 64 * 1024,
-      }),
-      execFileAsync('git', ['-C', path, 'rev-list', '--count', 'FETCH_HEAD..HEAD'], {
-        timeout: GIT_TIMEOUT, maxBuffer: 64 * 1024,
-      }),
-    ]);
-    const behind = parseInt(behindOut.stdout.trim(), 10) || 0;
-    const ahead = parseInt(aheadOut.stdout.trim(), 10) || 0;
-    const state: RepoUpdateStatus['state'] =
-      behind > 0 && ahead > 0 ? 'diverged' : behind > 0 ? 'behind' : ahead > 0 ? 'ahead' : 'current';
-    return { state, behind, ahead, remoteSha, branch: head.branch, checkedAt: new Date().toISOString() };
-  } catch (e: any) {
-    // Unborn local HEAD (fresh repo without commits) or rev-list failure.
-    return unknown(maskCreds(`rev-list failed: ${e?.message || e}`), remoteSha, head.branch);
-  }
+  // Remote tip missing from the local object store even after the fetch
+  // attempt: local HEAD is a commit, the remote HEAD is a DIFFERENT commit
+  // we do not have ⇒ the remote is necessarily ahead. Report 'behind' with
+  // an unknown count (behind = null) — never a fake 'current'/'ahead'.
+  // (Also covers an unborn local HEAD: remote has a commit, local has none.)
+  return {
+    state: 'behind', behind: null, ahead: null, remoteSha, branch: head.branch,
+    checkedAt: new Date().toISOString(),
+  };
 }
 
 /**
@@ -254,7 +329,7 @@ async function cachedCheck(
   const myGen = generationOf(projectId);
   // Join an in-flight check ONLY when it started at (or after) the current
   // generation — otherwise let it settle first (git calls are timeout-
-  // bounded at 20s) and compute a current-generation result.
+  // bounded at 45s) and compute a current-generation result.
   const pending = inflight.get(projectId);
   if (pending && pending.gen >= myGen) return pending.promise;
   if (pending) await pending.promise.catch(() => { /* stale one's error is irrelevant */ });
@@ -264,7 +339,11 @@ async function cachedCheck(
     const value = await p;
     // Don't cache over a newer generation (invalidated while we ran).
     if (generationOf(projectId) === myGen) {
-      cache.set(projectId, { value, expires: Date.now() + CACHE_TTL_MS });
+      // v1.41: failure ('unknown') results negative-cache for only 60s so
+      // the next UI poll cycle (10 min) always retries a dead check;
+      // successful verdicts keep the 5-minute TTL.
+      const ttl = value.state === 'unknown' ? UNKNOWN_CACHE_TTL_MS : CACHE_TTL_MS;
+      cache.set(projectId, { value, expires: Date.now() + ttl });
     }
     return value;
   } finally {

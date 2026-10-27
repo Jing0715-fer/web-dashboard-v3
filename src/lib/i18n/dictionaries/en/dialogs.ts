@@ -509,6 +509,9 @@ export const dialogs = {
   'dlg.selfUpdate.updateNow': 'Update now',
   'dlg.selfUpdate.current': 'Up to date — running the latest version',
   'dlg.selfUpdate.behind': 'Remote has {count} new commit(s) to pull',
+  // v1.41: self-update dialog wording for behind=null (necessarily behind,
+  // count unknown — remote objects could not be downloaded).
+  'dlg.selfUpdate.behindUnknown': 'Remote has new commit(s) to pull — exact count unknown (this check could not download the remote objects); update to get them',
   'dlg.selfUpdate.diverged': 'Local and remote histories diverged (local ahead {ahead}, behind {behind}) — updating backs up local commits first',
   'dlg.selfUpdate.ahead': 'Local is {count} commit(s) ahead of remote — nothing to pull',
   'dlg.selfUpdate.staleBranch': 'This dashboard is checked out on {current}, while the repository default is {branch} ({behind} commits ahead) — a plain update pulls the current branch only; switch to the default branch to get the latest code',
@@ -1314,6 +1317,9 @@ export const dialogs = {
   'card.repo.updateOnBranchTip': 'The update lives on {branch}, but this checkout is on {current} — a plain pull can never deliver it. Open the branch picker and switch & pull {branch}.',
   'card.repo.checkUnavailable': 'Update check unavailable',
   'card.repo.retryCheck': 'Retry the update check',
+  // v1.41: behind=null wording + the card unknown-chip retry tooltip tail.
+  'card.repo.behindTipUnknown': 'Remote has new commit(s) — count unknown (remote objects are not available locally for an exact count); pull to update',
+  'card.repo.checkRetry': 'Click to retry the check now',
   'card.updateToast.title': 'Remote updates detected',
   'card.updateToast.body': '{count} project(s) have remote updates: {names}. Click the GitHub row on a card to pull.',
   'card.ctx.unpin': 'Unpin',

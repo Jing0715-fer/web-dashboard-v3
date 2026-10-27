@@ -503,6 +503,8 @@ export const dialogs = {
   'dlg.selfUpdate.updateNow': '一键更新',
   'dlg.selfUpdate.current': '已是最新版本',
   'dlg.selfUpdate.behind': '远程有 {count} 个新提交可更新',
+  // v1.41：behind=null（必然落后但计数未知）时的自更新对话框文案。
+  'dlg.selfUpdate.behindUnknown': '远程有新提交可更新（数量未知——本次检查未能取回远程对象，无法精确计数），一键更新即可拿到',
   'dlg.selfUpdate.diverged': '本地与远程历史已分叉（本地领先 {ahead}，落后 {behind}）— 更新会先备份本地提交',
   'dlg.selfUpdate.ahead': '本地领先远程 {count} 个提交，无需更新',
   'dlg.selfUpdate.staleBranch': '面板检出在 {current} 分支，而仓库默认分支是 {branch}（领先 {behind} 个提交）— 直接更新只拉当前分支，切换到默认分支才能拿到最新代码',
@@ -1308,6 +1310,9 @@ export const dialogs = {
   'card.repo.updateOnBranchTip': '更新在 {branch} 分支上，而当前检出位于 {current}——直接拉取永远拿不到。打开分支选择器，切换并拉取 {branch}。',
   'card.repo.checkUnavailable': '更新检查不可用',
   'card.repo.retryCheck': '重试更新检查',
+  // v1.41：behind=null 专用提示 + 卡片 unknown 芯片的重试提示尾部。
+  'card.repo.behindTipUnknown': '远程有新提交（数量未知——本地缺少远程对象，无法精确计数），拉取即可更新',
+  'card.repo.checkRetry': '点击立即重试检测',
   'card.updateToast.title': '检测到远程仓库更新',
   'card.updateToast.body': '{count} 个项目可更新：{names}。点击卡片上的 GitHub 行即可拉取。',
   'card.ctx.unpin': '取消置顶',
