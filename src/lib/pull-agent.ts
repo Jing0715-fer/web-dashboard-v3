@@ -1,8 +1,8 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
-import { execGitNetwork, gitErrorText, gitNetworkErrorText, isTransientGitNetworkError } from '@/lib/git-retry';
+import { existsSync, lstatSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
+import { dirname, isAbsolute, join } from 'path';
+import { execGitNetwork, gitErrorText, gitNetworkErrorText, isGitKilledError, isTransientGitNetworkError } from '@/lib/git-retry';
 import { getGitNetConfig, gitProxyArgs } from '@/lib/git-net-config';
 import { parsePullConflict } from '@/lib/pull-conflict';
 
@@ -156,6 +156,278 @@ async function readDirty(cwd: string): Promise<{ modified: string[]; untracked: 
   return { modified, untracked };
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ---------------------------------------------------------------------------
+// v1.39 — backup-step hardening (big trees, stale locks, killed stashes).
+//
+// The backup stash push carries a hard execFile timeout. On repos with
+// large untracked trees (hundreds of MB) `git stash push` has to hash
+// EVERY dirty byte before the entry exists, blows past the old fixed 60s,
+// and is SIGTERM'd with NO stderr — the surfaced error was the raw Node
+// "Command failed: git stash push --include-untracked -m dashboard-agent
+// <ts>". Worse: git updates refs/stash BEFORE it resets the worktree, so
+// the kill can leave an ORPHAN stash entry plus a half-reset tree, and the
+// old stashCreated=false meant the safety rollback never ran — violating
+// this module's NOTHING IS EVER LOST invariant. The helpers below precheck
+// what can be prechecked, size the budget to the actual tree, detect
+// kills, and recover (or honestly report) the orphans they leave behind.
+// ---------------------------------------------------------------------------
+
+/** Stash budget floor — even a tiny tree gets a full minute. */
+const STASH_MIN_TIMEOUT_MS = 60_000;
+/** Stash budget ceiling — even an unmeasurable tree gets at most 10 min. */
+const STASH_MAX_TIMEOUT_MS = 600_000;
+/** Extra time granted per gigabyte of measured dirty bytes. */
+const STASH_MS_PER_GB = 30_000;
+/** A retried (killed) stash gets double the budget, capped at 20 min. */
+const STASH_RETRY_MAX_TIMEOUT_MS = 20 * 60_000;
+/** A .git/index.lock older than this is a crash leftover, not a live op. */
+const INDEX_LOCK_STALE_MS = 3 * 60_000;
+/** How long a FRESH lock gets to disappear before it is reported held. */
+const INDEX_LOCK_WAIT_MS = 8_000;
+/** estimateDirtyBytes gives up past either bound (returns Infinity). */
+const ESTIMATE_MAX_MS = 5_000;
+const ESTIMATE_MAX_FILES = 200_000;
+
+/** Unresolved-conflict paths (UU/AA/DD/AU/… index stages) — `git stash
+ *  push` is structurally impossible on an unmerged index (git refuses
+ *  with "needs merge"), so detect it BEFORE spending the timeout budget
+ *  on a doomed stash and fail fast with the file list. */
+export async function unmergedPaths(cwd: string): Promise<string[]> {
+  try {
+    const out = await git(cwd, ['ls-files', '--unmerged'], 20_000);
+    const seen = new Set<string>();
+    for (const line of out.split('\n')) {
+      const path = line.split('\t')[1];
+      if (path) seen.add(path);
+    }
+    return [...seen];
+  } catch {
+    return []; // not a repo / unborn HEAD — the later steps report that
+  }
+}
+
+/** What clearStaleIndexLock found and did about .git/index.lock. */
+export type IndexLockOutcome =
+  | { status: 'absent' }                 // no lock file at all
+  | { status: 'cleared'; ageMs: number } // stale (>3 min) — removed by us
+  | { status: 'vanished' }               // fresh lock disappeared while we waited
+  | { status: 'held'; ageMs: number };   // still there after 8s — a live op owns it
+
+/** Resolve the repository's index.lock path (linked worktrees keep the
+ *  git dir elsewhere — <cwd>/.git/index.lock is only the common case). */
+async function indexLockPath(cwd: string): Promise<string> {
+  try {
+    const gd = await git(cwd, ['rev-parse', '--git-dir'], 15_000);
+    if (gd) return isAbsolute(gd) ? join(gd, 'index.lock') : join(cwd, gd, 'index.lock');
+  } catch { /* unreadable — the plain .git path is the best guess */ }
+  return join(cwd, '.git', 'index.lock');
+}
+
+/** Remove a CRASHED git process's .git/index.lock (mtime older than 3
+ *  minutes — no live git operation holds the write lock that long). A
+ *  fresh lock belongs to a running operation: poll up to 8s for it to
+ *  finish; if it does not, say so precisely instead of letting the stash
+ *  die with git's "Another git process seems to be running in this
+ *  repository, please make sure all processes are terminated". */
+export async function clearStaleIndexLock(cwd: string): Promise<IndexLockOutcome> {
+  const lockPath = await indexLockPath(cwd);
+  const deadline = Date.now() + INDEX_LOCK_WAIT_MS;
+  let seen = false;
+  for (;;) {
+    let ageMs = -1;
+    try {
+      ageMs = Date.now() - statSync(lockPath).mtimeMs;
+    } catch {
+      return seen ? { status: 'vanished' } : { status: 'absent' };
+    }
+    seen = true;
+    if (ageMs >= INDEX_LOCK_STALE_MS) {
+      try {
+        rmSync(lockPath, { force: true });
+        return { status: 'cleared', ageMs };
+      } catch {
+        return { status: 'held', ageMs }; // e.g. permissions — the report names it
+      }
+    }
+    if (Date.now() >= deadline) return { status: 'held', ageMs };
+    await sleep(200);
+  }
+}
+
+/** Bounded byte-size estimate of the dirty paths (tracked edits plus the
+ *  untracked tree the stash must archive — untracked entries arrive as
+ *  directories (`?? dir/`) from porcelain and are walked recursively).
+ *  The walk itself is BOUNDED: past ~5 seconds or 200,000 files it gives
+ *  up and returns Infinity, so the caller budgets the stash at the
+ *  maximum instead of a dangerous lowball. */
+export function estimateDirtyBytes(cwd: string, dirtyPaths: string[]): number {
+  const startedAt = Date.now();
+  let files = 0;
+  let total = 0;
+  let aborted = false;
+  const walk = (abs: string): void => {
+    if (aborted) return;
+    if (Date.now() - startedAt > ESTIMATE_MAX_MS) {
+      aborted = true;
+      return;
+    }
+    let st: ReturnType<typeof lstatSync>;
+    try {
+      st = lstatSync(abs);
+    } catch {
+      return; // vanished mid-walk / unreadable — counts as zero
+    }
+    if (st.isSymbolicLink()) {
+      total += st.size; // never follow — a symlink cycle must not hang the walk
+      return;
+    }
+    if (st.isDirectory()) {
+      let names: string[];
+      try {
+        names = readdirSync(abs);
+      } catch {
+        return;
+      }
+      for (const name of names) {
+        if (name === '.git') continue; // a nested repo's history is not dirty bytes
+        walk(join(abs, name));
+        if (aborted) return;
+      }
+      return;
+    }
+    files++;
+    if (files > ESTIMATE_MAX_FILES) {
+      aborted = true;
+      return;
+    }
+    total += st.size;
+  };
+  for (const p of dirtyPaths) {
+    walk(join(cwd, p));
+    if (aborted) break;
+  }
+  return aborted ? Number.POSITIVE_INFINITY : total;
+}
+
+/** Stash budget for a measured dirty size: 60s baseline + 30s per GB,
+ *  clamped to [60s, 10min]. An unmeasurable tree (Infinity) gets the
+ *  10-minute maximum — the stash must never be budgeted below what
+ *  hashing the tree actually needs. */
+export function stashTimeoutForBytes(bytes: number): number {
+  if (!Number.isFinite(bytes)) return STASH_MAX_TIMEOUT_MS;
+  const extraMs = (Math.max(0, bytes) / (1024 * 1024 * 1024)) * STASH_MS_PER_GB;
+  return Math.min(STASH_MAX_TIMEOUT_MS, Math.max(STASH_MIN_TIMEOUT_MS, Math.round(STASH_MIN_TIMEOUT_MS + extraMs)));
+}
+
+/** Find the exact `git stash list` index of a labelled entry. The message
+ *  match is anchored at END of line: two agent runs a second apart produce
+ *  labels where one is a PREFIX of the other, and an unanchored substring
+ *  match returns the wrong entry — the retry/rollback would then pop the
+ *  wrong stash. (Lesson burned in during v1.39: regexes built from template
+ *  literals need every backslash DOUBLED — `\d` reaches RegExp as \d while
+ *  a single `\d` collapses to a literal 'd' and matching silently fails.
+ *  The message pattern below deliberately contains no backslashes.) */
+export function findStashIndexByLabel(stashList: string, label: string): number | null {
+  if (!stashList || !label) return null;
+  const esc = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const msgRe = new RegExp(`: ${esc}$`);
+  for (const raw of stashList.split(/\r?\n/)) {
+    const line = raw.trimEnd();
+    if (!line || !msgRe.test(line)) continue;
+    const m = line.match(/^stash@\{(\d+)\}/);
+    if (m) return parseInt(m[1], 10);
+  }
+  return null;
+}
+
+/** What recoverOrphanedStash did with the entry a killed stash left behind. */
+export type OrphanStashRecovery =
+  | { kind: 'none' }      // no labelled entry — the kill landed before refs/stash was updated
+  | { kind: 'recovered' } // entry popped back into the tree — consumed, no duplicates left
+  | { kind: 'kept'; detail: string }; // entry kept (worktree dirty / pop failed) — NEVER dropped silently
+
+/** After a killed `git stash push`, locate the labelled entry it may have
+ *  created. When the worktree reset completed (tree clean — everything
+ *  lives in the entry), pop it back: the user's changes return to the tree
+ *  and the entry is consumed, so a retry starts from the exact pre-run
+ *  state and cannot stack a duplicate. When the tree is still dirty the
+ *  kill landed mid-reset — popping would collide with the in-tree copies
+ *  — so the entry is KEPT and reported with its label for a manual
+ *  `git stash pop`. NEVER lose data silently. */
+export async function recoverOrphanedStash(
+  cwd: string,
+  label: string,
+  popTimeoutMs = 10 * 60_000,
+): Promise<OrphanStashRecovery> {
+  let list = '';
+  try {
+    list = await git(cwd, ['stash', 'list'], 15_000);
+  } catch (e) {
+    return { kind: 'kept', detail: `git stash list failed — the entry "${label}" was left untouched (${gitErrorText(e).slice(0, 200)})` };
+  }
+  const idx = findStashIndexByLabel(list, label);
+  if (idx === null) return { kind: 'none' };
+  let dirtyNow: { modified: string[]; untracked: string[] };
+  try {
+    dirtyNow = await readDirty(cwd);
+  } catch (e) {
+    return { kind: 'kept', detail: `git status failed — the entry "${label}" was left untouched (${gitErrorText(e).slice(0, 200)})` };
+  }
+  if (dirtyNow.modified.length > 0 || dirtyNow.untracked.length > 0) {
+    return {
+      kind: 'kept',
+      detail: `the worktree still holds local changes, so the stash entry "${label}" was kept instead of being popped over them (git stash list / git stash pop stash@{${idx}})`,
+    };
+  }
+  try {
+    await execFileAsync('git', ['stash', 'pop', `stash@{${idx}}`], {
+      cwd, timeout: popTimeoutMs, maxBuffer: 1024 * 1024,
+    });
+    return { kind: 'recovered' };
+  } catch (e) {
+    return {
+      kind: 'kept',
+      detail: `stash pop failed — the changes remain inside the stash entry "${label}" (${gitErrorText(e).slice(0, 300)})`,
+    };
+  }
+}
+
+/** Actionable text for a stash killed by its budget — a killed child has
+ *  NO stderr, so without this the user sees Node's bare "Command failed:
+ *  git stash push …". Explains the real cause (tree too large for the
+ *  budget) and the way out (.gitignore the big paths). */
+export function stashKilledText(cmd: string, budgetMs: number): string {
+  const secs = Math.round(budgetMs / 1000);
+  return `The backup (${cmd}) was killed after ${secs}s — the working tree is too large for that time budget, git never finished archiving it. The local changes were NOT lost. Add the large directories (build output, node_modules, datasets…) to .gitignore so the stash does not have to archive them, then pull again.`;
+}
+
+/** Pop the labelled stash entry (the rollback and the restore phase both
+ *  use this). Pops by LABEL: after a killed-then-retried backup our entry
+ *  may not be stash@{0}, and a blind pop could apply and DROP an entry we
+ *  do not own. When the label cannot be found we refuse (ok:false) —
+ *  popping an unidentified entry risks destroying someone else's backup. */
+async function popStashByLabel(cwd: string, label: string | undefined, timeoutMs: number): Promise<{ ok: boolean; detail: string }> {
+  let ref = '';
+  if (label) {
+    const list = await git(cwd, ['stash', 'list'], 15_000).catch(() => '');
+    const idx = findStashIndexByLabel(list, label);
+    if (idx === null) {
+      return { ok: false, detail: `stash entry "${label}" not found — refusing to pop an unidentified entry` };
+    }
+    ref = `stash@{${idx}}`;
+  }
+  try {
+    const out = await execFileAsync('git', ['stash', 'pop', ...(ref ? [ref] : [])], {
+      cwd, timeout: timeoutMs, maxBuffer: 1024 * 1024,
+    });
+    return { ok: true, detail: String(out.stdout || out.stderr || '').trim() };
+  } catch (e: any) {
+    return { ok: false, detail: String(e?.stderr || e?.stdout || e?.message || '').trim().slice(0, 600) };
+  }
+}
+
 /** current branch; '' on detached HEAD, null when HEAD doesn't resolve. */
 async function currentBranch(cwd: string): Promise<string | null> {
   try {
@@ -251,6 +523,9 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
   const transcript: string[] = [];
   let restored = false;
   let stashCreated = false;
+  /** v1.39: the size-aware budget the backup stash ran with — the rollback
+   *  and restore pops re-apply the same tree and need the same headroom. */
+  let stashBudgetMs = STASH_MIN_TIMEOUT_MS;
   let restoreStarted = false;
   let switchedTo = '';
   let upToDate = false;
@@ -280,18 +555,22 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
     let rolledBack: PullAgentResult['rolledBack'];
     if (!ok && stashCreated && !restoreStarted) {
       restoreStarted = true; // prevent double-pop on later finish() calls
-      try {
-        await execFileAsync('git', ['stash', 'pop'], {
-          cwd: projectPath, timeout: 60_000, maxBuffer: 1024 * 1024,
-        });
+      // v1.39: pop by LABEL with the same budget the push got — after a
+      // killed-then-retried backup our entry may not be stash@{0}, and a
+      // blind pop could apply and DROP an entry we do not own. When the
+      // label cannot be found we report 'kept' rather than touch an
+      // unidentified entry (NOTHING IS EVER LOST — including stashes
+      // that are not ours).
+      const pop = await popStashByLabel(projectPath, artifacts.stashLabel, stashBudgetMs);
+      if (pop.ok) {
         stashCreated = false;
         artifacts.stash = false;
         restored = true;
         rolledBack = 'restored';
         transcript.push('[rollback] aborted before sync — local changes restored to the working tree');
-      } catch {
+      } else {
         rolledBack = 'kept';
-        transcript.push('[rollback] aborted before sync — local changes remain in the git stash entry (git stash list)');
+        transcript.push(`[rollback] aborted before sync — local changes remain in the git stash entry (label: ${artifacts.stashLabel || 'unknown'}; git stash list)`);
       }
     }
     return {
@@ -348,14 +627,126 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
   let dirtyBefore: { modified: string[]; untracked: string[] } = { modified: [], untracked: [] };
   try {
     dirtyBefore = await readDirty(projectPath);
+
+    // v1.39 precheck 1 — unmerged index. `git stash push` is structurally
+    // impossible while conflict stages (UU/AA/DD/…) are registered — git
+    // refuses with "needs merge" — so fail fast with the file list instead
+    // of burning the whole timeout budget on a doomed stash.
+    const unmerged = await unmergedPaths(projectPath);
+    if (unmerged.length > 0) {
+      const shown = unmerged.slice(0, 5).join(', ') + (unmerged.length > 5 ? ` … (+${unmerged.length - 5} more)` : '');
+      setStep('backup', {
+        status: 'fail',
+        note: { key: 'dlg.pullAgent.note.backupUnmerged', params: { count: unmerged.length, files: shown } },
+        info: unmerged.join('\n').slice(0, 400),
+      });
+      return finish(false, 'backup blocked by unresolved conflicts', 'Unresolved merge conflicts block the backup stash — resolve or commit them first', unmerged.join('\n').slice(0, 800));
+    }
+
+    // v1.39 precheck 2 — .git/index.lock. A crashed git process leaves the
+    // lock behind and every later write fails with "Another git process
+    // seems to be running in this repository". Stale locks (>3 min) are
+    // removed; a FRESH one gets 8s to finish before we name the blocker.
+    const lock = await clearStaleIndexLock(projectPath);
+    if (lock.status === 'cleared') {
+      setStep('backup', {
+        note: { key: 'dlg.pullAgent.note.backupLockCleared' },
+        info: `removed stale .git/index.lock (age ${Math.round(lock.ageMs / 1000)}s)`,
+      });
+    } else if (lock.status === 'held') {
+      const lockSecs = Math.round(lock.ageMs / 1000);
+      setStep('backup', { status: 'fail', note: { key: 'dlg.pullAgent.note.backupFail' }, info: `.git/index.lock has been held for ${lockSecs}s` });
+      return finish(false, 'index.lock held', 'Another git operation is currently holding .git/index.lock — wait for it to finish (or remove the lock file if no git process is running) and pull again', `.git/index.lock has been held for ${lockSecs}s — a live git operation (editor / IDE / another pull) owns it.`);
+    }
+
     const label = `dashboard-agent ${nowStamp()}`;
     if (dirtyBefore.modified.length === 0 && dirtyBefore.untracked.length === 0) {
       setStep('backup', { status: 'ok', note: { key: 'dlg.pullAgent.note.backupNone' } });
     } else {
-      const out = await execFileAsync('git', ['stash', 'push', '--include-untracked', '-m', label], {
-        cwd: projectPath, timeout: 60_000, maxBuffer: 1024 * 1024,
-      });
-      if (/No local changes/i.test(out.stdout || '')) {
+      // v1.39 — size-aware stash budget. `git stash push` has to hash every
+      // dirty byte (the untracked tree included) before the entry exists;
+      // the old fixed 60s reaped it on large trees with a SIGTERM that
+      // carries NO stderr, surfacing as the raw "Command failed: git stash
+      // push --include-untracked -m dashboard-agent <ts>". Budget from the
+      // measured size: 60s baseline + 30s/GB, clamped to [60s, 10min].
+      const dirtyBytes = estimateDirtyBytes(projectPath, [...dirtyBefore.modified, ...dirtyBefore.untracked]);
+      stashBudgetMs = stashTimeoutForBytes(dirtyBytes);
+      const stashArgs = ['stash', 'push', '--include-untracked', '-m', label];
+      const cmdText = `git ${stashArgs.join(' ')}`;
+      const runStashPush = async (budgetMs: number): Promise<{ ok: boolean; stdout: string }> => {
+        try {
+          const r = await execFileAsync('git', stashArgs, {
+            cwd: projectPath, timeout: budgetMs, maxBuffer: 1024 * 1024,
+          });
+          return { ok: true, stdout: r.stdout || '' };
+        } catch (e) {
+          if (!isGitKilledError(e)) throw e; // git's own failure — its stderr says why
+          return { ok: false, stdout: '' };  // killed by the budget (no stderr at all)
+        }
+      };
+      let attempt = await runStashPush(stashBudgetMs);
+      // The killed child may have died holding .git/index.lock. The precheck
+      // established the lock was ABSENT before this attempt and our child
+      // was the only git write since — any lock that exists now is our
+      // corpse's, safe to remove (the retry would otherwise die with git's
+      // "Another git process seems to be running…").
+      const clearKilledLock = async (): Promise<void> => {
+        try {
+          const leftoverLock = await indexLockPath(projectPath);
+          if (existsSync(leftoverLock)) {
+            rmSync(leftoverLock, { force: true });
+            setStep('backup', { info: 'removed .git/index.lock left behind by the killed stash attempt' });
+          }
+        } catch { /* best effort — a real lock holder surfaces in the retry */ }
+      };
+      if (!attempt.ok) {
+        // Killed by the budget. git updates refs/stash BEFORE it resets the
+        // worktree, so the kill can leave an ORPHAN entry plus a half-reset
+        // tree. Recover the orphan FIRST — popped back when the reset had
+        // completed — so the retry runs on a consistent tree and cannot
+        // stack a duplicate entry on the first attempt's leftovers.
+        await clearKilledLock();
+        const rec = await recoverOrphanedStash(projectPath, label);
+        if (rec.kind === 'recovered') {
+          setStep('backup', { note: { key: 'dlg.pullAgent.note.backupRecovered' } });
+        } else if (rec.kind === 'kept') {
+          // The orphan could not be re-applied — its content stays SAFE in
+          // the labelled entry. No retry: a second push would stack a
+          // duplicate entry. Report honestly where the data lives.
+          artifacts.stash = true;
+          artifacts.stashLabel = label;
+          setStep('backup', { status: 'fail', note: { key: 'dlg.pullAgent.note.backupOrphanKept', params: { label } }, info: rec.detail });
+          return finish(false, 'backup interrupted', 'The backup stash was interrupted — the local changes remain safe inside the stash entry (see the label in the report)', rec.detail);
+        }
+        // 'none' (killed before the ref was updated — tree untouched) or
+        // 'recovered' (orphan popped back — tree dirty again): retry ONCE
+        // with a doubled budget.
+        stashBudgetMs = Math.min(stashBudgetMs * 2, STASH_RETRY_MAX_TIMEOUT_MS);
+        setStep('backup', { note: { key: 'dlg.pullAgent.note.backupRetrySlow', params: { seconds: Math.round(stashBudgetMs / 1000) } } });
+        attempt = await runStashPush(stashBudgetMs);
+        if (!attempt.ok) {
+          // Second kill — salvage whatever this attempt left behind (the
+          // same recovery contract), then report with the actionable
+          // killed-text instead of the raw Node message.
+          await clearKilledLock();
+          const rec2 = await recoverOrphanedStash(projectPath, label);
+          if (rec2.kind === 'kept') {
+            artifacts.stash = true;
+            artifacts.stashLabel = label;
+            setStep('backup', { status: 'fail', note: { key: 'dlg.pullAgent.note.backupOrphanKept', params: { label } }, info: rec2.detail });
+            return finish(false, 'backup interrupted twice', 'The backup stash was interrupted twice — the local changes remain safe inside the stash entry (see the label in the report)', rec2.detail);
+          }
+          if (rec2.kind === 'recovered') {
+            setStep('backup', { note: { key: 'dlg.pullAgent.note.backupRecovered' } });
+          }
+          setStep('backup', { status: 'fail', note: { key: 'dlg.pullAgent.note.backupFail' }, info: stashKilledText(cmdText, stashBudgetMs) });
+          // 'none' → tree untouched, 'recovered' → changes popped back: in
+          // BOTH cases the worktree again holds every local change — the
+          // run aborts with the user's tree exactly as it was.
+          return finish(false, 'backup timed out', 'Backing up the local changes timed out — nothing was lost', stashKilledText(cmdText, stashBudgetMs));
+        }
+      }
+      if (/No local changes/i.test(attempt.stdout)) {
         setStep('backup', { status: 'ok', note: { key: 'dlg.pullAgent.note.backupNone' } });
       } else {
         stashCreated = true;
@@ -615,14 +1006,16 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
     restoreStarted = true;
     setStep('restore', { status: 'running' });
     try {
-      try {
-        await execFileAsync('git', ['stash', 'pop'], {
-          cwd: projectPath, timeout: 60_000, maxBuffer: 1024 * 1024,
-        });
+      // v1.39: pop by LABEL with the same size-aware budget the push got —
+      // re-applying a hundreds-of-MB stash dies at a fixed 60s exactly like
+      // the push did, and a blind stash@{0} pop could apply and DROP an
+      // entry we do not own.
+      const pop = await popStashByLabel(projectPath, artifacts.stashLabel, stashBudgetMs);
+      if (pop.ok) {
         restored = true;
         setStep('restore', { status: 'ok', note: { key: 'dlg.pullAgent.note.restored' } });
-      } catch (popErr: any) {
-        const popText = String(popErr?.stderr || popErr?.stdout || popErr?.message || '');
+      } else {
+        const popText = pop.detail;
         const unmergedOut = await git(projectPath, ['diff', '--name-only', '--diff-filter=U'], 20_000).catch(() => '');
         const unmerged = unmergedOut.split('\n').map((s) => s.trim()).filter(Boolean);
 
@@ -635,9 +1028,13 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
           if (!/could not restore untracked files from stash/i.test(popText)) return extracted;
           const stashList = await git(projectPath, ['stash', 'list'], 15_000).catch(() => '');
           if (!/^stash@\{/.test(stashList)) return extracted;
+          // v1.39: read OUR entry (by label) — after a killed-then-retried
+          // backup it is not guaranteed to be stash@{0}.
+          const ourIdx = findStashIndexByLabel(stashList, artifacts.stashLabel || '');
+          const stashRef = ourIdx === null ? 'stash@{0}' : `stash@{${ourIdx}}`;
           for (const f of dirtyBefore.untracked) {
             try {
-              const content = await git(projectPath, ['show', `stash@{0}^3:${f}`], 20_000);
+              const content = await git(projectPath, ['show', `${stashRef}^3:${f}`], 20_000);
               if (!content) continue;
               const target = join(projectPath, `${f}.local.bak`);
               mkdirSync(dirname(target), { recursive: true });

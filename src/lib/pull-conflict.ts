@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { join } from 'path';
 import { rmSync } from 'fs';
+import { isGitKilledError } from '@/lib/git-retry';
 
 // execFile with windowsHide ON by default: git.exe / git-remote-https.exe
 // are console-subsystem programs — from a console-less dashboard server
@@ -145,13 +146,29 @@ export async function removeUntrackedBlockers(projectPath: string, untracked: st
 
 /** Stash strategy, step 1 — `git stash push --include-untracked`. Captures
  *  modified tracked files AND untracked ones (the exact classes the pull
- *  refuses to clobber). Returns true when a stash entry was created. */
+ *  refuses to clobber). Returns true when a stash entry was created.
+ *
+ *  v1.39: the budget is 10 minutes, not 60s — a stash on a large untracked
+ *  tree has to hash every dirty byte and the old 60s reaped it with NO
+ *  stderr, surfacing as the raw "Command failed: git stash push …". A kill
+ *  is rethrown distinctly (killed-flagged, actionable message) so callers
+ *  can tell a timeout apart from git's own failure text. */
 export async function stashLocalChanges(projectPath: string, label: string): Promise<boolean> {
-  const out = await execFileAsync(
-    'git',
-    ['stash', 'push', '--include-untracked', '-m', `dashboard-pull ${label}`],
-    { cwd: projectPath, timeout: 60_000, maxBuffer: 1024 * 1024 },
-  );
+  let out: { stdout: string; stderr: string };
+  try {
+    out = await execFileAsync(
+      'git',
+      ['stash', 'push', '--include-untracked', '-m', `dashboard-pull ${label}`],
+      { cwd: projectPath, timeout: 10 * 60_000, maxBuffer: 1024 * 1024 },
+    );
+  } catch (e: any) {
+    if (!isGitKilledError(e)) throw e;
+    const killed = new Error(
+      'git stash push was killed after 10 minutes — the working tree is too large for the stash. Nothing was lost; add the large directories to .gitignore and retry.',
+    ) as Error & { killed: boolean };
+    killed.killed = true; // isGitKilledError() recognizes the rethrow
+    throw killed;
+  }
   // "No local changes to save" — nothing was stashed (still safe to pop-check).
   return !/No local changes/i.test(out.stdout || '');
 }
