@@ -24,7 +24,7 @@ import {
   ShieldAlert, ShieldCheck, ShieldX, Minimize2, Maximize2, ZoomIn,
   UserPlus, Github, GitPullRequest,
   Archive, Minus, Camera, WifiOff, Stethoscope,
-  FolderPlus, Pencil, BrainCircuit, Braces, Palette, Image as ImageIcon, Check, FileWarning,
+  FolderPlus, Pencil, BrainCircuit, Braces, Palette, Image as ImageIcon, Check, FileWarning, Send,
 } from 'lucide-react'
 
 import {
@@ -3518,6 +3518,42 @@ const REPAIR_CLI_ROUND_TIMEOUT_MIN = 10
 /** Must mirror KNOWN_CLI_IDS in the /api/llm-config route. */
 const KNOWN_REPAIR_CLI_IDS = ['claude', 'claude-desktop', 'codex', 'gemini', 'opencode', 'hermes']
 
+// ======================== CLAUDE DESKTOP BRIDGE (v1.40) ========================
+
+/** GET /api/claude-desktop/status — mirrors ClaudeDesktopStatus in claude-desktop.ts. */
+interface ClaudeDesktopStatusUI {
+  version: string
+  platform: string
+  appSupported: boolean
+  app: { installed: boolean; versionHint: string; appDir: string; exeFound: boolean }
+  cli: { found: boolean; version: string; exe: string }
+  config: { supported: boolean; path: string; exists: boolean; hasEntry: boolean; otherServers: string[]; parseError: string }
+  bridge: { exists: boolean; path: string }
+  dashboardUrl: string
+  tokenConfigured: boolean
+  entryPreview?: { command: string; args: string[]; env: { DASHBOARD_URL: string; DASHBOARD_MCP_TOKEN: string } } | null
+}
+
+/** One step of POST /api/claude-desktop/test (TestStep in claude-desktop.ts). */
+interface ClaudeDesktopTestStepUI {
+  id: string
+  label: string
+  status: 'pass' | 'fail' | 'skip'
+  detail: string
+  ms: number
+}
+
+interface ClaudeDesktopTestUI { ok: boolean; steps: ClaudeDesktopTestStepUI[]; simulated: boolean }
+
+/** POST /api/claude-desktop/ask (AskClaudeResult in claude-desktop.ts). */
+interface ClaudeAskUI {
+  ok: boolean
+  backend: 'claude-cli' | 'zai-simulated'
+  text: string
+  durationMs: number
+  detail: string
+}
+
 // ======================== BRANCH PICKER DIALOG ========================
 
 /** One entry of GET /api/projects/:id/branches. */
@@ -4805,6 +4841,18 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
   const [detectNote, setDetectNote] = React.useState('')
   const { toast } = useToast()
 
+  // ---- Claude Desktop agent bridge (v1.40) ----
+  const [cdStatus, setCdStatus] = React.useState<ClaudeDesktopStatusUI | null>(null)
+  const [cdStatusLoading, setCdStatusLoading] = React.useState(false)
+  /** One busy flag for every action button ('' = idle). */
+  const [cdBusy, setCdBusy] = React.useState<'' | 'install' | 'remove' | 'rotate' | 'test' | 'ask'>('')
+  const [cdTest, setCdTest] = React.useState<ClaudeDesktopTestUI | null>(null)
+  const [askPrompt, setAskPrompt] = React.useState('')
+  const [askResult, setAskResult] = React.useState<ClaudeAskUI | null>(null)
+  const [cdGuideOpen, setCdGuideOpen] = React.useState(false)
+  /** Which guide command was just copied (icon feedback). */
+  const [cdCopied, setCdCopied] = React.useState('')
+
   const activeProfile = React.useMemo(() => catalog.find((p) => p.id === provider), [catalog, provider])
 
   // The GET response only ever carries a masked key (••••xxxx). While the
@@ -4874,6 +4922,175 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
     }
   }, [t])
 
+  // ---- Claude Desktop agent bridge (v1.40): status + actions ----
+  const loadClaudeDesktopStatus = React.useCallback(async () => {
+    setCdStatusLoading(true)
+    try {
+      const r = await fetch('/api/claude-desktop/status', { signal: AbortSignal.timeout(30_000) })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      const data = await r.json()
+      if (data && data.ok) {
+        setCdStatus(data as ClaudeDesktopStatusUI)
+      } else {
+        throw new Error(String(data?.error || ''))
+      }
+    } catch {
+      toast({ title: t('dlg.claudeDesktop.statusFailed'), variant: 'destructive' })
+    } finally {
+      setCdStatusLoading(false)
+    }
+  }, [t, toast])
+
+  const cdAction = React.useCallback(async (action: 'install-mcp' | 'remove-mcp' | 'rotate-token') => {
+    const busy = action === 'install-mcp' ? 'install' : action === 'remove-mcp' ? 'remove' : 'rotate'
+    const okKey = action === 'install-mcp' ? 'dlg.claudeDesktop.installOk'
+      : action === 'remove-mcp' ? 'dlg.claudeDesktop.removeOk'
+        : 'dlg.claudeDesktop.rotateOk'
+    const failKey = action === 'install-mcp' ? 'dlg.claudeDesktop.installFailed'
+      : action === 'remove-mcp' ? 'dlg.claudeDesktop.removeFailed'
+        : 'dlg.claudeDesktop.rotateFailed'
+    setCdBusy(busy)
+    try {
+      const r = await fetch(`/api/claude-desktop/${action}`, { method: 'POST', signal: AbortSignal.timeout(30_000) })
+      const data = await r.json().catch(() => ({}))
+      if (r.ok && data?.ok) {
+        toast({
+          title: t(okKey),
+          description: action === 'install-mcp'
+            ? String(data?.configPath || '')
+            : action === 'rotate-token'
+              ? String(data?.tokenMasked || '')
+              : undefined,
+          variant: 'success',
+        })
+      } else {
+        toast({ title: t(failKey), description: summarizeError(String(data?.error || '')), variant: 'destructive' })
+      }
+      // Refresh the chips (the mcp-configured chip flips after install/remove).
+      await loadClaudeDesktopStatus()
+    } catch {
+      toast({ title: t(failKey), variant: 'destructive' })
+    } finally {
+      setCdBusy('')
+    }
+  }, [t, toast, loadClaudeDesktopStatus])
+
+  const runClaudeDesktopTest = React.useCallback(async () => {
+    setCdBusy('test')
+    setCdTest(null)
+    try {
+      // The e2e run spawns the real bridge + (when installed) the real CLI —
+      // a full headless round-trip can legitimately take a while.
+      const r = await fetch('/api/claude-desktop/test', { method: 'POST', signal: AbortSignal.timeout(180_000) })
+      const data = await r.json().catch(() => ({}))
+      if (data && Array.isArray(data.steps)) {
+        setCdTest(data as ClaudeDesktopTestUI)
+        toast({
+          title: data.ok ? t('dlg.claudeDesktop.testOk') : t('dlg.claudeDesktop.testFail'),
+          variant: data.ok ? 'success' : 'destructive',
+        })
+      } else {
+        toast({ title: t('dlg.claudeDesktop.testFail'), description: summarizeError(String(data?.error || '')), variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: t('dlg.claudeDesktop.testFail'), variant: 'destructive' })
+    } finally {
+      setCdBusy('')
+    }
+  }, [t, toast])
+
+  const sendAskClaude = React.useCallback(async () => {
+    const prompt = askPrompt.trim()
+    if (!prompt) return
+    setCdBusy('ask')
+    setAskResult(null)
+    try {
+      const r = await fetch('/api/claude-desktop/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+        signal: AbortSignal.timeout(120_000),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (data && data.ok && typeof data.text === 'string') {
+        setAskResult(data as ClaudeAskUI)
+      } else {
+        toast({ title: t('dlg.claudeDesktop.askFailed'), description: summarizeError(String(data?.error || data?.detail || '')), variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: t('dlg.claudeDesktop.askFailed'), variant: 'destructive' })
+    } finally {
+      setCdBusy('')
+    }
+  }, [askPrompt, t, toast])
+
+  // Localized step label with a plain-string fallback: the e2e steps carry
+  // backend-authored labels; t() returns the raw key when the dictionary
+  // entry is missing, and THAT is the signal to fall back.
+  const cdStepLabel = (s: ClaudeDesktopTestStepUI) => {
+    const key = `dlg.claudeDesktop.step.${s.id}`
+    const localized = t(key)
+    return localized === key ? s.label : localized
+  }
+
+  // Copyable command chip for the install guide (clipboard + 1.5s feedback).
+  const cdCodeChip = (key: string, text: string) => (
+    <div className="flex items-center gap-1.5">
+      <code className="min-w-0 flex-1 truncate rounded-md bg-muted/70 px-2 py-1 font-mono text-[11px]" title={text}>{text}</code>
+      <button
+        type="button"
+        onClick={() => {
+          try { void navigator.clipboard.writeText(text) } catch { /* clipboard unavailable */ }
+          setCdCopied(key)
+          window.setTimeout(() => setCdCopied(''), 1500)
+        }}
+        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-border/70 text-muted-foreground transition-colors hover:border-emerald-300 hover:text-emerald-600 dark:hover:border-emerald-700 dark:hover:text-emerald-400 cursor-pointer"
+        title={cdCopied === key ? t('dlg.claudeDesktop.copied') : t('dlg.claudeDesktop.copy')}
+      >
+        {cdCopied === key ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  )
+
+  // Four status chips (ok = emerald, pending = amber). The CLI chip's tooltip
+  // carries the resolved executable — the thing to check when the chip is
+  // green but delegation still fails.
+  const cdChips = React.useMemo(() => {
+    if (!cdStatus) return []
+    return [
+      {
+        key: 'app',
+        ok: cdStatus.app.installed,
+        label: t('dlg.claudeDesktop.chipApp'),
+        tip: t('dlg.claudeDesktop.chipAppTip', {
+          detail: cdStatus.app.installed
+            ? (cdStatus.app.versionHint || cdStatus.app.appDir)
+            : (!cdStatus.appSupported ? t('dlg.claudeDesktop.noDesktopApp') : '—'),
+        }),
+      },
+      {
+        key: 'cli',
+        ok: cdStatus.cli.found,
+        label: t('dlg.claudeDesktop.chipCli'),
+        tip: t('dlg.claudeDesktop.chipCliTip', {
+          detail: cdStatus.cli.found ? `${cdStatus.cli.exe} ${cdStatus.cli.version}`.trim() : 'npm install -g @anthropic-ai/claude-code',
+        }),
+      },
+      {
+        key: 'bridge',
+        ok: cdStatus.bridge.exists,
+        label: t('dlg.claudeDesktop.chipBridge'),
+        tip: t('dlg.claudeDesktop.chipBridgeTip', { path: cdStatus.bridge.path }),
+      },
+      {
+        key: 'mcp',
+        ok: cdStatus.config.hasEntry,
+        label: t('dlg.claudeDesktop.chipMcp'),
+        tip: t('dlg.claudeDesktop.chipMcpTip', { path: cdStatus.config.path || '—' }),
+      },
+    ]
+  }, [cdStatus, t])
+
   React.useEffect(() => {
     if (open) {
       // Use requestAnimationFrame to avoid synchronous setState in effect
@@ -4921,10 +5138,11 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
           .catch(() => { setLoadError(t('dlg.llm.loadFailed')) })
           .finally(() => setLoading(false))
         void detectClis()
+        void loadClaudeDesktopStatus()
       })
       return () => cancelAnimationFrame(id)
     }
-  }, [open, fetchModels, detectClis, t])
+  }, [open, fetchModels, detectClis, loadClaudeDesktopStatus, t])
 
   const handleProviderChange = (id: string) => {
     setProvider(id)
@@ -5557,6 +5775,188 @@ function LlmConfigDialog({ open, onClose, onEnginesSaved }: { open: boolean; onC
                       />
                     )}
                     <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.llm.repairCliHint')}</p>
+                </div>
+              </div>
+            </AppDialogSection>
+
+            <AppDialogDivider />
+
+            {/* ---- Section: Claude Desktop agent bridge (v1.40). Two-way
+                  agent invocation: headless claude CLI asks ("Ask Claude")
+                  + the 9 MCP tools the desktop app gains over this dashboard
+                  through the stdio bridge. ---- */}
+            <AppDialogSection
+              icon={MonitorSmartphone}
+              label={t('dlg.claudeDesktop.title')}
+              action={
+                cdStatusLoading
+                  ? <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /></span>
+                  : undefined
+              }
+            >
+              <div className="space-y-3">
+                {/* status chips */}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {cdChips.length === 0 ? (
+                    <p className="col-span-full flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    </p>
+                  ) : cdChips.map((chip) => (
+                    <TooltipProvider key={chip.key}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className={`flex min-w-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] font-medium ${
+                            chip.ok
+                              ? 'border-emerald-300/60 bg-emerald-50/60 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300'
+                              : 'border-amber-300/60 bg-amber-50/60 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-300'
+                          }`}>
+                            {chip.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <Clock className="h-3.5 w-3.5 shrink-0" />}
+                            <span className="truncate">{chip.label}</span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[280px] break-all text-[11px]">{chip.tip}</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ))}
+                </div>
+
+                {/* action buttons */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" onClick={() => void cdAction('install-mcp')} disabled={!!cdBusy} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                    {cdBusy === 'install' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <PlugZap className="mr-1 h-3.5 w-3.5" />}
+                    {t('dlg.claudeDesktop.connect')}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void cdAction('remove-mcp')} disabled={!!cdBusy || !cdStatus?.config.hasEntry}>
+                    {cdBusy === 'remove' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1 h-3.5 w-3.5" />}
+                    {t('dlg.claudeDesktop.remove')}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void cdAction('rotate-token')} disabled={!!cdBusy}>
+                    {cdBusy === 'rotate' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
+                    {t('dlg.claudeDesktop.rotate')}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => void runClaudeDesktopTest()} disabled={!!cdBusy}>
+                    {cdBusy === 'test' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Activity className="mr-1 h-3.5 w-3.5" />}
+                    {t('dlg.claudeDesktop.test')}
+                  </Button>
+                </div>
+
+                {/* config context line */}
+                {cdStatus && (
+                  <div className="space-y-0.5 text-[11px] leading-snug text-muted-foreground">
+                    <p className="break-all"><span className="font-medium text-foreground/80">{t('dlg.claudeDesktop.chipMcp')}:</span> {cdStatus.config.path || '—'}</p>
+                    <p className="break-all">{cdStatus.dashboardUrl} · {cdStatus.version} · {cdStatus.platform}</p>
+                  </div>
+                )}
+
+                {/* e2e test results (5 steps) */}
+                {cdTest && (
+                  <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5">
+                    <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold">
+                      {cdTest.ok
+                        ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                        : <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />}
+                      {t('dlg.claudeDesktop.testTitle')}
+                    </p>
+                    <ol className="space-y-1.5">
+                      {cdTest.steps.map((s) => (
+                        <li key={s.id} className="flex items-start gap-2 text-[11px]">
+                          <span className="mt-0.5 shrink-0">
+                            {s.status === 'pass'
+                              ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                              : s.status === 'fail'
+                                ? <XCircle className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
+                                : <Minus className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="font-medium">{cdStepLabel(s)}</span>
+                            {s.detail && <span className="block break-all leading-snug text-muted-foreground">{s.detail}</span>}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-muted-foreground">{s.ms} ms</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+                {/* Ask Claude (headless invoke, IME-safe Enter) */}
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-medium">{t('dlg.claudeDesktop.ask')}</p>
+                  <div className="flex gap-2">
+                    <Input
+                      value={askPrompt}
+                      onChange={(e) => setAskPrompt(e.target.value)}
+                      onKeyDown={(e) => {
+                        // IME composition guard (CJK input safety): the Enter
+                        // that CONFIRMS a composition (isComposing / keyCode
+                        // 229) must never submit the prompt.
+                        if (e.key !== 'Enter') return
+                        if (e.nativeEvent.isComposing || e.keyCode === 229) return
+                        e.preventDefault()
+                        void sendAskClaude()
+                      }}
+                      placeholder={t('dlg.claudeDesktop.askPlaceholder')}
+                      disabled={cdBusy === 'ask'}
+                      className="h-9 text-xs"
+                    />
+                    <Button size="sm" onClick={() => void sendAskClaude()} disabled={cdBusy === 'ask' || !askPrompt.trim()} className="shrink-0 bg-primary hover:bg-primary/90 text-primary-foreground">
+                      {cdBusy === 'ask' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                      {t('dlg.claudeDesktop.send')}
+                    </Button>
+                  </div>
+                  {askResult && (
+                    <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5">
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        {askResult.backend === 'zai-simulated' ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="cursor-help rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                                  {t('dlg.claudeDesktop.simulatedBadge')}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-[300px] text-[11px]">{askResult.detail || t('dlg.claudeDesktop.simulatedTip')}</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : (
+                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold tracking-wide text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                            {t('dlg.claudeDesktop.backendCli')}
+                          </span>
+                        )}
+                        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{askResult.durationMs} ms</span>
+                      </div>
+                      <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed">{askResult.text}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* collapsible Windows install guide */}
+                <div className="overflow-hidden rounded-lg border border-border/70">
+                  <button
+                    type="button"
+                    onClick={() => setCdGuideOpen((v) => !v)}
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+                  >
+                    <span className="inline-flex items-center gap-1.5"><Info className="h-3.5 w-3.5" />{t('dlg.claudeDesktop.guideTitle')}</span>
+                    {cdGuideOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  </button>
+                  {cdGuideOpen && (
+                    <ol className="space-y-2.5 border-t border-border/60 px-3 py-2.5">
+                      <li className="space-y-1">
+                        <p className="text-[11px] font-semibold">{t('dlg.claudeDesktop.guideStep1Title')}</p>
+                        <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.claudeDesktop.guideStep1Body')}</p>
+                        {cdCodeChip('guide1', t('dlg.claudeDesktop.guideStep1Cmd'))}
+                      </li>
+                      <li className="space-y-1">
+                        <p className="text-[11px] font-semibold">{t('dlg.claudeDesktop.guideStep2Title')}</p>
+                        <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.claudeDesktop.guideStep2Body')}</p>
+                        {cdCodeChip('guide2', t('dlg.claudeDesktop.guideStep2Cmd'))}
+                      </li>
+                      <li className="space-y-1">
+                        <p className="text-[11px] font-semibold">{t('dlg.claudeDesktop.guideStep3Title')}</p>
+                        <p className="text-[11px] leading-snug text-muted-foreground">{t('dlg.claudeDesktop.guideStep3Body')}</p>
+                      </li>
+                    </ol>
+                  )}
                 </div>
               </div>
             </AppDialogSection>

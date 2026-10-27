@@ -15,6 +15,26 @@ export const metadata: Metadata = {
 // to avoid a flash of the default accent. Mirrors ACCENT_PRESETS ids in theme-customizer.
 const ACCENT_INIT = `(function(){try{var v=["emerald","teal","cyan","blue","violet","rose","orange","amber"];var a=localStorage.getItem("dashboard-accent");document.documentElement.setAttribute("data-accent",v.indexOf(a)>-1?a:"emerald")}catch(e){document.documentElement.setAttribute("data-accent","emerald")}})()`
 
+// v1.40: gateway preview fetch shim. When the dashboard is opened THROUGH a
+// delivery gateway (URL carries ?XTransformPort=<port>), same-origin relative
+// fetches from the SPA must repeat that parameter or the gateway routes them
+// to its default backend (page stuck on Loading). This wraps window.fetch —
+// ONLY in that mode — to append XTransformPort=<port> to same-origin relative
+// URLs that lack it. Normal deployments never match the guard: zero effect.
+// (Static /_next chunk URLs are rewritten by <Link>/next in the same way via
+// the URL itself, so they ride along once fetches carry the param.)
+const GATEWAY_FETCH_SHIM = `(function(){try{
+if(!/[?&]XTransformPort=/.test(location.search))return;
+var m=location.search.match(/[?&]XTransformPort=(\\d+)/);if(!m)return;var p=m[1];
+var of=window.fetch.bind(window);
+window.fetch=function(u,o){
+try{
+if(typeof u==='string'&&u.charAt(0)==='/'){u+=(u.indexOf('?')>=0?'&':'?')+'XTransformPort='+p}
+}catch(e){}
+return of(u,o)
+};
+}catch(e){}})()`
+
 export default async function RootLayout({
   children,
 }: {
@@ -32,6 +52,9 @@ export default async function RootLayout({
     <html lang={initialLang === 'zh' ? 'zh-CN' : 'en'} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: ACCENT_INIT }} />
+        {/* Gateway preview shim must run before any module that captures
+            window.fetch (first script in head, no strategy needed). */}
+        <script dangerouslySetInnerHTML={{ __html: GATEWAY_FETCH_SHIM }} />
       </head>
       <body className="font-sans">
         <ThemeProvider
