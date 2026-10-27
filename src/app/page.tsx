@@ -4394,8 +4394,232 @@ interface PullAgentResultView {
   restored: boolean
   autoResolved: string[]
   artifacts: { stash: boolean; stashLabel?: string; branch?: string; backupFiles: string[] }
+  /** v1.42: the backup precheck refused — unmerged conflict stages in the
+   *  index (mid-merge / mid-rebase / a conflicted stash-pop never finished).
+   *  The dialog offers the stuck-state recovery wizard for this failure. */
+  blockedBy?: 'unmerged'
   summary: string
   output: string
+}
+
+/** v1.42: read-only diagnosis payload from /api/projects/:id/git-recover. */
+interface StuckDiagnosisView {
+  ok: boolean
+  stuck: boolean
+  op: 'merge' | 'rebase' | 'cherry-pick' | 'revert' | 'stash-pop-conflict' | 'unknown-conflict' | null
+  unmerged: string[]
+  unmergedShown: string
+  stash: Array<{ index: number; label: string; ours: boolean }>
+  branch: string
+  head: string
+  error?: string
+}
+
+/** v1.42: recovery result payload. */
+interface RecoveryResultView {
+  ok: boolean
+  mode: 'abort-op' | 'ours' | 'theirs' | 'discard-local'
+  resolved: number
+  localBaks: string[]
+  pulledBaks: string[]
+  skippedBaks: string[]
+  stashRemaining: string[]
+  steps: string[]
+  detail: string
+}
+
+/**
+ * Stuck-git-state recovery wizard (v1.42) — rendered inside the
+ * PullAgentDialog when the backup precheck refused to stash an unmerged
+ * index. Auto-runs the read-only diagnosis, then offers the mode the
+ * diagnosis supports: git's native abort for merge/rebase/…, or a
+ * deterministic side-pick for a conflicted stash-pop (the losing side is
+ * always extracted as .bak — NOTHING IS EVER LOST). discard-local is
+ * two-click armed and the stash entries survive it by design.
+ */
+function StuckRecoverySection({ projectId, onRetry }: { projectId: string; onRetry: (() => void) | null }) {
+  const t = useT()
+  const { toast } = useToast()
+  const [diag, setDiag] = React.useState<StuckDiagnosisView | null>(null)
+  const [diagLoading, setDiagLoading] = React.useState(true)
+  const [busyMode, setBusyMode] = React.useState<string | null>(null)
+  const [recovery, setRecovery] = React.useState<RecoveryResultView | null>(null)
+  const [discardArmed, setDiscardArmed] = React.useState(false)
+
+  const runDiagnose = React.useCallback(async () => {
+    setDiagLoading(true)
+    setDiag(null)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/git-recover`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'diagnose' }),
+        signal: AbortSignal.timeout(30_000),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(String(data?.error || `diagnosis failed (${res.status})`))
+      setDiag(data as StuckDiagnosisView)
+    } catch (e) {
+      toast({ title: t('dlg.pullAgent.recover.diagFailed'), description: summarizeError(String((e as Error)?.message || e)), variant: 'destructive' })
+    } finally {
+      setDiagLoading(false)
+    }
+  }, [projectId, t, toast])
+
+  React.useEffect(() => { void runDiagnose() }, [runDiagnose])
+
+  const runRecover = async (mode: 'abort-op' | 'ours' | 'theirs' | 'discard-local', confirm = false) => {
+    setBusyMode(mode)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/git-recover`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'recover', mode, ...(confirm ? { confirm: true } : {}) }),
+        signal: AbortSignal.timeout(3 * 60_000),
+      })
+      const data = await res.json().catch(() => ({}))
+      setRecovery(data as RecoveryResultView)
+      if (res.ok && data?.ok) {
+        toast({ title: t('dlg.pullAgent.recover.recovered'), description: String(data?.detail || '').slice(0, 200) })
+      } else {
+        toast({ title: t('dlg.pullAgent.recover.recoverFailed'), description: summarizeError(String(data?.detail || data?.error || `HTTP ${res.status}`)), variant: 'destructive' })
+      }
+    } catch (e) {
+      toast({ title: t('dlg.pullAgent.recover.recoverFailed'), description: summarizeError(String((e as Error)?.message || e)), variant: 'destructive' })
+    } finally {
+      setBusyMode(null)
+      setDiscardArmed(false)
+    }
+  }
+
+  const opLabel = (op: NonNullable<StuckDiagnosisView['op']>): string => t(`dlg.pullAgent.recover.op.${op}`)
+  const abortable = diag?.op === 'merge' || diag?.op === 'rebase' || diag?.op === 'cherry-pick' || diag?.op === 'revert'
+  const resolveModes = diag && !abortable && diag.stuck // stash-pop-conflict / unknown-conflict
+
+  return (
+    <div className="space-y-2.5 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3.5">
+      <div className="flex items-center gap-1.5">
+        <Stethoscope className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+        <div className="min-w-0 text-[13px] font-medium text-amber-800 dark:text-amber-300">{t('dlg.pullAgent.recover.title')}</div>
+      </div>
+      <div className="text-xs leading-relaxed text-amber-700/80 dark:text-amber-400/80">{t('dlg.pullAgent.recover.desc')}</div>
+
+      {/* diagnosis (auto-loaded) */}
+      {diagLoading ? (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {t('dlg.pullAgent.recover.diagnosing')}
+        </div>
+      ) : diag ? (
+        <div className="space-y-1.5 rounded-lg border bg-card px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            {diag.op ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-400">
+                <GitFork className="h-3 w-3" />
+                {opLabel(diag.op)}
+              </span>
+            ) : null}
+            {diag.unmerged.length > 0 ? (
+              <span className="text-muted-foreground">{t('dlg.pullAgent.recover.unmergedCount', { count: diag.unmerged.length })}</span>
+            ) : null}
+            {diag.branch ? (
+              <span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
+                <GitBranch className="h-3 w-3" />
+                {diag.branch}{diag.head ? `@${diag.head}` : ''}
+              </span>
+            ) : null}
+          </div>
+          {diag.unmergedShown ? (
+            <div className="break-all font-mono text-[11px] leading-relaxed text-muted-foreground/80">{diag.unmergedShown}</div>
+          ) : null}
+          <div className="space-y-0.5 border-t pt-1.5">
+            <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+              <Archive className="h-3 w-3" />
+              {t('dlg.pullAgent.recover.stashTitle')}
+            </div>
+            {diag.stash.length === 0 ? (
+              <div className="text-[11px] text-muted-foreground/70">{t('dlg.pullAgent.recover.stashEmpty')}</div>
+            ) : (
+              <ul className="max-h-24 space-y-0.5 overflow-y-auto custom-scrollbar">
+                {diag.stash.map((s) => (
+                  <li key={s.index} className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+                    <span className="shrink-0 text-muted-foreground/50">stash@{'{'}{s.index}{'}'}</span>
+                    <span className="min-w-0 truncate">{s.label}</span>
+                    {s.ours ? <span className="ml-auto shrink-0 rounded-full bg-emerald-500/10 px-1.5 py-px text-[10px] font-medium text-emerald-700 dark:text-emerald-400">{t('dlg.pullAgent.recover.stashOurs')}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => void runDiagnose()}>
+          <RefreshCw className="h-3 w-3 mr-1" />
+          {t('dlg.pullAgent.recover.diagRetry')}
+        </Button>
+      )}
+
+      {/* recovered — result card */}
+      {recovery ? (
+        <div className={`space-y-1.5 rounded-lg border p-3 ${recovery.ok ? 'border-emerald-500/25 bg-emerald-500/[0.06]' : 'border-rose-500/25 bg-rose-500/[0.06]'}`}>
+          <div className="flex items-center gap-1.5">
+            {recovery.ok ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" /> : <FileWarning className="h-3.5 w-3.5 shrink-0 text-rose-600 dark:text-rose-400" />}
+            <div className={`min-w-0 break-words text-[13px] font-medium ${recovery.ok ? 'text-emerald-800 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}`}>
+              {recovery.ok ? t('dlg.pullAgent.recover.recovered') : t('dlg.pullAgent.recover.recoverFailed')}
+            </div>
+          </div>
+          <div className="break-words text-xs leading-relaxed text-muted-foreground">{recovery.detail}</div>
+          {recovery.ok && recovery.steps.length > 0 ? (
+            <pre className="custom-scrollbar max-h-28 overflow-y-auto rounded-lg bg-zinc-950/[0.97] px-2.5 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all text-zinc-300">{recovery.steps.join('\n')}</pre>
+          ) : null}
+          {recovery.ok && onRetry ? (
+            <Button size="sm" className="h-7 w-full text-xs" onClick={onRetry}>
+              <RefreshCw className="h-3 w-3 mr-1" />
+              {t('dlg.pullAgent.recover.retryPull')}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* mode buttons — offered only pre-recovery, per diagnosis */}
+      {!recovery && diag && diag.stuck ? (
+        <div className="space-y-2">
+          {abortable ? (
+            <Button size="sm" className="h-8 w-full text-xs" disabled={!!busyMode} onClick={() => void runRecover('abort-op')}>
+              {busyMode === 'abort-op' ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <GitFork className="h-3.5 w-3.5 mr-1.5" />}
+              {t('dlg.pullAgent.recover.abortOp', { op: opLabel(diag.op!) })}
+            </Button>
+          ) : null}
+          {resolveModes ? (
+            <div className="space-y-1.5">
+              {diag.op === 'unknown-conflict' ? (
+                <div className="flex items-start gap-1 text-[11px] leading-relaxed text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="h-3 w-3 shrink-0 mt-px" />
+                  {t('dlg.pullAgent.recover.unknownCaveat')}
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                <Button variant="outline" size="sm" className="h-8 text-xs" disabled={!!busyMode} onClick={() => void runRecover('ours')}>
+                  {busyMode === 'ours' ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Download className="h-3.5 w-3.5 mr-1.5" />}
+                  {t('dlg.pullAgent.recover.keepPulled')}
+                </Button>
+                <Button variant="outline" size="sm" className="h-8 text-xs" disabled={!!busyMode} onClick={() => void runRecover('theirs')}>
+                  {busyMode === 'theirs' ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Archive className="h-3.5 w-3.5 mr-1.5" />}
+                  {t('dlg.pullAgent.recover.keepMine')}
+                </Button>
+              </div>
+              <div className="text-[11px] leading-relaxed text-muted-foreground/80">{t('dlg.pullAgent.recover.keepPulledDesc')}</div>
+              <Button variant="outline" size="sm" className={`h-8 w-full text-xs ${discardArmed ? 'border-rose-500/40 text-rose-600 dark:text-rose-400' : 'text-muted-foreground'}`} disabled={!!busyMode} onClick={() => { if (discardArmed) { void runRecover('discard-local', true) } else { setDiscardArmed(true) } }}>
+                {busyMode === 'discard-local' ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />}
+                {discardArmed ? t('dlg.pullAgent.recover.discardConfirm') : t('dlg.pullAgent.recover.discard')}
+              </Button>
+              {discardArmed ? <div className="text-[11px] leading-relaxed text-rose-600 dark:text-rose-400">{t('dlg.pullAgent.recover.discardDesc')}</div> : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 /**
@@ -4589,6 +4813,14 @@ function PullAgentDialog({ run, onClose, onRetry, onDiagnose }: {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* v1.42: the backup precheck refused — the index holds unresolved
+                conflict stages. The recovery wizard diagnoses the wedged state
+                (merge / rebase / conflicted stash-pop) and finishes it with a
+                nothing-is-ever-lost resolution. */}
+            {run.status === 'failed' && result?.blockedBy === 'unmerged' && (
+              <StuckRecoverySection projectId={run.projectId} onRetry={onRetry} />
             )}
 
             {/* Success report + artifacts (v1.30 tinted cards + section) */}

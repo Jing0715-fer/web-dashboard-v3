@@ -104,6 +104,11 @@ export interface PullAgentResult {
   autoResolved: string[];
   artifacts: PullAgentArtifacts;
   steps: AgentStep[];
+  /** v1.42: the backup precheck refused to run because the index holds
+   * unresolved conflict stages (the repo is mid-merge / mid-rebase / a
+   * conflicted stash-pop never finished). The dialog offers the stuck-state
+   * recovery wizard for exactly this failure. */
+  blockedBy?: 'unmerged';
   /** One-liner for the toast / activity feed. */
   summary: string;
   /** Human-readable transcript (joined step notes) for the detail view. */
@@ -545,7 +550,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
     opts.onProgress?.({ ...s });
   };
 
-  const finish = async (ok: boolean, summary: string, error?: string, detail?: string): Promise<PullAgentResult> => {
+  const finish = async (ok: boolean, summary: string, error?: string, detail?: string, blockedBy?: 'unmerged'): Promise<PullAgentResult> => {
     // Failure-path invariant: if the run dies AFTER the safety stash was
     // created but BEFORE the restore phase ever ran, pop the stash back so
     // the working tree returns to its pre-run state (the v1.17 pull route's
@@ -582,6 +587,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
     ...(newerOnDefault ? { newerOnDefault } : {}),
     ...(rolledBack ? { rolledBack } : {}),
     ...(fetchDegraded ? { fetchDegraded } : {}),
+    ...(blockedBy ? { blockedBy } : {}),
     restored,
     autoResolved,
     artifacts,
@@ -640,7 +646,7 @@ export async function runPullAgent(opts: PullAgentOptions): Promise<PullAgentRes
         note: { key: 'dlg.pullAgent.note.backupUnmerged', params: { count: unmerged.length, files: shown } },
         info: unmerged.join('\n').slice(0, 400),
       });
-      return finish(false, 'backup blocked by unresolved conflicts', 'Unresolved merge conflicts block the backup stash — resolve or commit them first', unmerged.join('\n').slice(0, 800));
+      return finish(false, 'backup blocked by unresolved conflicts', 'Unresolved merge conflicts block the backup stash — resolve or commit them first', unmerged.join('\n').slice(0, 800), 'unmerged');
     }
 
     // v1.39 precheck 2 — .git/index.lock. A crashed git process leaves the
