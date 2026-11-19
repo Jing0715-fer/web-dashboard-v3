@@ -539,9 +539,12 @@ export async function startProcess(
     // "started" for processes that had already crashed or never bound.
     const VERIFY_TIMEOUT_MS = (() => {
       const n = parseInt(process.env.START_VERIFY_TIMEOUT_MS || '', 10);
-      // 45s default: cold boots after a build-cache clean (turbopack rebuilds
-      // from scratch) can easily exceed the old 30s on slower machines.
-      return Number.isFinite(n) && n > 0 ? n : 45_000;
+      // 180s default: a COLD `next dev` (no .next cache) compiles the whole
+      // app with Turbopack before it binds the port, and on this machine that
+      // regularly takes 1-3 minutes. The old 45s window killed healthy
+      // compiles mid-flight — the child died with 0xC0000409 and the start
+      // was reported as a failure even though the project was fine.
+      return Number.isFinite(n) && n > 0 ? n : 180_000;
     })();
     const POLL_MS = 750;
     const deadline = Date.now() + VERIFY_TIMEOUT_MS;

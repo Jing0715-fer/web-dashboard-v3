@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "predev": "bun install || echo '[predev] bun install skipped (offline or bun unavailable) — run it manually if you see module-not-found errors' && prisma generate && prisma db push",
-    "dev": "node scripts/touch-routes.cjs & next dev -p 3000 2>&1 | tee dev.log",
-    "dev:win": "node scripts/touch-routes.cjs & next dev -p 3000",
+    "dev": "node scripts/touch-routes.cjs --watch & next dev -p 3000 2>&1 | tee dev.log",
+    "dev:win": "node scripts/touch-routes.cjs --watch & next dev -p 3000",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
     "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
