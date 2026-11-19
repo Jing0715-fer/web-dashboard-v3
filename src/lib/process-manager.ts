@@ -255,6 +255,30 @@ function parseCommand(cmd: string): { useShell: boolean; command: string; args: 
 }
 
 /**
+ * Is this command a Windows shim that Node cannot exec directly?
+ *
+ * Package managers ship as .cmd/.bat shims (npm.cmd, npx.cmd, pnpm.cmd).
+ * Node no longer auto-routes those through cmd.exe, so spawn() fails with
+ * ENOENT — which libuv reports as -4058 on Windows. Every "npm run dev"
+ * environment died with that opaque exit code. Detect the shim so the
+ * caller can run it through cmd.exe instead.
+ */
+function isWindowsShim(command: string, pathEnv: string): boolean {
+  if (!IS_WINDOWS) return false;
+  if (/\.(cmd|bat)$/i.test(command)) return true;
+  for (const dir of (pathEnv || '').split(PATH_DELIMITER).filter(Boolean)) {
+    for (const ext of ['.cmd', '.bat']) {
+      try {
+        if (existsSync(join(dir, command + ext))) return true;
+      } catch {
+        /* unreadable PATH entry — ignore */
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Validate a command string - only allow known safe patterns
  */
 function isCommandSafe(cmd: string): boolean {
@@ -452,11 +476,19 @@ export async function startProcess(
 
     const { useShell, command, args } = parseCommand(effectiveCmd);
 
+    // A .cmd/.bat shim (npm, npx, pnpm) cannot be exec'd directly on Windows —
+    // Node reports ENOENT (-4058) and the environment dies instantly. Route it
+    // through cmd.exe exactly like the shell-operator branch of parseCommand,
+    // but without wrapping twice (that branch already returns cmd.exe).
+    const viaCmdExe = !useShell && isWindowsShim(command, env.PATH || '');
+    const spawnCmd = viaCmdExe ? 'cmd.exe' : command;
+    const spawnArgs = viaCmdExe ? ['/d', '/s', '/c', [command, ...args].join(' ')] : args;
+
     appendLog(key, `[${new Date().toISOString()}] Starting: ${cmd} (port: ${port}, cwd: ${cwd})`);
     if (effectiveCmd !== cmd) appendLog(key, `[${new Date().toISOString()}] Env-prefix stripped → exec: ${effectiveCmd}`);
-    appendLog(key, `[${new Date().toISOString()}] Shell mode: ${useShell}`);
+    appendLog(key, `[${new Date().toISOString()}] Shell mode: ${useShell}${viaCmdExe ? ' (cmd.exe shim)' : ''}`);
 
-    const child = spawn(command, args, {
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd,
       env,
       detached: true,
