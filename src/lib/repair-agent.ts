@@ -41,7 +41,7 @@ import {
   formatBytes,
 } from '@/lib/port-utils';
 import { db } from '@/lib/db';
-import { startProcess, stopProcess, checkPortStatus, getLogs } from '@/lib/process-manager';
+import { startProcess, stopProcess, checkPortStatus, getLogs, getTrackedPid, getPidOnPort } from '@/lib/process-manager';
 import { callLLM, extractJson, type LlmMessage } from '@/lib/llm-providers';
 // Canonical safety + exec primitives (tools/safety.ts, tools/exec.ts) —
 // command classification, child-env sanitization and the hardened
@@ -950,7 +950,24 @@ export async function toolRunRetry(
   // 2. Orphaned occupant (previous dashboard session) — stop it instead of
   //    letting startProcess fail with "port in use" and the LLM "fix" that by
   //    forking a second instance on a new port.
+  //
+  //    BUT the occupant is only an orphan if it is NOT the process this
+  //    dashboard started for this very env. A repair job can outlive the
+  //    failure that spawned it by many minutes; if the env was restarted
+  //    successfully in the meantime, the port holds the CURRENT child, and
+  //    killing it takes down a healthy environment (it then dies minutes
+  //    later with no visible cause, while the dashboard still reports
+  //    "running" because it tracks the cmd.exe wrapper).
   if (await checkPortStatus(fresh.port)) {
+    const trackedPid = getTrackedPid(job.projectId, fresh.name);
+    const occupantPid = await getPidOnPort(fresh.port);
+    if (trackedPid != null && occupantPid === trackedPid) {
+      log('info', `端口 ${fresh.port} 由当前已跟踪的进程 ${trackedPid} 占用 — 环境已在本任务期间被重启，放弃本次修复`);
+      return {
+        outcome: 'success',
+        message: `The environment was already restarted (pid ${trackedPid} is serving port ${fresh.port}); this repair job was stale and did not touch it.`,
+      };
+    }
     log('info', `端口 ${fresh.port} 被占用，先停止旧进程…`);
     await stopProcess(job.projectId, fresh.name, fresh.port);
   }

@@ -48,6 +48,14 @@ function getLogKey(projectId: string, envName: string): string {
   return `${projectId}:${envName}`;
 }
 
+/** The pid the dashboard currently tracks for this environment, if any.
+ *  Lets callers tell "the process on this port is the one we started a
+ *  moment ago" from "a leftover process from an earlier session". */
+export function getTrackedPid(projectId: string, envName: string): number | null {
+  const child = processes.get(getLogKey(projectId, envName));
+  return child?.pid ?? null;
+}
+
 function getLogFilePath(key: string): string {
   // Sanitize key for filename
   const safeKey = key.replace(/[^a-zA-Z0-9:._-]/g, '_');
