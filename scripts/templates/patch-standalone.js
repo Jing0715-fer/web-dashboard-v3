@@ -18,8 +18,8 @@ const root = path.join(__dirname, '..');
 const standaloneDir = path.join(root, '.next', 'standalone');
 
 if (!fs.existsSync(path.join(standaloneDir, 'server.js'))) {
-  console.error('patch-standalone: .next/standalone/server.js not found — did next build run?');
-  process.exit(1);
+  console.log('patch-standalone: no standalone output (next.config has no output: "standalone") — nothing to patch, skipping.');
+  process.exit(0);
 }
 
 const copies = [
