@@ -13,6 +13,7 @@ import { isValidBranchName, switchGitBranch } from '@/lib/git-branches';
 import { execGitNetwork, isTransientGitNetworkError } from '@/lib/git-retry';
 import { getGitNetConfig, gitProxyArgs } from '@/lib/git-net-config';
 import { syncDepsAfterPull } from '@/lib/pull-deps-sync';
+import { freezeProjectEnvs, thawProjectEnvs } from '@/lib/pull-env-freeze';
 import {
   parsePullConflict, sanitizeConflictFiles, discardTrackedChanges, removeUntrackedBlockers,
   stashLocalChanges, popStash, isValidPullStrategy,
@@ -323,6 +324,17 @@ async function handlePull(
   // run on a tree the strategy just unblocked.
   const strategyNotes: string[] = [];
   let stashedForPull = false;
+
+  // A running environment holds its SQLite database open, and on Windows git
+  // cannot unlink a locked file — so the stash / reset --hard below dies with
+  // "unable to unlink old 'db/custom.db'" before the pull ever reaches the
+  // network. Stop the project's environments first (they are about to run
+  // replaced code anyway) and start them again when the pull is done.
+  const frozenEnvs = await freezeProjectEnvs(id);
+  if (frozenEnvs.length) {
+    strategyNotes.push(`[dashboard] stopped ${frozenEnvs.length} running environment(s) to release file locks`);
+  }
+
   if (strategy === 'force') {
     try {
       const n1 = await discardTrackedChanges(project.path, modifiedFiles);
@@ -674,6 +686,17 @@ async function handlePull(
       });
     }
 
+    // Start the environments this pull stopped to release their file locks.
+    if (frozenEnvs.length) {
+      const thawed = await thawProjectEnvs(id, frozenEnvs);
+      const failed = thawed.filter((t) => !t.ok);
+      strategyNotes.push(
+        failed.length
+          ? `[dashboard] restarted ${thawed.length - failed.length}/${thawed.length} environment(s); ${failed.map((f) => f.name).join(', ')} failed to come back`
+          : `[dashboard] restarted ${thawed.length} environment(s)`,
+      );
+    }
+
     return NextResponse.json({
       ok: true,
       upToDate,
@@ -695,6 +718,13 @@ async function handlePull(
     // Stash strategy, failure path — restore the user's changes before
     // reporting (nothing was lost, the tree is back to its pre-pull state).
     if (stashedForPull) await popStash(project.path).catch(() => {});
+
+    // The pull failed — bring the environments we stopped back up, so a failed
+    // pull never leaves the project down.
+    if (frozenEnvs.length) {
+      const thawed = await thawProjectEnvs(id, frozenEnvs).catch(() => []);
+      strategyNotes.push(`[dashboard] restarted ${thawed.filter((t) => t.ok).length}/${thawed.length} environment(s) after the failed pull`);
+    }
 
     // The blocked-by-local-changes class becomes a 409 carrying the exact
     // file lists — the UI opens the conflict dialog (stash / discard /
