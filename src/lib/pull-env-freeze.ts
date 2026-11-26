@@ -1,5 +1,6 @@
 import { db } from './db';
-import { startProcess, stopProcess } from './process-manager';
+import { getPidOnPort, startProcess, stopProcess } from './process-manager';
+import { killTree } from './port-utils';
 
 export interface FrozenEnv {
   name: string;
@@ -23,11 +24,16 @@ export interface FrozenEnv {
  * and the pull fails before it ever reaches the network. Freezing the
  * environments releases the lock — and it is the right thing to do anyway,
  * since the pull is about to replace the code those servers are running.
+ *
+ * It also kills whatever still holds an environment's port even when the
+ * row says "stopped": an environment the dashboard lost track of (the
+ * process outlived the row) would keep the lock and break the pull the
+ * same way, and its port would block the restart afterwards.
  */
 export async function freezeProjectEnvs(projectId: string): Promise<FrozenEnv[]> {
   const envs = await db.environment.findMany({
-    where: { projectId, status: 'running' },
-    select: { name: true, port: true, cmd: true, envVars: true },
+    where: { projectId },
+    select: { name: true, port: true, cmd: true, envVars: true, status: true },
   });
   const project = await db.project.findUnique({ where: { id: projectId }, select: { path: true } });
   if (!project?.path) return [];
@@ -40,8 +46,22 @@ export async function freezeProjectEnvs(projectId: string): Promise<FrozenEnv[]>
     } catch {
       envVars = {};
     }
-    const r = await stopProcess(projectId, e.name, e.port);
-    if (r.success) frozen.push({ name: e.name, port: e.port, cmd: e.cmd, cwd: project.path, envVars });
+
+    // The tracked child, if the dashboard still knows about it.
+    if (e.status === 'running') {
+      const r = await stopProcess(projectId, e.name, e.port);
+      if (r.success) frozen.push({ name: e.name, port: e.port, cmd: e.cmd, cwd: project.path, envVars });
+      continue;
+    }
+
+    // An untracked occupant of the port — the environment was started, the
+    // row was reset, and the process outlived it. It still holds the
+    // database open.
+    const occupant = await getPidOnPort(e.port);
+    if (occupant) {
+      killTree(occupant);
+      frozen.push({ name: e.name, port: e.port, cmd: e.cmd, cwd: project.path, envVars });
+    }
   }
   return frozen;
 }

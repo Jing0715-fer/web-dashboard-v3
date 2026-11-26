@@ -332,7 +332,7 @@ async function handlePull(
   // replaced code anyway) and start them again when the pull is done.
   const frozenEnvs = await freezeProjectEnvs(id);
   if (frozenEnvs.length) {
-    strategyNotes.push(`[dashboard] stopped ${frozenEnvs.length} running environment(s) to release file locks`);
+    strategyNotes.push(`[dashboard] stopped ${frozenEnvs.length} environment process(es) to release file locks`);
   }
 
   if (strategy === 'force') {
